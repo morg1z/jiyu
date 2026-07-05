@@ -13,4 +13,10 @@ interface TranslatedPageDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: TranslatedPageEntity)
+
+    @Query("SELECT COUNT(*) FROM translated_page")
+    suspend fun count(): Int
+
+    @Query("DELETE FROM translated_page")
+    suspend fun deleteAll()
 }

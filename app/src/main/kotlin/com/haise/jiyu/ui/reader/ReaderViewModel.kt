@@ -5,12 +5,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.ReadingDirection
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.translate.TranslatedBlock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -20,30 +25,34 @@ class ReaderViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: MangaRepository,
     private val translateRepository: TranslateRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
 
-    /** Buď lokální cesty (offline), nebo vzdálené URL (streamed). */
     private val _pages = MutableStateFlow<List<String>>(emptyList())
     val pages: StateFlow<List<String>> = _pages.asStateFlow()
 
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    // ── Překlad ──────────────────────────────────────────────────────────────
+    // ── Nastavení čtení ──────────────────────────────────────────────────────
+    val reverseLayout: StateFlow<Boolean> = settings.readingDirection
+        .map { it == ReadingDirection.RTL }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** true = overlay překladu je zapnutý */
+    // ── Překlad ──────────────────────────────────────────────────────────────
     private val _translateMode = MutableStateFlow(false)
     val translateMode: StateFlow<Boolean> = _translateMode.asStateFlow()
 
-    /** Index stránky, která se právě překládá (null = žádná) */
     private val _translatingPage = MutableStateFlow<Int?>(null)
     val translatingPage: StateFlow<Int?> = _translatingPage.asStateFlow()
 
-    /** Přeložené bloky pro každou stránku: pageIndex → bloky */
     private val _translatedPages = MutableStateFlow<Map<Int, List<TranslatedBlock>>>(emptyMap())
     val translatedPages: StateFlow<Map<Int, List<TranslatedBlock>>> = _translatedPages.asStateFlow()
+
+    private val _targetLanguage = settings.targetLanguage
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
 
     private var currentPageIndex = 0
 
@@ -72,7 +81,6 @@ class ReaderViewModel @Inject constructor(
             val total = _pages.value.size
             repository.updateReadProgress(chapterEntityId, read = index >= total - 1, lastPageRead = index)
         }
-        // Pokud je zapnutý překlad a stránka ještě není přeložena, přeložíme ji
         if (_translateMode.value && _translatedPages.value[index] == null) {
             translatePage(index)
         }
@@ -97,6 +105,7 @@ class ReaderViewModel @Inject constructor(
                     pageUrl = pageUrl,
                     chapterId = chapterEntityId,
                     pageIndex = pageIndex,
+                    targetLanguage = _targetLanguage.value,
                 )
                 _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
             } finally {

@@ -10,12 +10,14 @@ import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
 import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
+import com.haise.jiyu.ui.settings.SettingsScreen
 
 private object Routes {
-    const val LIBRARY = "library"
-    const val BROWSE = "browse"
-    const val DETAIL = "detail/{mangaId}"
-    const val READER = "reader/{chapterId}"
+    const val LIBRARY  = "library"
+    const val BROWSE   = "browse"
+    const val DETAIL   = "detail/{mangaId}"
+    const val READER   = "reader/{chapterId}"
+    const val SETTINGS = "settings"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -29,6 +31,7 @@ fun JiyuNavGraph(navController: NavHostController) {
             LibraryScreen(
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
 
@@ -56,6 +59,10 @@ fun JiyuNavGraph(navController: NavHostController) {
             arguments = listOf(navArgument("chapterId") { type = NavType.StringType }),
         ) {
             ReaderScreen()
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

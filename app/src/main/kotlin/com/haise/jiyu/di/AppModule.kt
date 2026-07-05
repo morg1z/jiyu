@@ -1,6 +1,9 @@
 package com.haise.jiyu.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.ChapterDao
@@ -14,6 +17,8 @@ import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+
+private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -32,6 +37,11 @@ object AppModule {
         Room.databaseBuilder(context, AppDatabase::class.java, "jiyu.db")
             .fallbackToDestructiveMigration()
             .build()
+
+    @Provides
+    @Singleton
+    fun provideDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
+        context.settingsDataStore
 
     @Provides
     fun provideMangaDao(db: AppDatabase): MangaDao = db.mangaDao()

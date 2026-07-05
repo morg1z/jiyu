@@ -9,8 +9,11 @@ import androidx.compose.runtime.Composable
 private val DarkColors = darkColorScheme()
 private val LightColors = lightColorScheme()
 
+/**
+ * @param forceDark true = vždy tmavé, false = vždy světlé, null = řídí systém
+ */
 @Composable
-fun JiyuTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, content = content)
+fun JiyuTheme(forceDark: Boolean? = null, content: @Composable () -> Unit) {
+    val dark = forceDark ?: isSystemInDarkTheme()
+    MaterialTheme(colorScheme = if (dark) DarkColors else LightColors, content = content)
 }

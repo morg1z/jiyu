@@ -41,6 +41,7 @@ fun ReaderScreen(
     val translateMode by viewModel.translateMode.collectAsState()
     val translatingPage by viewModel.translatingPage.collectAsState()
     val translatedPages by viewModel.translatedPages.collectAsState()
+    val reverseLayout by viewModel.reverseLayout.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
         when {
@@ -55,7 +56,7 @@ fun ReaderScreen(
                     }
                 }
 
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { index ->
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), reverseLayout = reverseLayout) { index ->
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         AsyncImage(
                             model = pages[index],
