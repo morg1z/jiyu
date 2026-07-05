@@ -33,7 +33,8 @@ class MangaDexSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int): List<SManga> = withContext(Dispatchers.IO) {
         val offset = (page - 1) * 20
-        val url = "$apiBase/manga?title=${query}&limit=20&offset=$offset&includes[]=cover_art"
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val url = "$apiBase/manga?title=$encodedQuery&limit=20&offset=$offset&includes[]=cover_art"
         parseMangaList(get(url))
     }
 
