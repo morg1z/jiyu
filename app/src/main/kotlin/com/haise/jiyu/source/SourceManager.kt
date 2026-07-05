@@ -1,6 +1,7 @@
 package com.haise.jiyu.source
 
 import com.haise.jiyu.source.mangadex.MangaDexSource
+import com.haise.jiyu.source.mangaplus.MangaPlusSource
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -11,10 +12,11 @@ import javax.inject.Singleton
 @Singleton
 class SourceManager @Inject constructor(
     mangaDexSource: MangaDexSource,
+    mangaPlusSource: MangaPlusSource,
 ) {
     private val sources: List<MangaSource> = listOf(
         mangaDexSource,
-        // sem časem přibydou další zdroje implementující MangaSource
+        mangaPlusSource,
     )
 
     fun getAll(): List<MangaSource> = sources

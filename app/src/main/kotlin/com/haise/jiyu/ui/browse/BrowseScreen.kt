@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -34,23 +36,40 @@ fun BrowseScreen(
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
     val results by viewModel.results.collectAsState()
+    val selectedSource by viewModel.selectedSource.collectAsState()
     var query by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Hledat manga") })
+            TopAppBar(title = { Text("Procházet") })
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Výběr zdroje
+            val sources = viewModel.sources
+            TabRow(selectedTabIndex = sources.indexOfFirst { it.id == selectedSource.id }.coerceAtLeast(0)) {
+                sources.forEach { source ->
+                    Tab(
+                        selected = source.id == selectedSource.id,
+                        onClick = {
+                            query = ""
+                            viewModel.selectSource(source)
+                        },
+                        text = { Text(source.name) },
+                    )
+                }
+            }
+
             OutlinedTextField(
                 value = query,
                 onValueChange = {
                     query = it
                     viewModel.search(it)
                 },
-                label = { Text("Název mangy") },
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                label = { Text("Hledat…") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             )
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(8.dp),
