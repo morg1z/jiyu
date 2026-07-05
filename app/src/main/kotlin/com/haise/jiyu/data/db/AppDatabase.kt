@@ -7,6 +7,7 @@ import androidx.room.TypeConverters
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 
 class Converters {
     @TypeConverter
@@ -17,12 +18,13 @@ class Converters {
 }
 
 @Database(
-    entities = [MangaEntity::class, ChapterEntity::class],
-    version = 1,
+    entities = [MangaEntity::class, ChapterEntity::class, TranslatedPageEntity::class],
+    version = 2,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mangaDao(): MangaDao
     abstract fun chapterDao(): ChapterDao
+    abstract fun translatedPageDao(): TranslatedPageDao
 }

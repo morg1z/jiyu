@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.MangaDao
+import com.haise.jiyu.data.db.TranslatedPageDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -37,4 +38,7 @@ object AppModule {
 
     @Provides
     fun provideChapterDao(db: AppDatabase): ChapterDao = db.chapterDao()
+
+    @Provides
+    fun provideTranslatedPageDao(db: AppDatabase): TranslatedPageDao = db.translatedPageDao()
 }

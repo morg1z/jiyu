@@ -1,9 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
+
+val localProps = Properties()
+rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(localProps::load)
 
 android {
     namespace = "com.haise.jiyu"
@@ -15,6 +20,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "GROQ_API_KEY", "\"${localProps["GROQ_API_KEY"] ?: ""}\"")
     }
 
     buildTypes {
@@ -38,6 +44,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -79,7 +86,7 @@ dependencies {
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20240303")
 
-    // Material icons extended (Download, ArrowDownward, atd.)
+    // Material icons extended (Download, ArrowDownward, Translate, atd.)
     implementation("androidx.compose.material:material-icons-extended")
 
     // Obrázky
@@ -93,8 +100,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // OCR (pro pozdější AI překladač, offline funguje bez internetu)
+    // OCR – ML Kit Text Recognition (funguje offline, bundled model)
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
