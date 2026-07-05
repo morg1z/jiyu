@@ -30,6 +30,10 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+        )
     }
 
     buildFeatures {
@@ -74,6 +78,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20240303")
+
+    // Material icons extended (Download, ArrowDownward, atd.)
+    implementation("androidx.compose.material:material-icons-extended")
 
     // Obrázky
     implementation("io.coil-kt:coil-compose:2.6.0")
