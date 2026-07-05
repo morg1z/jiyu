@@ -1,10 +1,16 @@
 package com.haise.jiyu.ui.reader
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -16,6 +22,8 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,7 +47,7 @@ fun ReaderScreen(
     val pages by viewModel.pages.collectAsState()
     val loading by viewModel.loading.collectAsState()
     val translateMode by viewModel.translateMode.collectAsState()
-    val translatingPage by viewModel.translatingPage.collectAsState()
+    val translationProgress by viewModel.translationProgress.collectAsState()
     val translatedPages by viewModel.translatedPages.collectAsState()
     val reverseLayout by viewModel.reverseLayout.collectAsState()
 
@@ -56,7 +64,11 @@ fun ReaderScreen(
                     }
                 }
 
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), reverseLayout = reverseLayout) { index ->
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    reverseLayout = reverseLayout,
+                ) { index ->
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         AsyncImage(
                             model = pages[index],
@@ -66,32 +78,70 @@ fun ReaderScreen(
 
                         if (translateMode) {
                             val blocks = translatedPages[index] ?: emptyList()
-                            blocks.forEach { block ->
-                                TranslationOverlay(block = block)
-                            }
-
-                            if (translatingPage == index) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.align(Alignment.Center),
-                                    color = Color.White,
-                                )
-                            }
+                            blocks.forEach { block -> TranslationOverlay(block) }
                         }
                     }
                 }
 
-                // Tlačítko překladu (vpravo nahoře)
+                // ── Tlačítko překladu (vpravo nahoře) ───────────────────────
                 IconButton(
                     onClick = { viewModel.toggleTranslate() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 ) {
+                    val isTranslating = translationProgress != null
                     Icon(
                         imageVector = Icons.Filled.Translate,
-                        contentDescription = if (translateMode) "Vypnout překlad" else "Přeložit stránku",
-                        tint = if (translateMode) Color(0xFF4FC3F7) else Color.White,
+                        contentDescription = when {
+                            isTranslating  -> "Zastavit překlad"
+                            translateMode  -> "Skrýt překlad"
+                            else           -> "Přeložit kapitolu"
+                        },
+                        tint = when {
+                            isTranslating -> Color(0xFFFFB74D) // oranžová = probíhá
+                            translateMode -> Color(0xFF4FC3F7) // modrá = zapnuto
+                            else          -> Color.White
+                        },
                     )
+                }
+
+                // ── Progress bar (dole) ──────────────────────────────────────
+                AnimatedVisibility(
+                    visible = translationProgress != null,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    translationProgress?.let { progress ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Překládám… ${progress.done}/${progress.total}",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "${(progress.done * 100f / progress.total).toInt()} %",
+                                    color = Color(0xFF4FC3F7),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                            LinearProgressIndicator(
+                                progress = { progress.done.toFloat() / progress.total },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                color = Color(0xFF4FC3F7),
+                                trackColor = Color.White.copy(alpha = 0.2f),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -101,9 +151,9 @@ fun ReaderScreen(
 @Composable
 private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock) {
     val left = maxWidth * block.leftF
-    val top = maxHeight * block.topF
-    val w = maxWidth * (block.rightF - block.leftF)
-    val h = maxHeight * (block.bottomF - block.topF)
+    val top  = maxHeight * block.topF
+    val w    = maxWidth  * (block.rightF - block.leftF)
+    val h    = maxHeight * (block.bottomF - block.topF)
 
     Box(
         modifier = Modifier

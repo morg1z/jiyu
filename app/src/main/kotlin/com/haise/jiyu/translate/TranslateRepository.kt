@@ -14,8 +14,9 @@ class TranslateRepository @Inject constructor(
     private val dao: TranslatedPageDao,
 ) {
     /**
-     * Vrátí přeložené bloky pro stránku. Cache-first:
-     * pokud jsou v Room, vrátí je okamžitě bez volání API.
+     * Vrátí přeložené bloky pro jednu stránku.
+     * Cache-first: pokud jsou v Room, vrátí okamžitě.
+     * @return bloky nebo emptyList() pokud OCR/API selže
      */
     suspend fun translatePage(
         pageUrl: String,
@@ -23,8 +24,7 @@ class TranslateRepository @Inject constructor(
         pageIndex: Int,
         targetLanguage: String = "Czech",
     ): List<TranslatedBlock> {
-        val cacheId = "$chapterId::$pageIndex::$targetLanguage"
-        dao.getById(cacheId)?.let { return it.deserialize() }
+        getCachedPage(chapterId, pageIndex, targetLanguage)?.let { return it }
 
         val rawBlocks = ocrEngine.recognize(pageUrl)
         if (rawBlocks.isEmpty()) return emptyList()
@@ -46,11 +46,22 @@ class TranslateRepository @Inject constructor(
             )
         }
 
-        dao.upsert(TranslatedPageEntity(id = cacheId, blocksJson = blocks.serialize()))
+        dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage), blocksJson = blocks.serialize()))
         return blocks
     }
 
-    // ── JSON (de)serialization pomocí org.json, bez extra dep ───────────────
+    /** Vrátí výsledek z Room cache bez volání API; null = není v cache */
+    suspend fun getCachedPage(
+        chapterId: String,
+        pageIndex: Int,
+        targetLanguage: String,
+    ): List<TranslatedBlock>? =
+        dao.getById(cacheId(chapterId, pageIndex, targetLanguage))?.deserialize()
+
+    private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String) =
+        "$chapterId::$pageIndex::$targetLanguage"
+
+    // ── JSON (de)serialization ───────────────────────────────────────────────
 
     private fun List<TranslatedBlock>.serialize(): String = JSONArray().also { arr ->
         forEach { b ->
