@@ -1,0 +1,61 @@
+package com.haise.jiyu.ui.navigation
+
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import com.haise.jiyu.ui.browse.BrowseScreen
+import com.haise.jiyu.ui.detail.MangaDetailScreen
+import com.haise.jiyu.ui.library.LibraryScreen
+import com.haise.jiyu.ui.reader.ReaderScreen
+
+private object Routes {
+    const val LIBRARY = "library"
+    const val BROWSE = "browse"
+    const val DETAIL = "detail/{mangaId}"
+    const val READER = "reader/{chapterId}"
+
+    fun detail(mangaId: String) = "detail/$mangaId"
+    fun reader(chapterId: String) = "reader/$chapterId"
+}
+
+@Composable
+fun JiyuNavGraph(navController: NavHostController) {
+    NavHost(navController = navController, startDestination = Routes.LIBRARY) {
+
+        composable(Routes.LIBRARY) {
+            LibraryScreen(
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenBrowse = { navController.navigate(Routes.BROWSE) },
+            )
+        }
+
+        composable(Routes.BROWSE) {
+            BrowseScreen(
+                onMangaAdded = { mangaId ->
+                    navController.navigate(Routes.detail(mangaId)) {
+                        popUpTo(Routes.LIBRARY)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.DETAIL,
+            arguments = listOf(navArgument("mangaId") { type = NavType.StringType }),
+        ) {
+            MangaDetailScreen(
+                onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+            )
+        }
+
+        composable(
+            route = Routes.READER,
+            arguments = listOf(navArgument("chapterId") { type = NavType.StringType }),
+        ) {
+            ReaderScreen()
+        }
+    }
+}
