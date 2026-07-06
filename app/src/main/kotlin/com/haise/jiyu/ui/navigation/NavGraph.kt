@@ -8,16 +8,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
+import com.haise.jiyu.ui.downloads.DownloadManagerScreen
 import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 
 private object Routes {
-    const val LIBRARY  = "library"
-    const val BROWSE   = "browse"
-    const val DETAIL   = "detail/{mangaId}"
-    const val READER   = "reader/{chapterId}"
-    const val SETTINGS = "settings"
+    const val LIBRARY   = "library"
+    const val BROWSE    = "browse"
+    const val DETAIL    = "detail/{mangaId}"
+    const val READER    = "reader/{chapterId}"
+    const val SETTINGS  = "settings"
+    const val DOWNLOADS = "downloads"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -32,6 +34,7 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
             )
         }
 
@@ -62,7 +65,14 @@ fun JiyuNavGraph(navController: NavHostController) {
         }
 
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
+            )
+        }
+
+        composable(Routes.DOWNLOADS) {
+            DownloadManagerScreen(onBack = { navController.popBackStack() })
         }
     }
 }

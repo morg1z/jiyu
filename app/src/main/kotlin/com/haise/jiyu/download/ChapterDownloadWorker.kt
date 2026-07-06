@@ -1,13 +1,17 @@
 package com.haise.jiyu.download
 
+import android.app.NotificationManager
 import android.content.Context
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.work.CHANNEL_ID
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -49,11 +53,26 @@ class ChapterDownloadWorker @AssistedInject constructor(
             }
 
             repository.markDownloaded(chapterEntityId, chapterDir.absolutePath, pages.size)
+            notifyDone(chapterEntityId)
             Result.success()
+        } catch (e: CancellationException) {
+            repository.setDownloadStatus(chapterEntityId, DownloadStatus.NOT_DOWNLOADED)
+            throw e
         } catch (e: Exception) {
             repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
-            Result.retry()
+            Result.failure()
         }
+    }
+
+    private fun notifyDone(chapterId: String) {
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Stahování dokončeno")
+            .setContentText("Kapitola je připravena pro offline čtení")
+            .setAutoCancel(true)
+            .build()
+        applicationContext.getSystemService(NotificationManager::class.java)
+            .notify(chapterId.hashCode(), notification)
     }
 
     private fun downloadBytes(url: String): ByteArray {

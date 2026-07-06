@@ -1,19 +1,27 @@
 package com.haise.jiyu
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.Configuration
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import coil.Coil
 import coil.ImageLoader
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
+import com.haise.jiyu.work.CHANNEL_ID
+import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-/**
- * Vstupní bod aplikace. Hilt tady zapíná DI graf pro celou appku
- * (databáze, síťové klienty, zdroje, download manager...).
- */
 @HiltAndroidApp
 class JiyuApp : Application(), Configuration.Provider {
 
@@ -22,16 +30,51 @@ class JiyuApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        // Registrace custom Coil fetcheru pro XOR-šifrované MANGA Plus obrázky
+
+        // Custom Coil fetcher pro XOR-šifrované MANGA Plus obrázky
         Coil.setImageLoader(
             ImageLoader.Builder(this)
                 .components { add(MangaPlusImageFetcher.Factory(httpClient)) }
                 .build()
         )
+
+        createNotificationChannel()
+        scheduleChapterUpdates()
     }
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Nové kapitoly",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Upozornění na nové kapitoly v knihovně"
+            }
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    private fun scheduleChapterUpdates() {
+        val request = PeriodicWorkRequestBuilder<ChapterUpdateWorker>(12, TimeUnit.HOURS)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "chapter_update",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
 }

@@ -1,7 +1,9 @@
 package com.haise.jiyu.download
 
 import android.content.Context
+import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.haise.jiyu.data.db.entity.ChapterEntity
@@ -23,9 +25,23 @@ class DownloadQueue @Inject constructor(
 
         val request = OneTimeWorkRequestBuilder<ChapterDownloadWorker>()
             .setInputData(data)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
             .addTag("download_${chapter.id}")
+            .addTag("jiyu_download")
             .build()
 
         WorkManager.getInstance(context).enqueue(request)
+    }
+
+    fun cancel(chapterId: String) {
+        WorkManager.getInstance(context).cancelAllWorkByTag("download_$chapterId")
+    }
+
+    fun cancelAll() {
+        WorkManager.getInstance(context).cancelAllWorkByTag("jiyu_download")
     }
 }
