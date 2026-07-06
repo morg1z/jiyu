@@ -101,7 +101,14 @@ class MangaDetailViewModel @Inject constructor(
     }
 
     fun removeFromLibrary() {
-        viewModelScope.launch { repository.removeFromLibrary(mangaId) }
+        viewModelScope.launch {
+            chapters.value.forEach { chapter ->
+                chapter.localPath?.let { path ->
+                    try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
+                }
+            }
+            repository.removeFromLibrary(mangaId)
+        }
     }
 
     fun refreshChapters() {

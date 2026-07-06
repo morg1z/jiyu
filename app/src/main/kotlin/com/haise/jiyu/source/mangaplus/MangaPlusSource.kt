@@ -43,9 +43,11 @@ class MangaPlusSource @Inject constructor(
             .filter { it.url.isNotEmpty() }
     }
 
-    // MANGA Plus nemá search API — filtrujeme lokálně ze seznamu všech titulů
-    override suspend fun search(query: String, page: Int): List<SManga> =
-        getPopular().filter { it.title.contains(query, ignoreCase = true) }
+    // MANGA Plus nemá search API — filtrujeme lokálně ze seznamu titulů; vše je na první stránce
+    override suspend fun search(query: String, page: Int): List<SManga> {
+        if (page > 1) return emptyList()
+        return getPopular().filter { it.title.contains(query, ignoreCase = true) }
+    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         val bytes = get("$apiBase/api/title_detail?title_id=${manga.url}")

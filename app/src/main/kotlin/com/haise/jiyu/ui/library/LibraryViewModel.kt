@@ -87,15 +87,27 @@ class LibraryViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    private val _refreshError = MutableStateFlow<String?>(null)
+    val refreshError: StateFlow<String?> = _refreshError.asStateFlow()
+
+    fun clearRefreshError() { _refreshError.value = null }
+
     fun refreshLibrary() {
         viewModelScope.launch {
             _isRefreshing.value = true
+            _refreshError.value = null
+            val errors = mutableListOf<String>()
             val allManga = repository.getAllLibraryManga()
             allManga.forEach { manga ->
                 try {
                     val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, manga.description, manga.status)
                     repository.refreshChapters(manga.id, sManga)
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    errors += manga.title
+                }
+            }
+            if (errors.isNotEmpty()) {
+                _refreshError.value = "Nepodařilo se aktualizovat: ${errors.take(3).joinToString()}${if (errors.size > 3) " a další" else ""}"
             }
             _isRefreshing.value = false
         }
@@ -144,6 +156,14 @@ class LibraryViewModel @Inject constructor(
     // ── Long-press akce ───────────────────────────────────────────────────────
 
     fun removeFromLibrary(mangaId: String) = viewModelScope.launch {
+        // Delete downloaded chapter files so they don't linger on disk
+        repository.getAllChapters(mangaId)
+            .filter { it.downloadStatus == DownloadStatus.DOWNLOADED }
+            .forEach { ch ->
+                ch.localPath?.let { path ->
+                    try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
+                }
+            }
         repository.removeFromLibrary(mangaId)
     }
 

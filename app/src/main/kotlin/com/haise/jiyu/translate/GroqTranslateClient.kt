@@ -38,7 +38,7 @@ class GroqTranslateClient @Inject constructor(
         val body = JSONObject().apply {
             put("model", "llama-3.3-70b-versatile")
             put("temperature", 0.1)
-            put("max_tokens", 1500)
+            put("max_tokens", 4096)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")

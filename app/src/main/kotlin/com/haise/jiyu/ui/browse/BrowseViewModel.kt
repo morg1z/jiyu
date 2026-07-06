@@ -149,8 +149,12 @@ class BrowseViewModel @Inject constructor(
 
     fun addToLibrary(manga: SManga, onAdded: (String) -> Unit) {
         viewModelScope.launch {
-            repository.addToLibrary(manga)
-            onAdded(repository.mangaId(manga.sourceId, manga.url))
+            try {
+                repository.addToLibrary(manga)
+                onAdded(repository.mangaId(manga.sourceId, manga.url))
+            } catch (e: Exception) {
+                _error.value = e.toFriendlyMessage()
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -27,9 +28,16 @@ data class RawTextBlock(
 class OcrEngine @Inject constructor(
     private val httpClient: OkHttpClient,
 ) {
-    private val recognizer = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+    // Lazy recognizers: Japanese (CJK vertical text support) and Latin (default for all other languages)
+    private val japaneseRecognizer by lazy { TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build()) }
+    private val latinRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
-    suspend fun recognize(pageUrl: String): List<RawTextBlock> = withContext(Dispatchers.IO) {
+    private fun recognizerFor(language: String) = when (language) {
+        "Japanese" -> japaneseRecognizer
+        else       -> latinRecognizer
+    }
+
+    suspend fun recognize(pageUrl: String, language: String = "Japanese"): List<RawTextBlock> = withContext(Dispatchers.IO) {
         val bitmap = loadBitmap(pageUrl) ?: return@withContext emptyList()
         val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
@@ -38,7 +46,7 @@ class OcrEngine @Inject constructor(
         val image = InputImage.fromBitmap(bitmap, 0)
 
         val result = suspendCancellableCoroutine { cont ->
-            recognizer.process(image)
+            recognizerFor(language).process(image)
                 .addOnSuccessListener { cont.resume(it) }
                 .addOnFailureListener { cont.resumeWithException(it) }
         }

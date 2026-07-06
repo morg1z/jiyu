@@ -29,7 +29,7 @@ class TranslateRepository @Inject constructor(
     ): List<TranslatedBlock> {
         getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage)?.let { return it }
 
-        val rawBlocks = ocrEngine.recognize(pageUrl)
+        val rawBlocks = ocrEngine.recognize(pageUrl, sourceLanguage)
         if (rawBlocks.isEmpty()) return emptyList()
 
         val translations = groqClient.translateBatch(

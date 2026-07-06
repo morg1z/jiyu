@@ -127,9 +127,7 @@ class ReaderViewModel @Inject constructor(
         _initialPage.value = chapter.lastPageRead.coerceAtLeast(0)
         _currentPage.value = _initialPage.value
 
-        if (allChapters.isEmpty()) {
-            allChapters = repository.getAllChapters(chapter.mangaId)
-        }
+        allChapters = repository.getAllChapters(chapter.mangaId)
         updateNavState()
 
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {

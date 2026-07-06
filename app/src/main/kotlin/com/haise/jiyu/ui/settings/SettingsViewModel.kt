@@ -98,8 +98,8 @@ class SettingsViewModel @Inject constructor(
     val readingStats: StateFlow<ReadingStats> = combine(
         settings.totalReadingTimeMs,
         settings.totalPagesRead,
-    ) { timeMs, pages ->
-        val chaptersRead = repository.countReadChapters()
+        repository.observeReadChaptersCount(),
+    ) { timeMs, pages, chaptersRead ->
         ReadingStats(chaptersRead, pages, timeMs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReadingStats())
 

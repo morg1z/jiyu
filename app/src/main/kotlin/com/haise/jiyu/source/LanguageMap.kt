@@ -3,7 +3,7 @@ package com.haise.jiyu.source
 object LanguageMap {
     val displayNames = listOf(
         "Auto", "English", "Czech", "Indonesian", "Japanese", "Korean",
-        "Chinese", "French", "Spanish", "Portuguese", "German", "Russian", "Polish",
+        "Chinese", "Chinese (Traditional)", "French", "Spanish", "Portuguese", "German", "Russian", "Polish",
     )
 
     fun toMangaDexCode(name: String): String = when (name) {
@@ -13,6 +13,7 @@ object LanguageMap {
         "Japanese" -> "ja"
         "Korean" -> "ko"
         "Chinese" -> "zh"
+        "Chinese (Traditional)" -> "zh-hk"
         "French" -> "fr"
         "Spanish" -> "es"
         "Portuguese" -> "pt-br"

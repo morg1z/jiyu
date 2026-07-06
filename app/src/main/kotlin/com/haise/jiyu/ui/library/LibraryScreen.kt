@@ -56,6 +56,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
@@ -66,7 +69,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,7 +125,17 @@ fun LibraryScreen(
     val sortOption         by viewModel.sortOption.collectAsState()
     val sortAscending      by viewModel.sortAscending.collectAsState()
     val isRefreshing       by viewModel.isRefreshing.collectAsState()
+    val refreshError       by viewModel.refreshError.collectAsState()
     val readingStats       by settingsViewModel.readingStats.collectAsState()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope    = rememberCoroutineScope()
+
+    LaunchedEffect(refreshError) {
+        val msg = refreshError ?: return@LaunchedEffect
+        coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+        viewModel.clearRefreshError()
+    }
     val recentlyRead       by viewModel.recentlyRead.collectAsState()
     val unreadCounts       by viewModel.unreadCounts.collectAsState()
     val totalCounts        by viewModel.totalCounts.collectAsState()
@@ -142,6 +157,7 @@ fun LibraryScreen(
         if (!isRefreshing) pullToRefreshState.endRefresh()
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
 
         // ── Header ───────────────────────────────────────────────────────────
@@ -327,6 +343,12 @@ fun LibraryScreen(
                 onDismiss = { showCategoryAssignDialog = false; contextMenuManga = null })
         }
     }
+
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+    ) { data -> Snackbar(snackbarData = data) }
+    } // end Box
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────

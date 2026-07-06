@@ -48,6 +48,9 @@ interface ChapterDao {
     @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
     suspend fun countRead(): Int
 
+    @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
+    fun observeReadCount(): Flow<Int>
+
     @Query("SELECT * FROM chapter WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
     suspend fun getAllForLibrary(): List<ChapterEntity>
 

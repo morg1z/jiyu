@@ -6,6 +6,7 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -103,7 +104,7 @@ class MadaraSource(
             val ajaxDoc = try {
                 val request = Request.Builder()
                     .url("${manga.url.trimEnd('/')}/ajax/chapters/")
-                    .post(ByteArray(0).toRequestBody())
+                    .post(FormBody.Builder().add("action", "manga_get_chapters").build())
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) Jsoup.parse(response.body?.string().orEmpty(), manga.url) else null
@@ -137,6 +138,23 @@ class MadaraSource(
 
     private fun parseRelativeOrAbsoluteDate(text: String?): Long {
         if (text.isNullOrBlank()) return System.currentTimeMillis()
+        // "2 days ago", "3 hours ago", "1 week ago", etc.
+        val relativeMatch = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
+        if (relativeMatch != null) {
+            val value = relativeMatch.groupValues[1].toLongOrNull() ?: 1L
+            val unit = relativeMatch.groupValues[2].lowercase()
+            val deltaMs = when (unit) {
+                "second" -> value * 1_000L
+                "minute" -> value * 60_000L
+                "hour"   -> value * 3_600_000L
+                "day"    -> value * 86_400_000L
+                "week"   -> value * 7 * 86_400_000L
+                "month"  -> value * 30 * 86_400_000L
+                "year"   -> value * 365 * 86_400_000L
+                else     -> 0L
+            }
+            return System.currentTimeMillis() - deltaMs
+        }
         return try {
             java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time
                 ?: System.currentTimeMillis()

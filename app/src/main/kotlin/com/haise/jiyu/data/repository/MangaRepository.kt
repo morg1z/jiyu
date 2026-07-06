@@ -42,6 +42,7 @@ class MangaRepository @Inject constructor(
     suspend fun countChapters(mangaId: String): Int = chapterDao.countForManga(mangaId)
     suspend fun getAllChapters(mangaId: String): List<ChapterEntity> = chapterDao.getAllForManga(mangaId)
     suspend fun countReadChapters(): Int = chapterDao.countRead()
+    fun observeReadChaptersCount(): Flow<Int> = chapterDao.observeReadCount()
     suspend fun getAllLibraryChapters(): List<ChapterEntity> = chapterDao.getAllForLibrary()
     fun observeUnreadCounts(): Flow<List<MangaUnreadCount>> = chapterDao.observeUnreadCounts()
     fun observeTotalCounts(): Flow<List<MangaTotalCount>> = chapterDao.observeTotalCounts()
@@ -139,6 +140,8 @@ class MangaRepository @Inject constructor(
     suspend fun deleteCategory(category: CategoryEntity) = categoryDao.delete(category)
     suspend fun addMangaToCategory(mangaId: String, categoryId: String) =
         categoryDao.addMangaToCategory(MangaCategoryEntity(mangaId, categoryId))
+    suspend fun upsertAllMangaCategories(pairs: List<Pair<String, String>>) =
+        categoryDao.addAllMangaToCategories(pairs.map { (mId, cId) -> MangaCategoryEntity(mId, cId) })
     suspend fun removeMangaFromCategory(mangaId: String, categoryId: String) =
         categoryDao.removeMangaFromCategory(mangaId, categoryId)
 

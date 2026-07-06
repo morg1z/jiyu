@@ -77,6 +77,7 @@ class BackupManager @Inject constructor(
                         put("description",       m.description ?: "")
                         put("status",            m.status ?: "")
                         put("lastReadChapterId", m.lastReadChapterId ?: "")
+                        put("lastReadAt",        m.lastReadAt)
                         put("categoryIds",       JSONArray(catIds))
                     })
                 }
@@ -161,13 +162,14 @@ class BackupManager @Inject constructor(
                     status            = m.optString("status").ifBlank { null },
                     inLibrary         = true,
                     lastReadChapterId = m.optString("lastReadChapterId").ifBlank { null },
+                    lastReadAt        = m.optLong("lastReadAt", 0L),
                 )
             )
             val ids = m.optJSONArray("categoryIds") ?: JSONArray()
             for (j in 0 until ids.length()) catAssignments.add(m.getString("id") to ids.getString(j))
         }
         repository.upsertAllManga(mangaList)
-        catAssignments.forEach { (mId, cId) -> repository.addMangaToCategory(mId, cId) }
+        repository.upsertAllMangaCategories(catAssignments)
 
         // Kapitoly
         val chapArr = root.optJSONArray("chapters") ?: JSONArray()

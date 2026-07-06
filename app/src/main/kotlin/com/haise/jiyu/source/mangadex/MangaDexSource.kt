@@ -66,7 +66,7 @@ class MangaDexSource @Inject constructor(
                 "?translatedLanguage[]=$langCode&order[chapter]=desc&limit=$limit&offset=$offset" +
                 "&contentRating[]=safe&contentRating[]=suggestive&includes[]=scanlation_group"
             val json = get(url)
-            val results = json.getJSONArray("data")
+            val results = json.optJSONArray("data") ?: break
             val total = json.optInt("total", 0)
             val batch = (0 until results.length()).mapNotNull { i ->
                 chapterFromData(results.getJSONObject(i), manga.url)
@@ -106,7 +106,7 @@ class MangaDexSource @Inject constructor(
     }
 
     private fun parseMangaList(json: JSONObject): List<SManga> {
-        val results: JSONArray = json.getJSONArray("data")
+        val results = json.optJSONArray("data") ?: return emptyList()
         return (0 until results.length()).mapNotNull { i ->
             mangaFromData(results.getJSONObject(i))
         }

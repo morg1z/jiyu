@@ -36,14 +36,28 @@ private val JiyuDarkColors = darkColorScheme(
 )
 
 private val JiyuLightColors = lightColorScheme(
-    primary             = VioletDark,
-    onPrimary           = Color.White,
-    secondary           = CyanDark,
-    onSecondary         = Color.White,
-    background          = Color(0xFFF1F5FF),
-    onBackground        = Color(0xFF0F172A),
-    surface             = Color(0xFFFFFFFF),
-    onSurface           = Color(0xFF0F172A),
+    primary              = VioletDark,
+    onPrimary            = Color.White,
+    primaryContainer     = Color(0xFFEDE9FE),
+    onPrimaryContainer   = Color(0xFF3B0764),
+    secondary            = CyanDark,
+    onSecondary          = Color.White,
+    secondaryContainer   = Color(0xFFCFFAFE),
+    onSecondaryContainer = Color(0xFF0E4F5C),
+    tertiary             = Pink,
+    onTertiary           = Color.White,
+    tertiaryContainer    = Color(0xFFFCE7F3),
+    onTertiaryContainer  = Color(0xFF831843),
+    background           = Color(0xFFF1F5FF),
+    onBackground         = Color(0xFF0F172A),
+    surface              = Color(0xFFFFFFFF),
+    onSurface            = Color(0xFF0F172A),
+    surfaceVariant       = Color(0xFFE8EDFF),
+    onSurfaceVariant     = Color(0xFF334155),
+    outline              = Color(0xFF94A3B8),
+    outlineVariant       = Color(0xFFCBD5E1),
+    error                = Color(0xFFDC2626),
+    onError              = Color.White,
 )
 
 val JiyuShapes = Shapes(

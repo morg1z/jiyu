@@ -25,6 +25,9 @@ interface CategoryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addMangaToCategory(link: MangaCategoryEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addAllMangaToCategories(links: List<MangaCategoryEntity>)
+
     @Query("DELETE FROM manga_category WHERE mangaId = :mangaId AND categoryId = :categoryId")
     suspend fun removeMangaFromCategory(mangaId: String, categoryId: String)
 

@@ -26,12 +26,14 @@ class MangaPlusImageFetcher(
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
-        val key = uri.fragment!!.removePrefix("mplus_key=")
+        val key = (uri.fragment ?: error("missing mplus_key fragment")).removePrefix("mplus_key=")
         val cleanUrl = uri.toString().substringBeforeLast("#")
 
         val bytes = withContext(Dispatchers.IO) {
             val req = Request.Builder().url(cleanUrl).header("User-Agent", "okhttp/4.12.0").build()
-            httpClient.newCall(req).execute().use { it.body!!.bytes() }
+            httpClient.newCall(req).execute().use { resp ->
+                resp.body?.bytes() ?: error("empty body for $cleanUrl")
+            }
         }
 
         val keyBytes = key.chunked(2).map { it.toInt(16).toByte() }.toByteArray()

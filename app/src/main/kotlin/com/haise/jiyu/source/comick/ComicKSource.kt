@@ -1,10 +1,13 @@
 package com.haise.jiyu.source.comick
 
+import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.source.LanguageMap
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -28,6 +31,7 @@ import javax.inject.Singleton
 @Singleton
 class ComicKSource @Inject constructor(
     private val client: OkHttpClient,
+    private val settings: SettingsRepository,
 ) : MangaSource {
 
     override val id   = "comick"
@@ -94,8 +98,9 @@ class ComicKSource @Inject constructor(
             var page = 1
             val pageSize = 60
 
+            val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
             while (true) {
-                val url = "$apiBase/manga/$hid/chapters?lang=en&page=$page&limit=$pageSize"
+                val url = "$apiBase/manga/$hid/chapters?lang=$langCode&page=$page&limit=$pageSize"
                 val json = getObject(url)
                 val arr = json.optJSONArray("chapters") ?: break
 
