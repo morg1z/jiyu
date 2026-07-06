@@ -34,21 +34,18 @@ portfolio/vzdělávací projekt, ne pro komerční distribuci ani veřejné publ
 
 ## Aktuální stav
 
-Hotovo: knihovna (kategorie, progress, offline badge, pokračovat ve čtení),
-browse/search (MangaDex, MANGA Plus, ComicK + nekonečný scroll), detail
-s kapitolami (status chip, datum, sdílení), offline stahování + Download
-Manager, čtečka (HorizontalPager i webtoon, jas, AI překlad s volbou
-zdroj->cíl jazyka), periodické aktualizace na pozadí + notifikace,
-záloha/obnovení (JSON), generický Madara zdroj (uživatel přidá
-název + URL v Nastavení, appka parsuje standardní Madara markup přes Jsoup).
-
-Nehotovo / další kroky:
-1. Ověřit naživo v Android Studiu / na zařízení (kompiluje se, ale
-   generický Madara parser byl testován jen proti veřejně známé
-   struktuře tématu, ne proti konkrétnímu běžícímu webu).
-2. Zvážit per-zdroj override CSS selektorů v UI (teď se používají pevné
-   výchozí Madara selektory - pokud konkrétní web téma upravil, parsování
-   se může rozejít).
+Hotovo (2026-07-06):
+- Knihovna: kategorie, sort (název/aktualizace/nepřečtené), progress, offline
+  badge, pokračovat ve čtení
+- Browse: MangaDex, MANGA Plus, ComicK, generický Madara (uživatel přidá URL
+  + volitelné CSS selector overridy v Nastavení) + nekonečný scroll
+- Detail: status chip, datum kapitol, scanlation group, sdílení, bulk download
+- Čtečka: HorizontalPager + webtoon, jas, tap zóny, velikost textu,
+  dvoustránkový spread, AI překlad s volbou zdroj→cíl jazyka (13 jazyků)
+- Download Manager, periodické aktualizace na pozadí + notifikace
+- Záloha/obnovení (JSON), nastavení čtečky
+- Unit testy (DAO, Room migrace, Madara parser), live test na emulátoru
+- Room DB v7, WorkManager + HiltWorkerFactory správně inicializovány
 
 ## Styl práce
 
