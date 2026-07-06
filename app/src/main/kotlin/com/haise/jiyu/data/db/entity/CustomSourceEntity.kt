@@ -15,4 +15,15 @@ data class CustomSourceEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val name: String,
     val baseUrl: String,
+    /**
+     * Volitelné přepisy CSS selektorů pro weby, jejichž Madara markup se
+     * odchyluje od výchozí šablony. Null/prázdné = použije se výchozí
+     * selektor z [com.haise.jiyu.source.madara.MadaraSelectors.DEFAULT].
+     */
+    val listItemSelector: String? = null,
+    val titleLinkSelector: String? = null,
+    val descriptionSelector: String? = null,
+    val statusSelector: String? = null,
+    val chapterListSelector: String? = null,
+    val pageImageSelector: String? = null,
 )

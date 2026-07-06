@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -330,12 +331,24 @@ fun SettingsScreen(
                     if (showAddDialog) {
                         var name by remember { mutableStateOf("") }
                         var url by remember { mutableStateOf("") }
+                        var showAdvanced by remember { mutableStateOf(false) }
+                        var listItemSel by remember { mutableStateOf("") }
+                        var titleLinkSel by remember { mutableStateOf("") }
+                        var descriptionSel by remember { mutableStateOf("") }
+                        var statusSel by remember { mutableStateOf("") }
+                        var chapterListSel by remember { mutableStateOf("") }
+                        var pageImageSel by remember { mutableStateOf("") }
+
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { showAddDialog = false },
                             containerColor = androidx.compose.ui.graphics.Color(0xFF111B35),
                             title = { Text("Přidat Madara zdroj", color = TextPrimary, fontWeight = FontWeight.Bold) },
                             text = {
-                                Column {
+                                Column(
+                                    modifier = Modifier
+                                        .heightIn(max = 420.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                ) {
                                     TextField(
                                         value = name,
                                         onValueChange = { name = it },
@@ -351,13 +364,43 @@ fun SettingsScreen(
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
+                                    Spacer(Modifier.height(8.dp))
+                                    TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                                        Text(
+                                            if (showAdvanced) "Skrýt pokročilé selektory" else "Pokročilé selektory (volitelné)",
+                                            color = Cyan,
+                                        )
+                                    }
+                                    if (showAdvanced) {
+                                        Text(
+                                            text = "Vyplň jen pokud výchozí Madara selektory na tomto webu nesedí (téma bylo upravené). Prázdné pole = použije se výchozí.",
+                                            color = TextSecondary,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(bottom = 8.dp),
+                                        )
+                                        SelectorField("Seznam položek (list)", listItemSel) { listItemSel = it }
+                                        SelectorField("Odkaz s názvem (title link)", titleLinkSel) { titleLinkSel = it }
+                                        SelectorField("Popis (description)", descriptionSel) { descriptionSel = it }
+                                        SelectorField("Stav vydávání (status)", statusSel) { statusSel = it }
+                                        SelectorField("Seznam kapitol (chapter list)", chapterListSel) { chapterListSel = it }
+                                        SelectorField("Obrázky stránky (page image)", pageImageSel) { pageImageSel = it }
+                                    }
                                 }
                             },
                             confirmButton = {
                                 TextButton(
                                     onClick = {
                                         if (name.isNotBlank() && url.isNotBlank()) {
-                                            viewModel.addCustomSource(name.trim(), url.trim())
+                                            viewModel.addCustomSource(
+                                                name = name.trim(),
+                                                baseUrl = url.trim(),
+                                                listItemSelector = listItemSel.trim().ifBlank { null },
+                                                titleLinkSelector = titleLinkSel.trim().ifBlank { null },
+                                                descriptionSelector = descriptionSel.trim().ifBlank { null },
+                                                statusSelector = statusSel.trim().ifBlank { null },
+                                                chapterListSelector = chapterListSel.trim().ifBlank { null },
+                                                pageImageSelector = pageImageSel.trim().ifBlank { null },
+                                            )
                                             showAddDialog = false
                                         }
                                     },
@@ -392,6 +435,17 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SelectorField(label: String, value: String, onValueChange: (String) -> Unit) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, fontSize = 12.sp) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+    )
 }
 
 @Composable

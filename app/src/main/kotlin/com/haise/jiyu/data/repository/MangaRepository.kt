@@ -145,8 +145,27 @@ class MangaRepository @Inject constructor(
     // ── Vlastní zdroje (Madara) ──────────────────────────────────────────────
 
     fun observeCustomSources(): Flow<List<CustomSourceEntity>> = customSourceDao.observeAll()
-    suspend fun addCustomSource(name: String, baseUrl: String) =
-        customSourceDao.upsert(CustomSourceEntity(name = name, baseUrl = baseUrl))
+    suspend fun addCustomSource(
+        name: String,
+        baseUrl: String,
+        listItemSelector: String? = null,
+        titleLinkSelector: String? = null,
+        descriptionSelector: String? = null,
+        statusSelector: String? = null,
+        chapterListSelector: String? = null,
+        pageImageSelector: String? = null,
+    ) = customSourceDao.upsert(
+        CustomSourceEntity(
+            name = name,
+            baseUrl = baseUrl,
+            listItemSelector = listItemSelector,
+            titleLinkSelector = titleLinkSelector,
+            descriptionSelector = descriptionSelector,
+            statusSelector = statusSelector,
+            chapterListSelector = chapterListSelector,
+            pageImageSelector = pageImageSelector,
+        )
+    )
     suspend fun deleteCustomSource(source: CustomSourceEntity) = customSourceDao.delete(source)
 
     // ── Utils ─────────────────────────────────────────────────────────────────

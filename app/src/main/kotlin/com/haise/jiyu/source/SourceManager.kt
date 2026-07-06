@@ -2,6 +2,7 @@ package com.haise.jiyu.source
 
 import com.haise.jiyu.data.db.CustomSourceDao
 import com.haise.jiyu.source.comick.ComicKSource
+import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.source.mangaplus.MangaPlusSource
@@ -35,7 +36,21 @@ class SourceManager @Inject constructor(
     fun observeAll(): Flow<List<MangaSource>> =
         customSourceDao.observeAll().map { customs ->
             staticSources + customs.map { custom ->
-                MadaraSource(id = "madara:${custom.id}", name = custom.name, baseUrl = custom.baseUrl, client = client)
+                val defaults = MadaraSelectors.DEFAULT
+                MadaraSource(
+                    id = "madara:${custom.id}",
+                    name = custom.name,
+                    baseUrl = custom.baseUrl,
+                    client = client,
+                    selectors = MadaraSelectors(
+                        listItem = custom.listItemSelector?.ifBlank { null } ?: defaults.listItem,
+                        titleLink = custom.titleLinkSelector?.ifBlank { null } ?: defaults.titleLink,
+                        description = custom.descriptionSelector?.ifBlank { null } ?: defaults.description,
+                        status = custom.statusSelector?.ifBlank { null } ?: defaults.status,
+                        chapterList = custom.chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
+                        pageImage = custom.pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
+                    ),
+                )
             }
         }
 

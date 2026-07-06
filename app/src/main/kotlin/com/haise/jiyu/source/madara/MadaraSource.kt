@@ -15,20 +15,39 @@ import org.jsoup.nodes.Element
 import java.net.URLEncoder
 
 /**
+ * CSS selektory pro parsování Madara markupu. Výchozí hodnoty odpovídají
+ * nezměněnému Madara tématu; pole s `null` v [CustomSourceEntity] použijí
+ * odpovídající výchozí hodnotu z [DEFAULT] - přepis je potřeba jen pokud
+ * konkrétní web téma upravil a výchozí selektor tam nesedí.
+ */
+data class MadaraSelectors(
+    val listItem: String = "div.page-item-detail, div.c-tabs-item__content",
+    val titleLink: String = "a[href], .post-title a",
+    val description: String = "div.summary__content, div.description-summary",
+    val status: String = "div.post-status .summary-content, .post-content_item .summary-content",
+    val chapterList: String = "li.wp-manga-chapter",
+    val pageImage: String = "div.reading-content img, div.page-break img",
+) {
+    companion object {
+        val DEFAULT = MadaraSelectors()
+    }
+}
+
+/**
  * Generický zdroj pro weby postavené na Madara - WordPress šabloně,
  * kterou používá velké množství manga/manhwa/manhua webů bez oficiálního API.
  *
  * Nekonfiguruje se natvrdo na konkrétní web - `baseUrl` a `name` zadává
- * uživatel v Nastavení ("Vlastní zdroje"). CSS selektory níže odpovídají
- * výchozímu, nezměněnému Madara markupu; pokud konkrétní web téma
- * upravil, může se parsování rozejít - to je omezení generické šablony,
- * ne něco co appka umí zaručit pro každý web.
+ * uživatel v Nastavení ("Vlastní zdroje"). CSS selektory v [MadaraSelectors]
+ * odpovídají výchozímu, nezměněnému Madara markupu, ale lze je pro
+ * konkrétní web přepsat, pokud tam téma upravilo strukturu.
  */
 class MadaraSource(
     override val id: String,
     override val name: String,
     private val baseUrl: String,
     private val client: OkHttpClient,
+    private val selectors: MadaraSelectors = MadaraSelectors.DEFAULT,
 ) : MangaSource {
 
     private val root get() = baseUrl.trimEnd('/')
@@ -49,9 +68,9 @@ class MadaraSource(
         }
 
     private fun parseMangaList(doc: Document): List<SManga> {
-        val items = doc.select("div.page-item-detail, div.c-tabs-item__content")
+        val items = doc.select(selectors.listItem)
         return items.mapNotNull { item ->
-            val link = item.selectFirst("a[href], .post-title a") ?: return@mapNotNull null
+            val link = item.selectFirst(selectors.titleLink) ?: return@mapNotNull null
             val title = link.attr("title").ifBlank { link.text() }.ifBlank { return@mapNotNull null }
             val url = link.absUrl("href").ifBlank { return@mapNotNull null }
             val cover = item.selectFirst("img")?.let { img ->
@@ -67,9 +86,9 @@ class MadaraSource(
     override suspend fun getMangaDetails(manga: SManga): SManga =
         withContext(Dispatchers.IO) {
             val doc = fetchDocument(manga.url)
-            val desc = doc.selectFirst("div.summary__content, div.description-summary")
+            val desc = doc.selectFirst(selectors.description)
                 ?.text()?.ifBlank { null }
-            val status = doc.selectFirst("div.post-status .summary-content, .post-content_item .summary-content")
+            val status = doc.selectFirst(selectors.status)
                 ?.text()?.trim()?.ifBlank { null }
 
             manga.copy(description = desc, status = status)
@@ -94,7 +113,7 @@ class MadaraSource(
             }
 
             val doc = ajaxDoc ?: fetchDocument(manga.url)
-            val rows = doc.select("li.wp-manga-chapter")
+            val rows = doc.select(selectors.chapterList)
 
             rows.mapNotNull { row -> chapterFromRow(row, manga.url) }
         }
@@ -131,7 +150,7 @@ class MadaraSource(
     override suspend fun getPageList(chapter: SChapter): List<Page> =
         withContext(Dispatchers.IO) {
             val doc = fetchDocument(chapter.url)
-            val images = doc.select("div.reading-content img, div.page-break img")
+            val images = doc.select(selectors.pageImage)
 
             images.mapIndexedNotNull { i, img ->
                 val src = img.attr("data-src").ifBlank { img.attr("data-lazy-src") }.ifBlank { img.attr("src") }

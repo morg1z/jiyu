@@ -31,8 +31,8 @@ class Converters {
         MangaCategoryEntity::class,
         CustomSourceEntity::class,
     ],
-    version = 6,
-    exportSchema = false,
+    version = 7,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -51,6 +51,26 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chapter ADD COLUMN scanlationGroup TEXT")
+                // Verze 5 zavedla kategorie (CategoryEntity/MangaCategoryEntity) - chybely
+                // tu CREATE TABLE prikazy, takze migrace z realneho v4 DB by spadla na
+                // chybejicich tabulkach i pres "uspesnou" migraci scanlationGroup sloupce.
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `category` (
+                        `id` TEXT NOT NULL, `name` TEXT NOT NULL,
+                        `colorHex` TEXT NOT NULL DEFAULT '#8B5CF6', PRIMARY KEY(`id`)
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `manga_category` (
+                        `mangaId` TEXT NOT NULL, `categoryId` TEXT NOT NULL,
+                        PRIMARY KEY(`mangaId`, `categoryId`),
+                        FOREIGN KEY(`mangaId`) REFERENCES `manga`(`id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`categoryId`) REFERENCES `category`(`id`) ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_manga_category_categoryId` ON `manga_category` (`categoryId`)"
+                )
             }
         }
         val MIGRATION_5_6 = object : Migration(5, 6) {
@@ -61,6 +81,16 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`id`)
                     )"""
                 )
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN listItemSelector TEXT")
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN titleLinkSelector TEXT")
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN descriptionSelector TEXT")
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN statusSelector TEXT")
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN chapterListSelector TEXT")
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN pageImageSelector TEXT")
             }
         }
     }

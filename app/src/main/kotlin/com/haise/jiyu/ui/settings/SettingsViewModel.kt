@@ -149,8 +149,21 @@ class SettingsViewModel @Inject constructor(
         _cacheCount.value = translatedPageDao.count()
     }
 
-    fun addCustomSource(name: String, baseUrl: String) = viewModelScope.launch {
-        repository.addCustomSource(name, baseUrl)
+    fun addCustomSource(
+        name: String,
+        baseUrl: String,
+        listItemSelector: String? = null,
+        titleLinkSelector: String? = null,
+        descriptionSelector: String? = null,
+        statusSelector: String? = null,
+        chapterListSelector: String? = null,
+        pageImageSelector: String? = null,
+    ) = viewModelScope.launch {
+        repository.addCustomSource(
+            name, baseUrl,
+            listItemSelector, titleLinkSelector, descriptionSelector,
+            statusSelector, chapterListSelector, pageImageSelector,
+        )
     }
 
     fun deleteCustomSource(source: CustomSourceEntity) = viewModelScope.launch {
