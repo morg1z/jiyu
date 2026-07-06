@@ -23,9 +23,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
@@ -56,7 +56,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -162,7 +161,7 @@ private fun DownloadGroupCard(
         ) {
             AsyncImage(
                 model = group.manga.coverUrl,
-                contentDescription = null,
+                contentDescription = "Obálka: ${group.manga.title}",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
             )
@@ -197,7 +196,7 @@ private fun DownloadGroupCard(
             }
             Icon(
                 imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
+                contentDescription = if (expanded) "Sbalit seznam kapitol" else "Rozbalit seznam kapitol",
                 tint = TextSecondary,
                 modifier = Modifier.size(20.dp),
             )
@@ -280,7 +279,13 @@ private fun ChapterDownloadRow(chapter: ChapterEntity, onDelete: () -> Unit, onC
                     Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                 }
             }
-            else -> Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Cyan, modifier = Modifier.size(16.dp))
+            DownloadStatus.ERROR -> {
+                Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ErrorOutline, contentDescription = "Stahování selhalo, klepnutím odstranit", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                }
+            }
+            DownloadStatus.NOT_DOWNLOADED -> Unit
         }
     }
 }

@@ -297,7 +297,7 @@ fun BrowseScreen(
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 AsyncImage(
                     model = manga.coverUrl,
-                    contentDescription = null,
+                    contentDescription = "Obálka: ${manga.title}",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
