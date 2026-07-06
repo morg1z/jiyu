@@ -40,7 +40,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -105,6 +108,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val translateMode       by viewModel.translateMode.collectAsState()
     val translationProgress by viewModel.translationProgress.collectAsState()
     val translatedPages     by viewModel.translatedPages.collectAsState()
+    val batchTranslating    by viewModel.batchTranslating.collectAsState()
+    val batchProgress       by viewModel.batchProgress.collectAsState()
+    val showOriginal        by viewModel.showOriginal.collectAsState()
     val reverseLayout       by viewModel.reverseLayout.collectAsState()
     val readingMode         by viewModel.readingMode.collectAsState()
     val initialPage         by viewModel.initialPage.collectAsState()
@@ -156,12 +162,18 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 translateMode = translateMode,
                 translationProgress = translationProgress,
                 translatedPages = translatedPages,
+                batchTranslating = batchTranslating,
+                batchProgress = batchProgress,
+                showOriginal = showOriginal,
                 reverseLayout = reverseLayout,
                 readingMode = readingMode,
                 chapterTitle = chapterTitle,
                 hasPrevChapter = hasPrevChapter,
                 hasNextChapter = hasNextChapter,
                 onToggleTranslate = { viewModel.toggleTranslate() },
+                onTranslateAll = { viewModel.translateAllPages() },
+                onCancelBatch = { viewModel.cancelBatchTranslation() },
+                onToggleShowOriginal = { viewModel.toggleShowOriginal() },
                 onPageChanged = { viewModel.onPageChanged(it) },
                 onNavigatePrev = { viewModel.navigatePrev() },
                 onNavigateNext = { viewModel.navigateNext() },
@@ -202,12 +214,18 @@ private fun ReaderContent(
     translateMode: Boolean,
     translationProgress: TranslationProgress?,
     translatedPages: Map<Int, List<TranslatedBlock>>,
+    batchTranslating: Boolean,
+    batchProgress: TranslationProgress?,
+    showOriginal: Boolean,
     reverseLayout: Boolean,
     readingMode: String,
     chapterTitle: String,
     hasPrevChapter: Boolean,
     hasNextChapter: Boolean,
     onToggleTranslate: () -> Unit,
+    onTranslateAll: () -> Unit,
+    onCancelBatch: () -> Unit,
+    onToggleShowOriginal: () -> Unit,
     onPageChanged: (Int) -> Unit,
     onNavigatePrev: () -> Unit,
     onNavigateNext: () -> Unit,
@@ -247,11 +265,12 @@ private fun ReaderContent(
     var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val effectiveTranslateMode = translateMode && !showOriginal
         if (readingMode == ReadingMode.WEBTOON) {
             WebtoonReader(
                 pages = pages,
                 initialPage = initialPage,
-                translateMode = translateMode,
+                translateMode = effectiveTranslateMode,
                 translatedPages = translatedPages,
                 textScale = textScale,
                 onPageChanged = onPageChanged,
@@ -261,7 +280,7 @@ private fun ReaderContent(
             MangaReader(
                 pages = pages,
                 initialPage = initialPage,
-                translateMode = translateMode,
+                translateMode = effectiveTranslateMode,
                 translatedPages = translatedPages,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
@@ -458,7 +477,60 @@ private fun ReaderContent(
                         Icon(Icons.Filled.BrightnessHigh, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(18.dp))
                     }
 
-                    // Progress překladu (pokud aktivní)
+                    // Hromadný překlad — tlačítko + progress + přepínač originál/překlad
+                    if (translateMode && !batchTranslating) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Překlad", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                                Spacer(Modifier.width(8.dp))
+                                Switch(
+                                    checked = !showOriginal,
+                                    onCheckedChange = { onToggleShowOriginal() },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color(0xFF4FC3F7),
+                                        checkedTrackColor = Color(0xFF4FC3F7).copy(alpha = 0.4f),
+                                        uncheckedThumbColor = Color.White,
+                                        uncheckedTrackColor = Color.White.copy(alpha = 0.2f),
+                                    ),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Originál", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    if (batchTranslating) {
+                        batchProgress?.let { progress ->
+                            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Překlad všech… ${progress.done}/${progress.total}", color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                IconButton(onClick = onCancelBatch, modifier = Modifier.size(28.dp)) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            LinearProgressIndicator(
+                                progress = { if (progress.total > 0) progress.done.toFloat() / progress.total else 0f },
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                color = Color(0xFFFFB74D),
+                                trackColor = Color.White.copy(alpha = 0.2f),
+                            )
+                        }
+                    } else if (!translateMode) {
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = onTranslateAll,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
+                        ) {
+                            Icon(Icons.Filled.Translate, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(16.dp).padding(end = 4.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Přeložit vše", color = Color(0xFF4FC3F7), fontSize = 13.sp)
+                        }
+                    }
+
+                    // Progress překladu aktuální stránky (pokud aktivní)
                     if (translationProgress != null) {
                         translationProgress.let { progress ->
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

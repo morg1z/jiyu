@@ -3,15 +3,20 @@ package com.haise.jiyu.ui.downloads
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 data class DownloadGroup(val manga: MangaEntity, val chapters: List<ChapterEntity>)
@@ -65,6 +70,28 @@ class DownloadManagerViewModel @Inject constructor(
         viewModelScope.launch {
             downloadQueue.cancelAll()
             chapters.forEach { repository.resetDownloadForChapter(it.id) }
+        }
+    }
+
+    val totalStorageBytes: StateFlow<Long> = downloadGroups.map { groups ->
+        groups.sumOf { group ->
+            group.chapters.sumOf { chapter ->
+                chapter.localPath?.let { path ->
+                    try { File(path).walkTopDown().filter { it.isFile }.sumOf { it.length() } } catch (_: Exception) { 0L }
+                } ?: 0L
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    fun deleteReadChapters() {
+        viewModelScope.launch {
+            val allChapters = downloadGroups.value.flatMap { it.chapters }
+            allChapters.filter { it.read && it.downloadStatus == DownloadStatus.DOWNLOADED }.forEach { chapter ->
+                chapter.localPath?.let { path ->
+                    try { File(path).deleteRecursively() } catch (_: Exception) {}
+                }
+                repository.resetDownloadForChapter(chapter.id)
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
+import com.haise.jiyu.ui.settings.SourceCatalogScreen
 
 internal object Routes {
     const val LIBRARY   = "library"
@@ -22,6 +23,7 @@ internal object Routes {
     const val SETTINGS  = "settings"
     const val DOWNLOADS = "downloads"
     const val HISTORY   = "history"
+    const val CATALOG   = "catalog"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -70,7 +72,12 @@ fun JiyuNavGraph(navController: NavHostController) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
+                onOpenSourceCatalog = { navController.navigate(Routes.CATALOG) },
             )
+        }
+
+        composable(Routes.CATALOG) {
+            SourceCatalogScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.DOWNLOADS) {

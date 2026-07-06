@@ -18,6 +18,8 @@ import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
+import com.haise.jiyu.source.catalog.CatalogSource
+import com.haise.jiyu.source.catalog.SourceCatalogManager
 import com.haise.jiyu.util.toFriendlyMessage
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -61,6 +63,7 @@ class SettingsViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val backupManager: BackupManager,
     private val okHttpClient: OkHttpClient,
+    private val catalogManager: SourceCatalogManager,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
@@ -231,4 +234,35 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearSourceTestState() { _sourceTestState.value = SourceTestState.Idle }
+
+    // ── Katalog zdrojů ───────────────────────────────────────────────────────
+    fun getCatalog(): List<CatalogSource> = catalogManager.catalog
+
+    fun isCatalogSourceInstalled(source: CatalogSource): Boolean =
+        customSources.value.any { it.baseUrl.trimEnd('/') == source.baseUrl.trimEnd('/') }
+
+    fun installCatalogSource(source: CatalogSource) = viewModelScope.launch {
+        if (!isCatalogSourceInstalled(source)) {
+            repository.addCustomSource(
+                name = source.name,
+                baseUrl = source.baseUrl,
+                listItemSelector = null,
+                titleLinkSelector = null,
+                descriptionSelector = null,
+                statusSelector = null,
+                chapterListSelector = null,
+                pageImageSelector = null,
+            )
+        }
+    }
+
+    // ── Auto-mazání stažených ─────────────────────────────────────────────────
+    val autoDeleteRead: StateFlow<Boolean> = settings.autoDeleteRead
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val autoDeleteDelayDays: StateFlow<Int> = settings.autoDeleteDelayDays
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    fun setAutoDeleteRead(enabled: Boolean) = viewModelScope.launch { settings.setAutoDeleteRead(enabled) }
+    fun setAutoDeleteDelayDays(days: Int)    = viewModelScope.launch { settings.setAutoDeleteDelayDays(days) }
 }

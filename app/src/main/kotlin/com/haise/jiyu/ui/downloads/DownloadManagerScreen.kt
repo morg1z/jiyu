@@ -72,7 +72,9 @@ fun DownloadManagerScreen(
     viewModel: DownloadManagerViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.downloadGroups.collectAsState()
+    val totalStorageBytes by viewModel.totalStorageBytes.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var showDeleteReadConfirm by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
 
@@ -92,6 +94,42 @@ fun DownloadManagerScreen(
                 text = "Stažené kapitoly",
                 style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                 modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+
+        // ── Statistiky úložiště ───────────────────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Využito: ${formatBytes(totalStorageBytes)}",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            TextButton(onClick = { showDeleteReadConfirm = true }) {
+                Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Smazat přečtené", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            }
+        }
+
+        if (showDeleteReadConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteReadConfirm = false },
+                containerColor = Color(0xFF111B35),
+                title = { Text("Smazat přečtené?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                text = { Text("Smaže všechny stažené kapitoly označené jako přečtené.", color = TextSecondary) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.deleteReadChapters(); showDeleteReadConfirm = false }) {
+                        Text("Smazat", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = { TextButton(onClick = { showDeleteReadConfirm = false }) { Text("Zrušit", color = TextSecondary) } },
             )
         }
 
@@ -229,6 +267,13 @@ private fun DownloadGroupCard(
             dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Zrušit", color = TextSecondary) } },
         )
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L     -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024L         -> "%.0f KB".format(bytes / 1_024.0)
+    else                    -> "$bytes B"
 }
 
 @Composable

@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,8 @@ object SettingsKeys {
     val TAP_ZONES_ENABLED      = booleanPreferencesKey("tap_zones_enabled")
     val READER_TEXT_SCALE      = floatPreferencesKey("reader_text_scale")
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
+    val AUTO_DELETE_READ       = booleanPreferencesKey("auto_delete_read")
+    val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
 }
 
 object ThemeOption {
@@ -72,6 +75,18 @@ class SettingsRepository @Inject constructor(
 
     val doublePageSpread: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.DOUBLE_PAGE_SPREAD] ?: false }
+
+    val autoDeleteRead: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.AUTO_DELETE_READ] ?: false }
+
+    val autoDeleteDelayDays: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.AUTO_DELETE_DELAY_DAYS] ?: 0 }
+
+    suspend fun setAutoDeleteRead(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.AUTO_DELETE_READ] = enabled }
+
+    suspend fun setAutoDeleteDelayDays(days: Int) =
+        dataStore.edit { it[SettingsKeys.AUTO_DELETE_DELAY_DAYS] = days }
 
     suspend fun setTargetLanguage(lang: String) =
         dataStore.edit { it[SettingsKeys.TARGET_LANGUAGE] = lang }

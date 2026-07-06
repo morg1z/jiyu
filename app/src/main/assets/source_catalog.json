@@ -1,0 +1,66 @@
+[
+  {
+    "id": "manhuaplus",
+    "name": "ManhuaPlus",
+    "baseUrl": "https://manhuaplus.org",
+    "language": "en",
+    "description": "English manhua translations",
+    "nsfw": false
+  },
+  {
+    "id": "manhuafast",
+    "name": "ManhuaFast",
+    "baseUrl": "https://manhuafast.com",
+    "language": "en",
+    "description": "Fast manhua updates",
+    "nsfw": false
+  },
+  {
+    "id": "manga347",
+    "name": "Manga347",
+    "baseUrl": "https://manga347.com",
+    "language": "en",
+    "description": "Action & fantasy manga",
+    "nsfw": false
+  },
+  {
+    "id": "mangakakalot_ws",
+    "name": "MangaKakalot WS",
+    "baseUrl": "https://ww6.mangakakalot.tv",
+    "language": "en",
+    "description": "Large manga archive",
+    "nsfw": false
+  },
+  {
+    "id": "mangatx",
+    "name": "MangaTX",
+    "baseUrl": "https://mangatx.org",
+    "language": "en",
+    "description": "English manga translations",
+    "nsfw": false
+  },
+  {
+    "id": "manhwa18",
+    "name": "Manhwa18",
+    "baseUrl": "https://manhwa18.net",
+    "language": "en",
+    "description": "Adult manhwa content",
+    "nsfw": true
+  },
+  {
+    "id": "isekaiscan",
+    "name": "IsekaiScan",
+    "baseUrl": "https://isekaiscan.com",
+    "language": "en",
+    "description": "Isekai & fantasy manga",
+    "nsfw": false
+  },
+  {
+    "id": "readmanhua",
+    "name": "ReadManhua",
+    "baseUrl": "https://readmanhua.net",
+    "language": "en",
+    "description": "Chinese manhua in English",
+    "nsfw": false
+  }
+]

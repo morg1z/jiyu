@@ -117,9 +117,19 @@ class ReaderViewModel @Inject constructor(
     private val _translationError = MutableStateFlow<String?>(null)
     val translationError: StateFlow<String?> = _translationError.asStateFlow()
 
+    private val _batchTranslating = MutableStateFlow(false)
+    val batchTranslating: StateFlow<Boolean> = _batchTranslating.asStateFlow()
+
+    private val _batchProgress = MutableStateFlow<TranslationProgress?>(null)
+    val batchProgress: StateFlow<TranslationProgress?> = _batchProgress.asStateFlow()
+
+    private val _showOriginal = MutableStateFlow(false)
+    val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
+
     fun clearTranslationError() { _translationError.value = null }
 
     private var translationJob: Job? = null
+    private var batchJob: Job? = null
     private var lastPageChangeMs = 0L
 
     init {
@@ -230,6 +240,7 @@ class ReaderViewModel @Inject constructor(
                     )
                 )
             }
+            if (isRead) maybeAutoDelete()
         }
     }
 
@@ -303,6 +314,93 @@ class ReaderViewModel @Inject constructor(
                 _translationProgress.value = TranslationProgress(done, pages.size)
             }
             _translationProgress.value = null
+        }
+    }
+
+    // ── Hromadný překlad všech stránek + přepínač originál/překlad ──────────
+
+    fun translateAllPages() {
+        if (_batchTranslating.value) return
+        if (!translateRepository.isApiKeyConfigured) {
+            _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+            return
+        }
+        _batchTranslating.value = true
+        _showOriginal.value = false
+        batchJob = viewModelScope.launch {
+            val pages = _pages.value
+            val lang = _targetLanguage.value
+            val chapterId = currentChapter?.id ?: run { _batchTranslating.value = false; return@launch }
+
+            pages.forEachIndexed { index, _ ->
+                if (_translatedPages.value[index] == null) {
+                    val cached = translateRepository.getCachedPage(chapterId, index, lang, _sourceLanguage.value)
+                    if (cached != null) {
+                        _translatedPages.value = _translatedPages.value + (index to cached)
+                    }
+                }
+            }
+
+            val uncached = pages.indices.filter { _translatedPages.value[it] == null }
+            var done = pages.size - uncached.size
+            _batchProgress.value = TranslationProgress(done, pages.size)
+
+            uncached.forEachIndexed { i, pageIndex ->
+                if (i > 0) delay(2_000L)
+                try {
+                    val blocks = translateRepository.translatePage(
+                        pageUrl = pages[pageIndex],
+                        chapterId = chapterId,
+                        pageIndex = pageIndex,
+                        targetLanguage = lang,
+                        sourceLanguage = _sourceLanguage.value,
+                    )
+                    _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+                } catch (_: Exception) { /* stránka selhala, pokračuj dál */ }
+                done++
+                _batchProgress.value = TranslationProgress(done, pages.size)
+            }
+
+            _batchProgress.value = null
+            _batchTranslating.value = false
+            _translateMode.value = true
+        }
+    }
+
+    fun cancelBatchTranslation() {
+        batchJob?.cancel()
+        batchJob = null
+        _batchTranslating.value = false
+        _batchProgress.value = null
+    }
+
+    fun toggleShowOriginal() {
+        _showOriginal.value = !_showOriginal.value
+    }
+
+    // ── Feature C: Smart offline deletion ───────────────────────────────────
+
+    private fun deleteChapterFiles(chapter: ChapterEntity) {
+        chapter.localPath?.let { path ->
+            try { File(path).deleteRecursively() } catch (_: Exception) {}
+        }
+        viewModelScope.launch { repository.resetDownloadForChapter(chapter.id) }
+    }
+
+    fun maybeAutoDelete() {
+        viewModelScope.launch {
+            val enabled = settings.autoDeleteRead.first()
+            if (!enabled) return@launch
+            val chapter = currentChapter ?: return@launch
+            if (!chapter.read) return@launch
+            val delayDays = settings.autoDeleteDelayDays.first()
+            if (delayDays > 0) {
+                delay(delayDays * 24 * 60 * 60 * 1000L)
+            }
+            val fresh = repository.getChapter(chapter.id) ?: return@launch
+            if (fresh.read && fresh.downloadStatus == DownloadStatus.DOWNLOADED) {
+                deleteChapterFiles(fresh)
+            }
         }
     }
 }

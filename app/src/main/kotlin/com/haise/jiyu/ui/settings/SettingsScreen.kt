@@ -94,6 +94,7 @@ private val LANGUAGES = listOf(
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDownloadManager: () -> Unit = {},
+    onOpenSourceCatalog: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val language          by viewModel.targetLanguage.collectAsState()
@@ -108,6 +109,8 @@ fun SettingsScreen(
     val tapZonesEnabled   by viewModel.tapZonesEnabled.collectAsState()
     val readerTextScale   by viewModel.readerTextScale.collectAsState()
     val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
+    val autoDeleteRead    by viewModel.autoDeleteRead.collectAsState()
+    val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -357,6 +360,19 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
+                // ── Katalog zdrojů ────────────────────────────────────────────
+                SettingsSection(title = "Zdroje") {
+                    OutlinedButton(
+                        onClick = onOpenSourceCatalog,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
+                    ) {
+                        Text("Katalog zdrojů (${viewModel.getCatalog().size})")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 // ── Vlastní zdroje (Madara) ───────────────────────────────────
                 SettingsSection(title = "Vlastní zdroje (Madara)") {
                     var showAddDialog by remember { mutableStateOf(false) }
@@ -513,6 +529,44 @@ fun SettingsScreen(
                             },
                             dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Zrušit", color = TextSecondary) } },
                         )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Stahování / Auto-mazání ───────────────────────────────────
+                SettingsSection(title = "Stahování") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = autoDeleteRead, onValueChange = { viewModel.setAutoDeleteRead(it) }, role = Role.Switch)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Auto-smazat přečtené", color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text("Stažené kapitoly se smažou po přečtení", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = autoDeleteRead,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+                    if (autoDeleteRead) {
+                        Text(
+                            text = "Prodleva před smazáním",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                        )
+                        listOf(0 to "Okamžitě", 1 to "1 den", 3 to "3 dny", 7 to "7 dní").forEach { (days, label) ->
+                            GlassRadioRow(
+                                label = label,
+                                selected = autoDeleteDelayDays == days,
+                                onClick = { viewModel.setAutoDeleteDelayDays(days) },
+                            )
+                        }
                     }
                 }
 
