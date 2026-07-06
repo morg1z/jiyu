@@ -9,17 +9,19 @@ import androidx.navigation.navArgument
 import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
 import com.haise.jiyu.ui.downloads.DownloadManagerScreen
+import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 
-private object Routes {
+internal object Routes {
     const val LIBRARY   = "library"
     const val BROWSE    = "browse"
     const val DETAIL    = "detail/{mangaId}"
     const val READER    = "reader/{chapterId}"
     const val SETTINGS  = "settings"
     const val DOWNLOADS = "downloads"
+    const val HISTORY   = "history"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -73,6 +75,12 @@ fun JiyuNavGraph(navController: NavHostController) {
 
         composable(Routes.DOWNLOADS) {
             DownloadManagerScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.HISTORY) {
+            HistoryScreen(
+                onResumeReading = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+            )
         }
     }
 }

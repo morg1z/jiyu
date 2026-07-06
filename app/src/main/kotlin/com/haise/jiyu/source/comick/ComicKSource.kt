@@ -2,6 +2,7 @@ package com.haise.jiyu.source.comick
 
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.LanguageMap
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
@@ -42,16 +43,21 @@ class ComicKSource @Inject constructor(
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
-    override suspend fun search(query: String, page: Int): List<SManga> =
+    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
             parseComicList(getArray("$apiBase/v1.0/search?q=$q&limit=20&page=$page"))
         }
 
-    /** Nejpopulárnější manga seřazené podle počtu sledujících. */
-    override suspend fun getPopular(page: Int): List<SManga> =
+    override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            parseComicList(getArray("$apiBase/v1.0/search?sort=follow&limit=20&page=$page"))
+            val sort = when (filter.sortBy) {
+                "latest" -> "date"
+                "rating" -> "rating"
+                "title"  -> "title"
+                else     -> "follow"
+            }
+            parseComicList(getArray("$apiBase/v1.0/search?sort=$sort&limit=20&page=$page"))
         }
 
     // ─── Detail mangy ────────────────────────────────────────────────────────
@@ -74,8 +80,24 @@ class ComicKSource @Inject constructor(
                 4    -> "Přerušeno"
                 else -> null
             }
+            val year = comic.optInt("year", 0).takeIf { it > 0 }
 
-            manga.copy(description = desc, status = status)
+            val authors = json.optJSONArray("authors")
+            val author = if (authors != null && authors.length() > 0)
+                authors.getJSONObject(0).optString("name").ifBlank { null }
+            else null
+
+            val genres = mutableListOf<String>()
+            val tagsArr = json.optJSONArray("genres") ?: json.optJSONArray("tags")
+            if (tagsArr != null) {
+                for (i in 0 until tagsArr.length()) {
+                    val name = tagsArr.optJSONObject(i)?.optString("name")
+                        ?: tagsArr.optString(i)
+                    if (!name.isNullOrBlank()) genres.add(name)
+                }
+            }
+
+            manga.copy(description = desc, status = status, author = author, genres = genres, year = year)
         }
 
     // ─── Kapitoly ────────────────────────────────────────────────────────────

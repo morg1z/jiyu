@@ -55,16 +55,21 @@ class MadaraSource(
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
-    override suspend fun search(query: String, page: Int): List<SManga> =
+    override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
             val url = "$root/page/$page/?s=$q&post_type=wp-manga"
             parseMangaList(fetchDocument(url))
         }
 
-    override suspend fun getPopular(page: Int): List<SManga> =
+    override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            val url = "$root/manga/page/$page/?m_orderby=views"
+            val orderby = when (filter.sortBy) {
+                "latest" -> "latest"
+                "title"  -> "alphabet"
+                else     -> "views"
+            }
+            val url = "$root/manga/page/$page/?m_orderby=$orderby"
             parseMangaList(fetchDocument(url))
         }
 

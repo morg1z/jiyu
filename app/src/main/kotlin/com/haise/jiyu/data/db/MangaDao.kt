@@ -39,4 +39,10 @@ interface MangaDao {
 
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND lastReadAt > 0 ORDER BY lastReadAt DESC LIMIT 20")
     fun observeRecentlyRead(): Flow<List<MangaEntity>>
+
+    @Query("UPDATE manga SET readerDirectionOverride = :direction WHERE id = :mangaId")
+    suspend fun setReaderDirection(mangaId: String, direction: String?)
+
+    @Query("UPDATE manga SET author = :author, artist = :artist, genres = :genres, year = :year WHERE id = :mangaId")
+    suspend fun updateMetadata(mangaId: String, author: String?, artist: String?, genres: String, year: Int?)
 }

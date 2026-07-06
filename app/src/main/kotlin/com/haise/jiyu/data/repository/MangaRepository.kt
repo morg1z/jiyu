@@ -13,6 +13,7 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
@@ -59,14 +60,14 @@ class MangaRepository @Inject constructor(
 
     // ── Browse / Search ──────────────────────────────────────────────────────
 
-    suspend fun search(sourceId: String, query: String, page: Int = 1): List<SManga> {
+    suspend fun search(sourceId: String, query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
-        return source.search(query, page)
+        return source.search(query, page, filter)
     }
 
-    suspend fun getPopular(sourceId: String, page: Int = 1): List<SManga> {
+    suspend fun getPopular(sourceId: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
-        return source.getPopular(page)
+        return source.getPopular(page, filter)
     }
 
     // ── Manga CRUD ───────────────────────────────────────────────────────────
@@ -83,10 +84,26 @@ class MangaRepository @Inject constructor(
                 description = manga.description,
                 status = manga.status,
                 inLibrary = true,
+                author = manga.author,
+                artist = manga.artist,
+                genres = manga.genres.joinToString(","),
+                year = manga.year,
             )
         )
         refreshChapters(id, manga)
     }
+
+    suspend fun setMangaReaderDirection(mangaId: String, direction: String?) =
+        mangaDao.setReaderDirection(mangaId, direction)
+
+    suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
+        mangaDao.updateMetadata(
+            mangaId = mangaId,
+            author = manga.author,
+            artist = manga.artist,
+            genres = manga.genres.joinToString(","),
+            year = manga.year,
+        )
 
     suspend fun removeFromLibrary(mangaId: String) = mangaDao.setInLibrary(mangaId, false)
 

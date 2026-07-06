@@ -67,6 +67,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.DeepSpace
@@ -94,10 +108,12 @@ fun BrowseScreen(
     val selectedSource by viewModel.selectedSource.collectAsState()
     val previewManga   by viewModel.previewManga.collectAsState()
     val hasMore        by viewModel.hasMore.collectAsState()
-    val sources by viewModel.sources.collectAsState()
+    val sources        by viewModel.sources.collectAsState()
+    val activeFilter   by viewModel.activeFilter.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -127,15 +143,28 @@ fun BrowseScreen(
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
-            Text(
-                text = "Procházet",
-                style = TextStyle(
-                    brush = titleGradient,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp,
-                ),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Procházet",
+                    style = TextStyle(
+                        brush = titleGradient,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 2.sp,
+                    ),
+                )
+                IconButton(onClick = { showFilterSheet = true }) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filtry",
+                        tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
+                    )
+                }
+            }
 
             // Glass search field
             TextField(
@@ -286,6 +315,20 @@ fun BrowseScreen(
         }
     }
 
+    // ── Filter bottom sheet ──────────────────────────────────────────────────
+    if (showFilterSheet) {
+        val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        BrowseFilterSheet(
+            current = activeFilter,
+            sheetState = filterSheetState,
+            onDismiss = { showFilterSheet = false },
+            onApply = { newFilter ->
+                viewModel.setFilters(newFilter)
+                showFilterSheet = false
+            },
+        )
+    }
+
     // ── Preview bottom sheet ─────────────────────────────────────────────────
     previewManga?.let { manga ->
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -320,7 +363,7 @@ fun BrowseScreen(
                     )
                     if (!manga.description.isNullOrBlank()) {
                         Text(
-                            text = manga.description!!,
+                            text = manga.description.orEmpty(),
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             maxLines = 4,
@@ -408,5 +451,122 @@ private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
                 .align(Alignment.BottomStart)
                 .padding(horizontal = 7.dp, vertical = 6.dp),
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowseFilterSheet(
+    current: MangaFilter,
+    sheetState: androidx.compose.material3.SheetState,
+    onDismiss: () -> Unit,
+    onApply: (MangaFilter) -> Unit,
+) {
+    var selectedStatus by remember { mutableStateOf(current.status) }
+    var yearText by remember { mutableStateOf(current.year?.toString() ?: "") }
+    var selectedSort by remember { mutableStateOf(current.sortBy) }
+    var sortDropdownExpanded by remember { mutableStateOf(false) }
+
+    val statuses = listOf(null to "Vše", "ongoing" to "Vychází", "completed" to "Dokončeno", "hiatus" to "Přerušeno")
+    val sorts = listOf("popular" to "Populární", "latest" to "Nejnovější", "rating" to "Hodnocení", "title" to "Název")
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111B35),
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                "Filtry",
+                style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+
+            Text("Stav vydávání", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                statuses.forEach { (value, label) ->
+                    val selected = selectedStatus == value
+                    androidx.compose.material3.FilterChip(
+                        selected = selected,
+                        onClick = { selectedStatus = value },
+                        label = { Text(label, fontSize = 12.sp) },
+                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Violet.copy(alpha = 0.3f),
+                            selectedLabelColor = Violet,
+                        ),
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("Rok vydání", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            OutlinedTextField(
+                value = yearText,
+                onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) yearText = it },
+                placeholder = { Text("např. 2020", color = TextSecondary) },
+                singleLine = true,
+                modifier = Modifier.width(140.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Violet,
+                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = Violet,
+                ),
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Text("Řazení", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Box {
+                OutlinedButton(
+                    onClick = { sortDropdownExpanded = true },
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                ) {
+                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: "Populární", color = TextPrimary)
+                }
+                DropdownMenu(
+                    expanded = sortDropdownExpanded,
+                    onDismissRequest = { sortDropdownExpanded = false },
+                ) {
+                    sorts.forEach { (value, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = { selectedSort = value; sortDropdownExpanded = false },
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { onApply(MangaFilter()) },
+                    modifier = Modifier.weight(1f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.4f)),
+                ) {
+                    Text("Resetovat", color = TextSecondary)
+                }
+                Button(
+                    onClick = {
+                        onApply(MangaFilter(
+                            status = selectedStatus,
+                            year = yearText.toIntOrNull(),
+                            sortBy = selectedSort,
+                        ))
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet),
+                ) {
+                    Text("Použít")
+                }
+            }
+        }
     }
 }

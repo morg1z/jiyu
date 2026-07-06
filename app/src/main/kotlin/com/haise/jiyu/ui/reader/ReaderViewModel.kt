@@ -3,8 +3,10 @@ package com.haise.jiyu.ui.reader
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
+import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
@@ -33,6 +35,7 @@ class ReaderViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val translateRepository: TranslateRepository,
     private val settings: SettingsRepository,
+    private val historyDao: ReadHistoryDao,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -62,9 +65,26 @@ class ReaderViewModel @Inject constructor(
     val chapterTitle: StateFlow<String> = _chapterTitle.asStateFlow()
 
     // ── Nastavení čtení ──────────────────────────────────────────────────────
-    val reverseLayout: StateFlow<Boolean> = settings.readingDirection
-        .map { it == ReadingDirection.RTL }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val _mangaDirectionOverride = MutableStateFlow<String?>(null)
+
+    val reverseLayout: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(
+        settings.readingDirection,
+        _mangaDirectionOverride,
+    ) { globalDir, override ->
+        when (override) {
+            "RTL"     -> true
+            "LTR"     -> false
+            "WEBTOON" -> false
+            else      -> globalDir == ReadingDirection.RTL
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val isWebtoonMode: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(
+        settings.readingMode,
+        _mangaDirectionOverride,
+    ) { globalMode, override ->
+        override == "WEBTOON" || (override == null && globalMode == ReadingMode.WEBTOON)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val readingMode: StateFlow<String> = settings.readingMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReadingMode.MANGA)
@@ -130,6 +150,9 @@ class ReaderViewModel @Inject constructor(
         allChapters = repository.getAllChapters(chapter.mangaId)
         updateNavState()
 
+        val mangaForDir = repository.getManga(chapter.mangaId)
+        _mangaDirectionOverride.value = mangaForDir?.readerDirectionOverride
+
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
             val dir = File(chapter.localPath)
             _pages.value = dir.listFiles()
@@ -187,13 +210,26 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             val total = _pages.value.size
             val isRead = index >= total - 1
-            val chapterId = currentChapter?.id ?: return@launch
+            val chapter = currentChapter ?: return@launch
+            val chapterId = chapter.id
             repository.updateReadProgress(chapterId, read = isRead, lastPageRead = index)
-            currentChapter?.mangaId?.let { mangaId ->
-                repository.updateLastReadChapter(mangaId, chapterId)
-            }
+            repository.updateLastReadChapter(chapter.mangaId, chapterId)
             if (deltaMs > 0) settings.addReadingTime(deltaMs)
             settings.addPagesRead(1)
+
+            val manga = repository.getManga(chapter.mangaId)
+            if (manga != null) {
+                historyDao.record(
+                    ReadHistoryEntity(
+                        chapterId = chapterId,
+                        mangaId = chapter.mangaId,
+                        mangaTitle = manga.title,
+                        coverUrl = manga.coverUrl,
+                        chapterName = chapter.name,
+                        readAt = System.currentTimeMillis(),
+                    )
+                )
+            }
         }
     }
 

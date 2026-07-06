@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -222,6 +223,93 @@ fun MangaDetailScreen(
                                 .padding(14.dp),
                         ) {
                             Text(text = manga?.description ?: "", style = MaterialTheme.typography.bodyMedium, color = TextSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+
+                // ── Metadata (author, year, genres) ──────────────────────────
+                item {
+                    val m = manga
+                    if (m != null && (m.author != null || m.year != null || m.genres.isNotBlank())) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text("INFO", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
+                            if (m.author != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                                    Text("Autor:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                    Text(m.author, color = TextPrimary, fontSize = 13.sp)
+                                }
+                            }
+                            if (m.artist != null && m.artist != m.author) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                                    Text("Kreslíř:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                    Text(m.artist, color = TextPrimary, fontSize = 13.sp)
+                                }
+                            }
+                            if (m.year != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                                    Text("Rok:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                    Text(m.year.toString(), color = TextPrimary, fontSize = 13.sp)
+                                }
+                            }
+                            if (m.genres.isNotBlank()) {
+                                val genreList = m.genres.split(",").filter { it.isNotBlank() }
+                                if (genreList.isNotEmpty()) {
+                                    Text("Žánry:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp, top = 2.dp))
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        genreList.forEach { genre ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(50))
+                                                    .background(Violet.copy(alpha = 0.15f))
+                                                    .border(1.dp, Violet.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                                    .padding(horizontal = 10.dp, vertical = 3.dp),
+                                            ) {
+                                                Text(genre.trim(), color = Violet, fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Per-manga reader direction ────────────────────────────────
+                item {
+                    var dirDropdownExpanded by remember { mutableStateOf(false) }
+                    val currentDir = manga?.readerDirectionOverride
+                    val dirLabel = when (currentDir) {
+                        "LTR"     -> "LTR (Vlevo → Vpravo)"
+                        "RTL"     -> "RTL (Vpravo → Vlevo)"
+                        "WEBTOON" -> "Webtoon (Scroll)"
+                        else      -> "Výchozí (z nastavení)"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Směr čtení:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(100.dp))
+                        Box {
+                            Text(
+                                text = dirLabel,
+                                color = Cyan,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable { dirDropdownExpanded = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .border(1.dp, Cyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                            DropdownMenu(expanded = dirDropdownExpanded, onDismissRequest = { dirDropdownExpanded = false }) {
+                                listOf(null to "Výchozí", "LTR" to "LTR", "RTL" to "RTL", "WEBTOON" to "Webtoon").forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = { viewModel.setReaderDirection(value); dirDropdownExpanded = false },
+                                    )
+                                }
+                            }
                         }
                     }
                 }

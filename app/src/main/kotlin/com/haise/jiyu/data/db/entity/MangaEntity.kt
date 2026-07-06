@@ -20,4 +20,9 @@ data class MangaEntity(
     val lastUpdated: Long = System.currentTimeMillis(),
     val lastReadChapterId: String? = null,
     val lastReadAt: Long = 0L,
+    val readerDirectionOverride: String? = null,
+    val author: String? = null,
+    val artist: String? = null,
+    val genres: String = "",
+    val year: Int? = null,
 )

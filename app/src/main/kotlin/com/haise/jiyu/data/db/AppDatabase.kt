@@ -12,6 +12,7 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 
 class Converters {
@@ -30,8 +31,9 @@ class Converters {
         CategoryEntity::class,
         MangaCategoryEntity::class,
         CustomSourceEntity::class,
+        ReadHistoryEntity::class,
     ],
-    version = 7,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -41,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun translatedPageDao(): TranslatedPageDao
     abstract fun categoryDao(): CategoryDao
     abstract fun customSourceDao(): CustomSourceDao
+    abstract fun readHistoryDao(): ReadHistoryDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -91,6 +94,33 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE custom_source ADD COLUMN statusSelector TEXT")
                 db.execSQL("ALTER TABLE custom_source ADD COLUMN chapterListSelector TEXT")
                 db.execSQL("ALTER TABLE custom_source ADD COLUMN pageImageSelector TEXT")
+            }
+        }
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `read_history` (
+                        `chapterId` TEXT NOT NULL PRIMARY KEY,
+                        `mangaId` TEXT NOT NULL,
+                        `mangaTitle` TEXT NOT NULL,
+                        `coverUrl` TEXT,
+                        `chapterName` TEXT NOT NULL,
+                        `readAt` INTEGER NOT NULL
+                    )"""
+                )
+            }
+        }
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN readerDirectionOverride TEXT")
+            }
+        }
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN author TEXT")
+                db.execSQL("ALTER TABLE manga ADD COLUMN artist TEXT")
+                db.execSQL("ALTER TABLE manga ADD COLUMN genres TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE manga ADD COLUMN year INTEGER")
             }
         }
     }

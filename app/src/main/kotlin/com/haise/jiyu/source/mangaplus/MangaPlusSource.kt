@@ -31,8 +31,7 @@ class MangaPlusSource @Inject constructor(
 
     private val apiBase = "https://jumpg-webapi.tokyo-cdn.com"
 
-    // Vrátí první + poslední kapitoly jako populární tituly
-    override suspend fun getPopular(page: Int): List<SManga> = withContext(Dispatchers.IO) {
+    override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val bytes = get("$apiBase/api/title_list/allV2")
         val success = bytes.parseProto().msg(1) ?: return@withContext emptyList()
         val view = success.msg(25) ?: return@withContext emptyList()
@@ -43,8 +42,7 @@ class MangaPlusSource @Inject constructor(
             .filter { it.url.isNotEmpty() }
     }
 
-    // MANGA Plus nemá search API — filtrujeme lokálně ze seznamu titulů; vše je na první stránce
-    override suspend fun search(query: String, page: Int): List<SManga> {
+    override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> {
         if (page > 1) return emptyList()
         return getPopular().filter { it.title.contains(query, ignoreCase = true) }
     }

@@ -179,4 +179,8 @@ class MangaDetailViewModel @Inject constructor(
     }
 
     fun clearError() { _errorMessage.value = null }
+
+    fun setReaderDirection(direction: String?) {
+        viewModelScope.launch { repository.setMangaReaderDirection(mangaId, direction) }
+    }
 }

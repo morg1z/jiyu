@@ -10,6 +10,16 @@ data class SManga(
     val coverUrl: String?,
     val description: String? = null,
     val status: String? = null,
+    val author: String? = null,
+    val artist: String? = null,
+    val genres: List<String> = emptyList(),
+    val year: Int? = null,
+)
+
+data class MangaFilter(
+    val status: String? = null,
+    val year: Int? = null,
+    val sortBy: String = "popular",
 )
 
 /**
@@ -50,10 +60,10 @@ interface MangaSource {
     val name: String
 
     /** Fulltextové hledání podle názvu. */
-    suspend fun search(query: String, page: Int = 1): List<SManga>
+    suspend fun search(query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>
 
     /** Populární / doporučené tituly pro daný zdroj (výchozí zobrazení v Browse). */
-    suspend fun getPopular(page: Int = 1): List<SManga>
+    suspend fun getPopular(page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>
 
     /** Detail mangy - doplní popis, stav vydávání apod. */
     suspend fun getMangaDetails(manga: SManga): SManga

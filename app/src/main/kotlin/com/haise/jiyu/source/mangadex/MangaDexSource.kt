@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangadex
 
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.LanguageMap
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
@@ -35,22 +36,42 @@ class MangaDexSource @Inject constructor(
     private val apiBase = "https://api.mangadex.org"
     private val coverBase = "https://uploads.mangadex.org/covers"
 
-    override suspend fun search(query: String, page: Int): List<SManga> = withContext(Dispatchers.IO) {
+    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val offset = (page - 1) * 20
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = "$apiBase/manga?title=$encodedQuery&limit=20&offset=$offset&includes[]=cover_art"
+        val url = buildString {
+            append("$apiBase/manga?title=$encodedQuery&limit=20&offset=$offset&includes[]=cover_art")
+            filter.status?.let { append("&status[]=$it") }
+            filter.year?.takeIf { it > 0 }?.let { append("&year=$it") }
+            appendSortParam(filter.sortBy)
+        }
         parseMangaList(get(url))
     }
 
-    override suspend fun getPopular(page: Int): List<SManga> = withContext(Dispatchers.IO) {
+    override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val offset = (page - 1) * 20
-        val url = "$apiBase/manga?order[followedCount]=desc&limit=20&offset=$offset&includes[]=cover_art"
+        val url = buildString {
+            append("$apiBase/manga?limit=20&offset=$offset&includes[]=cover_art")
+            append("&contentRating[]=safe&contentRating[]=suggestive")
+            filter.status?.let { append("&status[]=$it") }
+            filter.year?.takeIf { it > 0 }?.let { append("&year=$it") }
+            appendSortParam(filter.sortBy)
+        }
         parseMangaList(get(url))
+    }
+
+    private fun StringBuilder.appendSortParam(sortBy: String) {
+        when (sortBy) {
+            "latest"  -> append("&order[updatedAt]=desc")
+            "rating"  -> append("&order[rating]=desc")
+            "title"   -> append("&order[title]=asc")
+            else      -> append("&order[followedCount]=desc")
+        }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         val mangaId = manga.url.substringAfterLast("/")
-        val json = get("$apiBase/manga/$mangaId?includes[]=cover_art")
+        val json = get("$apiBase/manga/$mangaId?includes[]=cover_art&includes[]=author&includes[]=artist")
         val data = json.getJSONObject("data")
         mangaFromData(data) ?: manga
     }
@@ -120,14 +141,33 @@ class MangaDexSource @Inject constructor(
         val descriptionObj = attributes.optJSONObject("description")
         val description = descriptionObj?.optString("en")
         val status = attributes.optString("status")
+        val year = attributes.optInt("year", 0).takeIf { it > 0 }
+
+        val genres = mutableListOf<String>()
+        val tagsArray = attributes.optJSONArray("tags")
+        if (tagsArray != null) {
+            for (i in 0 until tagsArray.length()) {
+                val tag = tagsArray.getJSONObject(i)
+                val group = tag.optJSONObject("attributes")?.optString("group")
+                if (group == "genre") {
+                    tag.optJSONObject("attributes")?.optJSONObject("name")?.optString("en")
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { genres.add(it) }
+                }
+            }
+        }
 
         var coverFileName: String? = null
+        var author: String? = null
+        var artist: String? = null
         val relationships = data.optJSONArray("relationships")
         if (relationships != null) {
             for (i in 0 until relationships.length()) {
                 val rel = relationships.getJSONObject(i)
-                if (rel.optString("type") == "cover_art") {
-                    coverFileName = rel.optJSONObject("attributes")?.optString("fileName")
+                when (rel.optString("type")) {
+                    "cover_art"  -> coverFileName = rel.optJSONObject("attributes")?.optString("fileName")
+                    "author"     -> if (author == null) author = rel.optJSONObject("attributes")?.optString("name")
+                    "artist"     -> if (artist == null) artist = rel.optJSONObject("attributes")?.optString("name")
                 }
             }
         }
@@ -140,6 +180,10 @@ class MangaDexSource @Inject constructor(
             coverUrl = coverUrl,
             description = description,
             status = status,
+            author = author,
+            artist = artist,
+            genres = genres,
+            year = year,
         )
     }
 

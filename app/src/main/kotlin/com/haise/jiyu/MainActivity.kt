@@ -19,7 +19,7 @@ import androidx.core.view.WindowCompat
 import androidx.navigation.compose.rememberNavController
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.settings.ThemeOption
-import com.haise.jiyu.ui.navigation.JiyuNavGraph
+import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
             }) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
-                    JiyuNavGraph(navController = navController)
+                    MainScreen(navController = navController)
                 }
             }
         }

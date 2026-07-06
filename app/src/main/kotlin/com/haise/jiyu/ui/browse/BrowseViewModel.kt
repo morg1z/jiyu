@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
@@ -35,7 +36,7 @@ class BrowseViewModel @Inject constructor(
             val first = sourceManager.getAll().firstOrNull()
             if (_selectedSource.value == null) {
                 _selectedSource.value = first
-                if (first != null) loadPopular()
+                if (first != null) loadPopular(_activeFilter.value)
             }
         }
     }
@@ -58,62 +59,7 @@ class BrowseViewModel @Inject constructor(
     fun selectSource(source: MangaSource) {
         if (_selectedSource.value?.id == source.id) return
         _selectedSource.value = source
-        loadPopular()
-    }
-
-    fun loadPopular() {
-        val sourceId = _selectedSource.value?.id ?: return
-        lastQuery = null
-        currentPage = 1
-        if (!networkMonitor.isOnline) {
-            _error.value = "Nejsi připojen k internetu"
-            _results.value = emptyList()
-            _hasMore.value = false
-            return
-        }
-        viewModelScope.launch {
-            _loading.value = true
-            _error.value = null
-            try {
-                val page = repository.getPopular(sourceId, 1)
-                _results.value = page
-                _hasMore.value = page.size >= 20
-            } catch (e: Exception) {
-                _error.value = e.toFriendlyMessage()
-                _results.value = emptyList()
-                _hasMore.value = false
-            } finally {
-                _loading.value = false
-            }
-        }
-    }
-
-    fun search(query: String) {
-        if (query.isBlank()) { loadPopular(); return }
-        val sourceId = _selectedSource.value?.id ?: return
-        lastQuery = query
-        currentPage = 1
-        if (!networkMonitor.isOnline) {
-            _error.value = "Nejsi připojen k internetu"
-            _results.value = emptyList()
-            _hasMore.value = false
-            return
-        }
-        viewModelScope.launch {
-            _loading.value = true
-            _error.value = null
-            try {
-                val page = repository.search(sourceId, query, 1)
-                _results.value = page
-                _hasMore.value = page.size >= 20
-            } catch (e: Exception) {
-                _error.value = e.toFriendlyMessage()
-                _results.value = emptyList()
-                _hasMore.value = false
-            } finally {
-                _loading.value = false
-            }
-        }
+        loadPopular(_activeFilter.value)
     }
 
     fun loadMore() {
@@ -121,13 +67,14 @@ class BrowseViewModel @Inject constructor(
         val sourceId = _selectedSource.value?.id ?: return
         currentPage++
         val q = lastQuery
+        val filter = _activeFilter.value
         viewModelScope.launch {
             _loading.value = true
             try {
                 val page = if (q == null)
-                    repository.getPopular(sourceId, currentPage)
+                    repository.getPopular(sourceId, currentPage, filter)
                 else
-                    repository.search(sourceId, q, currentPage)
+                    repository.search(sourceId, q, currentPage, filter)
                 if (page.isEmpty()) {
                     _hasMore.value = false
                 } else {
@@ -144,7 +91,7 @@ class BrowseViewModel @Inject constructor(
 
     fun retry() {
         val q = lastQuery
-        if (q == null) loadPopular() else search(q)
+        if (q == null) loadPopular(_activeFilter.value) else search(q, _activeFilter.value)
     }
 
     fun addToLibrary(manga: SManga, onAdded: (String) -> Unit) {
@@ -154,6 +101,70 @@ class BrowseViewModel @Inject constructor(
                 onAdded(repository.mangaId(manga.sourceId, manga.url))
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
+            }
+        }
+    }
+
+    private val _activeFilter = MutableStateFlow(MangaFilter())
+    val activeFilter: StateFlow<MangaFilter> = _activeFilter.asStateFlow()
+
+    fun setFilters(filter: MangaFilter) {
+        _activeFilter.value = filter
+        val q = lastQuery
+        if (q == null) loadPopular(filter) else search(q, filter)
+    }
+
+    fun loadPopular(filter: MangaFilter = _activeFilter.value) {
+        val sourceId = _selectedSource.value?.id ?: return
+        lastQuery = null
+        currentPage = 1
+        if (!networkMonitor.isOnline) {
+            _error.value = "Nejsi připojen k internetu"
+            _results.value = emptyList()
+            _hasMore.value = false
+            return
+        }
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+            try {
+                val page = repository.getPopular(sourceId, 1, filter)
+                _results.value = page
+                _hasMore.value = page.size >= 20
+            } catch (e: Exception) {
+                _error.value = e.toFriendlyMessage()
+                _results.value = emptyList()
+                _hasMore.value = false
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun search(query: String, filter: MangaFilter = _activeFilter.value) {
+        if (query.isBlank()) { loadPopular(filter); return }
+        val sourceId = _selectedSource.value?.id ?: return
+        lastQuery = query
+        currentPage = 1
+        if (!networkMonitor.isOnline) {
+            _error.value = "Nejsi připojen k internetu"
+            _results.value = emptyList()
+            _hasMore.value = false
+            return
+        }
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+            try {
+                val page = repository.search(sourceId, query, 1, filter)
+                _results.value = page
+                _hasMore.value = page.size >= 20
+            } catch (e: Exception) {
+                _error.value = e.toFriendlyMessage()
+                _results.value = emptyList()
+                _hasMore.value = false
+            } finally {
+                _loading.value = false
             }
         }
     }
