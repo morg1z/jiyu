@@ -50,3 +50,9 @@
 # WorkManager workers
 -keep class com.haise.jiyu.download.** { *; }
 -keepclassmembers class com.haise.jiyu.download.** { *; }
+-keep class com.haise.jiyu.work.** { *; }
+-keepclassmembers class com.haise.jiyu.work.** { *; }
+
+# Jsoup (HTML parsing pro generický Madara zdroj)
+-dontwarn org.jsoup.**
+-keep class org.jsoup.** { *; }
