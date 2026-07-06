@@ -20,4 +20,5 @@ data class ChapterEntity(
     /** Lokální složka se staženými stránkami (pokud downloadStatus == DOWNLOADED). */
     val localPath: String? = null,
     val pageCount: Int = 0,
+    val scanlationGroup: String? = null,
 )

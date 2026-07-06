@@ -1,17 +1,28 @@
 package com.haise.jiyu.data.db
 
 import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import kotlinx.coroutines.flow.Flow
 
+data class MangaUnreadCount(val mangaId: String, val count: Int)
+data class MangaTotalCount(val mangaId: String, val count: Int)
+data class MangaDownloadedCount(val mangaId: String, val count: Int)
+
 @Dao
 interface ChapterDao {
 
+    /** Full upsert — používej POUZE pro import zálohy kde chceme obnovit i read/download stav. */
     @Upsert
     suspend fun upsertAll(chapters: List<ChapterEntity>)
+
+    /** Vloží jen nové kapitoly; existující nechá beze změny (zachová read/download stav). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertNewOnly(chapters: List<ChapterEntity>)
 
     @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
     fun observeForManga(mangaId: String): Flow<List<ChapterEntity>>
@@ -27,4 +38,41 @@ interface ChapterDao {
 
     @Query("UPDATE chapter SET read = :read, lastPageRead = :lastPageRead WHERE id = :id")
     suspend fun updateProgress(id: String, read: Boolean, lastPageRead: Int)
+
+    @Query("SELECT COUNT(*) FROM chapter WHERE mangaId = :mangaId")
+    suspend fun countForManga(mangaId: String): Int
+
+    @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
+    suspend fun getAllForManga(mangaId: String): List<ChapterEntity>
+
+    @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
+    suspend fun countRead(): Int
+
+    @Query("SELECT * FROM chapter WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
+    suspend fun getAllForLibrary(): List<ChapterEntity>
+
+    // ── Counts per manga ──────────────────────────────────────────────────────
+
+    @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE read = 0 GROUP BY mangaId")
+    fun observeUnreadCounts(): Flow<List<MangaUnreadCount>>
+
+    @Query("SELECT mangaId, COUNT(*) as count FROM chapter GROUP BY mangaId")
+    fun observeTotalCounts(): Flow<List<MangaTotalCount>>
+
+    @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE downloadStatus = 'DOWNLOADED' GROUP BY mangaId")
+    fun observeDownloadedCountPerManga(): Flow<List<MangaDownloadedCount>>
+
+    // ── Download management ───────────────────────────────────────────────────
+
+    @Query("SELECT * FROM chapter WHERE downloadStatus != 'NOT_DOWNLOADED' ORDER BY mangaId ASC, chapterNumber DESC")
+    fun observeNonEmptyDownloads(): Flow<List<ChapterEntity>>
+
+    @Query("SELECT COUNT(*) FROM chapter WHERE downloadStatus = 'DOWNLOADED'")
+    fun observeDownloadedCount(): Flow<Int>
+
+    @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED', localPath = NULL, pageCount = 0 WHERE downloadStatus = 'DOWNLOADED'")
+    suspend fun clearAllDownloaded()
+
+    @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED', localPath = NULL, pageCount = 0 WHERE id = :id")
+    suspend fun resetDownloadForChapter(id: String)
 }

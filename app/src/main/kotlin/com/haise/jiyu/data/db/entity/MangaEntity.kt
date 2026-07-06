@@ -18,4 +18,6 @@ data class MangaEntity(
     val status: String?,
     val inLibrary: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis(),
+    val lastReadChapterId: String? = null,
+    val lastReadAt: Long = 0L,
 )
