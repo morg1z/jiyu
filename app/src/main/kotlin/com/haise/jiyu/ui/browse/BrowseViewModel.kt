@@ -30,9 +30,16 @@ class BrowseViewModel @Inject constructor(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    init {
-        loadPopular()
-    }
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _hasMore = MutableStateFlow(false)
+    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
+
+    private var currentPage = 1
+    private var lastQuery: String? = null
+
+    init { loadPopular() }
 
     fun selectSource(source: MangaSource) {
         if (_selectedSource.value.id == source.id) return
@@ -41,30 +48,86 @@ class BrowseViewModel @Inject constructor(
     }
 
     fun loadPopular() {
+        lastQuery = null
+        currentPage = 1
         viewModelScope.launch {
             _loading.value = true
-            _results.value = repository.getPopular(_selectedSource.value.id)
-            _loading.value = false
+            _error.value = null
+            try {
+                val page = repository.getPopular(_selectedSource.value.id, 1)
+                _results.value = page
+                _hasMore.value = page.size >= 20
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Chyba sítě"
+                _results.value = emptyList()
+                _hasMore.value = false
+            } finally {
+                _loading.value = false
+            }
         }
     }
 
     fun search(query: String) {
-        if (query.isBlank()) {
-            loadPopular()
-            return
-        }
+        if (query.isBlank()) { loadPopular(); return }
+        lastQuery = query
+        currentPage = 1
         viewModelScope.launch {
             _loading.value = true
-            _results.value = repository.search(_selectedSource.value.id, query)
-            _loading.value = false
+            _error.value = null
+            try {
+                val page = repository.search(_selectedSource.value.id, query, 1)
+                _results.value = page
+                _hasMore.value = page.size >= 20
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Chyba sítě"
+                _results.value = emptyList()
+                _hasMore.value = false
+            } finally {
+                _loading.value = false
+            }
         }
     }
 
-    /** Přidá mangu do knihovny a vrátí její lokální ID k navigaci na detail. */
+    fun loadMore() {
+        if (_loading.value || !_hasMore.value) return
+        currentPage++
+        val q = lastQuery
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val page = if (q == null)
+                    repository.getPopular(_selectedSource.value.id, currentPage)
+                else
+                    repository.search(_selectedSource.value.id, q, currentPage)
+                if (page.isEmpty()) {
+                    _hasMore.value = false
+                } else {
+                    _results.value = _results.value + page
+                    _hasMore.value = page.size >= 20
+                }
+            } catch (e: Exception) {
+                currentPage--
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun retry() {
+        val q = lastQuery
+        if (q == null) loadPopular() else search(q)
+    }
+
     fun addToLibrary(manga: SManga, onAdded: (String) -> Unit) {
         viewModelScope.launch {
             repository.addToLibrary(manga)
             onAdded(repository.mangaId(manga.sourceId, manga.url))
         }
     }
+
+    private val _previewManga = MutableStateFlow<SManga?>(null)
+    val previewManga: StateFlow<SManga?> = _previewManga.asStateFlow()
+
+    fun showPreview(manga: SManga) { _previewManga.value = manga }
+    fun dismissPreview() { _previewManga.value = null }
 }

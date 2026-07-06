@@ -10,18 +10,30 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
@@ -29,8 +41,11 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,16 +82,33 @@ import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
 import com.haise.jiyu.ui.theme.violetGlow
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(
     onMangaAdded: (String) -> Unit,
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
-    val results by viewModel.results.collectAsState()
+    val results        by viewModel.results.collectAsState()
+    val loading        by viewModel.loading.collectAsState()
+    val error          by viewModel.error.collectAsState()
     val selectedSource by viewModel.selectedSource.collectAsState()
+    val previewManga   by viewModel.previewManga.collectAsState()
+    val hasMore        by viewModel.hasMore.collectAsState()
     val sources = viewModel.sources
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val listState = rememberLazyGridState()
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisible >= totalItems - 5 && totalItems > 0
+        }
+    }
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && hasMore) viewModel.loadMore()
+    }
 
     Column(
         modifier = Modifier
@@ -92,6 +124,7 @@ fun BrowseScreen(
                         colors = listOf(NightBlue, DeepSpace.copy(alpha = 0f)),
                     )
                 )
+                .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Text(
@@ -174,17 +207,142 @@ fun BrowseScreen(
             }
         }
 
-        // ── Results grid ─────────────────────────────────────────────────────
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize(),
+        // ── Results area ─────────────────────────────────────────────────────
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+        when {
+            // Loading — grid je prázdný
+            loading && results.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Violet)
+                }
+            }
+            // Chyba sítě
+            error != null -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp),
+                    ) {
+                        Text("( ⚠ )", fontSize = 40.sp, color = GlowViolet.copy(alpha = 0.5f))
+                        Text(
+                            text = "Načtení selhalo",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        Text(
+                            text = error ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                        )
+                        OutlinedButton(onClick = { viewModel.retry() }) {
+                            Text("Zkusit znovu", color = Violet)
+                        }
+                    }
+                }
+            }
+            // Prázdné výsledky
+            results.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("( ˘•ω•˘ )", fontSize = 36.sp, color = GlowViolet.copy(alpha = 0.5f))
+                        Text(
+                            text = "Žádné výsledky",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+            }
+            // Grid s výsledky
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 16.dp + navBottom),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                ) {
+                    items(results, key = { it.sourceId + it.url }) { manga ->
+                        BrowseMangaCard(manga = manga) {
+                            viewModel.showPreview(manga)
+                        }
+                    }
+                    if (hasMore || loading) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Violet, strokeWidth = 2.dp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Preview bottom sheet ─────────────────────────────────────────────────
+    previewManga?.let { manga ->
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.dismissPreview() },
+            sheetState = sheetState,
+            containerColor = Color(0xFF111B35),
         ) {
-            items(results, key = { it.sourceId + it.url }) { manga ->
-                BrowseMangaCard(manga = manga) {
-                    viewModel.addToLibrary(manga, onMangaAdded)
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                AsyncImage(
+                    model = manga.coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                    Text(
+                        text = manga.title,
+                        style = androidx.compose.ui.text.TextStyle(
+                            brush = titleGradient,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = selectedSource.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    if (!manga.description.isNullOrBlank()) {
+                        Text(
+                            text = manga.description!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Brush.linearGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.8f))))
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = {
+                                    viewModel.addToLibrary(manga, onMangaAdded)
+                                    viewModel.dismissPreview()
+                                })
+                            }
+                            .padding(vertical = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("+ Přidat do knihovny", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
                 }
             }
         }

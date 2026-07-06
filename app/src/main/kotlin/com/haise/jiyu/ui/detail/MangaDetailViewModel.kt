@@ -3,7 +3,9 @@ package com.haise.jiyu.ui.detail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
@@ -13,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,28 +30,139 @@ class MangaDetailViewModel @Inject constructor(
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
 
-    private val _manga = MutableStateFlow<MangaEntity?>(null)
-    val manga: StateFlow<MangaEntity?> = _manga.asStateFlow()
+    val manga: StateFlow<MangaEntity?> = repository.observeMangaById(mangaId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val chapters: StateFlow<List<ChapterEntity>> = repository.observeChapters(mangaId)
+    // ── Řazení + filtrování kapitol ───────────────────────────────────────────
+    private val _sortAscending = MutableStateFlow(false)
+    val sortAscending: StateFlow<Boolean> = _sortAscending.asStateFlow()
+
+    private val _chapterFilter = MutableStateFlow("")
+    val chapterFilter: StateFlow<String> = _chapterFilter.asStateFlow()
+
+    val chapters: StateFlow<List<ChapterEntity>> = combine(
+        repository.observeChapters(mangaId),
+        _sortAscending,
+        _chapterFilter,
+    ) { list, asc, filter ->
+        val filtered = if (filter.isBlank()) list
+                       else list.filter { it.name.contains(filter, ignoreCase = true) }
+        if (asc) filtered.sortedBy { it.chapterNumber }
+        else filtered.sortedByDescending { it.chapterNumber }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Continue tlačítko ─────────────────────────────────────────────────────
+    val continueChapter: StateFlow<ChapterEntity?> = combine(manga, chapters) { m, chs ->
+        if (chs.isEmpty()) return@combine null
+        val lastId = m?.lastReadChapterId
+        if (lastId != null) {
+            chs.find { it.id == lastId }
+        } else {
+            chs.minByOrNull { it.chapterNumber }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── Kategorie ─────────────────────────────────────────────────────────────
+    val allCategories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init {
+    val mangaCategoryIds: StateFlow<List<String>> = repository.observeCategoryIdsForManga(mangaId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Pull-to-refresh & error ───────────────────────────────────────────────
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    // ── Akce ──────────────────────────────────────────────────────────────────
+
+    fun toggleSort() { _sortAscending.value = !_sortAscending.value }
+
+    fun setChapterFilter(query: String) { _chapterFilter.value = query }
+
+    fun markAllRead() {
         viewModelScope.launch {
-            _manga.value = repository.getManga(mangaId)
+            repository.getAllChapters(mangaId).forEach { chapter ->
+                repository.updateReadProgress(chapter.id, read = true, lastPageRead = 0)
+            }
         }
     }
 
-    fun refreshChapters() {
-        val current = _manga.value ?: return
+    fun toggleCategory(categoryId: String) {
         viewModelScope.launch {
-            val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status)
-            repository.refreshChapters(mangaId, sManga)
+            if (categoryId in mangaCategoryIds.value) repository.removeMangaFromCategory(mangaId, categoryId)
+            else repository.addMangaToCategory(mangaId, categoryId)
+        }
+    }
+
+    fun removeFromLibrary() {
+        viewModelScope.launch { repository.removeFromLibrary(mangaId) }
+    }
+
+    fun refreshChapters() {
+        val current = manga.value ?: return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _errorMessage.value = null
+            try {
+                val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status)
+                repository.refreshChapters(mangaId, sManga)
+            } catch (e: Exception) {
+                _errorMessage.value = "Aktualizace selhala: ${e.message ?: "Chyba sítě"}"
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 
     fun downloadChapter(chapter: ChapterEntity) {
-        val mangaUrl = _manga.value?.url ?: return
-        downloadQueue.enqueue(chapter, mangaUrl)
+        val mangaUrl = manga.value?.url ?: return
+        viewModelScope.launch {
+            repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+            downloadQueue.enqueue(chapter, mangaUrl)
+        }
     }
+
+    fun downloadAll() {
+        val mangaUrl = manga.value?.url ?: return
+        viewModelScope.launch {
+            chapters.value
+                .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR }
+                .forEach { chapter ->
+                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+                    downloadQueue.enqueue(chapter, mangaUrl)
+                }
+        }
+    }
+
+    fun downloadUnread() {
+        val mangaUrl = manga.value?.url ?: return
+        viewModelScope.launch {
+            chapters.value
+                .filter { !it.read && (it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR) }
+                .forEach { chapter ->
+                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+                    downloadQueue.enqueue(chapter, mangaUrl)
+                }
+        }
+    }
+
+    fun markReadUpTo(chapterId: String) {
+        viewModelScope.launch {
+            val target = repository.getChapter(chapterId) ?: return@launch
+            repository.getAllChapters(mangaId)
+                .filter { it.chapterNumber <= target.chapterNumber }
+                .forEach { repository.updateReadProgress(it.id, read = true, lastPageRead = 0) }
+        }
+    }
+
+    fun markChapterRead(chapterId: String, read: Boolean) {
+        viewModelScope.launch {
+            repository.updateReadProgress(chapterId, read = read, lastPageRead = 0)
+        }
+    }
+
+    fun clearError() { _errorMessage.value = null }
 }

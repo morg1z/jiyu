@@ -1,3 +1,11 @@
 <resources>
-    <style name="Theme.Jiyu" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Jiyu" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Tmavé pozadí okna — zamezí bílému záblesku při startu -->
+        <item name="android:windowBackground">@color/deep_space</item>
+        <!-- Průhledné systémové lišty (enableEdgeToEdge to řídí programově, ale takhle je to i pro první frame) -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+    </style>
 </resources>
