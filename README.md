@@ -38,8 +38,7 @@ a připraveným místem pro AI překladač. Čistě pro osobní použití.
    závislost v `build.gradle.kts` (offline OCR) a architektura pipeline
    (detekce bublin → OCR → LLM překlad → overlay), kterou jsme probrali v chatu.
    Bude to nový modul `translate/` s vlastním pipeline a integrací do `ReaderScreen`.
-2. **Další zdroje** - MangaDex slouží jako čistý referenční příklad (oficiální API,
-   žádný scraping). Když budeš chtít přidat další zdroj, řekni mi který a probereme
+2. **Další zdroje** - MangaDex slouží jako čistý referenční příklad (oficiální API,a scraping). Když budeš chtít přidat další zdroj, řekni mi který a probereme
    jeho konkrétní strukturu.
 3. **Nastavení appky** - výběr jazyka překladu, správa stažených kapitol (mazání),
    nastavení kvality obrázků.

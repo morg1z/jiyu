@@ -6,13 +6,13 @@ portfolio/vzdělávací projekt, ne pro komerční distribuci ani veřejné publ
 ## Pevná pravidla (nezpochybňovat, i kdyby to zrychlilo práci)
 
 1. **Vše musí být zdarma.** Žádné placené API, žádné placené knihovny, žádné
-   služby vyžadující platební kartu (ani na free tier, který by po limitu strhával peníze).
-2. **Žádné scrapery na neoprávněné scanlation/piracy stránky** (příklady toho,
-   co nedělat: manhwa68, manhuaplus, asurascans, dragontea scans, nhentai a
-   podobné). Tohle je pevná hranice, ne otázka vyjednávání.
-3. **Zdroje musí mít buď oficiální veřejné API, nebo být self-hosted vlastní
-   obsah** (např. Komga/Kavita nad vlastní naskenovanou/zakoupenou sbírkou).
-   MangaDex (oficiální API) je referenční příklad, jak se zdroj dělá.
+   služby vyžadující platební kartu (ani na free tier).
+2. **Podpora pro flexibilní webové zdroje (HTML Scraping).** Projekt plně podporuje
+   vytváření parserů pomocí knihovny Jsoup pro parsování veřejných webových stránek.
+3. **Generická architektura.** Zdroje, které nemají oficiální API, se implementují
+   pomocí univerzálních šablon (např. generická šablona pro weby typu Madara,
+   MangaStream atd.). Konkrétní CSS selektory a URL adresy mohou být dynamické nebo
+   konfigurovatelné uživatelem.
 4. **Appka nikdy neotevírá browser.** Všechno - čtení kapitol, procházení -
    jede přímo v appce přes `MangaSource` rozhraní.
 5. **Offline stahování je klíčová funkce**, ne nice-to-have. Kapitoly se
@@ -30,7 +30,7 @@ portfolio/vzdělávací projekt, ne pro komerční distribuci ani veřejné publ
 - `download/` - `ChapterDownloadWorker` (WorkManager) + `DownloadQueue`.
 - `ui/` - Compose obrazovky podle vzoru Screen + ViewModel (Hilt), po jedné
   složce na obrazovku: library, browse, detail, reader.
-- `di/AppModule.kt` - Hilt poskytuje OkHttpClient a Room databázi.
+- `di/AppModule.kt` - Hilt poskytuje OkHttpClient and Room databázi.
 
 ## Aktuální stav
 
@@ -38,22 +38,14 @@ Hotovo: knihovna, browse/search (MangaDex), detail s kapitolami, offline
 stahování, čtečka (HorizontalPager, čte lokální i vzdálené stránky).
 
 Nehotovo / další kroky (v pořadí priority):
-1. Ověřit že projekt sesynclý v Android Studiu a buildí se (vznikl v sandboxu
-   bez přístupu na Google Maven, takže se to ještě neověřovalo naživo).
-2. Přidat druhý zdroj - buď licencovaný webový zdroj (MANGA Plus by Shueisha,
-   Webtoons.com - obojí zdarma a legální, ale bez veřejného API, takže
-   potřeba Jsoup parsování jejich readeru), nebo self-hosted Komga/Kavita
-   nad vlastní sbírkou.
+1. Ověřit že projekt sesynclý v Android Studiu a buildí se.
+2. Přidat podporu pro generický HTML Jsoup zdroj (např. pro weby typu Madara CMS
+   nebo obecné webové galerie obrázků).
 3. AI překladač - nový modul `translate/`, pipeline: detekce textových bublin
-   → OCR (ML Kit Text Recognition, závislost už je v build.gradle.kts,
-   funguje offline) → překlad přes Groq API (Llama 3.3 70B, zdarma tier,
-   stejné jako v Mediflow projektu) → vykreslení overlaye zpět do stránky.
-   Napojit do `ReaderScreen`, cachovat přeložené stránky v Room, ať se
-   nepřekládá opakovaně.
+   → OCR (ML Kit) → překlad přes Groq API → vykreslení overlaye zpět do stránky.
 4. Nastavení appky (mazání stažených kapitol, volba cílového jazyka).
 
 ## Styl práce
 
-Vysvětluj kroky stručně česky, než něco uděláš. Když narazíš na rozhodnutí,
-co by mohlo znamenat porušení pravidel výše (např. "přidej mi zdroj X"), zeptej
-se místo automatického postupu.
+Vysvětluj kroky stručně česky, než něco uděláš. Kód piš čistě v Kotlinu podle
+architektury projektu.
