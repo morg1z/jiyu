@@ -36,11 +36,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -114,6 +117,8 @@ fun LibraryScreen(
     val categories         by viewModel.categories.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
     val searchQuery        by viewModel.searchQuery.collectAsState()
+    val sortOption         by viewModel.sortOption.collectAsState()
+    val sortAscending      by viewModel.sortAscending.collectAsState()
     val isRefreshing       by viewModel.isRefreshing.collectAsState()
     val readingStats       by settingsViewModel.readingStats.collectAsState()
     val recentlyRead       by viewModel.recentlyRead.collectAsState()
@@ -123,6 +128,7 @@ fun LibraryScreen(
 
     var showManageDialog         by remember { mutableStateOf(false) }
     var showStatsDialog          by remember { mutableStateOf(false) }
+    var sortMenuExpanded         by remember { mutableStateOf(false) }
     var searchActive             by remember { mutableStateOf(false) }
     var contextMenuManga         by remember { mutableStateOf<MangaEntity?>(null) }
     var showCategoryAssignDialog by remember { mutableStateOf(false) }
@@ -181,6 +187,18 @@ fun LibraryScreen(
                         Text(text = "Knihovna · ${library.size} manga", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                     }
                     IconButton(onClick = { searchActive = true }) { Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = TextSecondary) }
+                    Box {
+                        IconButton(onClick = { sortMenuExpanded = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Řadit", tint = TextSecondary)
+                        }
+                        SortMenu(
+                            expanded = sortMenuExpanded,
+                            sortOption = sortOption,
+                            ascending = sortAscending,
+                            onSelect = { viewModel.setSortOption(it) },
+                            onDismiss = { sortMenuExpanded = false },
+                        )
+                    }
                     IconButton(onClick = { showStatsDialog = true }) { Icon(Icons.Filled.AutoStories, contentDescription = "Statistiky", tint = TextSecondary) }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Nastavení", tint = TextSecondary) }
                 }
@@ -312,6 +330,42 @@ fun LibraryScreen(
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun SortMenu(
+    expanded: Boolean,
+    sortOption: LibrarySortOption,
+    ascending: Boolean,
+    onSelect: (LibrarySortOption) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        LibrarySortOption.TITLE        to "Název",
+        LibrarySortOption.LAST_UPDATED to "Naposledy aktualizováno",
+        LibrarySortOption.UNREAD_COUNT to "Nepřečtené",
+    )
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        options.forEach { (option, label) ->
+            val selected = option == sortOption
+            DropdownMenuItem(
+                text = { Text(label, color = if (selected) GlowViolet else TextPrimary) },
+                leadingIcon = {
+                    if (selected) {
+                        Icon(
+                            if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                            contentDescription = if (ascending) "Vzestupně" else "Sestupně",
+                            tint = GlowViolet,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    } else {
+                        Spacer(Modifier.size(18.dp))
+                    }
+                },
+                onClick = { onSelect(option); onDismiss() },
+            )
+        }
+    }
+}
 
 @Composable
 private fun CategoryChip(label: String, colorHex: String, selected: Boolean, onClick: () -> Unit) {

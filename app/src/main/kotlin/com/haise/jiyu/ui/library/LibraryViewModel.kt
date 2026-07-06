@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+enum class LibrarySortOption { TITLE, LAST_UPDATED, UNREAD_COUNT }
+
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: MangaRepository,
@@ -37,6 +39,17 @@ class LibraryViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _sortOption = MutableStateFlow(LibrarySortOption.TITLE)
+    val sortOption: StateFlow<LibrarySortOption> = _sortOption.asStateFlow()
+
+    private val _sortAscending = MutableStateFlow(true)
+    val sortAscending: StateFlow<Boolean> = _sortAscending.asStateFlow()
+
+    // ── Počty kapitol ─────────────────────────────────────────────────────────
+    val unreadCounts: StateFlow<Map<String, Int>> = repository.observeUnreadCounts()
+        .map { list -> list.associate { it.mangaId to it.count } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val library: StateFlow<List<MangaEntity>> = combine(
         _selectedCategoryId.flatMapLatest { categoryId ->
@@ -44,19 +57,23 @@ class LibraryViewModel @Inject constructor(
             else repository.observeLibraryInCategory(categoryId)
         },
         _searchQuery,
-    ) { list, query ->
-        if (query.isBlank()) list
-        else list.filter { it.title.contains(query, ignoreCase = true) }
+        unreadCounts,
+        combine(_sortOption, _sortAscending, ::Pair),
+    ) { list, query, unread, (sort, ascending) ->
+        val filtered = if (query.isBlank()) list
+            else list.filter { it.title.contains(query, ignoreCase = true) }
+
+        val sorted = when (sort) {
+            LibrarySortOption.TITLE        -> filtered.sortedBy { it.title.lowercase() }
+            LibrarySortOption.LAST_UPDATED -> filtered.sortedByDescending { it.lastUpdated }
+            LibrarySortOption.UNREAD_COUNT -> filtered.sortedByDescending { unread[it.id] ?: 0 }
+        }
+        if (ascending) sorted else sorted.reversed()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Historie čtení ───────────────────────────────────────────────────────
     val recentlyRead: StateFlow<List<MangaEntity>> = repository.observeRecentlyRead()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // ── Počty kapitol ─────────────────────────────────────────────────────────
-    val unreadCounts: StateFlow<Map<String, Int>> = repository.observeUnreadCounts()
-        .map { list -> list.associate { it.mangaId to it.count } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val totalCounts: StateFlow<Map<String, Int>> = repository.observeTotalCounts()
         .map { list -> list.associate { it.mangaId to it.count } }
@@ -89,6 +106,11 @@ class LibraryViewModel @Inject constructor(
     fun selectCategory(id: String?) { _selectedCategoryId.value = id }
 
     fun setSearchQuery(query: String) { _searchQuery.value = query }
+
+    fun setSortOption(option: LibrarySortOption) {
+        if (_sortOption.value == option) _sortAscending.value = !_sortAscending.value
+        else { _sortOption.value = option; _sortAscending.value = true }
+    }
 
     fun createCategory(name: String, colorHex: String) {
         if (name.isBlank()) return
