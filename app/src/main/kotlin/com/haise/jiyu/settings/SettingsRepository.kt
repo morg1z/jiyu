@@ -3,6 +3,7 @@ package com.haise.jiyu.settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -10,22 +11,30 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 object SettingsKeys {
-    val TARGET_LANGUAGE   = stringPreferencesKey("target_language")
-    val THEME             = stringPreferencesKey("theme")
-    val READING_DIRECTION = stringPreferencesKey("reading_direction")
+    val TARGET_LANGUAGE        = stringPreferencesKey("target_language")
+    val SOURCE_LANGUAGE        = stringPreferencesKey("source_language")
+    val THEME                  = stringPreferencesKey("theme")
+    val READING_DIRECTION      = stringPreferencesKey("reading_direction")
+    val READING_MODE           = stringPreferencesKey("reading_mode")
+    val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
+    val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
+    val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
 }
 
-/** Hodnoty témat */
 object ThemeOption {
     const val SYSTEM = "system"
     const val DARK   = "dark"
     const val LIGHT  = "light"
 }
 
-/** Hodnoty směru čtení */
 object ReadingDirection {
-    const val LTR = "ltr"   // left-to-right (manhwa, Western)
-    const val RTL = "rtl"   // right-to-left (japonská manga)
+    const val LTR = "ltr"
+    const val RTL = "rtl"
+}
+
+object ReadingMode {
+    const val MANGA    = "manga"    // horizontální stránky (klasická manga)
+    const val WEBTOON  = "webtoon"  // vertikální scroll (manhwa/webtoon)
 }
 
 @Singleton
@@ -35,18 +44,52 @@ class SettingsRepository @Inject constructor(
     val targetLanguage: Flow<String> =
         dataStore.data.map { it[SettingsKeys.TARGET_LANGUAGE] ?: "Czech" }
 
+    val sourceLanguage: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.SOURCE_LANGUAGE] ?: "English" }
+
     val theme: Flow<String> =
         dataStore.data.map { it[SettingsKeys.THEME] ?: ThemeOption.SYSTEM }
 
     val readingDirection: Flow<String> =
         dataStore.data.map { it[SettingsKeys.READING_DIRECTION] ?: ReadingDirection.LTR }
 
+    val readingMode: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.READING_MODE] ?: ReadingMode.MANGA }
+
+    val updateIntervalHours: Flow<Long> =
+        dataStore.data.map { it[SettingsKeys.UPDATE_INTERVAL_HOURS] ?: 12L }
+
     suspend fun setTargetLanguage(lang: String) =
         dataStore.edit { it[SettingsKeys.TARGET_LANGUAGE] = lang }
+
+    suspend fun setSourceLanguage(lang: String) =
+        dataStore.edit { it[SettingsKeys.SOURCE_LANGUAGE] = lang }
 
     suspend fun setTheme(theme: String) =
         dataStore.edit { it[SettingsKeys.THEME] = theme }
 
     suspend fun setReadingDirection(dir: String) =
         dataStore.edit { it[SettingsKeys.READING_DIRECTION] = dir }
+
+    suspend fun setReadingMode(mode: String) =
+        dataStore.edit { it[SettingsKeys.READING_MODE] = mode }
+
+    suspend fun setUpdateIntervalHours(hours: Long) =
+        dataStore.edit { it[SettingsKeys.UPDATE_INTERVAL_HOURS] = hours }
+
+    val totalReadingTimeMs: Flow<Long> =
+        dataStore.data.map { it[SettingsKeys.TOTAL_READING_TIME] ?: 0L }
+
+    val totalPagesRead: Flow<Long> =
+        dataStore.data.map { it[SettingsKeys.TOTAL_PAGES_READ] ?: 0L }
+
+    suspend fun addReadingTime(deltaMs: Long) =
+        dataStore.edit { prefs ->
+            prefs[SettingsKeys.TOTAL_READING_TIME] = (prefs[SettingsKeys.TOTAL_READING_TIME] ?: 0L) + deltaMs
+        }
+
+    suspend fun addPagesRead(count: Long) =
+        dataStore.edit { prefs ->
+            prefs[SettingsKeys.TOTAL_PAGES_READ] = (prefs[SettingsKeys.TOTAL_PAGES_READ] ?: 0L) + count
+        }
 }

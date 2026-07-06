@@ -1,0 +1,155 @@
+package com.haise.jiyu.backup
+
+import android.content.Context
+import android.net.Uri
+import com.haise.jiyu.data.db.entity.CategoryEntity
+import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.repository.MangaRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
+import org.json.JSONArray
+import org.json.JSONObject
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class BackupManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val repository: MangaRepository,
+) {
+
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    suspend fun exportToUri(uri: Uri): Result<Unit> = runCatching {
+        val json = buildBackupJson()
+        context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+            ?: error("Nelze otevřít výstupní soubor")
+    }
+
+    private suspend fun buildBackupJson(): String {
+        val mangaList    = repository.getAllLibraryManga()
+        val categories   = repository.getAllCategories()
+        val allChapters  = repository.getAllLibraryChapters()
+
+        val root = JSONObject().apply {
+            put("version", 1)
+            put("exportedAt", java.time.Instant.now().toString())
+
+            put("categories", JSONArray().also { arr ->
+                categories.forEach { cat ->
+                    arr.put(JSONObject().apply {
+                        put("id",       cat.id)
+                        put("name",     cat.name)
+                        put("colorHex", cat.colorHex)
+                    })
+                }
+            })
+
+            put("manga", JSONArray().also { arr ->
+                mangaList.forEach { m ->
+                    val catIds = repository.getCategoryIdsForManga(m.id)
+                    arr.put(JSONObject().apply {
+                        put("id",                m.id)
+                        put("sourceId",          m.sourceId)
+                        put("url",               m.url)
+                        put("title",             m.title)
+                        put("coverUrl",          m.coverUrl ?: "")
+                        put("description",       m.description ?: "")
+                        put("status",            m.status ?: "")
+                        put("lastReadChapterId", m.lastReadChapterId ?: "")
+                        put("categoryIds",       JSONArray(catIds))
+                    })
+                }
+            })
+
+            put("chapters", JSONArray().also { arr ->
+                allChapters.forEach { c ->
+                    arr.put(JSONObject().apply {
+                        put("id",            c.id)
+                        put("mangaId",       c.mangaId)
+                        put("sourceId",      c.sourceId)
+                        put("url",           c.url)
+                        put("name",          c.name)
+                        put("chapterNumber", c.chapterNumber)
+                        put("dateUpload",    c.dateUpload)
+                        put("read",          c.read)
+                        put("lastPageRead",  c.lastPageRead)
+                    })
+                }
+            })
+        }
+        return root.toString(2)
+    }
+
+    // ── Import ────────────────────────────────────────────────────────────────
+
+    suspend fun importFromUri(uri: Uri): Result<ImportStats> = runCatching {
+        val json = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+            ?: error("Nelze otevřít soubor zálohy")
+        restoreFromJson(json)
+    }
+
+    private suspend fun restoreFromJson(json: String): ImportStats {
+        val root = JSONObject(json)
+
+        // Kategorie
+        val catsArr = root.optJSONArray("categories") ?: JSONArray()
+        val categories = (0 until catsArr.length()).map { i ->
+            val c = catsArr.getJSONObject(i)
+            CategoryEntity(
+                id       = c.getString("id"),
+                name     = c.getString("name"),
+                colorHex = c.optString("colorHex", "#8B5CF6"),
+            )
+        }
+        repository.upsertAllCategories(categories)
+
+        // Manga
+        val mangaArr = root.optJSONArray("manga") ?: JSONArray()
+        val mangaList = mutableListOf<MangaEntity>()
+        val catAssignments = mutableListOf<Pair<String, String>>()
+
+        for (i in 0 until mangaArr.length()) {
+            val m = mangaArr.getJSONObject(i)
+            mangaList.add(
+                MangaEntity(
+                    id                = m.getString("id"),
+                    sourceId          = m.getString("sourceId"),
+                    url               = m.getString("url"),
+                    title             = m.getString("title"),
+                    coverUrl          = m.optString("coverUrl").ifBlank { null },
+                    description       = m.optString("description").ifBlank { null },
+                    status            = m.optString("status").ifBlank { null },
+                    inLibrary         = true,
+                    lastReadChapterId = m.optString("lastReadChapterId").ifBlank { null },
+                )
+            )
+            val ids = m.optJSONArray("categoryIds") ?: JSONArray()
+            for (j in 0 until ids.length()) catAssignments.add(m.getString("id") to ids.getString(j))
+        }
+        repository.upsertAllManga(mangaList)
+        catAssignments.forEach { (mId, cId) -> repository.addMangaToCategory(mId, cId) }
+
+        // Kapitoly
+        val chapArr = root.optJSONArray("chapters") ?: JSONArray()
+        val chapters = (0 until chapArr.length()).map { i ->
+            val c = chapArr.getJSONObject(i)
+            ChapterEntity(
+                id            = c.getString("id"),
+                mangaId       = c.getString("mangaId"),
+                sourceId      = c.getString("sourceId"),
+                url           = c.getString("url"),
+                name          = c.getString("name"),
+                chapterNumber = c.getDouble("chapterNumber").toFloat(),
+                dateUpload    = c.getLong("dateUpload"),
+                read          = c.getBoolean("read"),
+                lastPageRead  = c.getInt("lastPageRead"),
+            )
+        }
+        repository.upsertAllChapters(chapters)
+
+        return ImportStats(mangaList.size, chapters.size, categories.size)
+    }
+
+    data class ImportStats(val mangaCount: Int, val chapterCount: Int, val categoryCount: Int)
+}
