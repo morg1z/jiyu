@@ -2,12 +2,14 @@ package com.haise.jiyu.data.repository
 
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
+import com.haise.jiyu.data.db.CustomSourceDao
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaDownloadedCount
 import com.haise.jiyu.data.db.MangaTotalCount
 import com.haise.jiyu.data.db.MangaUnreadCount
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
@@ -24,6 +26,7 @@ class MangaRepository @Inject constructor(
     private val mangaDao: MangaDao,
     private val chapterDao: ChapterDao,
     private val categoryDao: CategoryDao,
+    private val customSourceDao: CustomSourceDao,
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 
@@ -138,6 +141,13 @@ class MangaRepository @Inject constructor(
         categoryDao.addMangaToCategory(MangaCategoryEntity(mangaId, categoryId))
     suspend fun removeMangaFromCategory(mangaId: String, categoryId: String) =
         categoryDao.removeMangaFromCategory(mangaId, categoryId)
+
+    // ── Vlastní zdroje (Madara) ──────────────────────────────────────────────
+
+    fun observeCustomSources(): Flow<List<CustomSourceEntity>> = customSourceDao.observeAll()
+    suspend fun addCustomSource(name: String, baseUrl: String) =
+        customSourceDao.upsert(CustomSourceEntity(name = name, baseUrl = baseUrl))
+    suspend fun deleteCustomSource(source: CustomSourceEntity) = customSourceDao.delete(source)
 
     // ── Utils ─────────────────────────────────────────────────────────────────
 

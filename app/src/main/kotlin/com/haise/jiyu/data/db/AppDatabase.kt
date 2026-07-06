@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
@@ -28,8 +29,9 @@ class Converters {
         TranslatedPageEntity::class,
         CategoryEntity::class,
         MangaCategoryEntity::class,
+        CustomSourceEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -38,6 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chapterDao(): ChapterDao
     abstract fun translatedPageDao(): TranslatedPageDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun customSourceDao(): CustomSourceDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -48,6 +51,16 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chapter ADD COLUMN scanlationGroup TEXT")
+            }
+        }
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `custom_source` (
+                        `id` TEXT NOT NULL, `name` TEXT NOT NULL, `baseUrl` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )"""
+                )
             }
         }
     }

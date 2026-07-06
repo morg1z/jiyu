@@ -12,6 +12,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.haise.jiyu.backup.BackupManager
 import com.haise.jiyu.data.db.TranslatedPageDao
+import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
@@ -85,6 +86,10 @@ class SettingsViewModel @Inject constructor(
     private val _backupState = MutableStateFlow<BackupUiState>(BackupUiState.Idle)
     val backupState: StateFlow<BackupUiState> = _backupState.asStateFlow()
 
+    // ── Vlastní zdroje (Madara) ────────────────────────────────────────────────
+    val customSources: StateFlow<List<CustomSourceEntity>> = repository.observeCustomSources()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init { refreshCacheCount() }
 
     fun setTargetLanguage(lang: String)  = viewModelScope.launch { settings.setTargetLanguage(lang) }
@@ -142,5 +147,13 @@ class SettingsViewModel @Inject constructor(
 
     private fun refreshCacheCount() = viewModelScope.launch {
         _cacheCount.value = translatedPageDao.count()
+    }
+
+    fun addCustomSource(name: String, baseUrl: String) = viewModelScope.launch {
+        repository.addCustomSource(name, baseUrl)
+    }
+
+    fun deleteCustomSource(source: CustomSourceEntity) = viewModelScope.launch {
+        repository.deleteCustomSource(source)
     }
 }

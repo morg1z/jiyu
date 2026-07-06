@@ -8,21 +8,34 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
     private val repository: MangaRepository,
-    sourceManager: SourceManager,
+    private val sourceManager: SourceManager,
 ) : ViewModel() {
 
-    val sources: List<MangaSource> = sourceManager.getAll()
+    val sources: StateFlow<List<MangaSource>> = sourceManager.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _selectedSource = MutableStateFlow(sources.first())
-    val selectedSource: StateFlow<MangaSource> = _selectedSource.asStateFlow()
+    private val _selectedSource = MutableStateFlow<MangaSource?>(null)
+    val selectedSource: StateFlow<MangaSource?> = _selectedSource.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val first = sourceManager.getAll().firstOrNull()
+            if (_selectedSource.value == null) {
+                _selectedSource.value = first
+                if (first != null) loadPopular()
+            }
+        }
+    }
 
     private val _results = MutableStateFlow<List<SManga>>(emptyList())
     val results: StateFlow<List<SManga>> = _results.asStateFlow()
@@ -39,22 +52,21 @@ class BrowseViewModel @Inject constructor(
     private var currentPage = 1
     private var lastQuery: String? = null
 
-    init { loadPopular() }
-
     fun selectSource(source: MangaSource) {
-        if (_selectedSource.value.id == source.id) return
+        if (_selectedSource.value?.id == source.id) return
         _selectedSource.value = source
         loadPopular()
     }
 
     fun loadPopular() {
+        val sourceId = _selectedSource.value?.id ?: return
         lastQuery = null
         currentPage = 1
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
-                val page = repository.getPopular(_selectedSource.value.id, 1)
+                val page = repository.getPopular(sourceId, 1)
                 _results.value = page
                 _hasMore.value = page.size >= 20
             } catch (e: Exception) {
@@ -69,13 +81,14 @@ class BrowseViewModel @Inject constructor(
 
     fun search(query: String) {
         if (query.isBlank()) { loadPopular(); return }
+        val sourceId = _selectedSource.value?.id ?: return
         lastQuery = query
         currentPage = 1
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
-                val page = repository.search(_selectedSource.value.id, query, 1)
+                val page = repository.search(sourceId, query, 1)
                 _results.value = page
                 _hasMore.value = page.size >= 20
             } catch (e: Exception) {
@@ -90,15 +103,16 @@ class BrowseViewModel @Inject constructor(
 
     fun loadMore() {
         if (_loading.value || !_hasMore.value) return
+        val sourceId = _selectedSource.value?.id ?: return
         currentPage++
         val q = lastQuery
         viewModelScope.launch {
             _loading.value = true
             try {
                 val page = if (q == null)
-                    repository.getPopular(_selectedSource.value.id, currentPage)
+                    repository.getPopular(sourceId, currentPage)
                 else
-                    repository.search(_selectedSource.value.id, q, currentPage)
+                    repository.search(sourceId, q, currentPage)
                 if (page.isEmpty()) {
                     _hasMore.value = false
                 } else {

@@ -94,7 +94,7 @@ fun BrowseScreen(
     val selectedSource by viewModel.selectedSource.collectAsState()
     val previewManga   by viewModel.previewManga.collectAsState()
     val hasMore        by viewModel.hasMore.collectAsState()
-    val sources = viewModel.sources
+    val sources by viewModel.sources.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
@@ -169,41 +169,43 @@ fun BrowseScreen(
         }
 
         // ── Source tabs ──────────────────────────────────────────────────────
-        val selectedIndex = sources.indexOfFirst { it.id == selectedSource.id }.coerceAtLeast(0)
-        TabRow(
-            selectedTabIndex = selectedIndex,
-            containerColor = Color.Transparent,
-            contentColor = Violet,
-            indicator = { tabPositions ->
-                Box(
-                    modifier = Modifier
-                        .tabIndicatorOffset(tabPositions[selectedIndex])
-                        .height(2.dp)
-                        .background(
-                            Brush.horizontalGradient(listOf(Violet, Cyan)),
-                            RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp),
-                        )
-                )
-            },
-            divider = {},
-        ) {
-            sources.forEach { source ->
-                val isSelected = source.id == selectedSource.id
-                Tab(
-                    selected = isSelected,
-                    onClick = {
-                        query = ""
-                        viewModel.selectSource(source)
-                    },
-                    text = {
-                        Text(
-                            text = source.name,
-                            color = if (isSelected) Violet else TextSecondary,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = 13.sp,
-                        )
-                    },
-                )
+        if (sources.isNotEmpty()) {
+            val selectedIndex = sources.indexOfFirst { it.id == selectedSource?.id }.coerceAtLeast(0)
+            TabRow(
+                selectedTabIndex = selectedIndex,
+                containerColor = Color.Transparent,
+                contentColor = Violet,
+                indicator = { tabPositions ->
+                    Box(
+                        modifier = Modifier
+                            .tabIndicatorOffset(tabPositions[selectedIndex])
+                            .height(2.dp)
+                            .background(
+                                Brush.horizontalGradient(listOf(Violet, Cyan)),
+                                RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp),
+                            )
+                    )
+                },
+                divider = {},
+            ) {
+                sources.forEach { source ->
+                    val isSelected = source.id == selectedSource?.id
+                    Tab(
+                        selected = isSelected,
+                        onClick = {
+                            query = ""
+                            viewModel.selectSource(source)
+                        },
+                        text = {
+                            Text(
+                                text = source.name,
+                                color = if (isSelected) Violet else TextSecondary,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                fontSize = 13.sp,
+                            )
+                        },
+                    )
+                }
             }
         }
 
@@ -311,7 +313,7 @@ fun BrowseScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = selectedSource.name,
+                        text = selectedSource?.name.orEmpty(),
                         style = MaterialTheme.typography.labelMedium,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 4.dp),

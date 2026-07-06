@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +38,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -92,6 +94,7 @@ fun SettingsScreen(
     val backupState       by viewModel.backupState.collectAsState()
     val downloadedCount   by viewModel.downloadedCount.collectAsState()
     val updateInterval    by viewModel.updateIntervalHours.collectAsState()
+    val customSources     by viewModel.customSources.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -283,6 +286,84 @@ fun SettingsScreen(
                                 }
                             },
                             dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Zrušit", color = TextSecondary) } },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Vlastní zdroje (Madara) ───────────────────────────────────
+                SettingsSection(title = "Vlastní zdroje (Madara)") {
+                    var showAddDialog by remember { mutableStateOf(false) }
+
+                    Text(
+                        text = "Generický zdroj pro weby postavené na Madara šabloně. Zadej název a adresu webu - appka proti ní zkusí parsovat standardní Madara markup.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+
+                    customSources.forEach { source ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(source.name, color = TextPrimary, fontWeight = FontWeight.Medium)
+                                Text(source.baseUrl, color = TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            }
+                            IconButton(onClick = { viewModel.deleteCustomSource(source) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Smazat", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { showAddDialog = true },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Přidat zdroj")
+                    }
+
+                    if (showAddDialog) {
+                        var name by remember { mutableStateOf("") }
+                        var url by remember { mutableStateOf("") }
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { showAddDialog = false },
+                            containerColor = androidx.compose.ui.graphics.Color(0xFF111B35),
+                            title = { Text("Přidat Madara zdroj", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            text = {
+                                Column {
+                                    TextField(
+                                        value = name,
+                                        onValueChange = { name = it },
+                                        label = { Text("Název") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    TextField(
+                                        value = url,
+                                        onValueChange = { url = it },
+                                        label = { Text("Adresa webu (https://…)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        if (name.isNotBlank() && url.isNotBlank()) {
+                                            viewModel.addCustomSource(name.trim(), url.trim())
+                                            showAddDialog = false
+                                        }
+                                    },
+                                ) { Text("Přidat", color = GlowViolet) }
+                            },
+                            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Zrušit", color = TextSecondary) } },
                         )
                     }
                 }
