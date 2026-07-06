@@ -34,16 +34,21 @@ portfolio/vzdělávací projekt, ne pro komerční distribuci ani veřejné publ
 
 ## Aktuální stav
 
-Hotovo: knihovna, browse/search (MangaDex), detail s kapitolami, offline
-stahování, čtečka (HorizontalPager, čte lokální i vzdálené stránky).
+Hotovo: knihovna (kategorie, progress, offline badge, pokračovat ve čtení),
+browse/search (MangaDex, MANGA Plus, ComicK + nekonečný scroll), detail
+s kapitolami (status chip, datum, sdílení), offline stahování + Download
+Manager, čtečka (HorizontalPager i webtoon, jas, AI překlad s volbou
+zdroj->cíl jazyka), periodické aktualizace na pozadí + notifikace,
+záloha/obnovení (JSON), generický Madara zdroj (uživatel přidá
+název + URL v Nastavení, appka parsuje standardní Madara markup přes Jsoup).
 
-Nehotovo / další kroky (v pořadí priority):
-1. Ověřit že projekt sesynclý v Android Studiu a buildí se.
-2. Přidat podporu pro generický HTML Jsoup zdroj (např. pro weby typu Madara CMS
-   nebo obecné webové galerie obrázků).
-3. AI překladač - nový modul `translate/`, pipeline: detekce textových bublin
-   → OCR (ML Kit) → překlad přes Groq API → vykreslení overlaye zpět do stránky.
-4. Nastavení appky (mazání stažených kapitol, volba cílového jazyka).
+Nehotovo / další kroky:
+1. Ověřit naživo v Android Studiu / na zařízení (kompiluje se, ale
+   generický Madara parser byl testován jen proti veřejně známé
+   struktuře tématu, ne proti konkrétnímu běžícímu webu).
+2. Zvážit per-zdroj override CSS selektorů v UI (teď se používají pevné
+   výchozí Madara selektory - pokud konkrétní web téma upravil, parsování
+   se může rozejít).
 
 ## Styl práce
 
