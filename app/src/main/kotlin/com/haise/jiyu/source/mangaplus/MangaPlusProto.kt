@@ -2,8 +2,16 @@ package com.haise.jiyu.source.mangaplus
 
 internal typealias ProtoMsg = Map<Int, List<Any>>
 
-/** Minimální protobuf parser pro MANGA Plus API. Bez externích závislostí. */
-internal fun ByteArray.parseProto(): ProtoMsg {
+/**
+ * Minimální protobuf parser pro MANGA Plus API. Bez externích závislostí.
+ *
+ * MANGA Plus u nedostupných kapitol (expirovaná free-window, geoblok) vrací
+ * chybovou odpověď jako HTML/JSON misto protobuf - parsování takového vstupu
+ * by s naivní aritmetikou délek snadno spočítalo index mimo pole a spadlo na
+ * IndexOutOfBoundsException. Proto je tu jak ohraničení délek, tak try/catch
+ * jako poslední pojistka - volající vždy dostane aspoň prázdnou mapu.
+ */
+internal fun ByteArray.parseProto(): ProtoMsg = try {
     val result = mutableMapOf<Int, MutableList<Any>>()
     var i = 0
     while (i < size) {
@@ -15,14 +23,17 @@ internal fun ByteArray.parseProto(): ProtoMsg {
             1 -> { i += 8 }
             2 -> {
                 val (len, i2) = readVarint(i); i = i2
-                result.getOrPut(fieldNum) { mutableListOf() }.add(copyOfRange(i, i + len.toInt()))
-                i += len.toInt()
+                val end = (i + len.toInt()).coerceIn(i, size)
+                result.getOrPut(fieldNum) { mutableListOf() }.add(copyOfRange(i, end))
+                i = end
             }
             5 -> { i += 4 }
             else -> break
         }
     }
-    return result
+    result
+} catch (_: Exception) {
+    emptyMap()
 }
 
 private fun ByteArray.readVarint(start: Int): Pair<Long, Int> {

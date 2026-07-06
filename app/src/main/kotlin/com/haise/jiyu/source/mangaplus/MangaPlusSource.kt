@@ -107,12 +107,20 @@ class MangaPlusSource @Inject constructor(
         )
     }
 
+    /**
+     * Vraci prazdne pole misto vyhozeni vyjimky, pokud odpoved neni uspesna
+     * nebo nema telo (napr. expirovana/geoblokovana kapitola) - parseProto()
+     * na prazdnem poli vrati prazdnou mapu a volajici uz na to maji fallback.
+     */
     private fun get(url: String): ByteArray {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "okhttp/4.12.0")
             .header("X-Device-Type", "3")
             .build()
-        return client.newCall(request).execute().use { it.body!!.bytes() }
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use ByteArray(0)
+            response.body?.bytes() ?: ByteArray(0)
+        }
     }
 }
