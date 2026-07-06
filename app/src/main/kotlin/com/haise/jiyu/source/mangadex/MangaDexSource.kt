@@ -1,10 +1,13 @@
 package com.haise.jiyu.source.mangadex
 
+import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.source.LanguageMap
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,6 +26,7 @@ import javax.inject.Singleton
 @Singleton
 class MangaDexSource @Inject constructor(
     private val client: OkHttpClient,
+    private val settings: SettingsRepository,
 ) : MangaSource {
 
     override val id = "mangadex"
@@ -53,14 +57,25 @@ class MangaDexSource @Inject constructor(
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val mangaId = manga.url.substringAfterLast("/")
-        val url = "$apiBase/manga/$mangaId/feed" +
-            "?translatedLanguage[]=en&order[chapter]=desc&limit=100" +
-            "&contentRating[]=safe&contentRating[]=suggestive"
-        val json = get(url)
-        val results = json.getJSONArray("data")
-        (0 until results.length()).mapNotNull { i ->
-            chapterFromData(results.getJSONObject(i), manga.url)
+        val allChapters = mutableListOf<SChapter>()
+        var offset = 0
+        val limit = 100
+        val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
+        while (true) {
+            val url = "$apiBase/manga/$mangaId/feed" +
+                "?translatedLanguage[]=$langCode&order[chapter]=desc&limit=$limit&offset=$offset" +
+                "&contentRating[]=safe&contentRating[]=suggestive&includes[]=scanlation_group"
+            val json = get(url)
+            val results = json.getJSONArray("data")
+            val total = json.optInt("total", 0)
+            val batch = (0 until results.length()).mapNotNull { i ->
+                chapterFromData(results.getJSONObject(i), manga.url)
+            }
+            allChapters.addAll(batch)
+            offset += limit
+            if (allChapters.size >= total || results.length() < limit) break
         }
+        allChapters
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -135,6 +150,18 @@ class MangaDexSource @Inject constructor(
         val title = attributes.optString("title").ifBlank { "Kapitola $chapterNumber" }
         val dateUpload = attributes.optString("publishAt")
 
+        var scanlationGroup: String? = null
+        val relationships = data.optJSONArray("relationships")
+        if (relationships != null) {
+            for (i in 0 until relationships.length()) {
+                val rel = relationships.getJSONObject(i)
+                if (rel.optString("type") == "scanlation_group") {
+                    scanlationGroup = rel.optJSONObject("attributes")?.optString("name")
+                    break
+                }
+            }
+        }
+
         return SChapter(
             sourceId = id,
             mangaUrl = mangaUrl,
@@ -142,6 +169,7 @@ class MangaDexSource @Inject constructor(
             name = title,
             chapterNumber = chapterNumber,
             dateUpload = parseIsoDateToMillis(dateUpload),
+            scanlationGroup = scanlationGroup,
         )
     }
 

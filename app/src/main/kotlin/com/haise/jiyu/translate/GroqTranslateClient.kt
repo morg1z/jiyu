@@ -25,10 +25,12 @@ class GroqTranslateClient @Inject constructor(
     suspend fun translateBatch(
         texts: List<String>,
         targetLanguage: String = "Czech",
+        sourceLanguage: String = "Auto",
     ): List<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank() || texts.isEmpty()) return@withContext emptyList()
 
         val textsJson = JSONArray(texts).toString()
+        val fromClause = if (sourceLanguage != "Auto") "from $sourceLanguage " else ""
 
         val body = JSONObject().apply {
             put("model", "llama-3.3-70b-versatile")
@@ -39,7 +41,7 @@ class GroqTranslateClient @Inject constructor(
                     put("role", "system")
                     put("content",
                         "You are a manga translator. Given a JSON array of manga text strings, " +
-                        "return a JSON array of $targetLanguage translations in exactly the same order. " +
+                        "return a JSON array of ${fromClause}$targetLanguage translations in exactly the same order. " +
                         "Return ONLY the JSON array, no explanations, no markdown."
                     )
                 })

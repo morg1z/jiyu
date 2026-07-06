@@ -23,8 +23,9 @@ class TranslateRepository @Inject constructor(
         chapterId: String,
         pageIndex: Int,
         targetLanguage: String = "Czech",
+        sourceLanguage: String = "Auto",
     ): List<TranslatedBlock> {
-        getCachedPage(chapterId, pageIndex, targetLanguage)?.let { return it }
+        getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage)?.let { return it }
 
         val rawBlocks = ocrEngine.recognize(pageUrl)
         if (rawBlocks.isEmpty()) return emptyList()
@@ -32,6 +33,7 @@ class TranslateRepository @Inject constructor(
         val translations = groqClient.translateBatch(
             texts = rawBlocks.map { it.text },
             targetLanguage = targetLanguage,
+            sourceLanguage = sourceLanguage,
         )
         if (translations.isEmpty()) return emptyList()
 
@@ -46,7 +48,7 @@ class TranslateRepository @Inject constructor(
             )
         }
 
-        dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage), blocksJson = blocks.serialize()))
+        dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = blocks.serialize()))
         return blocks
     }
 
@@ -55,11 +57,12 @@ class TranslateRepository @Inject constructor(
         chapterId: String,
         pageIndex: Int,
         targetLanguage: String,
+        sourceLanguage: String = "Auto",
     ): List<TranslatedBlock>? =
-        dao.getById(cacheId(chapterId, pageIndex, targetLanguage))?.deserialize()
+        dao.getById(cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage))?.deserialize()
 
-    private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String) =
-        "$chapterId::$pageIndex::$targetLanguage"
+    private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String, sourceLanguage: String) =
+        "$chapterId::$pageIndex::$sourceLanguage::$targetLanguage"
 
     // ── JSON (de)serialization ───────────────────────────────────────────────
 
