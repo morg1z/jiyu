@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,8 +36,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -52,6 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -96,6 +103,9 @@ fun SettingsScreen(
     val downloadedCount   by viewModel.downloadedCount.collectAsState()
     val updateInterval    by viewModel.updateIntervalHours.collectAsState()
     val customSources     by viewModel.customSources.collectAsState()
+    val tapZonesEnabled   by viewModel.tapZonesEnabled.collectAsState()
+    val readerTextScale   by viewModel.readerTextScale.collectAsState()
+    val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -186,6 +196,58 @@ fun SettingsScreen(
                         ReadingMode.WEBTOON to "Webtoon  (plynulé rolování)",
                     ).forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = readingMode == value, onClick = { viewModel.setReadingMode(value) })
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Čtečka ───────────────────────────────────────────────────
+                SettingsSection(title = "Čtečka") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = tapZonesEnabled, role = Role.Switch, onValueChange = { viewModel.setTapZonesEnabled(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Zóny pro tapnutí", color = TextPrimary, fontSize = 14.sp)
+                            Text("Okraje listují stránky, střed zobrazí/skryje ovládání", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = tapZonesEnabled,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Velikost textu překladu · ${String.format("%.1f", readerTextScale)}×", color = TextPrimary, fontSize = 14.sp)
+                        Slider(
+                            value = readerTextScale,
+                            onValueChange = { viewModel.setReaderTextScale(it) },
+                            valueRange = 0.7f..1.6f,
+                            modifier = Modifier.semantics { contentDescription = "Velikost textu překladu" },
+                            colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = doublePageSpread, role = Role.Switch, onValueChange = { viewModel.setDoublePageSpread(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Dvoustránkové zobrazení", color = TextPrimary, fontSize = 14.sp)
+                            Text("Dvě stránky vedle sebe při otočení na šířku (manga mód)", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = doublePageSpread,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
                     }
                 }
 

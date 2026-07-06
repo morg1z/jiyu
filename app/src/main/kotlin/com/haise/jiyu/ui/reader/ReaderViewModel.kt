@@ -69,6 +69,15 @@ class ReaderViewModel @Inject constructor(
     val readingMode: StateFlow<String> = settings.readingMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReadingMode.MANGA)
 
+    val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val readerTextScale: StateFlow<Float> = settings.readerTextScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
+
+    val doublePageSpread: StateFlow<Boolean> = settings.doublePageSpread
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // ── Překlad ──────────────────────────────────────────────────────────────
     private val _translateMode = MutableStateFlow(false)
     val translateMode: StateFlow<Boolean> = _translateMode.asStateFlow()
@@ -127,8 +136,14 @@ class ReaderViewModel @Inject constructor(
         } else {
             val manga = repository.getManga(chapter.mangaId)
             if (manga != null) {
-                val remotePages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
-                _pages.value = remotePages.map { it.imageUrl ?: it.url }
+                _pages.value = try {
+                    repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
+                        .map { it.imageUrl ?: it.url }
+                } catch (_: Exception) {
+                    // Zdroj selhal (expirovana/geoblokovana kapitola, sitova chyba...) -
+                    // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo načíst."
+                    emptyList()
+                }
             }
         }
         lastPageChangeMs = System.currentTimeMillis()

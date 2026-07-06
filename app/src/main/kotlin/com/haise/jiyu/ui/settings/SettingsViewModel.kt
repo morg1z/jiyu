@@ -66,6 +66,15 @@ class SettingsViewModel @Inject constructor(
     val updateIntervalHours: StateFlow<Long> = settings.updateIntervalHours
         .stateIn(viewModelScope, SharingStarted.Eagerly, 12L)
 
+    val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val readerTextScale: StateFlow<Float> = settings.readerTextScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
+
+    val doublePageSpread: StateFlow<Boolean> = settings.doublePageSpread
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private val _cacheCount = MutableStateFlow(0)
     val cacheCount: StateFlow<Int> = _cacheCount.asStateFlow()
 
@@ -96,6 +105,9 @@ class SettingsViewModel @Inject constructor(
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
     fun setReadingDirection(dir: String) = viewModelScope.launch { settings.setReadingDirection(dir) }
     fun setReadingMode(mode: String)     = viewModelScope.launch { settings.setReadingMode(mode) }
+    fun setTapZonesEnabled(enabled: Boolean) = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
+    fun setReaderTextScale(scale: Float)     = viewModelScope.launch { settings.setReaderTextScale(scale) }
+    fun setDoublePageSpread(enabled: Boolean) = viewModelScope.launch { settings.setDoublePageSpread(enabled) }
 
     fun setUpdateInterval(hours: Long) = viewModelScope.launch {
         settings.setUpdateIntervalHours(hours)

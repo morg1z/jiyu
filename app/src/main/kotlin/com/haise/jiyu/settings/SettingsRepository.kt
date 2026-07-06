@@ -2,7 +2,9 @@ package com.haise.jiyu.settings
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +21,9 @@ object SettingsKeys {
     val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
     val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
+    val TAP_ZONES_ENABLED      = booleanPreferencesKey("tap_zones_enabled")
+    val READER_TEXT_SCALE      = floatPreferencesKey("reader_text_scale")
+    val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
 }
 
 object ThemeOption {
@@ -59,6 +64,15 @@ class SettingsRepository @Inject constructor(
     val updateIntervalHours: Flow<Long> =
         dataStore.data.map { it[SettingsKeys.UPDATE_INTERVAL_HOURS] ?: 12L }
 
+    val tapZonesEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.TAP_ZONES_ENABLED] ?: true }
+
+    val readerTextScale: Flow<Float> =
+        dataStore.data.map { it[SettingsKeys.READER_TEXT_SCALE] ?: 1f }
+
+    val doublePageSpread: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.DOUBLE_PAGE_SPREAD] ?: false }
+
     suspend fun setTargetLanguage(lang: String) =
         dataStore.edit { it[SettingsKeys.TARGET_LANGUAGE] = lang }
 
@@ -76,6 +90,15 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setUpdateIntervalHours(hours: Long) =
         dataStore.edit { it[SettingsKeys.UPDATE_INTERVAL_HOURS] = hours }
+
+    suspend fun setTapZonesEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.TAP_ZONES_ENABLED] = enabled }
+
+    suspend fun setReaderTextScale(scale: Float) =
+        dataStore.edit { it[SettingsKeys.READER_TEXT_SCALE] = scale }
+
+    suspend fun setDoublePageSpread(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.DOUBLE_PAGE_SPREAD] = enabled }
 
     val totalReadingTimeMs: Flow<Long> =
         dataStore.data.map { it[SettingsKeys.TOTAL_READING_TIME] ?: 0L }

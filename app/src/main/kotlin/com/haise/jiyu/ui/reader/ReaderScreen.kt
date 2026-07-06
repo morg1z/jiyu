@@ -1,6 +1,7 @@
 package com.haise.jiyu.ui.reader
 
 import android.app.Activity
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -70,8 +72,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,6 +90,7 @@ import coil.compose.AsyncImage
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
@@ -102,6 +108,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val chapterTitle        by viewModel.chapterTitle.collectAsState()
     val sourceLanguage      by viewModel.sourceLanguage.collectAsState()
     val targetLanguage      by viewModel.targetLanguage.collectAsState()
+    val tapZonesEnabled     by viewModel.tapZonesEnabled.collectAsState()
+    val readerTextScale     by viewModel.readerTextScale.collectAsState()
+    val doublePageSpread    by viewModel.doublePageSpread.collectAsState()
 
     // Fullscreen immersive
     val view = LocalView.current
@@ -139,6 +148,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 targetLanguage = targetLanguage,
                 onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
                 onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
+                tapZonesEnabled = tapZonesEnabled,
+                textScale = readerTextScale,
+                doublePageSpread = doublePageSpread,
             )
         }
     }
@@ -165,6 +177,9 @@ private fun ReaderContent(
     targetLanguage: String,
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
+    tapZonesEnabled: Boolean,
+    textScale: Float,
+    doublePageSpread: Boolean,
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -198,6 +213,7 @@ private fun ReaderContent(
                 initialPage = initialPage,
                 translateMode = translateMode,
                 translatedPages = translatedPages,
+                textScale = textScale,
                 onPageChanged = onPageChanged,
                 onTap = { controlsVisible = !controlsVisible },
             )
@@ -208,6 +224,9 @@ private fun ReaderContent(
                 translateMode = translateMode,
                 translatedPages = translatedPages,
                 reverseLayout = reverseLayout,
+                doublePageSpread = doublePageSpread,
+                textScale = textScale,
+                tapZonesEnabled = tapZonesEnabled,
                 scale = scale,
                 panOffset = panOffset,
                 onScaleChange = { scale = it },
@@ -386,7 +405,10 @@ private fun ReaderContent(
                             value = if (brightness < 0f) 0.5f else brightness,
                             onValueChange = { brightness = it },
                             valueRange = 0.05f..1f,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp)
+                                .semantics { contentDescription = "Jas obrazovky" },
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
                                 activeTrackColor = Color(0xFF4FC3F7),
@@ -421,6 +443,9 @@ private fun MangaReader(
     translateMode: Boolean,
     translatedPages: Map<Int, List<TranslatedBlock>>,
     reverseLayout: Boolean,
+    doublePageSpread: Boolean,
+    textScale: Float,
+    tapZonesEnabled: Boolean,
     scale: Float,
     panOffset: Offset,
     onScaleChange: (Float) -> Unit,
@@ -428,13 +453,29 @@ private fun MangaReader(
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
 ) {
-    val pagerState = rememberPagerState(
-        initialPage = initialPage.coerceIn(0, pages.lastIndex),
-        pageCount = { pages.size },
-    )
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val useSpread = doublePageSpread && isLandscape
 
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { onPageChanged(it) }
+    // Dvoustránkové zobrazení: skupiny po 2 stránkách na šířku (jen na landscape)
+    val groups: List<List<Int>> = remember(pages.size, useSpread) {
+        if (!useSpread) pages.indices.map { listOf(it) }
+        else pages.indices.chunked(2)
+    }
+    val initialGroupIndex = remember(groups, initialPage) {
+        groups.indexOfFirst { initialPage in it }.coerceAtLeast(0)
+    }
+
+    val pagerState = rememberPagerState(
+        initialPage = initialGroupIndex.coerceIn(0, groups.lastIndex.coerceAtLeast(0)),
+        pageCount = { groups.size },
+    )
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(pagerState, groups) {
+        snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
+            groups.getOrNull(groupIdx)?.firstOrNull()?.let { onPageChanged(it) }
+        }
     }
 
     HorizontalPager(
@@ -442,7 +483,8 @@ private fun MangaReader(
         modifier = Modifier.fillMaxSize(),
         reverseLayout = reverseLayout,
         userScrollEnabled = scale <= 1f, // Zablokuj swipe při zoomu
-    ) { index ->
+    ) { groupIdx ->
+        val indices = groups[groupIdx]
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -454,25 +496,67 @@ private fun MangaReader(
                         else onPanChange(Offset.Zero)
                     }
                 }
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = { onTap() })
+                .pointerInput(tapZonesEnabled, reverseLayout, groups.size) {
+                    detectTapGestures(onTap = { offset ->
+                        if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
+                        val fraction = offset.x / size.width
+                        val delta = when {
+                            fraction < 0.3f -> if (reverseLayout) 1 else -1
+                            fraction > 0.7f -> if (reverseLayout) -1 else 1
+                            else -> 0
+                        }
+                        if (delta == 0) {
+                            onTap()
+                        } else {
+                            val target = (pagerState.currentPage + delta).coerceIn(0, groups.lastIndex)
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                        }
+                    })
                 },
         ) {
-            AsyncImage(
-                model = pages[index],
-                contentDescription = "Stránka ${index + 1}",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = panOffset.x,
-                        translationY = panOffset.y,
-                    ),
-            )
-            if (translateMode) {
-                translatedPages[index]?.forEach { block -> TranslationOverlay(block) }
+            if (indices.size == 1) {
+                AsyncImage(
+                    model = pages[indices[0]],
+                    contentDescription = "Stránka ${indices[0] + 1}",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = panOffset.x,
+                            translationY = panOffset.y,
+                        ),
+                )
+                if (translateMode) {
+                    translatedPages[indices[0]]?.forEach { block -> TranslationOverlay(block, textScale) }
+                }
+            } else {
+                val ordered = if (reverseLayout) indices.reversed() else indices
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = panOffset.x,
+                            translationY = panOffset.y,
+                        ),
+                ) {
+                    ordered.forEach { idx ->
+                        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
+                            AsyncImage(
+                                model = pages[idx],
+                                contentDescription = "Stránka ${idx + 1}",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            if (translateMode) {
+                                translatedPages[idx]?.forEach { block -> TranslationOverlay(block, textScale) }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -486,6 +570,7 @@ private fun WebtoonReader(
     initialPage: Int,
     translateMode: Boolean,
     translatedPages: Map<Int, List<TranslatedBlock>>,
+    textScale: Float,
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
 ) {
@@ -513,6 +598,7 @@ private fun WebtoonReader(
                 pageIndex = index,
                 translateMode = translateMode,
                 translatedBlocks = translatedPages[index] ?: emptyList(),
+                textScale = textScale,
             )
         }
     }
@@ -524,6 +610,7 @@ private fun WebtoonPage(
     pageIndex: Int,
     translateMode: Boolean,
     translatedBlocks: List<TranslatedBlock>,
+    textScale: Float,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -555,8 +642,8 @@ private fun WebtoonPage(
                         Text(
                             text = block.translatedText,
                             color = Color.White,
-                            fontSize = 10.sp,
-                            lineHeight = 13.sp,
+                            fontSize = (10 * textScale).sp,
+                            lineHeight = (13 * textScale).sp,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -569,7 +656,7 @@ private fun WebtoonPage(
 // ── Translation overlay ──────────────────────────────────────────────────────
 
 @Composable
-private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock) {
+private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, textScale: Float = 1f) {
     val left = maxWidth  * block.leftF
     val top  = maxHeight * block.topF
     val w    = maxWidth  * (block.rightF  - block.leftF)
@@ -587,8 +674,8 @@ private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock) {
         Text(
             text = block.translatedText,
             color = Color.White,
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
+            fontSize = (10 * textScale).sp,
+            lineHeight = (13 * textScale).sp,
             overflow = TextOverflow.Ellipsis,
         )
     }
