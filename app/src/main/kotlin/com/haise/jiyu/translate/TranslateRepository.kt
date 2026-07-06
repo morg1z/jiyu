@@ -13,6 +13,8 @@ class TranslateRepository @Inject constructor(
     private val groqClient: GroqTranslateClient,
     private val dao: TranslatedPageDao,
 ) {
+    val isApiKeyConfigured: Boolean get() = groqClient.isConfigured
+
     /**
      * Vrátí přeložené bloky pro jednu stránku.
      * Cache-first: pokud jsou v Room, vrátí okamžitě.

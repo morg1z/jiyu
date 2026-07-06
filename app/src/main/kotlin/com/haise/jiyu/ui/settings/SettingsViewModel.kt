@@ -16,6 +16,9 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.source.madara.MadaraSelectors
+import com.haise.jiyu.source.madara.MadaraSource
+import com.haise.jiyu.util.toFriendlyMessage
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,8 +29,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+
+sealed interface SourceTestState {
+    data object Idle    : SourceTestState
+    data object Testing : SourceTestState
+    data class  Success(val count: Int) : SourceTestState
+    data class  Failure(val message: String) : SourceTestState
+}
 
 data class ReadingStats(
     val chaptersRead: Int  = 0,
@@ -49,6 +60,7 @@ class SettingsViewModel @Inject constructor(
     private val translatedPageDao: TranslatedPageDao,
     private val repository: MangaRepository,
     private val backupManager: BackupManager,
+    private val okHttpClient: OkHttpClient,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
@@ -98,6 +110,9 @@ class SettingsViewModel @Inject constructor(
     // ── Vlastní zdroje (Madara) ────────────────────────────────────────────────
     val customSources: StateFlow<List<CustomSourceEntity>> = repository.observeCustomSources()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _sourceTestState = MutableStateFlow<SourceTestState>(SourceTestState.Idle)
+    val sourceTestState: StateFlow<SourceTestState> = _sourceTestState.asStateFlow()
 
     init { refreshCacheCount() }
 
@@ -181,4 +196,39 @@ class SettingsViewModel @Inject constructor(
     fun deleteCustomSource(source: CustomSourceEntity) = viewModelScope.launch {
         repository.deleteCustomSource(source)
     }
+
+    /** Zkusí načíst "populární" seznam ze zadané URL/selektorů bez uložení zdroje - ověří, že selektory na webu vůbec něco najdou. */
+    fun testCustomSource(
+        baseUrl: String,
+        listItemSelector: String?,
+        titleLinkSelector: String?,
+        descriptionSelector: String?,
+        statusSelector: String?,
+        chapterListSelector: String?,
+        pageImageSelector: String?,
+    ) = viewModelScope.launch {
+        _sourceTestState.value = SourceTestState.Testing
+        try {
+            val defaults = MadaraSelectors.DEFAULT
+            val selectors = MadaraSelectors(
+                listItem = listItemSelector?.ifBlank { null } ?: defaults.listItem,
+                titleLink = titleLinkSelector?.ifBlank { null } ?: defaults.titleLink,
+                description = descriptionSelector?.ifBlank { null } ?: defaults.description,
+                status = statusSelector?.ifBlank { null } ?: defaults.status,
+                chapterList = chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
+                pageImage = pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
+            )
+            val testSource = MadaraSource(id = "test", name = "Test", baseUrl = baseUrl, client = okHttpClient, selectors = selectors)
+            val results = testSource.getPopular(1)
+            _sourceTestState.value = if (results.isNotEmpty()) {
+                SourceTestState.Success(results.size)
+            } else {
+                SourceTestState.Failure("Nenalezeny žádné položky - zkontroluj adresu nebo selektory")
+            }
+        } catch (e: Exception) {
+            _sourceTestState.value = SourceTestState.Failure(e.toFriendlyMessage())
+        }
+    }
+
+    fun clearSourceTestState() { _sourceTestState.value = SourceTestState.Idle }
 }

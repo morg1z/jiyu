@@ -6,6 +6,8 @@ import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
+import com.haise.jiyu.util.NetworkMonitor
+import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +21,7 @@ import javax.inject.Inject
 class BrowseViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val sourceManager: SourceManager,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     val sources: StateFlow<List<MangaSource>> = sourceManager.observeAll()
@@ -62,6 +65,12 @@ class BrowseViewModel @Inject constructor(
         val sourceId = _selectedSource.value?.id ?: return
         lastQuery = null
         currentPage = 1
+        if (!networkMonitor.isOnline) {
+            _error.value = "Nejsi připojen k internetu"
+            _results.value = emptyList()
+            _hasMore.value = false
+            return
+        }
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
@@ -70,7 +79,7 @@ class BrowseViewModel @Inject constructor(
                 _results.value = page
                 _hasMore.value = page.size >= 20
             } catch (e: Exception) {
-                _error.value = e.message ?: "Chyba sítě"
+                _error.value = e.toFriendlyMessage()
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {
@@ -84,6 +93,12 @@ class BrowseViewModel @Inject constructor(
         val sourceId = _selectedSource.value?.id ?: return
         lastQuery = query
         currentPage = 1
+        if (!networkMonitor.isOnline) {
+            _error.value = "Nejsi připojen k internetu"
+            _results.value = emptyList()
+            _hasMore.value = false
+            return
+        }
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
@@ -92,7 +107,7 @@ class BrowseViewModel @Inject constructor(
                 _results.value = page
                 _hasMore.value = page.size >= 20
             } catch (e: Exception) {
-                _error.value = e.message ?: "Chyba sítě"
+                _error.value = e.toFriendlyMessage()
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {

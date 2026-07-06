@@ -17,6 +17,12 @@ interface CustomSourceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(source: CustomSourceEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(sources: List<CustomSourceEntity>)
+
+    @Query("SELECT * FROM custom_source ORDER BY name ASC")
+    suspend fun getAllOnce(): List<CustomSourceEntity>
+
     @Delete
     suspend fun delete(source: CustomSourceEntity)
 }

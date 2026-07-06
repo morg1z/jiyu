@@ -10,6 +10,8 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.NetworkMonitor
+import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +28,7 @@ class MangaDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -103,6 +106,10 @@ class MangaDetailViewModel @Inject constructor(
 
     fun refreshChapters() {
         val current = manga.value ?: return
+        if (!networkMonitor.isOnline) {
+            _errorMessage.value = "Nejsi připojen k internetu"
+            return
+        }
         viewModelScope.launch {
             _isRefreshing.value = true
             _errorMessage.value = null
@@ -110,7 +117,7 @@ class MangaDetailViewModel @Inject constructor(
                 val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status)
                 repository.refreshChapters(mangaId, sManga)
             } catch (e: Exception) {
-                _errorMessage.value = "Aktualizace selhala: ${e.message ?: "Chyba sítě"}"
+                _errorMessage.value = "Aktualizace selhala: ${e.toFriendlyMessage()}"
             } finally {
                 _isRefreshing.value = false
             }

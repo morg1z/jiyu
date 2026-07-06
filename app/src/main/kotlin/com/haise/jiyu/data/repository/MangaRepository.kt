@@ -167,6 +167,9 @@ class MangaRepository @Inject constructor(
         )
     )
     suspend fun deleteCustomSource(source: CustomSourceEntity) = customSourceDao.delete(source)
+    suspend fun getAllCustomSourcesOnce(): List<CustomSourceEntity> = customSourceDao.getAllOnce()
+    /** Zachová původní id (na rozdíl od addCustomSource) - potřeba pro obnovu zálohy, kde na id ukazují sourceId manga. */
+    suspend fun upsertAllCustomSources(sources: List<CustomSourceEntity>) = customSourceDao.upsertAll(sources)
 
     // ── Utils ─────────────────────────────────────────────────────────────────
 

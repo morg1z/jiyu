@@ -18,6 +18,9 @@ class GroqTranslateClient @Inject constructor(
 ) {
     private val apiKey get() = BuildConfig.GROQ_API_KEY
 
+    /** false = GROQ_API_KEY chybí v local.properties, překlad nemá šanci fungovat. */
+    val isConfigured: Boolean get() = apiKey.isNotBlank()
+
     /**
      * Přeloží seznam textů v jednom API volání.
      * Vrátí seznam překladů ve stejném pořadí; při chybě vrátí prázdný list.

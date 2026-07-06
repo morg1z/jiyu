@@ -56,10 +56,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -92,6 +92,12 @@ import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Offset není nativně Bundle-savovatelný, takže pro rememberSaveable potřebuje vlastní Saver. */
+private val OffsetSaver = Saver<Offset, List<Float>>(
+    save = { listOf(it.x, it.y) },
+    restore = { Offset(it[0], it[1]) },
+)
+
 @Composable
 fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val pages               by viewModel.pages.collectAsState()
@@ -111,6 +117,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val tapZonesEnabled     by viewModel.tapZonesEnabled.collectAsState()
     val readerTextScale     by viewModel.readerTextScale.collectAsState()
     val doublePageSpread    by viewModel.doublePageSpread.collectAsState()
+    val translationError    by viewModel.translationError.collectAsState()
 
     // Fullscreen immersive
     val view = LocalView.current
@@ -119,6 +126,20 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         ctrl.hide(WindowInsetsCompat.Type.systemBars())
         ctrl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose { ctrl.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+
+    // Obrazovka nezhasne, dokud se čte - nic nezkazí čtení hůř než timeout uprostřed kapitoly
+    DisposableEffect(Unit) {
+        val window = (view.context as Activity).window
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
+
+    LaunchedEffect(translationError) {
+        if (translationError != null) {
+            delay(4_000L)
+            viewModel.clearTranslationError()
+        }
     }
 
     Box(
@@ -153,6 +174,23 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 doublePageSpread = doublePageSpread,
             )
         }
+
+        AnimatedVisibility(
+            visible = translationError != null,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFB71C1C).copy(alpha = 0.92f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(translationError.orEmpty(), color = Color.White, fontSize = 13.sp)
+            }
+        }
     }
 }
 
@@ -181,13 +219,14 @@ private fun ReaderContent(
     textScale: Float,
     doublePageSpread: Boolean,
 ) {
-    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) { delay(3_000L); controlsVisible = false }
     }
 
-    // Jas obrazovky; -1f = systémový výchozí (okno se nezmění dokud uživatel nepohne sliderem)
-    var brightness by remember { mutableFloatStateOf(-1f) }
+    // Jas obrazovky; -1f = systémový výchozí (okno se nezmění dokud uživatel nepohne sliderem).
+    // rememberSaveable - jinak by se rotace obrazovky (config change) vrátila na systémový jas.
+    var brightness by rememberSaveable { mutableStateOf(-1f) }
     val view = LocalView.current
     LaunchedEffect(brightness) {
         if (brightness >= 0f) {
@@ -202,9 +241,10 @@ private fun ReaderContent(
         }
     }
 
-    // Pinch-to-zoom stav — sdílený přes celý reader, resetuje se při změně stránky
-    var scale by remember { mutableFloatStateOf(1f) }
-    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    // Pinch-to-zoom stav — sdílený přes celý reader, resetuje se při změně stránky.
+    // rememberSaveable, aby otočení obrazovky (config change) nezahodilo rozostřený zoom.
+    var scale by rememberSaveable { mutableStateOf(1f) }
+    var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (readingMode == ReadingMode.WEBTOON) {
@@ -462,8 +502,15 @@ private fun MangaReader(
         if (!useSpread) pages.indices.map { listOf(it) }
         else pages.indices.chunked(2)
     }
-    val initialGroupIndex = remember(groups, initialPage) {
-        groups.indexOfFirst { initialPage in it }.coerceAtLeast(0)
+
+    // Sleduje aktuální JEDNOTLIVOU stránku (ne index skupiny) přes rememberSaveable,
+    // aby po rotaci s aktivním dvoustránkovým zobrazením šlo dopočítat správnou
+    // novou skupinu - jinak by pagerState obnovil svůj starý číselný index, který
+    // pod novým seskupením znamená úplně jinou (nebo mimo rozsah) dvojici stránek.
+    var currentSingleIndex by rememberSaveable { mutableStateOf(initialPage) }
+
+    val initialGroupIndex = remember(groups) {
+        groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
     }
 
     val pagerState = rememberPagerState(
@@ -474,7 +521,18 @@ private fun MangaReader(
 
     LaunchedEffect(pagerState, groups) {
         snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
-            groups.getOrNull(groupIdx)?.firstOrNull()?.let { onPageChanged(it) }
+            groups.getOrNull(groupIdx)?.firstOrNull()?.let {
+                currentSingleIndex = it
+                onPageChanged(it)
+            }
+        }
+    }
+
+    // Korekce po zmene seskupeni (typicky rotace obrazovky) - viz komentar u currentSingleIndex.
+    LaunchedEffect(useSpread) {
+        val target = groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
+        if (target in groups.indices && target != pagerState.currentPage) {
+            pagerState.scrollToPage(target)
         }
     }
 

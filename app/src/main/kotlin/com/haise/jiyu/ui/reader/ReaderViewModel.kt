@@ -94,6 +94,11 @@ class ReaderViewModel @Inject constructor(
     private val _targetLanguage = MutableStateFlow("Czech")
     val targetLanguage: StateFlow<String> = _targetLanguage.asStateFlow()
 
+    private val _translationError = MutableStateFlow<String?>(null)
+    val translationError: StateFlow<String?> = _translationError.asStateFlow()
+
+    fun clearTranslationError() { _translationError.value = null }
+
     private var translationJob: Job? = null
     private var lastPageChangeMs = 0L
 
@@ -218,6 +223,10 @@ class ReaderViewModel @Inject constructor(
                 _translationProgress.value = null
             }
             !_translateMode.value -> {
+                if (!translateRepository.isApiKeyConfigured) {
+                    _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+                    return
+                }
                 _translateMode.value = true
                 startChapterTranslation()
             }

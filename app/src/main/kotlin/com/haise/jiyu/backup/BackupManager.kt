@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,12 +28,13 @@ class BackupManager @Inject constructor(
     }
 
     private suspend fun buildBackupJson(): String {
-        val mangaList    = repository.getAllLibraryManga()
-        val categories   = repository.getAllCategories()
-        val allChapters  = repository.getAllLibraryChapters()
+        val mangaList     = repository.getAllLibraryManga()
+        val categories    = repository.getAllCategories()
+        val allChapters   = repository.getAllLibraryChapters()
+        val customSources = repository.getAllCustomSourcesOnce()
 
         val root = JSONObject().apply {
-            put("version", 1)
+            put("version", 2)
             put("exportedAt", java.time.Instant.now().toString())
 
             put("categories", JSONArray().also { arr ->
@@ -41,6 +43,24 @@ class BackupManager @Inject constructor(
                         put("id",       cat.id)
                         put("name",     cat.name)
                         put("colorHex", cat.colorHex)
+                    })
+                }
+            })
+
+            // Vlastní Madara zdroje - bez nich by po obnově zálohy nešlo dohledat
+            // zdroj pro mangu přidanou přes ně (sourceId = "madara:{id}" by odkazoval na nic).
+            put("customSources", JSONArray().also { arr ->
+                customSources.forEach { s ->
+                    arr.put(JSONObject().apply {
+                        put("id",                  s.id)
+                        put("name",                s.name)
+                        put("baseUrl",              s.baseUrl)
+                        put("listItemSelector",     s.listItemSelector ?: "")
+                        put("titleLinkSelector",    s.titleLinkSelector ?: "")
+                        put("descriptionSelector",  s.descriptionSelector ?: "")
+                        put("statusSelector",       s.statusSelector ?: "")
+                        put("chapterListSelector",  s.chapterListSelector ?: "")
+                        put("pageImageSelector",    s.pageImageSelector ?: "")
                     })
                 }
             })
@@ -103,6 +123,25 @@ class BackupManager @Inject constructor(
             )
         }
         repository.upsertAllCategories(categories)
+
+        // Vlastní Madara zdroje - MUSÍ se obnovit před mangou, jinak manga přidaná
+        // přes ně odkazují na sourceId, který ještě v DB neexistuje.
+        val customSourcesArr = root.optJSONArray("customSources") ?: JSONArray()
+        val customSources = (0 until customSourcesArr.length()).map { i ->
+            val s = customSourcesArr.getJSONObject(i)
+            CustomSourceEntity(
+                id                  = s.getString("id"),
+                name                = s.getString("name"),
+                baseUrl             = s.getString("baseUrl"),
+                listItemSelector    = s.optString("listItemSelector").ifBlank { null },
+                titleLinkSelector   = s.optString("titleLinkSelector").ifBlank { null },
+                descriptionSelector = s.optString("descriptionSelector").ifBlank { null },
+                statusSelector      = s.optString("statusSelector").ifBlank { null },
+                chapterListSelector = s.optString("chapterListSelector").ifBlank { null },
+                pageImageSelector   = s.optString("pageImageSelector").ifBlank { null },
+            )
+        }
+        repository.upsertAllCustomSources(customSources)
 
         // Manga
         val mangaArr = root.optJSONArray("manga") ?: JSONArray()

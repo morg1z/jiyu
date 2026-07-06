@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -46,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -400,6 +402,9 @@ fun SettingsScreen(
                         var statusSel by remember { mutableStateOf("") }
                         var chapterListSel by remember { mutableStateOf("") }
                         var pageImageSel by remember { mutableStateOf("") }
+                        val testState by viewModel.sourceTestState.collectAsState()
+
+                        DisposableEffect(Unit) { onDispose { viewModel.clearSourceTestState() } }
 
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { showAddDialog = false },
@@ -446,6 +451,44 @@ fun SettingsScreen(
                                         SelectorField("Stav vydávání (status)", statusSel) { statusSel = it }
                                         SelectorField("Seznam kapitol (chapter list)", chapterListSel) { chapterListSel = it }
                                         SelectorField("Obrázky stránky (page image)", pageImageSel) { pageImageSel = it }
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.testCustomSource(
+                                                baseUrl = url.trim(),
+                                                listItemSelector = listItemSel.trim().ifBlank { null },
+                                                titleLinkSelector = titleLinkSel.trim().ifBlank { null },
+                                                descriptionSelector = descriptionSel.trim().ifBlank { null },
+                                                statusSelector = statusSel.trim().ifBlank { null },
+                                                chapterListSelector = chapterListSel.trim().ifBlank { null },
+                                                pageImageSelector = pageImageSel.trim().ifBlank { null },
+                                            )
+                                        },
+                                        enabled = url.isNotBlank() && testState != SourceTestState.Testing,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
+                                    ) {
+                                        if (testState == SourceTestState.Testing) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = Cyan)
+                                        }
+                                        Text("Otestovat připojení")
+                                    }
+                                    when (val s = testState) {
+                                        is SourceTestState.Success -> Text(
+                                            "✓ Nalezeno ${s.count} položek",
+                                            color = Color(0xFF81C784),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(top = 6.dp),
+                                        )
+                                        is SourceTestState.Failure -> Text(
+                                            "✗ ${s.message}",
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(top = 6.dp),
+                                        )
+                                        else -> Unit
                                     }
                                 }
                             },
