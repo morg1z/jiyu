@@ -97,6 +97,20 @@ class LibraryViewModel @Inject constructor(
         .map { list -> list.associate { it.mangaId to it.count } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    init {
+        viewModelScope.launch {
+            if (repository.getAllCategories().isEmpty()) {
+                listOf(
+                    CategoryEntity(id = UUID.randomUUID().toString(), name = "Čtu",           colorHex = "#8B5CF6"),
+                    CategoryEntity(id = UUID.randomUUID().toString(), name = "Dokončené",     colorHex = "#10B981"),
+                    CategoryEntity(id = UUID.randomUUID().toString(), name = "Plánuji číst", colorHex = "#22D3EE"),
+                    CategoryEntity(id = UUID.randomUUID().toString(), name = "Pozastaveno",  colorHex = "#F59E0B"),
+                    CategoryEntity(id = UUID.randomUUID().toString(), name = "Odloženo",     colorHex = "#EF4444"),
+                ).forEach { repository.createCategory(it) }
+            }
+        }
+    }
+
     // ── Bulk selection ────────────────────────────────────────────────────────
     private val _selectionMode = MutableStateFlow(false)
     val selectionMode: StateFlow<Boolean> = _selectionMode.asStateFlow()
