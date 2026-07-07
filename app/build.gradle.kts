@@ -15,6 +15,18 @@ ksp {
 val localProps = Properties()
 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(localProps::load)
 
+// Firebase (Crashlytics) je volitelný a zdarma — aplikuje se jen tehdy, když
+// existuje app/google-services.json (stažený z console.firebase.google.com).
+// Bez toho souboru appka jede úplně normálně dál, jen bez crash reportingu.
+// Soubor NENÍ v gitu (viz .gitignore).
+val googleServicesFile = file("google-services.json")
+val firebaseEnabled = googleServicesFile.exists()
+
+if (firebaseEnabled) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
+
 android {
     namespace = "com.haise.jiyu"
     compileSdk = 34
@@ -29,6 +41,7 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${localProps["SUPABASE_URL"] ?: "https://placeholder.supabase.co"}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps["SUPABASE_ANON_KEY"] ?: "placeholder-anon-key"}\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")
+        buildConfigField("Boolean", "FIREBASE_ENABLED", "$firebaseEnabled")
     }
 
     buildTypes {
@@ -145,6 +158,12 @@ dependencies {
 
     // QR kód generování (bez Activity, pure Java)
     implementation("com.google.zxing:core:3.5.3")
+
+    // Firebase Crashlytics + Analytics (zdarma) — knihovny se přidávají vždy,
+    // ale reálně se inicializují (viz JiyuApp) jen když je FIREBASE_ENABLED.
+    implementation(platform("com.google.firebase:firebase-bom:33.1.0"))
+    implementation("com.google.firebase:firebase-crashlytics")
+    implementation("com.google.firebase:firebase-analytics")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.room:room-testing:2.6.1")

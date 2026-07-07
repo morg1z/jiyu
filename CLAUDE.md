@@ -45,9 +45,6 @@ Hotovo (2026-07-06):
 - Download Manager, periodické aktualizace na pozadí + notifikace
 - Záloha/obnovení (JSON), nastavení čtečky
 - Unit testy (DAO, Room migrace, Madara parser), live test na emulátoru
-- Room DB v7, WorkManager + HiltWorkerFactory správně inicializovány
-
-## Styl práce
-
-Vysvětluj kroky stručně česky, než něco uděláš. Kód piš čistě v Kotlinu podle
-architektury projektu.
+- Room DB v14, WorkManager + HiltWorkerFactory správně inicializovány
+- Roadmapa #1-47, #49, #50 hotová (AI shrnutí/doporučení přes Groq, QR sdílení,
+  sleep timer, reading goals, hodnocení, 

@@ -16,6 +16,9 @@ import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.google.firebase.Firebase
+import com.google.firebase.analytics.analytics
+import com.google.firebase.crashlytics.crashlytics
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
 import com.haise.jiyu.work.CHANNEL_ID
 import com.haise.jiyu.work.ChapterUpdateWorker
@@ -55,6 +58,19 @@ class JiyuApp : Application(), Configuration.Provider {
 
         createNotificationChannel()
         scheduleChapterUpdates()
+        initFirebase()
+    }
+
+    /**
+     * Crashlytics + Analytics — jede jen pokud existuje app/google-services.json
+     * (BuildConfig.FIREBASE_ENABLED se nastavuje v gradle podle přítomnosti souboru).
+     * V debug buildu sbírání crashů vypínáme, ať si nezanášíme dashboard testovacím haraburdím.
+     */
+    private fun initFirebase() {
+        if (!BuildConfig.FIREBASE_ENABLED) return
+
+        Firebase.crashlytics.setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
+        Firebase.analytics.setAnalyticsCollectionEnabled(!BuildConfig.DEBUG)
     }
 
     override val workManagerConfiguration: Configuration
