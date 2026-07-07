@@ -8,7 +8,15 @@ import androidx.room.PrimaryKey
  * `id` je vždy "{sourceId}::{url}" - díky tomu je unikátní napříč zdroji
  * a nepotřebujeme žádný centrální generátor ID.
  */
-@Entity(tableName = "manga", indices = [Index("inLibrary"), Index("lastReadAt")])
+@Entity(
+    tableName = "manga",
+    indices = [
+        Index("inLibrary"),
+        Index("sourceId"),
+        Index(value = ["inLibrary", "sourceId"]),
+        Index("lastReadAt"),
+    ],
+)
 data class MangaEntity(
     @PrimaryKey val id: String,
     val sourceId: String,

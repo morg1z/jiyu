@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 14,
-    "identityHash": "838f8b32d033b6b10fc7d6d085e2f329",
+    "identityHash": "a98db615de54189bdea8c84e81a4f750",
     "entities": [
       {
         "tableName": "manga",
@@ -134,6 +134,25 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_manga_inLibrary` ON `${TABLE_NAME}` (`inLibrary`)"
           },
           {
+            "name": "index_manga_sourceId",
+            "unique": false,
+            "columnNames": [
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manga_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_manga_inLibrary_sourceId",
+            "unique": false,
+            "columnNames": [
+              "inLibrary",
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manga_inLibrary_sourceId` ON `${TABLE_NAME}` (`inLibrary`, `sourceId`)"
+          },
+          {
             "name": "index_manga_lastReadAt",
             "unique": false,
             "columnNames": [
@@ -243,6 +262,25 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_chapter_mangaId` ON `${TABLE_NAME}` (`mangaId`)"
+          },
+          {
+            "name": "index_chapter_mangaId_read",
+            "unique": false,
+            "columnNames": [
+              "mangaId",
+              "read"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chapter_mangaId_read` ON `${TABLE_NAME}` (`mangaId`, `read`)"
+          },
+          {
+            "name": "index_chapter_chapterNumber",
+            "unique": false,
+            "columnNames": [
+              "chapterNumber"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chapter_chapterNumber` ON `${TABLE_NAME}` (`chapterNumber`)"
           },
           {
             "name": "index_chapter_read",
@@ -504,7 +542,26 @@
             "chapterId"
           ]
         },
-        "indices": [],
+        "indices": [
+          {
+            "name": "index_read_history_mangaId",
+            "unique": false,
+            "columnNames": [
+              "mangaId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_read_history_mangaId` ON `${TABLE_NAME}` (`mangaId`)"
+          },
+          {
+            "name": "index_read_history_readAt",
+            "unique": false,
+            "columnNames": [
+              "readAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_read_history_readAt` ON `${TABLE_NAME}` (`readAt`)"
+          }
+        ],
         "foreignKeys": []
       },
       {
@@ -570,7 +627,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '838f8b32d033b6b10fc7d6d085e2f329')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a98db615de54189bdea8c84e81a4f750')"
     ]
   }
 }

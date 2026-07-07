@@ -6,7 +6,16 @@ import androidx.room.PrimaryKey
 
 enum class DownloadStatus { NOT_DOWNLOADED, QUEUED, DOWNLOADING, DOWNLOADED, ERROR }
 
-@Entity(tableName = "chapter", indices = [Index("mangaId"), Index("read"), Index("downloadStatus")])
+@Entity(
+    tableName = "chapter",
+    indices = [
+        Index("mangaId"),
+        Index(value = ["mangaId", "read"]),
+        Index("chapterNumber"),
+        Index("read"),
+        Index("downloadStatus"),
+    ],
+)
 data class ChapterEntity(
     @PrimaryKey val id: String,
     val mangaId: String,

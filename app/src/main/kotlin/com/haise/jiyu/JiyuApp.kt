@@ -14,6 +14,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import coil.Coil
 import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
 import com.haise.jiyu.work.CHANNEL_ID
 import com.haise.jiyu.work.ChapterUpdateWorker
@@ -31,9 +33,22 @@ class JiyuApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
-        // Custom Coil fetcher pro XOR-šifrované MANGA Plus obrázky
         Coil.setImageLoader(
             ImageLoader.Builder(this)
+                .memoryCache {
+                    MemoryCache.Builder(this)
+                        .maxSizePercent(0.20)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(256L * 1024 * 1024)
+                        .build()
+                }
+                .okHttpClient(httpClient)
+                .crossfade(true)
+                .respectCacheHeaders(false)
                 .components { add(MangaPlusImageFetcher.Factory(httpClient)) }
                 .build()
         )

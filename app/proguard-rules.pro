@@ -56,3 +56,29 @@
 # Jsoup (HTML parsing pro generický Madara zdroj)
 -dontwarn org.jsoup.**
 -keep class org.jsoup.** { *; }
+
+# DataStore
+-keep class androidx.datastore.** { *; }
+-dontwarn androidx.datastore.**
+
+# Kotlinx serialization
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.SerialName <fields>;
+}
+-keep @kotlinx.serialization.Serializable class * { *; }
+
+# Ktor (used by Supabase)
+-dontwarn io.ktor.**
+-keep class io.ktor.** { *; }
+-keep class io.ktor.client.** { *; }
+
+# Supabase
+-dontwarn io.github.jan.tennert.supabase.**
+-keep class io.github.jan.tennert.supabase.** { *; }
+
+# ZXing (QR code generation)
+-dontwarn com.google.zxing.**
+-keep class com.google.zxing.** { *; }
