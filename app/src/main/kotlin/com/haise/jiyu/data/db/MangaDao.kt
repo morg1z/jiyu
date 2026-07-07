@@ -57,4 +57,7 @@ interface MangaDao {
 
     @Query("UPDATE manga SET userRating = :rating WHERE id = :id")
     suspend fun setRating(id: String, rating: Int?)
+
+    @Query("UPDATE manga SET excludeFromUpdates = :exclude WHERE id = :id")
+    suspend fun setExcludeFromUpdates(id: String, exclude: Boolean)
 }

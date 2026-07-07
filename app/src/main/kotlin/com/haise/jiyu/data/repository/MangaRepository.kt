@@ -105,6 +105,9 @@ class MangaRepository @Inject constructor(
     suspend fun setRating(mangaId: String, rating: Int?) =
         mangaDao.setRating(mangaId, rating)
 
+    suspend fun setExcludeFromUpdates(mangaId: String, exclude: Boolean) =
+        mangaDao.setExcludeFromUpdates(mangaId, exclude)
+
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(
             mangaId = mangaId,
@@ -130,6 +133,7 @@ class MangaRepository @Inject constructor(
                     chapterNumber = chapter.chapterNumber,
                     dateUpload = chapter.dateUpload,
                     scanlationGroup = chapter.scanlationGroup,
+                    volume = chapter.volume,
                 )
             }
         )

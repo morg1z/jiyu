@@ -31,6 +31,7 @@ object SettingsKeys {
     val ANILIST_ID_MAP         = stringPreferencesKey("anilist_id_map")
     val FULLSCREEN_ENABLED     = booleanPreferencesKey("fullscreen_enabled")
     val READER_THEME           = stringPreferencesKey("reader_theme")
+    val OLED_MODE              = booleanPreferencesKey("oled_mode")
     val WEEKLY_GOAL_CHAPTERS   = intPreferencesKey("weekly_goal_chapters")
     val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
     val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
@@ -166,6 +167,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setReaderTheme(theme: String) =
         dataStore.edit { it[SettingsKeys.READER_THEME] = theme }
+
+    val oledMode: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.OLED_MODE] ?: false }
+
+    suspend fun setOledMode(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.OLED_MODE] = enabled }
 
     val weeklyGoal: Flow<Int> =
         dataStore.data.map { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] ?: 0 }

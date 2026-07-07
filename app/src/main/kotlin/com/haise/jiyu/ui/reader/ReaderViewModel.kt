@@ -108,6 +108,19 @@ class ReaderViewModel @Inject constructor(
     val readerTheme: StateFlow<String> = settings.readerTheme
         .stateIn(viewModelScope, SharingStarted.Eagerly, "dark")
 
+    val oledMode: StateFlow<Boolean> = settings.oledMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // ── Incognito mode ───────────────────────────────────────────────────────
+    private val _incognitoMode = MutableStateFlow(false)
+    val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()
+    fun toggleIncognito() { _incognitoMode.value = !_incognitoMode.value }
+
+    // ── Session timer ────────────────────────────────────────────────────────
+    private val sessionStartMs = System.currentTimeMillis()
+    private val _sessionElapsed = MutableStateFlow(0L)
+    val sessionElapsed: StateFlow<Long> = _sessionElapsed.asStateFlow()
+
     private val _isOfflineChapter = MutableStateFlow(false)
     val isOfflineChapter: StateFlow<Boolean> = _isOfflineChapter.asStateFlow()
 
@@ -223,6 +236,12 @@ class ReaderViewModel @Inject constructor(
             _targetLanguage.value = settings.targetLanguage.first()
         }
         viewModelScope.launch { settings.updateReadingStreak() }
+        viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                _sessionElapsed.value = System.currentTimeMillis() - sessionStartMs
+            }
+        }
     }
 
     // ── Načítání kapitoly ────────────────────────────────────────────────────
@@ -319,13 +338,14 @@ class ReaderViewModel @Inject constructor(
             val isRead = index >= total - 1
             val chapter = currentChapter ?: return@launch
             val chapterId = chapter.id
+            val incognito = _incognitoMode.value
             repository.updateReadProgress(chapterId, read = isRead, lastPageRead = index)
             repository.updateLastReadChapter(chapter.mangaId, chapterId)
             if (deltaMs > 0) settings.addReadingTime(deltaMs)
             settings.addPagesRead(1)
 
             val manga = repository.getManga(chapter.mangaId)
-            if (manga != null) {
+            if (!incognito && manga != null) {
                 historyDao.record(
                     ReadHistoryEntity(
                         chapterId = chapterId,
@@ -339,7 +359,7 @@ class ReaderViewModel @Inject constructor(
             }
             if (isRead) {
                 maybeAutoDelete()
-                if (manga != null) {
+                if (!incognito && manga != null) {
                     viewModelScope.launch {
                         try { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } catch (_: Exception) {}
                     }

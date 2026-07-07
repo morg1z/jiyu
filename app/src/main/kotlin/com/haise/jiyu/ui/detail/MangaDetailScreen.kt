@@ -138,13 +138,18 @@ fun MangaDetailScreen(
     val aiInsight        by viewModel.aiInsight.collectAsState()
     val aiInsightLoading by viewModel.aiInsightLoading.collectAsState()
 
-    val chapterFilter     by viewModel.chapterFilter.collectAsState()
+    val chapterFilter       by viewModel.chapterFilter.collectAsState()
+    val statusFilter        by viewModel.statusFilter.collectAsState()
+    val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
+    val availableScanlators by viewModel.availableScanlators.collectAsState()
+    val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
     var showBulkMenu by remember { mutableStateOf(false) }
     var chapterSearchActive by remember { mutableStateOf(false) }
     var chapterGridView by remember { mutableStateOf(false) }
+    var groupByVolume by remember { mutableStateOf(false) }
     var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
     var addTagText by remember { mutableStateOf("") }
     var showAddTagField by remember { mutableStateOf(false) }
@@ -658,6 +663,26 @@ fun MangaDetailScreen(
                         )
                     }
 
+                    // Vyloučit z aktualizací
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                            .clickable { viewModel.toggleExcludeFromUpdates() }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Vyloučit z automatických aktualizací", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = excludeFromUpdates,
+                            onCheckedChange = { viewModel.toggleExcludeFromUpdates() },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "KAPITOLY", style = MaterialTheme.typography.labelSmall, color = Violet, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
 
@@ -682,6 +707,14 @@ fun MangaDetailScreen(
                             modifier = Modifier.size(32.dp),
                         ) {
                             Icon(if (chapterGridView) Icons.AutoMirrored.Filled.List else Icons.Filled.GridView, contentDescription = "Přepnout zobrazení", tint = if (chapterGridView) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+
+                        // Volume grouping toggle
+                        IconButton(
+                            onClick = { groupByVolume = !groupByVolume },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Seskupit po volumech", tint = if (groupByVolume) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Chapter search toggle
@@ -767,6 +800,65 @@ fun MangaDetailScreen(
                     }
                 }
 
+                // ── Status filter chips ───────────────────────────────────────
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val filters = listOf("ALL" to "Vše", "UNREAD" to "Nepřečtené", "READ" to "Přečtené", "DOWNLOADED" to "Stažené")
+                        items(filters) { (key, label) ->
+                            val isSelected = statusFilter == key
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (isSelected) GlowViolet.copy(alpha = 0.22f) else Color.Transparent)
+                                    .border(1.dp, if (isSelected) GlowViolet else TextSecondary.copy(alpha = 0.35f), RoundedCornerShape(50))
+                                    .clickable { viewModel.setStatusFilter(key) }
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                            ) {
+                                Text(label, color = if (isSelected) GlowViolet else TextSecondary, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                // ── Scanlation filter ─────────────────────────────────────────
+                if (availableScanlators.size > 1) {
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (selectedScanlator == null) Cyan.copy(alpha = 0.18f) else Color.Transparent)
+                                        .border(1.dp, if (selectedScanlator == null) Cyan else TextSecondary.copy(alpha = 0.35f), RoundedCornerShape(50))
+                                        .clickable { viewModel.setScanlator(null) }
+                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                ) {
+                                    Text("Všechny skupiny", color = if (selectedScanlator == null) Cyan else TextSecondary, fontSize = 10.sp)
+                                }
+                            }
+                            items(availableScanlators) { group ->
+                                val isSelected = selectedScanlator == group
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (isSelected) Cyan.copy(alpha = 0.18f) else Color.Transparent)
+                                        .border(1.dp, if (isSelected) Cyan else TextSecondary.copy(alpha = 0.35f), RoundedCornerShape(50))
+                                        .clickable { viewModel.setScanlator(if (isSelected) null else group) }
+                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                ) {
+                                    Text(group, color = if (isSelected) Cyan else TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── Chapter list / grid (#34) ─────────────────────────────────
                 if (chapterGridView) {
                     item {
@@ -799,6 +891,40 @@ fun MangaDetailScreen(
                             }
                         }
                     }
+                } else if (groupByVolume) {
+                    val grouped = chapters.groupBy { it.volume ?: "?" }
+                        .entries.sortedWith(compareByDescending {
+                            val v = it.key; if (v == "?") -1f else v.toFloatOrNull() ?: 0f
+                        })
+                    grouped.forEach { (volume, chs) ->
+                        stickyHeader(key = "vol_$volume") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(com.haise.jiyu.ui.theme.NightBlue)
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    if (volume == "?") "Bez volumu" else "Volume $volume",
+                                    color = Violet,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                        }
+                        items(chs, key = { it.id }) { chapter ->
+                            GlassChapterRow(
+                                chapter = chapter,
+                                onOpen = { onOpenChapter(chapter.id) },
+                                onDownload = { viewModel.downloadChapter(chapter) },
+                                onMarkReadUpTo = { viewModel.markReadUpTo(chapter.id) },
+                                onMarkAllOlderRead = { viewModel.markAllOlderAsRead(chapter) },
+                                onMarkAllNewerUnread = { viewModel.markAllNewerAsUnread(chapter) },
+                                onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
+                                onAiSummary = { cb -> viewModel.getChapterSummary(chapter, cb) },
+                            )
+                        }
+                    }
                 } else {
                     items(chapters, key = { it.id }) { chapter ->
                         GlassChapterRow(
@@ -806,6 +932,8 @@ fun MangaDetailScreen(
                             onOpen = { onOpenChapter(chapter.id) },
                             onDownload = { viewModel.downloadChapter(chapter) },
                             onMarkReadUpTo = { viewModel.markReadUpTo(chapter.id) },
+                            onMarkAllOlderRead = { viewModel.markAllOlderAsRead(chapter) },
+                            onMarkAllNewerUnread = { viewModel.markAllNewerAsUnread(chapter) },
                             onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
                             onAiSummary = { cb -> viewModel.getChapterSummary(chapter, cb) },
                         )
@@ -851,6 +979,8 @@ private fun GlassChapterRow(
     onOpen: () -> Unit,
     onDownload: () -> Unit,
     onMarkReadUpTo: () -> Unit,
+    onMarkAllOlderRead: () -> Unit = {},
+    onMarkAllNewerUnread: () -> Unit = {},
     onToggleRead: () -> Unit = {},
     onAiSummary: ((String?) -> Unit) -> Unit = {},
 ) {
@@ -921,6 +1051,14 @@ private fun GlassChapterRow(
             DropdownMenuItem(
                 text = { Text("Označit toto i vše starší přečtené") },
                 onClick = { onMarkReadUpTo(); showMenu = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Označit vše starší jako přečtené") },
+                onClick = { onMarkAllOlderRead(); showMenu = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Označit vše novější jako nepřečtené") },
+                onClick = { onMarkAllNewerUnread(); showMenu = false },
             )
             DropdownMenuItem(
                 text = { Text(if (isRead) "Označit jako nepřečtené" else "Označit jako přečtené") },

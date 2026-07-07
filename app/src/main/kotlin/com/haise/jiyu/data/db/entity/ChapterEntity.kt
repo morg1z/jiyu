@@ -31,4 +31,5 @@ data class ChapterEntity(
     val localPath: String? = null,
     val pageCount: Int = 0,
     val scanlationGroup: String? = null,
+    val volume: String? = null,
 )

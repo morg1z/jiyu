@@ -200,6 +200,7 @@ class MangaDexSource @Inject constructor(
         val chapterNumber = attributes.optString("chapter", "0").toFloatOrNull() ?: 0f
         val title = attributes.optString("title").ifBlank { "Kapitola $chapterNumber" }
         val dateUpload = attributes.optString("publishAt")
+        val volume = attributes.optString("volume").ifBlank { null }
 
         var scanlationGroup: String? = null
         val relationships = data.optJSONArray("relationships")
@@ -221,6 +222,7 @@ class MangaDexSource @Inject constructor(
             chapterNumber = chapterNumber,
             dateUpload = parseIsoDateToMillis(dateUpload),
             scanlationGroup = scanlationGroup,
+            volume = volume,
         )
     }
 

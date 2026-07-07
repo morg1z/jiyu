@@ -117,6 +117,7 @@ fun SettingsScreen(
     val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
     val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme       by viewModel.readerTheme.collectAsState()
+    val oledMode          by viewModel.oledMode.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -274,6 +275,24 @@ fun SettingsScreen(
                         }
                         Switch(
                             checked = fullscreenEnabled,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = oledMode, role = Role.Switch, onValueChange = { viewModel.setOledMode(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("OLED Black Mode", color = TextPrimary, fontSize = 14.sp)
+                            Text("Čistě černé pozadí mezi stránkami — šetří baterii OLED displejů", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = oledMode,
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )

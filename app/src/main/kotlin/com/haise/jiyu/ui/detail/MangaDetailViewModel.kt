@@ -17,6 +17,7 @@ import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.NetworkMonitor
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -69,15 +70,42 @@ class MangaDetailViewModel @Inject constructor(
     private val _chapterFilter = MutableStateFlow("")
     val chapterFilter: StateFlow<String> = _chapterFilter.asStateFlow()
 
+    private val _statusFilter = MutableStateFlow("ALL")
+    val statusFilter: StateFlow<String> = _statusFilter.asStateFlow()
+    fun setStatusFilter(filter: String) { _statusFilter.value = filter }
+
+    private val _selectedScanlator = MutableStateFlow<String?>(null)
+    val selectedScanlator: StateFlow<String?> = _selectedScanlator.asStateFlow()
+    fun setScanlator(s: String?) { _selectedScanlator.value = s }
+
+    private val _rawChapters: Flow<List<ChapterEntity>> = repository.observeChapters(mangaId)
+
+    val availableScanlators: StateFlow<List<String>> = _rawChapters.map { chs ->
+        chs.mapNotNull { it.scanlationGroup }.distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val chapters: StateFlow<List<ChapterEntity>> = combine(
-        repository.observeChapters(mangaId),
+        _rawChapters,
         _sortAscending,
         _chapterFilter,
-    ) { list, asc, filter ->
-        val filtered = if (filter.isBlank()) list
-                       else list.filter { it.name.contains(filter, ignoreCase = true) }
-        if (asc) filtered.sortedBy { it.chapterNumber }
-        else filtered.sortedByDescending { it.chapterNumber }
+        _statusFilter,
+        _selectedScanlator,
+    ) { list, asc, textFilter, statusFilter, scanlator ->
+        var result = list
+        if (textFilter.isNotBlank()) {
+            result = result.filter { it.name.contains(textFilter, ignoreCase = true) }
+        }
+        result = when (statusFilter) {
+            "UNREAD"     -> result.filter { !it.read }
+            "READ"       -> result.filter { it.read }
+            "DOWNLOADED" -> result.filter { it.downloadStatus == DownloadStatus.DOWNLOADED }
+            else         -> result
+        }
+        if (scanlator != null) {
+            result = result.filter { it.scanlationGroup == scanlator }
+        }
+        if (asc) result.sortedBy { it.chapterNumber }
+        else result.sortedByDescending { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Continue tlačítko ─────────────────────────────────────────────────────
@@ -99,6 +127,14 @@ class MangaDetailViewModel @Inject constructor(
     // ── Auto-stahování (#32) ──────────────────────────────────────────────────
     val autoDownload: StateFlow<Boolean> = manga.map { it?.autoDownload ?: false }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // ── Vyloučit z aktualizací ────────────────────────────────────────────────
+    val excludeFromUpdates: StateFlow<Boolean> = manga.map { it?.excludeFromUpdates ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun toggleExcludeFromUpdates() = viewModelScope.launch {
+        repository.setExcludeFromUpdates(mangaId, !excludeFromUpdates.value)
+    }
 
     // ── Poznámky (#27) ────────────────────────────────────────────────────────
     val mangaNote: StateFlow<MangaNoteEntity?> = mangaNoteDao.observeForManga(mangaId)
@@ -241,6 +277,19 @@ class MangaDetailViewModel @Inject constructor(
     // ── Auto-stahování (#32) ──────────────────────────────────────────────────
     fun toggleAutoDownload() {
         viewModelScope.launch { repository.setAutoDownload(mangaId, !autoDownload.value) }
+    }
+
+    // ── Hromadné označení rozsahu ─────────────────────────────────────────────
+    fun markAllOlderAsRead(chapter: ChapterEntity) = viewModelScope.launch {
+        repository.getAllChapters(mangaId)
+            .filter { it.chapterNumber <= chapter.chapterNumber }
+            .forEach { repository.updateReadProgress(it.id, read = true, lastPageRead = 0) }
+    }
+
+    fun markAllNewerAsUnread(chapter: ChapterEntity) = viewModelScope.launch {
+        repository.getAllChapters(mangaId)
+            .filter { it.chapterNumber >= chapter.chapterNumber }
+            .forEach { repository.updateReadProgress(it.id, read = false, lastPageRead = 0) }
     }
 
     // ── Poznámky (#27) ────────────────────────────────────────────────────────

@@ -37,4 +37,5 @@ data class MangaEntity(
     val autoDownload: Boolean = false,
     val userRating: Int? = null,
     val contentType: String = "MANGA",
+    val excludeFromUpdates: Boolean = false,
 )

@@ -273,6 +273,10 @@ class SettingsViewModel @Inject constructor(
     val readerTheme: StateFlow<String> = settings.readerTheme
         .stateIn(viewModelScope, SharingStarted.Eagerly, "dark")
 
+    val oledMode: StateFlow<Boolean> = settings.oledMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun setFullscreenEnabled(enabled: Boolean) = viewModelScope.launch { settings.setFullscreenEnabled(enabled) }
     fun setReaderTheme(theme: String)           = viewModelScope.launch { settings.setReaderTheme(theme) }
+    fun setOledMode(enabled: Boolean)           = viewModelScope.launch { settings.setOledMode(enabled) }
 }

@@ -34,6 +34,7 @@ data class SChapter(
     val chapterNumber: Float,
     val dateUpload: Long,
     val scanlationGroup: String? = null,
+    val volume: String? = null,
 )
 
 /**

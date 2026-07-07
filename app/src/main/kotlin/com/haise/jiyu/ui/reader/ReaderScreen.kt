@@ -47,6 +47,8 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -152,6 +154,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val spreadPageIndices   by viewModel.spreadPageIndices.collectAsState()
     val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsState()
     val panelMode           by viewModel.panelMode.collectAsState()
+    val oledMode            by viewModel.oledMode.collectAsState()
+    val incognitoMode       by viewModel.incognitoMode.collectAsState()
+    val sessionElapsed      by viewModel.sessionElapsed.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -208,7 +213,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         }
     }
 
-    val bgColor = when (readerTheme) {
+    val bgColor = if (oledMode) Color.Black else when (readerTheme) {
         "sepia" -> Color(0xFF1A0E05)
         "paper" -> Color(0xFF1A1510)
         else    -> Color.Black
@@ -265,7 +270,31 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 onSleepTimerClick = { showSleepTimerDialog = true },
                 panelMode = panelMode,
                 onTogglePanelMode = { viewModel.togglePanelMode() },
+                oledMode = oledMode,
+                incognitoMode = incognitoMode,
+                onToggleIncognito = { viewModel.toggleIncognito() },
+                sessionElapsed = sessionElapsed,
             )
+        }
+
+        // Incognito badge
+        if (incognitoMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(12.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF6D28D9).copy(alpha = 0.85f))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                Text(
+                    "INKOGNITO",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
 
         // Sleep timer badge
@@ -348,10 +377,26 @@ private fun ReaderContent(
     onSleepTimerClick: () -> Unit = {},
     panelMode: Boolean = false,
     onTogglePanelMode: () -> Unit = {},
+    oledMode: Boolean = false,
+    incognitoMode: Boolean = false,
+    onToggleIncognito: () -> Unit = {},
+    sessionElapsed: Long = 0L,
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) { delay(3_000L); controlsVisible = false }
+    }
+
+    // Přednačtení stránek do Coil cache
+    val preloadContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(currentPage, pages) {
+        if (pages.isEmpty()) return@LaunchedEffect
+        (currentPage + 1..currentPage + 3).mapNotNull { pages.getOrNull(it) }
+            .filter { !it.startsWith("file://") }
+            .forEach { url ->
+                val req = coil.request.ImageRequest.Builder(preloadContext).data(url).build()
+                coil.Coil.imageLoader(preloadContext).enqueue(req)
+            }
     }
 
     // Jas obrazovky; -1f = systémový výchozí (okno se nezmění dokud uživatel nepohne sliderem).
@@ -376,7 +421,7 @@ private fun ReaderContent(
     var scale by rememberSaveable { mutableStateOf(1f) }
     var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
 
-    val themeOverlay = when (readerTheme) {
+    val themeOverlay = if (oledMode) Color.Transparent else when (readerTheme) {
         "sepia" -> Color(0xFFB8860B).copy(alpha = 0.12f)
         "paper" -> Color(0xFFFFFAF0).copy(alpha = 0.06f)
         else    -> Color.Transparent
@@ -482,11 +527,25 @@ private fun ReaderContent(
                                     )
                                 }
                             }
-                            Text(
-                                text = "${currentPage + 1} / ${pages.size}",
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 11.sp,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = "${currentPage + 1} / ${pages.size}",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 11.sp,
+                                )
+                                val sessionMinutes = sessionElapsed / 60000
+                                val sessionSeconds = (sessionElapsed % 60000) / 1000
+                                if (sessionMinutes > 0) {
+                                    Text(
+                                        text = "· ${sessionMinutes}:${sessionSeconds.toString().padStart(2, '0')}",
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        fontSize = 10.sp,
+                                    )
+                                }
+                            }
                         }
 
                         // Panel mode toggle (#38)
@@ -505,6 +564,16 @@ private fun ReaderContent(
                                 Icons.Filled.Bedtime,
                                 contentDescription = "Časovač spánku",
                                 tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        // Incognito mode
+                        IconButton(onClick = onToggleIncognito) {
+                            Icon(
+                                if (incognitoMode) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (incognitoMode) "Vypnout inkognito" else "Inkognito",
+                                tint = if (incognitoMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier.size(20.dp),
                             )
                         }

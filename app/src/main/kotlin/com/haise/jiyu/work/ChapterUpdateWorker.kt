@@ -26,7 +26,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         return try {
-            val library = repository.getAllLibraryManga()
+            val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
             val updatedManga = mutableListOf<Pair<String, Pair<String, Int>>>() // title to (id, newCount)
 
             library.forEach { manga ->
