@@ -1115,5 +1115,29 @@
     "language": "en",
     "description": "Manhwa překlady",
     "nsfw": false
+  },
+  {
+    "id": "manhwa210",
+    "name": "Manhwa210",
+    "baseUrl": "https://manhwa210.com",
+    "language": "en",
+    "description": "Manhwa reader",
+    "nsfw": false
+  },
+  {
+    "id": "schale_network",
+    "name": "Schale Network",
+    "baseUrl": "https://schale.network",
+    "language": "en",
+    "description": "Manhwa & manga scanlation skupina",
+    "nsfw": false
+  },
+  {
+    "id": "hitomi_la",
+    "name": "Hitomi.La",
+    "baseUrl": "https://hitomi.la",
+    "language": "ja",
+    "description": "Doujin & manga galerie — 18+",
+    "nsfw": true
   }
 ]
