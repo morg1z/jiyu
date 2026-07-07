@@ -1132,12 +1132,4 @@
     "description": "Manhwa & manga scanlation skupina",
     "nsfw": false
   },
-  {
-    "id": "hitomi_la",
-    "name": "Hitomi.La",
-    "baseUrl": "https://hitomi.la",
-    "language": "ja",
-    "description": "Doujin & manga galerie — 18+",
-    "nsfw": true
-  }
 ]
