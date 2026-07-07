@@ -60,4 +60,16 @@ interface MangaDao {
 
     @Query("UPDATE manga SET excludeFromUpdates = :exclude WHERE id = :id")
     suspend fun setExcludeFromUpdates(id: String, exclude: Boolean)
+
+    @Query("SELECT * FROM manga WHERE url = :url LIMIT 1")
+    suspend fun getMangaByUrl(url: String): MangaEntity?
+
+    @Query("UPDATE manga SET malId = :malId WHERE id = :id")
+    suspend fun setMalId(id: String, malId: Int?)
+
+    @Query("UPDATE manga SET malScore = :score WHERE id = :id")
+    suspend fun setMalScore(id: String, score: Float?)
+
+    @Query("UPDATE manga SET malStatus = :status WHERE id = :id")
+    suspend fun setMalStatus(id: String, status: String?)
 }

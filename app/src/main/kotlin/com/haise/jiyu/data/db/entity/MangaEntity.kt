@@ -38,4 +38,7 @@ data class MangaEntity(
     val userRating: Int? = null,
     val contentType: String = "MANGA",
     val excludeFromUpdates: Boolean = false,
+    val malId: Int? = null,
+    val malScore: Float? = null,
+    val malStatus: String? = null,
 )

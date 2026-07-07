@@ -118,6 +118,8 @@ fun SettingsScreen(
     val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme       by viewModel.readerTheme.collectAsState()
     val oledMode          by viewModel.oledMode.collectAsState()
+    val tachyImportResult by viewModel.tachyImportResult.collectAsState()
+    val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -126,10 +128,15 @@ fun SettingsScreen(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? -> uri?.let { viewModel.exportBackup(it) } }
 
-    // Importní launcher — uživatel vybere zálohu
+    // Importní launcher — uživatel vybere zálohu (Jiyu formát)
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> uri?.let { viewModel.importBackup(it) } }
+
+    // Importní launcher — Tachiyomi/Mihon JSON záloha
+    val tachyImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? -> uri?.let { viewModel.importTachiyomiBackup(it) } }
 
     // Snackbar pro výsledek zálohy
     LaunchedEffect(backupState) {
@@ -350,6 +357,55 @@ fun SettingsScreen(
                 }
 
                 Spacer(Modifier.height(12.dp))
+
+                // ── Tachiyomi/Mihon import ────────────────────────────────────
+                SettingsSection(title = "Import z Mihon / Tachiyomi") {
+                    Text(
+                        text = "Importuj knihovnu z Mihon nebo Tachiyomi. V Mihon: Settings → Backup → Create backup → JSON. Přečtené kapitoly se zachovají.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    OutlinedButton(
+                        onClick = { tachyImportLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                        enabled = !tachyImportInProgress,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
+                    ) {
+                        if (tachyImportInProgress) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = GlowViolet)
+                        }
+                        Text(if (tachyImportInProgress) "Importuji..." else "Vybrat zálohu Mihon (.json)")
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+
+                // Dialog výsledku Tachiyomi importu
+                tachyImportResult?.let { result ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { viewModel.clearTachyImportResult() },
+                        containerColor = NightBlue,
+                        title = { Text("Import dokončen", color = TextPrimary) },
+                        text = {
+                            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                                Text("Importováno: ${result.imported}", color = Cyan)
+                                Text("Přeskočeno (již v knihovně): ${result.skipped}", color = TextSecondary)
+                                if (result.errors.isNotEmpty()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("Chyby:", color = Color(0xFFEF4444))
+                                    result.errors.take(3).forEach {
+                                        Text("• $it", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { viewModel.clearTachyImportResult() }) {
+                                Text("OK", color = Violet)
+                            }
+                        },
+                    )
+                }
 
                 Spacer(Modifier.height(12.dp))
 

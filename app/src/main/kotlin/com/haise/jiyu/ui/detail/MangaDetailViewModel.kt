@@ -3,9 +3,12 @@ package com.haise.jiyu.ui.detail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
+import com.haise.jiyu.data.tracking.MalManga
+import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
@@ -42,6 +45,7 @@ class MangaDetailViewModel @Inject constructor(
     private val mangaTagDao: MangaTagDao,
     private val groqRepository: GroqRepository,
     private val aniListRepository: AniListRepository,
+    private val malRepository: MalRepository,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -147,6 +151,43 @@ class MangaDetailViewModel @Inject constructor(
     // ── Hodnocení (#41) ───────────────────────────────────────────────────────
     val userRating: StateFlow<Int?> = manga.map { it?.userRating }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── MAL tracking ──────────────────────────────────────────────────────────
+    val malId: StateFlow<Int?> = manga.map { it?.malId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val malScore: StateFlow<Float?> = manga.map { it?.malScore }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val malHasClientId get() = malRepository.hasClientId
+
+    private val _malSearchResults = MutableStateFlow<List<MalManga>>(emptyList())
+    val malSearchResults: StateFlow<List<MalManga>> = _malSearchResults.asStateFlow()
+
+    private val _malSearchLoading = MutableStateFlow(false)
+    val malSearchLoading: StateFlow<Boolean> = _malSearchLoading.asStateFlow()
+
+    fun searchMal(query: String) {
+        viewModelScope.launch {
+            _malSearchLoading.value = true
+            _malSearchResults.value = malRepository.searchManga(query)
+            _malSearchLoading.value = false
+        }
+    }
+
+    fun linkMalId(malManga: MalManga) = viewModelScope.launch {
+        repository.setMalId(mangaId, malManga.id)
+        repository.setMalScore(mangaId, malManga.score)
+    }
+
+    fun unlinkMal() = viewModelScope.launch {
+        repository.setMalId(mangaId, null)
+        repository.setMalScore(mangaId, null)
+    }
+
+    fun openMalPage(context: Context) {
+        malId.value?.let { malRepository.openMalPage(context, it) }
+    }
 
     // ── AI doporučení (#37) ───────────────────────────────────────────────────
     private val _aiInsight = MutableStateFlow<String?>(null)

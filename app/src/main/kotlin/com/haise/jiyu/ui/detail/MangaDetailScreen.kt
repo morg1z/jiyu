@@ -54,7 +54,13 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import kotlin.math.roundToInt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -106,6 +112,7 @@ import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
+import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
@@ -143,6 +150,13 @@ fun MangaDetailScreen(
     val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
     val availableScanlators by viewModel.availableScanlators.collectAsState()
     val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsState()
+    val malId               by viewModel.malId.collectAsState()
+    val malScore            by viewModel.malScore.collectAsState()
+    val malSearchResults    by viewModel.malSearchResults.collectAsState()
+    val malSearchLoading    by viewModel.malSearchLoading.collectAsState()
+    var showMalSheet        by remember { mutableStateOf(false) }
+    var malSearchQuery      by remember { mutableStateOf("") }
+    val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -481,6 +495,70 @@ fun MangaDetailScreen(
                                         modifier = Modifier.size(16.dp),
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ── MAL tracking ──────────────────────────────────────────────
+                item {
+                    val malBlue = Color(0xFF2E51A2)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "MYANIMELIST",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = malBlue,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        if (malId != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(malBlue.copy(alpha = 0.08f))
+                                    .border(1.dp, malBlue.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.openMalPage(context) }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text("MAL ID: $malId", color = TextPrimary, fontSize = 14.sp)
+                                    if (malScore != null) {
+                                        Text("Skóre: ${String.format("%.2f", malScore)}", color = TextSecondary, fontSize = 12.sp)
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = {
+                                        malSearchQuery = manga?.title ?: ""
+                                        viewModel.searchMal(malSearchQuery)
+                                        showMalSheet = true
+                                    }) { Text("Změnit", color = malBlue, fontSize = 12.sp) }
+                                    IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    malSearchQuery = manga?.title ?: ""
+                                    viewModel.searchMal(malSearchQuery)
+                                    showMalSheet = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, malBlue.copy(alpha = 0.4f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = malBlue),
+                            ) {
+                                Text("Propojit s MyAnimeList")
+                            }
+                            if (!viewModel.malHasClientId) {
+                                Text(
+                                    "Pro vyhledávání nastav MAL_CLIENT_ID v local.properties (myanimelist.net/apiconfig)",
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
                             }
                         }
                     }
@@ -944,6 +1022,96 @@ fun MangaDetailScreen(
             }
 
             PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+        }
+    }
+
+    // ── MAL search bottom sheet ────────────────────────────────────────────────
+    if (showMalSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMalSheet = false; malSearchQuery = "" },
+            containerColor = NightBlue,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Hledat na MyAnimeList", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                if (!viewModel.malHasClientId) {
+                    Text(
+                        "MAL_CLIENT_ID není nastaven. Zaregistruj appku na myanimelist.net/apiconfig a vlož CLIENT ID do local.properties.",
+                        color = Color(0xFFF59E0B),
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = malSearchQuery,
+                            onValueChange = { malSearchQuery = it },
+                            placeholder = { Text("Název mangy...", color = TextSecondary) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF2E51A2),
+                                unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                            ),
+                        )
+                        IconButton(onClick = { viewModel.searchMal(malSearchQuery) }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = Color(0xFF2E51A2))
+                        }
+                    }
+                    if (malSearchLoading) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF2E51A2),
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            malSearchResults.forEach { malManga ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.White.copy(alpha = 0.05f))
+                                        .clickable {
+                                            viewModel.linkMalId(malManga)
+                                            showMalSheet = false
+                                        }
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    AsyncImage(
+                                        model = malManga.coverUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(malManga.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        if (malManga.score != null) {
+                                            Text("⭐ ${String.format("%.2f", malManga.score)}", color = Color(0xFFFFD700), fontSize = 12.sp)
+                                        }
+                                        malManga.status?.let { Text(it.replace("_", " "), color = TextSecondary, fontSize = 11.sp) }
+                                    }
+                                }
+                            }
+                            if (malSearchResults.isEmpty()) {
+                                Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -108,6 +108,13 @@ class MangaRepository @Inject constructor(
     suspend fun setExcludeFromUpdates(mangaId: String, exclude: Boolean) =
         mangaDao.setExcludeFromUpdates(mangaId, exclude)
 
+    suspend fun getMangaByUrl(url: String): MangaEntity? = mangaDao.getMangaByUrl(url)
+    suspend fun upsertManga(manga: MangaEntity) = mangaDao.upsert(manga)
+
+    suspend fun setMalId(mangaId: String, malId: Int?) = mangaDao.setMalId(mangaId, malId)
+    suspend fun setMalScore(mangaId: String, score: Float?) = mangaDao.setMalScore(mangaId, score)
+    suspend fun setMalStatus(mangaId: String, status: String?) = mangaDao.setMalStatus(mangaId, status)
+
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(
             mangaId = mangaId,

@@ -3,6 +3,8 @@ package com.haise.jiyu.ui.settings
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
+import com.haise.jiyu.data.backup.TachiyomiBackupImporter
+import com.haise.jiyu.data.backup.TachiyomiImportResult
 import androidx.lifecycle.viewModelScope
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -64,6 +66,7 @@ class SettingsViewModel @Inject constructor(
     private val backupManager: BackupManager,
     private val okHttpClient: OkHttpClient,
     private val catalogManager: SourceCatalogManager,
+    private val tachiyomiBackupImporter: TachiyomiBackupImporter,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
@@ -164,6 +167,23 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearBackupState() { _backupState.value = BackupUiState.Idle }
+
+    // ── Tachiyomi/Mihon import ────────────────────────────────────────────────
+    private val _tachyImportResult = MutableStateFlow<TachiyomiImportResult?>(null)
+    val tachyImportResult: StateFlow<TachiyomiImportResult?> = _tachyImportResult.asStateFlow()
+
+    private val _tachyImportInProgress = MutableStateFlow(false)
+    val tachyImportInProgress: StateFlow<Boolean> = _tachyImportInProgress.asStateFlow()
+
+    fun importTachiyomiBackup(uri: Uri) {
+        viewModelScope.launch {
+            _tachyImportInProgress.value = true
+            _tachyImportResult.value = tachiyomiBackupImporter.importFromUri(context, uri)
+            _tachyImportInProgress.value = false
+        }
+    }
+
+    fun clearTachyImportResult() { _tachyImportResult.value = null }
 
     fun deleteAllDownloads() = viewModelScope.launch {
         val chapters = repository.getAllLibraryChapters()
