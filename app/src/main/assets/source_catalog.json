@@ -1117,6 +1117,22 @@
     "nsfw": false
   },
   {
+    "id": "vortexscans",
+    "name": "Vortex Scans",
+    "baseUrl": "https://vortexscans.com",
+    "language": "en",
+    "description": "Manhwa scanlation skupina",
+    "nsfw": false
+  },
+  {
+    "id": "hentai20",
+    "name": "Hentai20",
+    "baseUrl": "https://hentai20.com",
+    "language": "en",
+    "description": "Adult manga — 18+",
+    "nsfw": true
+  },
+  {
     "id": "manhwa210",
     "name": "Manhwa210",
     "baseUrl": "https://manhwa210.com",
