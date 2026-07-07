@@ -138,6 +138,7 @@ fun LibraryScreen(
     val library            by viewModel.library.collectAsState()
     val categories         by viewModel.categories.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
+    val contentTypeFilter  by viewModel.contentTypeFilter.collectAsState()
     val searchQuery        by viewModel.searchQuery.collectAsState()
     val sortOption         by viewModel.sortOption.collectAsState()
     val sortAscending      by viewModel.sortAscending.collectAsState()
@@ -297,6 +298,20 @@ fun LibraryScreen(
                     Icon(Icons.Filled.Add, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Přidat kategorii", color = GlowViolet, fontSize = 13.sp)
+                }
+            }
+        }
+
+        // ── Content type filter ──────────────────────────────────────────────
+        if (!selectionMode) {
+            val types = listOf("ALL" to "Vše", "MANGA" to "Manga", "MANHWA" to "Manhwa", "MANHUA" to "Manhua")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(types) { (key, label) ->
+                    ContentTypeChip(label = label, selected = contentTypeFilter == key, onClick = { viewModel.setContentTypeFilter(key) })
                 }
             }
         }
@@ -619,6 +634,23 @@ private fun SortMenu(
 }
 
 @Composable
+private fun ContentTypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val color = if (selected) GlowCyan else TextSecondary
+    Box(
+        modifier = Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) GlowCyan.copy(alpha = 0.18f) else Color.Transparent)
+            .border(1.dp, if (selected) GlowCyan.copy(alpha = 0.7f) else TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = color, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
 private fun CategoryChip(label: String, colorHex: String, selected: Boolean, onClick: () -> Unit) {
     val color = remember(colorHex) {
         try { Color(android.graphics.Color.parseColor(colorHex)) } catch (_: Exception) { Color(0xFF8B5CF6) }
@@ -709,6 +741,19 @@ private fun AnimeMangaCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(text = if (unreadCount > 99) "99+" else "$unreadCount", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, lineHeight = 11.sp)
+            }
+        }
+        // Content type badge (MANHWA / MANHUA) — skip for MANGA (default)
+        if (!isSelected && manga.contentType != "MANGA") {
+            val badgeColor = if (manga.contentType == "MANHWA") GlowCyan else Color(0xFFEC4899)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = if (unreadCount > 0) 28.dp else 5.dp, end = 5.dp)
+                    .background(badgeColor.copy(alpha = 0.90f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            ) {
+                Text(text = manga.contentType, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, lineHeight = 10.sp)
             }
         }
         // Offline icon — top-left (only when not selected)

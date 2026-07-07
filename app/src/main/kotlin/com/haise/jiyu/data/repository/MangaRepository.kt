@@ -90,6 +90,7 @@ class MangaRepository @Inject constructor(
                 artist = manga.artist,
                 genres = manga.genres.joinToString(","),
                 year = manga.year,
+                contentType = manga.contentType,
             )
         )
         refreshChapters(id, manga)

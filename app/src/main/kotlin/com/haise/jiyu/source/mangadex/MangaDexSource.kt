@@ -142,6 +142,12 @@ class MangaDexSource @Inject constructor(
         val description = descriptionObj?.optString("en")
         val status = attributes.optString("status")
         val year = attributes.optInt("year", 0).takeIf { it > 0 }
+        val originalLanguage = attributes.optString("originalLanguage", "")
+        val contentType = when (originalLanguage) {
+            "ko" -> "MANHWA"
+            "zh", "zh-hk" -> "MANHUA"
+            else -> "MANGA"
+        }
 
         val genres = mutableListOf<String>()
         val tagsArray = attributes.optJSONArray("tags")
@@ -184,6 +190,7 @@ class MangaDexSource @Inject constructor(
             artist = artist,
             genres = genres,
             year = year,
+            contentType = contentType,
         )
     }
 

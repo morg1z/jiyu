@@ -36,6 +36,10 @@ class LibraryViewModel @Inject constructor(
     private val _selectedCategoryId = MutableStateFlow<String?>(null)
     val selectedCategoryId: StateFlow<String?> = _selectedCategoryId.asStateFlow()
 
+    private val _contentTypeFilter = MutableStateFlow("ALL")
+    val contentTypeFilter: StateFlow<String> = _contentTypeFilter.asStateFlow()
+    fun setContentTypeFilter(type: String) { _contentTypeFilter.value = type }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -52,9 +56,14 @@ class LibraryViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val library: StateFlow<List<MangaEntity>> = combine(
-        _selectedCategoryId.flatMapLatest { categoryId ->
-            if (categoryId == null) repository.observeLibrary()
-            else repository.observeLibraryInCategory(categoryId)
+        combine(
+            _selectedCategoryId.flatMapLatest { categoryId ->
+                if (categoryId == null) repository.observeLibrary()
+                else repository.observeLibraryInCategory(categoryId)
+            },
+            _contentTypeFilter,
+        ) { list, typeFilter ->
+            if (typeFilter == "ALL") list else list.filter { it.contentType == typeFilter }
         },
         _searchQuery,
         unreadCounts,
