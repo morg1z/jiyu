@@ -3,6 +3,7 @@ package com.haise.jiyu.source
 import com.haise.jiyu.data.db.CustomSourceDao
 import com.haise.jiyu.source.comick.ComicKSource
 import com.haise.jiyu.source.hitomi.HitomiSource
+import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
@@ -26,6 +27,7 @@ class SourceManager @Inject constructor(
     mangaPlusSource: MangaPlusSource,
     comicKSource: ComicKSource,
     hitomiSource: HitomiSource,
+    nhentaiSource: NhentaiSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -34,6 +36,7 @@ class SourceManager @Inject constructor(
         mangaPlusSource,
         comicKSource,
         hitomiSource,
+        nhentaiSource,
     )
 
     fun observeAll(): Flow<List<MangaSource>> =
