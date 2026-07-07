@@ -62,5 +62,301 @@
     "language": "en",
     "description": "Chinese manhua in English",
     "nsfw": false
+  },
+  {
+    "id": "asurascans",
+    "name": "Asura Scans",
+    "baseUrl": "https://asuracomic.net",
+    "language": "en",
+    "description": "Popular manhwa scanlation group",
+    "nsfw": false
+  },
+  {
+    "id": "flamescans",
+    "name": "Flame Scans",
+    "baseUrl": "https://flamescans.org",
+    "language": "en",
+    "description": "Action manhwa scanlations",
+    "nsfw": false
+  },
+  {
+    "id": "reaperscans",
+    "name": "Reaper Scans",
+    "baseUrl": "https://reaperscans.com",
+    "language": "en",
+    "description": "Korean manhwa translations",
+    "nsfw": false
+  },
+  {
+    "id": "lscans",
+    "name": "Luminous Scans",
+    "baseUrl": "https://lscomic.com",
+    "language": "en",
+    "description": "Fantasy & action manhwa",
+    "nsfw": false
+  },
+  {
+    "id": "voidscans",
+    "name": "Void Scans",
+    "baseUrl": "https://void-scans.com",
+    "language": "en",
+    "description": "Manhwa scanlation group",
+    "nsfw": false
+  },
+  {
+    "id": "nighscans",
+    "name": "Night Scans",
+    "baseUrl": "https://nightscans.net",
+    "language": "en",
+    "description": "Manhwa & manga scanlations",
+    "nsfw": false
+  },
+  {
+    "id": "mangabuddy",
+    "name": "MangaBuddy",
+    "baseUrl": "https://mangabuddy.com",
+    "language": "en",
+    "description": "Large manga & manhwa collection",
+    "nsfw": false
+  },
+  {
+    "id": "aquamanga",
+    "name": "Aqua Manga",
+    "baseUrl": "https://aquamanga.com",
+    "language": "en",
+    "description": "Manga & manhwa translations",
+    "nsfw": false
+  },
+  {
+    "id": "manytoon",
+    "name": "ManyToon",
+    "baseUrl": "https://manytoon.com",
+    "language": "en",
+    "description": "Korean webtoon translations",
+    "nsfw": false
+  },
+  {
+    "id": "manhwatop",
+    "name": "ManhwaTop",
+    "baseUrl": "https://manhwatop.com",
+    "language": "en",
+    "description": "Top manhwa & manga",
+    "nsfw": false
+  },
+  {
+    "id": "vyvymanga",
+    "name": "VyvyManga",
+    "baseUrl": "https://vyvymanga.net",
+    "language": "en",
+    "description": "Free manga & manhwa reader",
+    "nsfw": false
+  },
+  {
+    "id": "weebcentral",
+    "name": "Weeb Central",
+    "baseUrl": "https://weebcentral.com",
+    "language": "en",
+    "description": "Manga & manhwa reader",
+    "nsfw": false
+  },
+  {
+    "id": "neatmanga",
+    "name": "NeatManga",
+    "baseUrl": "https://neatmanga.com",
+    "language": "en",
+    "description": "Clean manga reading experience",
+    "nsfw": false
+  },
+  {
+    "id": "zeroscans",
+    "name": "Zero Scans",
+    "baseUrl": "https://zeroscans.com",
+    "language": "en",
+    "description": "Manhwa & manga scanlations",
+    "nsfw": false
+  },
+  {
+    "id": "disasterscans",
+    "name": "Disaster Scans",
+    "baseUrl": "https://disasterscans.com",
+    "language": "en",
+    "description": "Manhwa scanlation group",
+    "nsfw": false
+  },
+  {
+    "id": "mangagg",
+    "name": "MangaGG",
+    "baseUrl": "https://mangagg.com",
+    "language": "en",
+    "description": "Manga & webtoon collection",
+    "nsfw": false
+  },
+  {
+    "id": "manhwa68",
+    "name": "Manhwa68",
+    "baseUrl": "https://manhwa68.com",
+    "language": "en",
+    "description": "Korean manhwa reader",
+    "nsfw": false
+  },
+  {
+    "id": "mangaclash",
+    "name": "MangaClash",
+    "baseUrl": "https://mangaclash.com",
+    "language": "en",
+    "description": "Free manga online reader",
+    "nsfw": false
+  },
+  {
+    "id": "topmanhua",
+    "name": "TopManhua",
+    "baseUrl": "https://topmanhua.com",
+    "language": "en",
+    "description": "Top Chinese manhua in English",
+    "nsfw": false
+  },
+  {
+    "id": "manhuaus",
+    "name": "ManhuaUS",
+    "baseUrl": "https://manhuaus.com",
+    "language": "en",
+    "description": "US-hosted manhua translations",
+    "nsfw": false
+  },
+  {
+    "id": "mangahasu",
+    "name": "MangaHasu",
+    "baseUrl": "https://mangahasu.se",
+    "language": "en",
+    "description": "Manga archive & reader",
+    "nsfw": false
+  },
+  {
+    "id": "moonquill",
+    "name": "MoonQuill",
+    "baseUrl": "https://moonquill.com",
+    "language": "en",
+    "description": "Manhwa & manga reader",
+    "nsfw": false
+  },
+  {
+    "id": "mangaspark",
+    "name": "Manga Spark",
+    "baseUrl": "https://mangaspark.net",
+    "language": "en",
+    "description": "Manga reader with large catalog",
+    "nsfw": false
+  },
+  {
+    "id": "mangaowl",
+    "name": "MangaOwl",
+    "baseUrl": "https://mangaowl.io",
+    "language": "en",
+    "description": "Free online manga reader",
+    "nsfw": false
+  },
+  {
+    "id": "kunmanga",
+    "name": "KunManga",
+    "baseUrl": "https://kunmanga.com",
+    "language": "en",
+    "description": "Manga & manhwa reader",
+    "nsfw": false
+  },
+  {
+    "id": "mangapuma",
+    "name": "MangaPuma",
+    "baseUrl": "https://mangapuma.com",
+    "language": "en",
+    "description": "Action & fantasy manga",
+    "nsfw": false
+  },
+  {
+    "id": "manhwamanga",
+    "name": "ManhwaManga",
+    "baseUrl": "https://manhwamanga.io",
+    "language": "en",
+    "description": "Korean manhwa & Japanese manga",
+    "nsfw": false
+  },
+  {
+    "id": "toonily",
+    "name": "Toonily",
+    "baseUrl": "https://toonily.com",
+    "language": "en",
+    "description": "Korean manhwa reader",
+    "nsfw": true
+  },
+  {
+    "id": "mangamonks",
+    "name": "MangaMonks",
+    "baseUrl": "https://mangamonks.com",
+    "language": "en",
+    "description": "Free manga reading platform",
+    "nsfw": false
+  },
+  {
+    "id": "manhuaes",
+    "name": "ManhuaES",
+    "baseUrl": "https://manhuaes.com",
+    "language": "es",
+    "description": "Manhua en español",
+    "nsfw": false
+  },
+  {
+    "id": "mangaespanol",
+    "name": "Manga en Español",
+    "baseUrl": "https://lectormanga.com",
+    "language": "es",
+    "description": "Manga y manhwa en español",
+    "nsfw": false
+  },
+  {
+    "id": "tumangaonline",
+    "name": "TuMangaOnline",
+    "baseUrl": "https://visortmo.com",
+    "language": "es",
+    "description": "Gran catálogo manga en español",
+    "nsfw": false
+  },
+  {
+    "id": "mangafr",
+    "name": "Manga-FR",
+    "baseUrl": "https://www.manga-fr.me",
+    "language": "fr",
+    "description": "Manga en français",
+    "nsfw": false
+  },
+  {
+    "id": "scanvf",
+    "name": "ScanVF",
+    "baseUrl": "https://www.scan-vf.net",
+    "language": "fr",
+    "description": "Scan manga en français",
+    "nsfw": false
+  },
+  {
+    "id": "mangapt",
+    "name": "Manga Livre",
+    "baseUrl": "https://mangalivre.net",
+    "language": "pt",
+    "description": "Manga em português",
+    "nsfw": false
+  },
+  {
+    "id": "mangade",
+    "name": "Manga-Scantrad",
+    "baseUrl": "https://manga-scantrad.io",
+    "language": "de",
+    "description": "Manga auf Deutsch",
+    "nsfw": false
+  },
+  {
+    "id": "manhwa18org",
+    "name": "Manhwa18 (EN, Adult)",
+    "baseUrl": "https://manhwa18.org",
+    "language": "en",
+    "description": "Adult manhwa — 18+ only",
+    "nsfw": true
   }
 ]
