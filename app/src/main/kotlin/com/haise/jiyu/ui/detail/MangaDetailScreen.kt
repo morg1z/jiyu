@@ -50,8 +50,9 @@ import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import kotlin.math.roundToInt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -399,25 +400,82 @@ fun MangaDetailScreen(
 
                 // ── Hodnocení (#41) ────────────────────────────────────────────
                 item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(text = "HODNOCENÍ", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            (1..5).forEach { star ->
-                                val filled = (userRating ?: 0) >= star
-                                IconButton(onClick = {
-                                    if (userRating == star) viewModel.clearRating() else viewModel.setRating(star)
-                                }, modifier = Modifier.size(36.dp)) {
-                                    Icon(
-                                        imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
-                                        contentDescription = "$star hvězd",
-                                        tint = if (filled) Color(0xFFFFD700) else TextSecondary.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(28.dp),
-                                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "HODNOCENÍ",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = Violet,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            // Velké skóre
+                            val scoreText = if (userRating != null)
+                                String.format("%.1f", userRating!! / 10.0) else "—"
+                            val scoreColor = when {
+                                userRating == null -> TextSecondary
+                                userRating!! >= 85 -> GlowCyan
+                                userRating!! >= 70 -> Color(0xFF10B981)
+                                userRating!! >= 50 -> Color(0xFFF59E0B)
+                                else              -> Color(0xFFEF4444)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = scoreText,
+                                    fontSize = 36.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = scoreColor,
+                                    lineHeight = 36.sp,
+                                )
+                                Text(
+                                    text = "/ 10",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                )
+                            }
+                            // Slider
+                            Column(modifier = Modifier.weight(1f)) {
+                                Slider(
+                                    value = (userRating ?: 0).toFloat(),
+                                    onValueChange = { viewModel.setRating(it.roundToInt()) },
+                                    valueRange = 0f..100f,
+                                    steps = 19,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = scoreColor,
+                                        activeTrackColor = scoreColor,
+                                        inactiveTrackColor = TextSecondary.copy(alpha = 0.2f),
+                                        activeTickColor = Color.Transparent,
+                                        inactiveTickColor = Color.Transparent,
+                                    ),
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("0", color = TextSecondary, fontSize = 10.sp)
+                                    Text("5", color = TextSecondary, fontSize = 10.sp)
+                                    Text("10", color = TextSecondary, fontSize = 10.sp)
                                 }
                             }
+                            // Smazat hodnocení
                             if (userRating != null) {
-                                Spacer(Modifier.width(8.dp))
-                                Text("$userRating/5", color = TextSecondary, fontSize = 12.sp)
+                                IconButton(
+                                    onClick = { viewModel.clearRating() },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Smazat hodnocení",
+                                        tint = TextSecondary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     }
