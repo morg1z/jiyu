@@ -34,4 +34,7 @@ interface ReadHistoryDao {
         GROUP BY day ORDER BY day ASC
     """)
     suspend fun getDailyReadCounts(sinceMs: Long): List<DayCount>
+
+    @Query("SELECT COUNT(DISTINCT chapterId) FROM read_history WHERE readAt >= :sinceMs")
+    suspend fun countSince(sinceMs: Long): Int
 }

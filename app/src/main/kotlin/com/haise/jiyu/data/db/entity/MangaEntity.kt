@@ -27,4 +27,5 @@ data class MangaEntity(
     val genres: String = "",
     val year: Int? = null,
     val autoDownload: Boolean = false,
+    val userRating: Int? = null,
 )

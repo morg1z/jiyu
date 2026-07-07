@@ -31,6 +31,10 @@ object SettingsKeys {
     val ANILIST_ID_MAP         = stringPreferencesKey("anilist_id_map")
     val FULLSCREEN_ENABLED     = booleanPreferencesKey("fullscreen_enabled")
     val READER_THEME           = stringPreferencesKey("reader_theme")
+    val WEEKLY_GOAL_CHAPTERS   = intPreferencesKey("weekly_goal_chapters")
+    val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
+    val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
+    val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
 }
 
 object ReaderTheme {
@@ -162,4 +166,35 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setReaderTheme(theme: String) =
         dataStore.edit { it[SettingsKeys.READER_THEME] = theme }
+
+    val weeklyGoal: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] ?: 0 }
+
+    val readingStreak: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.READING_STREAK_DAYS] ?: 0 }
+
+    val lastReadDate: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.LAST_READ_DATE] ?: "" }
+
+    val customCss: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.CUSTOM_CSS] ?: "" }
+
+    suspend fun setWeeklyGoal(chapters: Int) =
+        dataStore.edit { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] = chapters }
+
+    suspend fun setCustomCss(css: String) =
+        dataStore.edit { it[SettingsKeys.CUSTOM_CSS] = css }
+
+    suspend fun updateReadingStreak() = dataStore.edit { prefs ->
+        val today = java.time.LocalDate.now().toString()
+        val last = prefs[SettingsKeys.LAST_READ_DATE] ?: ""
+        val yesterday = java.time.LocalDate.now().minusDays(1).toString()
+        val streak = prefs[SettingsKeys.READING_STREAK_DAYS] ?: 0
+        prefs[SettingsKeys.LAST_READ_DATE] = today
+        prefs[SettingsKeys.READING_STREAK_DAYS] = when {
+            last == today -> streak
+            last == yesterday -> streak + 1
+            else -> 1
+        }
+    }
 }

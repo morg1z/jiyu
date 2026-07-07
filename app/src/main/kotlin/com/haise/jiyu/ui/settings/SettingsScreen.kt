@@ -96,6 +96,9 @@ fun SettingsScreen(
     onOpenDownloadManager: () -> Unit = {},
     onOpenSourceCatalog: () -> Unit = {},
     onOpenAccount: () -> Unit = {},
+    onOpenCustomCss: () -> Unit = {},
+    onOpenGoals: () -> Unit = {},
+    onOpenCommunity: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val language          by viewModel.targetLanguage.collectAsState()
@@ -415,6 +418,13 @@ fun SettingsScreen(
                     ) {
                         Text("Katalog zdrojů (${viewModel.getCatalog().size})")
                     }
+                    OutlinedButton(
+                        onClick = onOpenCustomCss,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
+                    ) {
+                        Text("Vlastní CSS pro web zdroje")
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -632,6 +642,26 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Vymazat cache")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Komunita & Cíle ───────────────────────────────────────────
+                SettingsSection(title = "Čtení") {
+                    OutlinedButton(
+                        onClick = onOpenGoals,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                    ) {
+                        Text("Cíle čtení & Série dnů")
+                    }
+                    OutlinedButton(
+                        onClick = onOpenCommunity,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                    ) {
+                        Text("Community manga listy")
                     }
                 }
 

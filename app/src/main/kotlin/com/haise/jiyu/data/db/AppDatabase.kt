@@ -37,7 +37,7 @@ class Converters {
         MangaNoteEntity::class,
         MangaTagEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -160,6 +160,11 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`mangaId`, `tag`)
                     )"""
                 )
+            }
+        }
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN userRating INTEGER")
             }
         }
     }

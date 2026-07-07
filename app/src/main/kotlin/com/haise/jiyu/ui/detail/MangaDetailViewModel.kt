@@ -3,8 +3,10 @@ package com.haise.jiyu.ui.detail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
+import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -37,6 +39,8 @@ class MangaDetailViewModel @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val mangaNoteDao: MangaNoteDao,
     private val mangaTagDao: MangaTagDao,
+    private val groqRepository: GroqRepository,
+    private val aniListRepository: AniListRepository,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -103,6 +107,17 @@ class MangaDetailViewModel @Inject constructor(
     // ── Tagy (#26) ────────────────────────────────────────────────────────────
     val mangaTags: StateFlow<List<MangaTagEntity>> = mangaTagDao.observeForManga(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Hodnocení (#41) ───────────────────────────────────────────────────────
+    val userRating: StateFlow<Int?> = manga.map { it?.userRating }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── AI doporučení (#37) ───────────────────────────────────────────────────
+    private val _aiInsight = MutableStateFlow<String?>(null)
+    val aiInsight: StateFlow<String?> = _aiInsight.asStateFlow()
+
+    private val _aiInsightLoading = MutableStateFlow(false)
+    val aiInsightLoading: StateFlow<Boolean> = _aiInsightLoading.asStateFlow()
 
     // ── Kategorie ─────────────────────────────────────────────────────────────
     val allCategories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
@@ -236,6 +251,46 @@ class MangaDetailViewModel @Inject constructor(
             } else {
                 mangaNoteDao.upsert(MangaNoteEntity(mangaId = mangaId, content = content))
             }
+        }
+    }
+
+    // ── Hodnocení (#41) ───────────────────────────────────────────────────────
+    fun setRating(rating: Int) {
+        viewModelScope.launch {
+            repository.setRating(mangaId, rating)
+            val m = manga.value ?: return@launch
+            try { aniListRepository.updateScore(mangaId, m.title, rating * 20) } catch (_: Exception) {}
+        }
+    }
+
+    fun clearRating() {
+        viewModelScope.launch { repository.setRating(mangaId, null) }
+    }
+
+    // ── AI doporučení (#37) ───────────────────────────────────────────────────
+    fun loadAiInsight() {
+        if (_aiInsight.value != null || _aiInsightLoading.value) return
+        val m = manga.value ?: return
+        viewModelScope.launch {
+            _aiInsightLoading.value = true
+            _aiInsight.value = groqRepository.getMangaInsight(
+                m.title,
+                m.description,
+                m.genres.split(",").map { it.trim() }.filter { it.isNotBlank() },
+            )
+            _aiInsightLoading.value = false
+        }
+    }
+
+    // ── AI shrnutí kapitoly (#36) ─────────────────────────────────────────────
+    fun getChapterSummary(chapter: ChapterEntity, onResult: (String?) -> Unit) {
+        val m = manga.value ?: return
+        val prevChapter = chapters.value
+            .filter { it.chapterNumber < chapter.chapterNumber }
+            .maxByOrNull { it.chapterNumber }
+        viewModelScope.launch {
+            val summary = groqRepository.getChapterSummary(m.title, chapter.name, prevChapter?.name)
+            onResult(summary)
         }
     }
 

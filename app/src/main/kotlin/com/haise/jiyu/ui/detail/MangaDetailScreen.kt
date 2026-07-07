@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
@@ -45,9 +46,14 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -111,6 +117,7 @@ import com.haise.jiyu.ui.theme.titleGradient
 fun MangaDetailScreen(
     onOpenChapter: (String) -> Unit,
     onOpenManga: (String) -> Unit = {},
+    onOpenQr: (mangaId: String, mangaTitle: String) -> Unit = { _, _ -> },
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
     val manga            by viewModel.manga.collectAsState()
@@ -126,6 +133,9 @@ fun MangaDetailScreen(
     val autoDownload     by viewModel.autoDownload.collectAsState()
     val mangaNote        by viewModel.mangaNote.collectAsState()
     val mangaTags        by viewModel.mangaTags.collectAsState()
+    val userRating       by viewModel.userRating.collectAsState()
+    val aiInsight        by viewModel.aiInsight.collectAsState()
+    val aiInsightLoading by viewModel.aiInsightLoading.collectAsState()
 
     val chapterFilter     by viewModel.chapterFilter.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -187,6 +197,11 @@ fun MangaDetailScreen(
                         val inLibrary = manga?.inLibrary == true
                         val context = LocalContext.current
                         Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                            IconButton(onClick = {
+                                manga?.let { m -> onOpenQr(m.id, m.title) }
+                            }) {
+                                Icon(Icons.Filled.QrCode2, contentDescription = "QR kód", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+                            }
                             IconButton(onClick = {
                                 manga?.let { m ->
                                     val i = Intent(Intent.ACTION_SEND).apply {
@@ -379,6 +394,63 @@ fun MangaDetailScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // ── Hodnocení (#41) ────────────────────────────────────────────
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(text = "HODNOCENÍ", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            (1..5).forEach { star ->
+                                val filled = (userRating ?: 0) >= star
+                                IconButton(onClick = {
+                                    if (userRating == star) viewModel.clearRating() else viewModel.setRating(star)
+                                }, modifier = Modifier.size(36.dp)) {
+                                    Icon(
+                                        imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
+                                        contentDescription = "$star hvězd",
+                                        tint = if (filled) Color(0xFFFFD700) else TextSecondary.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(28.dp),
+                                    )
+                                }
+                            }
+                            if (userRating != null) {
+                                Spacer(Modifier.width(8.dp))
+                                Text("$userRating/5", color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // ── AI doporučení (#37) ────────────────────────────────────────
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(GlowCyan.copy(alpha = 0.06f))
+                            .border(1.dp, GlowCyan.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI ANALÝZA", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = GlowCyan)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        when {
+                            aiInsight != null -> Text(aiInsight!!, color = TextPrimary, fontSize = 13.sp)
+                            aiInsightLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = GlowCyan)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Analyzuji…", color = TextSecondary, fontSize = 12.sp)
+                            }
+                            else -> TextButton(onClick = { viewModel.loadAiInsight() }, contentPadding = PaddingValues(0.dp)) {
+                                Text("Zobrazit AI analýzu ✨", color = GlowCyan, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
 
@@ -677,6 +749,7 @@ fun MangaDetailScreen(
                             onDownload = { viewModel.downloadChapter(chapter) },
                             onMarkReadUpTo = { viewModel.markReadUpTo(chapter.id) },
                             onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
+                            onAiSummary = { cb -> viewModel.getChapterSummary(chapter, cb) },
                         )
                     }
                 }
@@ -715,9 +788,41 @@ private fun CategoryToggleChip(category: CategoryEntity, selected: Boolean, onCl
 // ── Chapter row ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun GlassChapterRow(chapter: ChapterEntity, onOpen: () -> Unit, onDownload: () -> Unit, onMarkReadUpTo: () -> Unit, onToggleRead: () -> Unit = {}) {
+private fun GlassChapterRow(
+    chapter: ChapterEntity,
+    onOpen: () -> Unit,
+    onDownload: () -> Unit,
+    onMarkReadUpTo: () -> Unit,
+    onToggleRead: () -> Unit = {},
+    onAiSummary: ((String?) -> Unit) -> Unit = {},
+) {
     val isRead = chapter.read
     var showMenu by remember { mutableStateOf(false) }
+    var showAiDialog by remember { mutableStateOf(false) }
+    var aiSummaryText by remember { mutableStateOf<String?>(null) }
+    var aiSummaryLoading by remember { mutableStateOf(false) }
+
+    if (showAiDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiDialog = false },
+            title = { Text(chapter.name, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                when {
+                    aiSummaryLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = GlowCyan)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Generuji shrnutí…", color = TextSecondary, fontSize = 13.sp)
+                    }
+                    aiSummaryText != null -> Text(aiSummaryText!!, color = TextPrimary, fontSize = 13.sp)
+                    else -> Text("Nepodařilo se získat shrnutí.", color = TextSecondary, fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAiDialog = false }) { Text("Zavřít") }
+            },
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -762,6 +867,16 @@ private fun GlassChapterRow(chapter: ChapterEntity, onOpen: () -> Unit, onDownlo
             DropdownMenuItem(
                 text = { Text(if (isRead) "Označit jako nepřečtené" else "Označit jako přečtené") },
                 onClick = { onToggleRead(); showMenu = false },
+            )
+            DropdownMenuItem(
+                text = { Text("AI shrnutí ✨") },
+                onClick = {
+                    showMenu = false
+                    showAiDialog = true
+                    aiSummaryLoading = true
+                    aiSummaryText = null
+                    onAiSummary { result -> aiSummaryText = result; aiSummaryLoading = false }
+                },
             )
         }
     }

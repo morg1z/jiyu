@@ -143,6 +143,9 @@ dependencies {
     // Kotlinx serialization — pro Supabase DTOs
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
+    // QR kód generování (bez Activity, pure Java)
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.room:room-testing:2.6.1")
     testImplementation("androidx.test:core:1.6.1")

@@ -101,6 +101,9 @@ class MangaRepository @Inject constructor(
     suspend fun setAutoDownload(mangaId: String, enabled: Boolean) =
         mangaDao.setAutoDownload(mangaId, enabled)
 
+    suspend fun setRating(mangaId: String, rating: Int?) =
+        mangaDao.setRating(mangaId, rating)
+
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(
             mangaId = mangaId,

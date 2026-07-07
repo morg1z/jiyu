@@ -40,13 +40,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -146,6 +150,38 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val isOfflineChapter    by viewModel.isOfflineChapter.collectAsState()
     val chapterProgress     by viewModel.chapterProgress.collectAsState()
     val spreadPageIndices   by viewModel.spreadPageIndices.collectAsState()
+    val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsState()
+    val panelMode           by viewModel.panelMode.collectAsState()
+
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    val activity = LocalView.current.context as Activity
+
+    // Sleep timer dialog
+    if (showSleepTimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showSleepTimerDialog = false },
+            title = { Text("Časovač spánku", color = Color.White) },
+            text = {
+                Column {
+                    Text("Zavřít čtečku po:", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                    listOf(15 to "15 minut", 30 to "30 minut", 45 to "45 minut", 60 to "1 hodina").forEach { (min, label) ->
+                        TextButton(onClick = {
+                            viewModel.startSleepTimer(min) { activity.finish() }
+                            showSleepTimerDialog = false
+                        }, modifier = Modifier.fillMaxWidth()) { Text(label, color = Color.White) }
+                    }
+                    if (viewModel.sleepTimerRemaining.value != null) {
+                        TextButton(onClick = { viewModel.cancelSleepTimer(); showSleepTimerDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Zrušit časovač", color = Color(0xFFEF9A9A))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSleepTimerDialog = false }) { Text("Zavřít", color = Color(0xFFB0BEC5)) } },
+            containerColor = Color(0xFF1A1B35),
+        )
+    }
 
     // Fullscreen immersive (conditionally)
     val view = LocalView.current
@@ -226,7 +262,32 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                     }
                     context.startActivity(Intent.createChooser(intent, "Sdílet stránku"))
                 },
+                onSleepTimerClick = { showSleepTimerDialog = true },
+                panelMode = panelMode,
+                onTogglePanelMode = { viewModel.togglePanelMode() },
             )
+        }
+
+        // Sleep timer badge
+        if (sleepTimerRemaining != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(12.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFF4A1580).copy(alpha = 0.85f))
+                    .clickable { showSleepTimerDialog = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                val rem = sleepTimerRemaining!!
+                Text(
+                    "💤 ${rem / 60}:${(rem % 60).toString().padStart(2, '0')}",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
 
         AnimatedVisibility(
@@ -284,6 +345,9 @@ private fun ReaderContent(
     chapterProgress: Float = 0f,
     spreadPageIndices: Set<Int> = emptySet(),
     onSharePage: (String) -> Unit = {},
+    onSleepTimerClick: () -> Unit = {},
+    panelMode: Boolean = false,
+    onTogglePanelMode: () -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -422,6 +486,26 @@ private fun ReaderContent(
                                 text = "${currentPage + 1} / ${pages.size}",
                                 color = Color.White.copy(alpha = 0.6f),
                                 fontSize = 11.sp,
+                            )
+                        }
+
+                        // Panel mode toggle (#38)
+                        IconButton(onClick = onTogglePanelMode) {
+                            Icon(
+                                Icons.Filled.ViewDay,
+                                contentDescription = "Panel po panelu",
+                                tint = if (panelMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        // Sleep timer (#42)
+                        IconButton(onClick = onSleepTimerClick) {
+                            Icon(
+                                Icons.Filled.Bedtime,
+                                contentDescription = "Časovač spánku",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
 

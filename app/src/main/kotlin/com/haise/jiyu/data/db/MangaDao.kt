@@ -54,4 +54,7 @@ interface MangaDao {
 
     @Query("UPDATE manga SET autoDownload = :enabled WHERE id = :id")
     suspend fun setAutoDownload(id: String, enabled: Boolean)
+
+    @Query("UPDATE manga SET userRating = :rating WHERE id = :id")
+    suspend fun setRating(id: String, rating: Int?)
 }

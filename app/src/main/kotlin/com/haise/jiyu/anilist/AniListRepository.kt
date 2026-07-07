@@ -78,6 +78,17 @@ class AniListRepository @Inject constructor(
         graphql(body, token)
     }
 
+    /** Nastaví skóre mangy na AniList (score 0-100). */
+    suspend fun updateScore(mangaId: String, mangaTitle: String, score: Int) {
+        val token = settings.aniListToken.first() ?: return
+        val aniId = resolveAniListId(mangaId, mangaTitle) ?: return
+        val body = JSONObject().apply {
+            put("query", "mutation(\$id:Int,\$s:Int){SaveMediaListEntry(mediaId:\$id,score:\$s){id score}}")
+            put("variables", JSONObject().apply { put("id", aniId); put("s", score) })
+        }
+        graphql(body, token)
+    }
+
     private suspend fun graphql(body: JSONObject, token: String): JSONObject? =
         withContext(Dispatchers.IO) {
             try {

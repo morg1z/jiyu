@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.util.SleepTimerManager
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
@@ -38,6 +39,7 @@ class ReaderViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val historyDao: ReadHistoryDao,
     private val aniListRepository: AniListRepository,
+    private val sleepTimerManager: SleepTimerManager,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -140,6 +142,19 @@ class ReaderViewModel @Inject constructor(
     private val _batchTranslating = MutableStateFlow(false)
     val batchTranslating: StateFlow<Boolean> = _batchTranslating.asStateFlow()
 
+    // ── Sleep timer (#42) ────────────────────────────────────────────────────
+    val sleepTimerRemaining: StateFlow<Int?> = sleepTimerManager.remainingSeconds
+
+    // ── Panel mode (#38) ─────────────────────────────────────────────────────
+    private val _panelMode = MutableStateFlow(false)
+    val panelMode: StateFlow<Boolean> = _panelMode.asStateFlow()
+
+    private val _panelRects = MutableStateFlow<List<android.graphics.Rect>>(emptyList())
+    val panelRects: StateFlow<List<android.graphics.Rect>> = _panelRects.asStateFlow()
+
+    private val _currentPanel = MutableStateFlow(0)
+    val currentPanel: StateFlow<Int> = _currentPanel.asStateFlow()
+
     private val _batchProgress = MutableStateFlow<TranslationProgress?>(null)
     val batchProgress: StateFlow<TranslationProgress?> = _batchProgress.asStateFlow()
 
@@ -147,6 +162,55 @@ class ReaderViewModel @Inject constructor(
     val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
 
     fun clearTranslationError() { _translationError.value = null }
+
+    fun startSleepTimer(minutes: Int, onFinish: () -> Unit) =
+        sleepTimerManager.start(minutes, onFinish)
+
+    fun cancelSleepTimer() = sleepTimerManager.cancel()
+
+    fun togglePanelMode() { _panelMode.value = !_panelMode.value; _currentPanel.value = 0 }
+
+    fun nextPanel() {
+        val rects = _panelRects.value
+        if (rects.isEmpty()) return
+        _currentPanel.value = (_currentPanel.value + 1).coerceAtMost(rects.lastIndex)
+    }
+
+    fun prevPanel() {
+        _currentPanel.value = (_currentPanel.value - 1).coerceAtLeast(0)
+    }
+
+    fun detectPanels(bitmap: android.graphics.Bitmap) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            _panelRects.value = analyzePanelBorders(bitmap)
+            _currentPanel.value = 0
+        }
+    }
+
+    private fun analyzePanelBorders(bmp: android.graphics.Bitmap): List<android.graphics.Rect> {
+        val w = bmp.width
+        val h = bmp.height
+        val threshold = 80
+        val minPanelHeight = h / 12
+
+        val horizontalCuts = mutableListOf(0)
+        for (y in 0 until h) {
+            var darkCount = 0
+            for (x in 0 until w step 4) {
+                val pixel = bmp.getPixel(x, y)
+                val brightness = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
+                if (brightness < threshold) darkCount++
+            }
+            if (darkCount > w / 8 && (horizontalCuts.last() == 0 || y - horizontalCuts.last() > minPanelHeight)) {
+                horizontalCuts.add(y)
+            }
+        }
+        horizontalCuts.add(h)
+
+        return (0 until horizontalCuts.lastIndex).map { i ->
+            android.graphics.Rect(0, horizontalCuts[i], w, horizontalCuts[i + 1])
+        }.filter { it.height() > minPanelHeight }
+    }
 
     private var translationJob: Job? = null
     private var batchJob: Job? = null
@@ -158,6 +222,7 @@ class ReaderViewModel @Inject constructor(
             _sourceLanguage.value = settings.sourceLanguage.first()
             _targetLanguage.value = settings.targetLanguage.first()
         }
+        viewModelScope.launch { settings.updateReadingStreak() }
     }
 
     // ── Načítání kapitoly ────────────────────────────────────────────────────

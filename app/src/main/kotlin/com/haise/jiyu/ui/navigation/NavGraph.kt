@@ -9,10 +9,14 @@ import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.haise.jiyu.ui.account.AccountScreen
 import com.haise.jiyu.ui.browse.BrowseScreen
+import com.haise.jiyu.ui.community.CommunityScreen
+import com.haise.jiyu.ui.css.CustomCssScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
 import com.haise.jiyu.ui.downloads.DownloadManagerScreen
+import com.haise.jiyu.ui.goals.ReadingGoalsScreen
 import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
+import com.haise.jiyu.ui.qr.MangaQrScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.search.GlobalSearchScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
@@ -31,9 +35,15 @@ internal object Routes {
     const val ACCOUNT       = "account"
     const val GLOBAL_SEARCH = "global_search"
     const val STATS         = "stats"
+    const val GOALS         = "goals"
+    const val COMMUNITY     = "community"
+    const val CUSTOM_CSS    = "custom_css"
+    const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
+    fun qr(mangaId: String, mangaTitle: String) =
+        "qr/${android.net.Uri.encode(mangaId)}?title=${android.net.Uri.encode(mangaTitle)}"
 }
 
 @Composable
@@ -69,6 +79,7 @@ fun JiyuNavGraph(navController: NavHostController) {
             MangaDetailScreen(
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenQr = { mangaId, title -> navController.navigate(Routes.qr(mangaId, title)) },
             )
         }
 
@@ -85,6 +96,9 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
                 onOpenSourceCatalog = { navController.navigate(Routes.CATALOG) },
                 onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
+                onOpenCustomCss = { navController.navigate(Routes.CUSTOM_CSS) },
+                onOpenGoals = { navController.navigate(Routes.GOALS) },
+                onOpenCommunity = { navController.navigate(Routes.COMMUNITY) },
             )
         }
 
@@ -115,6 +129,34 @@ fun JiyuNavGraph(navController: NavHostController) {
 
         composable(Routes.STATS) {
             ExtendedStatsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GOALS) {
+            ReadingGoalsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.COMMUNITY) {
+            CommunityScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.CUSTOM_CSS) {
+            CustomCssScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = Routes.QR,
+            arguments = listOf(
+                navArgument("mangaId") { type = NavType.StringType },
+                navArgument("mangaTitle") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { backStack ->
+            val mangaId = backStack.arguments?.getString("mangaId") ?: ""
+            val mangaTitle = backStack.arguments?.getString("mangaTitle") ?: ""
+            MangaQrScreen(
+                mangaId = mangaId,
+                mangaTitle = mangaTitle,
+                onBack = { navController.popBackStack() },
+            )
         }
     }
 }

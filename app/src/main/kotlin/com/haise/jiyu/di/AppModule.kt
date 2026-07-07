@@ -14,6 +14,8 @@ import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.TranslatedPageDao
+import com.haise.jiyu.groq.GroqRepository
+import com.haise.jiyu.util.SleepTimerManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -72,6 +74,7 @@ object AppModule {
                 AppDatabase.MIGRATION_10_11,
                 AppDatabase.MIGRATION_11_12,
                 AppDatabase.MIGRATION_12_13,
+                AppDatabase.MIGRATION_13_14,
             )
             .build()
 
@@ -88,4 +91,12 @@ object AppModule {
     @Provides fun provideReadHistoryDao(db: AppDatabase): ReadHistoryDao = db.readHistoryDao()
     @Provides fun provideMangaNoteDao(db: AppDatabase): MangaNoteDao = db.mangaNoteDao()
     @Provides fun provideMangaTagDao(db: AppDatabase): MangaTagDao = db.mangaTagDao()
+
+    @Provides
+    @Singleton
+    fun provideSleepTimerManager(): SleepTimerManager = SleepTimerManager()
+
+    @Provides
+    @Singleton
+    fun provideGroqRepository(client: OkHttpClient): GroqRepository = GroqRepository(client)
 }
