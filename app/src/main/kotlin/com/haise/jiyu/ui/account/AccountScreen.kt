@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,35 +18,55 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,10 +97,14 @@ fun AccountScreen(
     LaunchedEffect(authState) {
         when (val s = authState) {
             is AuthUiState.Error -> {
-                snackbarHost.showSnackbar("Chyba přihlášení: ${s.message}")
+                snackbarHost.showSnackbar("Chyba: ${s.message}")
                 viewModel.clearAuthState()
             }
             is AuthUiState.Success -> viewModel.clearAuthState()
+            is AuthUiState.Done -> {
+                snackbarHost.showSnackbar("Email pro reset hesla odeslán")
+                viewModel.clearAuthState()
+            }
             else -> Unit
         }
     }
@@ -121,7 +146,10 @@ fun AccountScreen(
             if (currentUser == null) {
                 SignedOutContent(
                     isLoading = authState is AuthUiState.Loading,
-                    onSignIn = { viewModel.signInWithGoogle(context) },
+                    onSignInGoogle = { viewModel.signInWithGoogle(context) },
+                    onSignInEmail = { email, pwd -> viewModel.signInWithEmail(email, pwd) },
+                    onSignUpEmail = { email, pwd -> viewModel.signUpWithEmail(email, pwd) },
+                    onResetPassword = { email -> viewModel.sendPasswordReset(email) },
                 )
             } else {
                 SignedInContent(
@@ -201,9 +229,22 @@ private fun AniListSection(
 }
 
 @Composable
-private fun SignedOutContent(isLoading: Boolean, onSignIn: () -> Unit) {
+private fun SignedOutContent(
+    isLoading: Boolean,
+    onSignInGoogle: () -> Unit,
+    onSignInEmail: (String, String) -> Unit,
+    onSignUpEmail: (String, String) -> Unit,
+    onResetPassword: (String) -> Unit,
+) {
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var isSignUp by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -211,30 +252,136 @@ private fun SignedOutContent(isLoading: Boolean, onSignIn: () -> Unit) {
             imageVector = Icons.Filled.AccountCircle,
             contentDescription = null,
             tint = Violet.copy(alpha = 0.5f),
-            modifier = Modifier.size(96.dp),
+            modifier = Modifier.size(80.dp),
         )
         Text(
             "Jiyu Cloud",
-            style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold),
+            style = TextStyle(brush = titleGradient, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold),
         )
         Text(
-            "Synchronizuj svou knihovnu napříč zařízeními.\nPřihlášení je zdarma.",
-            color = TextSecondary,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            lineHeight = 20.sp,
+            "Synchronizuj svou knihovnu napříč zařízeními.",
+            color = TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
+
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+            contentColor = Violet,
+            modifier = Modifier.fillMaxWidth(0.85f),
+        ) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
+                text = { Text("Google", fontSize = 13.sp) })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
+                text = { Text("Email", fontSize = 13.sp) })
+        }
+
+        Spacer(Modifier.height(4.dp))
+
         if (isLoading) {
             CircularProgressIndicator(color = Violet, modifier = Modifier.size(48.dp))
-        } else {
-            Button(
-                onClick = onSignIn,
-                colors = ButtonDefaults.buttonColors(containerColor = Violet),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(0.75f).height(52.dp),
-            ) {
-                Text("Přihlásit se přes Google", color = Color.White, fontWeight = FontWeight.SemiBold)
+        } else when (selectedTab) {
+            0 -> {
+                Button(
+                    onClick = onSignInGoogle,
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(0.82f).height(52.dp),
+                ) {
+                    Text("Přihlásit se přes Google", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            1 -> {
+                Column(
+                    modifier = Modifier.fillMaxWidth(0.88f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it.trim() },
+                        label = { Text("Email") },
+                        leadingIcon = { Icon(Icons.Filled.Email, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Violet,
+                            unfocusedIndicatorColor = TextSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = Violet,
+                            unfocusedLabelColor = TextSecondary,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Heslo") },
+                        leadingIcon = { Icon(Icons.Filled.Lock, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            focusManager.clearFocus()
+                            if (isSignUp) onSignUpEmail(email, password) else onSignInEmail(email, password)
+                        }),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Violet,
+                            unfocusedIndicatorColor = TextSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = Violet,
+                            unfocusedLabelColor = TextSecondary,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            if (isSignUp) onSignUpEmail(email, password) else onSignInEmail(email, password)
+                        },
+                        enabled = email.isNotBlank() && password.length >= 6,
+                        colors = ButtonDefaults.buttonColors(containerColor = Violet),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(
+                            if (isSignUp) "Zaregistrovat se" else "Přihlásit se",
+                            color = Color.White, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        TextButton(onClick = { isSignUp = !isSignUp }, contentPadding = PaddingValues(0.dp)) {
+                            Text(
+                                if (isSignUp) "Již mám účet" else "Nový účet",
+                                color = Cyan, fontSize = 12.sp,
+                            )
+                        }
+                        if (!isSignUp) {
+                            TextButton(
+                                onClick = { if (email.isNotBlank()) onResetPassword(email) },
+                                contentPadding = PaddingValues(0.dp),
+                            ) {
+                                Text("Zapomenuté heslo", color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

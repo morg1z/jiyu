@@ -29,6 +29,7 @@ sealed interface AuthUiState {
     data object Loading : AuthUiState
     data class Error(val message: String) : AuthUiState
     data object Success : AuthUiState
+    data object Done : AuthUiState
 }
 
 sealed interface SyncState {
@@ -82,6 +83,7 @@ class AccountViewModel @Inject constructor(
                     val googleCred = GoogleIdTokenCredential.createFrom(credential.data)
                     authRepository.signInWithGoogle(googleCred.idToken, rawNonce)
                     _authState.value = AuthUiState.Success
+                    syncNow()
                 } else {
                     _authState.value = AuthUiState.Error("Nepodporovaný typ přihlášení")
                 }
@@ -102,9 +104,46 @@ class AccountViewModel @Inject constructor(
             _syncState.value = SyncState.Syncing
             try {
                 syncRepository.pushToCloud()
+                syncRepository.pullFromCloud()
                 _syncState.value = SyncState.Done("Synchronizace dokončena")
             } catch (e: Exception) {
                 _syncState.value = SyncState.Error(e.message ?: "Chyba synchronizace")
+            }
+        }
+    }
+
+    fun signInWithEmail(email: String, password: String) {
+        viewModelScope.launch {
+            _authState.value = AuthUiState.Loading
+            try {
+                authRepository.signInWithEmail(email, password)
+                _authState.value = AuthUiState.Success
+                syncNow()
+            } catch (e: Exception) {
+                _authState.value = AuthUiState.Error(e.message ?: "Chyba přihlášení")
+            }
+        }
+    }
+
+    fun signUpWithEmail(email: String, password: String) {
+        viewModelScope.launch {
+            _authState.value = AuthUiState.Loading
+            try {
+                authRepository.signUpWithEmail(email, password)
+                _authState.value = AuthUiState.Success
+            } catch (e: Exception) {
+                _authState.value = AuthUiState.Error(e.message ?: "Chyba registrace")
+            }
+        }
+    }
+
+    fun sendPasswordReset(email: String) {
+        viewModelScope.launch {
+            try {
+                authRepository.resetPassword(email)
+                _authState.value = AuthUiState.Done
+            } catch (e: Exception) {
+                _authState.value = AuthUiState.Error("Email pro reset odeslán (pokud účet existuje)")
             }
         }
     }

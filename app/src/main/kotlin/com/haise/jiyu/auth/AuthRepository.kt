@@ -50,4 +50,22 @@ class AuthRepository @Inject constructor(private val supabase: SupabaseClient) {
     }
 
     suspend fun signOut() = supabase.auth.signOut()
+
+    suspend fun signInWithEmail(email: String, password: String) {
+        supabase.auth.signInWith(io.github.jan.supabase.gotrue.providers.builtin.Email) {
+            this.email = email
+            this.password = password
+        }
+    }
+
+    suspend fun signUpWithEmail(email: String, password: String) {
+        supabase.auth.signUpWith(io.github.jan.supabase.gotrue.providers.builtin.Email) {
+            this.email = email
+            this.password = password
+        }
+    }
+
+    suspend fun resetPassword(email: String) {
+        supabase.auth.resetPasswordForEmail(email)
+    }
 }

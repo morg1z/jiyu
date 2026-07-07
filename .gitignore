@@ -8,3 +8,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Firebase — obsahuje ID projektu, není potřeba (a nechceme) verzovat
+app/google-services.json

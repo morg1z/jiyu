@@ -47,4 +47,18 @@ Hotovo (2026-07-06):
 - Unit testy (DAO, Room migrace, Madara parser), live test na emulátoru
 - Room DB v14, WorkManager + HiltWorkerFactory správně inicializovány
 - Roadmapa #1-47, #49, #50 hotová (AI shrnutí/doporučení přes Groq, QR sdílení,
-  sleep timer, reading goals, hodnocení, 
+  sleep timer, reading goals, hodnocení, panel mode, community listy, DB
+  indexy, Coil cache, ProGuard/R8, UI testy)
+
+Rozpracováno (2026-07-07):
+- **#48 Firebase Crashlytics + Analytics** — gradle scaffolding hotový
+  (`build.gradle.kts`, `app/build.gradle.kts`, `JiyuApp.kt`), ale
+  chybí `app/google-services.json`. Bez něj build.gradle plugin
+  přeskočí a appka jede dál normálně, jen bez crash reportingu
+  (`BuildConfig.FIREBASE_ENABLED == false`). Až uživatel doplní soubor,
+  stačí ho hodit do `app/` a přebuildit.
+
+## Styl práce
+
+Vysvětluj kroky stručně česky, než něco uděláš. Kód piš čistě v Kotlinu podle
+architektury projektu.
