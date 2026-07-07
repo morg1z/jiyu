@@ -51,4 +51,7 @@ interface MangaDao {
 
     @Query("SELECT author FROM manga WHERE inLibrary = 1 AND author IS NOT NULL AND author != ''")
     suspend fun getAllLibraryAuthors(): List<String?>
+
+    @Query("UPDATE manga SET autoDownload = :enabled WHERE id = :id")
+    suspend fun setAutoDownload(id: String, enabled: Boolean)
 }

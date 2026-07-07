@@ -12,6 +12,8 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.MangaNoteEntity
+import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 
@@ -32,8 +34,10 @@ class Converters {
         MangaCategoryEntity::class,
         CustomSourceEntity::class,
         ReadHistoryEntity::class,
+        MangaNoteEntity::class,
+        MangaTagEntity::class,
     ],
-    version = 11,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -44,6 +48,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun customSourceDao(): CustomSourceDao
     abstract fun readHistoryDao(): ReadHistoryDao
+    abstract fun mangaNoteDao(): MangaNoteDao
+    abstract fun mangaTagDao(): MangaTagDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -130,6 +136,30 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_mangaId` ON `chapter` (`mangaId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_read` ON `chapter` (`read`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_downloadStatus` ON `chapter` (`downloadStatus`)")
+            }
+        }
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN autoDownload INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `manga_note` (
+                        `mangaId` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`mangaId`)
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `manga_tag` (
+                        `mangaId` TEXT NOT NULL,
+                        `tag` TEXT NOT NULL,
+                        PRIMARY KEY(`mangaId`, `tag`)
+                    )"""
+                )
             }
         }
     }

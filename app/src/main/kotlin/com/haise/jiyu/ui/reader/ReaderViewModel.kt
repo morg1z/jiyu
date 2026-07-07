@@ -100,6 +100,24 @@ class ReaderViewModel @Inject constructor(
     val doublePageSpread: StateFlow<Boolean> = settings.doublePageSpread
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val fullscreenEnabled: StateFlow<Boolean> = settings.fullscreenEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val readerTheme: StateFlow<String> = settings.readerTheme
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "dark")
+
+    private val _isOfflineChapter = MutableStateFlow(false)
+    val isOfflineChapter: StateFlow<Boolean> = _isOfflineChapter.asStateFlow()
+
+    private val _chapterIndex = MutableStateFlow(0)
+    private val _chapterCount = MutableStateFlow(0)
+    val chapterProgress: StateFlow<Float> = kotlinx.coroutines.flow.combine(_chapterIndex, _chapterCount) { idx, count ->
+        if (count <= 1) 0f else idx.toFloat() / (count - 1).toFloat()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
+
+    private val _spreadPageIndices = MutableStateFlow<Set<Int>>(emptySet())
+    val spreadPageIndices: StateFlow<Set<Int>> = _spreadPageIndices.asStateFlow()
+
     // ── Překlad ──────────────────────────────────────────────────────────────
     private val _translateMode = MutableStateFlow(false)
     val translateMode: StateFlow<Boolean> = _translateMode.asStateFlow()
@@ -160,6 +178,8 @@ class ReaderViewModel @Inject constructor(
         _currentPage.value = _initialPage.value
 
         allChapters = repository.getAllChapters(chapter.mangaId)
+        _chapterCount.value = allChapters.size
+        _chapterIndex.value = allChapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
         updateNavState()
 
         val mangaForDir = repository.getManga(chapter.mangaId)
@@ -167,11 +187,21 @@ class ReaderViewModel @Inject constructor(
 
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
             val dir = File(chapter.localPath)
-            _pages.value = dir.listFiles()
-                ?.sortedBy { it.name }
-                ?.map { "file://${it.absolutePath}" }
-                ?: emptyList()
+            val sortedFiles = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
+            _pages.value = sortedFiles.map { "file://${it.absolutePath}" }
+            _isOfflineChapter.value = true
+            // Detect landscape pages for smart spread grouping
+            viewModelScope.launch {
+                val spread = sortedFiles.mapIndexedNotNull { idx, file ->
+                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+                    if (opts.outWidth > 0 && opts.outWidth > opts.outHeight * 1.2f) idx else null
+                }.toSet()
+                _spreadPageIndices.value = spread
+            }
         } else {
+            _isOfflineChapter.value = false
+            _spreadPageIndices.value = emptySet()
             val manga = repository.getManga(chapter.mangaId)
             if (manga != null) {
                 _pages.value = try {

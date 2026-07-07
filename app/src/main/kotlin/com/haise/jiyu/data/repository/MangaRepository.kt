@@ -98,6 +98,9 @@ class MangaRepository @Inject constructor(
     suspend fun setMangaReaderDirection(mangaId: String, direction: String?) =
         mangaDao.setReaderDirection(mangaId, direction)
 
+    suspend fun setAutoDownload(mangaId: String, enabled: Boolean) =
+        mangaDao.setAutoDownload(mangaId, enabled)
+
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(
             mangaId = mangaId,

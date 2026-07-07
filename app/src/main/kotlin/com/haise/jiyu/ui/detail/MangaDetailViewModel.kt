@@ -3,10 +3,14 @@ package com.haise.jiyu.ui.detail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.data.db.MangaNoteDao
+import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.MangaNoteEntity
+import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
@@ -31,6 +35,8 @@ class MangaDetailViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
     private val networkMonitor: NetworkMonitor,
+    private val mangaNoteDao: MangaNoteDao,
+    private val mangaTagDao: MangaTagDao,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -80,6 +86,23 @@ class MangaDetailViewModel @Inject constructor(
             chs.minByOrNull { it.chapterNumber }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── První nepřečtená kapitola (#33) ───────────────────────────────────────
+    val firstUnreadChapter: StateFlow<ChapterEntity?> = chapters.map { chs ->
+        chs.filter { !it.read }.minByOrNull { it.chapterNumber }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── Auto-stahování (#32) ──────────────────────────────────────────────────
+    val autoDownload: StateFlow<Boolean> = manga.map { it?.autoDownload ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // ── Poznámky (#27) ────────────────────────────────────────────────────────
+    val mangaNote: StateFlow<MangaNoteEntity?> = mangaNoteDao.observeForManga(mangaId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    // ── Tagy (#26) ────────────────────────────────────────────────────────────
+    val mangaTags: StateFlow<List<MangaTagEntity>> = mangaTagDao.observeForManga(mangaId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Kategorie ─────────────────────────────────────────────────────────────
     val allCategories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
@@ -198,5 +221,32 @@ class MangaDetailViewModel @Inject constructor(
 
     fun setReaderDirection(direction: String?) {
         viewModelScope.launch { repository.setMangaReaderDirection(mangaId, direction) }
+    }
+
+    // ── Auto-stahování (#32) ──────────────────────────────────────────────────
+    fun toggleAutoDownload() {
+        viewModelScope.launch { repository.setAutoDownload(mangaId, !autoDownload.value) }
+    }
+
+    // ── Poznámky (#27) ────────────────────────────────────────────────────────
+    fun saveNote(content: String) {
+        viewModelScope.launch {
+            if (content.isBlank()) {
+                mangaNoteDao.deleteForManga(mangaId)
+            } else {
+                mangaNoteDao.upsert(MangaNoteEntity(mangaId = mangaId, content = content))
+            }
+        }
+    }
+
+    // ── Tagy (#26) ────────────────────────────────────────────────────────────
+    fun addTag(tag: String) {
+        val trimmed = tag.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch { mangaTagDao.insert(MangaTagEntity(mangaId = mangaId, tag = trimmed)) }
+    }
+
+    fun removeTag(tag: String) {
+        viewModelScope.launch { mangaTagDao.delete(MangaTagEntity(mangaId = mangaId, tag = tag)) }
     }
 }

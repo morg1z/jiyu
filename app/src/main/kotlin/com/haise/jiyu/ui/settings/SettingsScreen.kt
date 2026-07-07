@@ -112,6 +112,8 @@ fun SettingsScreen(
     val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
     val autoDeleteRead    by viewModel.autoDeleteRead.collectAsState()
     val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
+    val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
+    val readerTheme       by viewModel.readerTheme.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -254,6 +256,36 @@ fun SettingsScreen(
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = fullscreenEnabled, role = Role.Switch, onValueChange = { viewModel.setFullscreenEnabled(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Celá obrazovka", color = TextPrimary, fontSize = 14.sp)
+                            Text("Skryje systémové lišty při čtení", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = fullscreenEnabled,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                SettingsSection(title = "Téma čtečky") {
+                    listOf(
+                        "dark"  to "Tmavé (výchozí)",
+                        "sepia" to "Sépia",
+                        "paper" to "Papír",
+                    ).forEach { (value, label) ->
+                        GlassRadioRow(label = label, selected = readerTheme == value, onClick = { viewModel.setReaderTheme(value) })
                     }
                 }
 

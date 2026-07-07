@@ -265,4 +265,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoDeleteRead(enabled: Boolean) = viewModelScope.launch { settings.setAutoDeleteRead(enabled) }
     fun setAutoDeleteDelayDays(days: Int)    = viewModelScope.launch { settings.setAutoDeleteDelayDays(days) }
+
+    // ── Čtečka — fullscreen & téma ────────────────────────────────────────────
+    val fullscreenEnabled: StateFlow<Boolean> = settings.fullscreenEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val readerTheme: StateFlow<String> = settings.readerTheme
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "dark")
+
+    fun setFullscreenEnabled(enabled: Boolean) = viewModelScope.launch { settings.setFullscreenEnabled(enabled) }
+    fun setReaderTheme(theme: String)           = viewModelScope.launch { settings.setReaderTheme(theme) }
 }

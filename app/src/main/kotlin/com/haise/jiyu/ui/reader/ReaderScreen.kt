@@ -41,7 +41,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +60,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -68,11 +75,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import android.content.Intent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -101,6 +117,7 @@ private val OffsetSaver = Saver<Offset, List<Float>>(
     restore = { Offset(it[0], it[1]) },
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val pages               by viewModel.pages.collectAsState()
@@ -124,13 +141,20 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val readerTextScale     by viewModel.readerTextScale.collectAsState()
     val doublePageSpread    by viewModel.doublePageSpread.collectAsState()
     val translationError    by viewModel.translationError.collectAsState()
+    val fullscreenEnabled   by viewModel.fullscreenEnabled.collectAsState()
+    val readerTheme         by viewModel.readerTheme.collectAsState()
+    val isOfflineChapter    by viewModel.isOfflineChapter.collectAsState()
+    val chapterProgress     by viewModel.chapterProgress.collectAsState()
+    val spreadPageIndices   by viewModel.spreadPageIndices.collectAsState()
 
-    // Fullscreen immersive
+    // Fullscreen immersive (conditionally)
     val view = LocalView.current
-    DisposableEffect(Unit) {
+    DisposableEffect(fullscreenEnabled) {
         val ctrl = WindowCompat.getInsetsController((view.context as Activity).window, view)
-        ctrl.hide(WindowInsetsCompat.Type.systemBars())
-        ctrl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (fullscreenEnabled) {
+            ctrl.hide(WindowInsetsCompat.Type.systemBars())
+            ctrl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         onDispose { ctrl.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
@@ -148,8 +172,15 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         }
     }
 
+    val bgColor = when (readerTheme) {
+        "sepia" -> Color(0xFF1A0E05)
+        "paper" -> Color(0xFF1A1510)
+        else    -> Color.Black
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black),
+        modifier = Modifier.fillMaxSize().background(bgColor),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -184,6 +215,17 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 tapZonesEnabled = tapZonesEnabled,
                 textScale = readerTextScale,
                 doublePageSpread = doublePageSpread,
+                readerTheme = readerTheme,
+                isOfflineChapter = isOfflineChapter,
+                chapterProgress = chapterProgress,
+                spreadPageIndices = spreadPageIndices,
+                onSharePage = { pageUrl ->
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, pageUrl)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Sdílet stránku"))
+                },
             )
         }
 
@@ -206,6 +248,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderContent(
     pages: List<String>,
@@ -236,6 +279,11 @@ private fun ReaderContent(
     tapZonesEnabled: Boolean,
     textScale: Float,
     doublePageSpread: Boolean,
+    readerTheme: String = "dark",
+    isOfflineChapter: Boolean = false,
+    chapterProgress: Float = 0f,
+    spreadPageIndices: Set<Int> = emptySet(),
+    onSharePage: (String) -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -264,6 +312,12 @@ private fun ReaderContent(
     var scale by rememberSaveable { mutableStateOf(1f) }
     var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
 
+    val themeOverlay = when (readerTheme) {
+        "sepia" -> Color(0xFFB8860B).copy(alpha = 0.12f)
+        "paper" -> Color(0xFFFFFAF0).copy(alpha = 0.06f)
+        else    -> Color.Transparent
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         val effectiveTranslateMode = translateMode && !showOriginal
         if (readingMode == ReadingMode.WEBTOON) {
@@ -284,6 +338,7 @@ private fun ReaderContent(
                 translatedPages = translatedPages,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
+                spreadPageIndices = spreadPageIndices,
                 textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
                 scale = scale,
@@ -296,7 +351,13 @@ private fun ReaderContent(
                     onPageChanged(page)
                 },
                 onTap = { controlsVisible = !controlsVisible },
+                onSharePage = onSharePage,
             )
+        }
+
+        // Téma čtečky — barevný overlay přes stránky
+        if (themeOverlay != Color.Transparent) {
+            Box(modifier = Modifier.fillMaxSize().background(themeOverlay))
         }
 
         // ── Overlay ovládání ─────────────────────────────────────────────────
@@ -338,14 +399,25 @@ private fun ReaderContent(
                             modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(
-                                text = chapterTitle,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = chapterTitle,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (isOfflineChapter) {
+                                    Icon(
+                                        Icons.Filled.WifiOff,
+                                        contentDescription = "Offline",
+                                        tint = Color(0xFF4FC3F7),
+                                        modifier = Modifier.size(13.dp).padding(start = 4.dp),
+                                    )
+                                }
+                            }
                             Text(
                                 text = "${currentPage + 1} / ${pages.size}",
                                 color = Color.White.copy(alpha = 0.6f),
@@ -382,6 +454,15 @@ private fun ReaderContent(
                                 tint = if (hasNextChapter) Color.White else Color.White.copy(alpha = 0.25f),
                             )
                         }
+                    }
+                    // Postup v rámci manga (počet kapitol)
+                    if (chapterProgress > 0f) {
+                        LinearProgressIndicator(
+                            progress = { chapterProgress },
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            color = Color(0xFF8B5CF6).copy(alpha = 0.6f),
+                            trackColor = Color.Transparent,
+                        )
                     }
                 }
 
@@ -548,6 +629,7 @@ private fun ReaderContent(
 
 // ── Horizontální manga reader (s pinch-to-zoom) ──────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MangaReader(
     pages: List<String>,
@@ -556,6 +638,7 @@ private fun MangaReader(
     translatedPages: Map<Int, List<TranslatedBlock>>,
     reverseLayout: Boolean,
     doublePageSpread: Boolean,
+    spreadPageIndices: Set<Int> = emptySet(),
     textScale: Float,
     tapZonesEnabled: Boolean,
     scale: Float,
@@ -564,15 +647,56 @@ private fun MangaReader(
     onPanChange: (Offset) -> Unit,
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
+    onSharePage: (String) -> Unit = {},
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val useSpread = doublePageSpread && isLandscape
 
-    // Dvoustránkové zobrazení: skupiny po 2 stránkách na šířku (jen na landscape)
-    val groups: List<List<Int>> = remember(pages.size, useSpread) {
-        if (!useSpread) pages.indices.map { listOf(it) }
-        else pages.indices.chunked(2)
+    // Dvoustránkové zobrazení: skupiny po 2 stránkách.
+    // Stránky, které jsou samy o sobě šiřší než vysoké (#29), se nezačleňují do páru.
+    val groups: List<List<Int>> = remember(pages.size, useSpread, spreadPageIndices) {
+        if (!useSpread) {
+            pages.indices.map { listOf(it) }
+        } else {
+            val result = mutableListOf<List<Int>>()
+            var i = 0
+            while (i < pages.size) {
+                if (i in spreadPageIndices) {
+                    result.add(listOf(i)); i++
+                } else if (i + 1 < pages.size && (i + 1) !in spreadPageIndices) {
+                    result.add(listOf(i, i + 1)); i += 2
+                } else {
+                    result.add(listOf(i)); i++
+                }
+            }
+            result
+        }
+    }
+
+    var showShareSheet by remember { mutableStateOf(false) }
+    var sharePageUrl by remember { mutableStateOf("") }
+    if (showShareSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showShareSheet = false },
+            sheetState = sheetState,
+            containerColor = Color(0xFF111B35),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Text("Sdílet stránku", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 16.dp))
+                OutlinedButton(
+                    onClick = { onSharePage(sharePageUrl); showShareSheet = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sdílet odkaz", color = Color(0xFF4FC3F7))
+                }
+                Spacer(Modifier.height(32.dp))
+            }
+        }
     }
 
     // Sleduje aktuální JEDNOTLIVOU stránku (ne index skupiny) přes rememberSaveable,
@@ -608,9 +732,31 @@ private fun MangaReader(
         }
     }
 
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { try { focusRequester.requestFocus() } catch (_: Exception) {} }
+
     HorizontalPager(
         state = pagerState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft, Key.A -> {
+                        val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                        true
+                    }
+                    Key.DirectionRight, Key.D -> {
+                        val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                        true
+                    }
+                    else -> false
+                }
+            },
         reverseLayout = reverseLayout,
         userScrollEnabled = scale <= 1f, // Zablokuj swipe při zoomu
     ) { groupIdx ->
@@ -627,7 +773,12 @@ private fun MangaReader(
                     }
                 }
                 .pointerInput(tapZonesEnabled, reverseLayout, groups.size) {
-                    detectTapGestures(onTap = { offset ->
+                    detectTapGestures(
+                        onLongPress = {
+                            sharePageUrl = pages.getOrElse(indices[0]) { "" }
+                            if (sharePageUrl.isNotEmpty()) showShareSheet = true
+                        },
+                        onTap = { offset ->
                         if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
                         val fraction = offset.x / size.width
                         val delta = when {

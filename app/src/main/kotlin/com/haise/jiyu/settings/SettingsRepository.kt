@@ -29,6 +29,14 @@ object SettingsKeys {
     val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
     val ANILIST_TOKEN          = stringPreferencesKey("anilist_access_token")
     val ANILIST_ID_MAP         = stringPreferencesKey("anilist_id_map")
+    val FULLSCREEN_ENABLED     = booleanPreferencesKey("fullscreen_enabled")
+    val READER_THEME           = stringPreferencesKey("reader_theme")
+}
+
+object ReaderTheme {
+    const val DARK  = "dark"
+    const val SEPIA = "sepia"
+    const val PAPER = "paper"
 }
 
 object ThemeOption {
@@ -142,4 +150,16 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun saveAniListIdMap(json: String) = dataStore.edit { it[SettingsKeys.ANILIST_ID_MAP] = json }
+
+    val fullscreenEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.FULLSCREEN_ENABLED] ?: true }
+
+    val readerTheme: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.READER_THEME] ?: ReaderTheme.DARK }
+
+    suspend fun setFullscreenEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.FULLSCREEN_ENABLED] = enabled }
+
+    suspend fun setReaderTheme(theme: String) =
+        dataStore.edit { it[SettingsKeys.READER_THEME] = theme }
 }

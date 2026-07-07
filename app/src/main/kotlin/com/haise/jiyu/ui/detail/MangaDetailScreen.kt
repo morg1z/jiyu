@@ -24,20 +24,30 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Note
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,12 +55,17 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -98,15 +113,19 @@ fun MangaDetailScreen(
     onOpenManga: (String) -> Unit = {},
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
-    val manga           by viewModel.manga.collectAsState()
-    val chapters        by viewModel.chapters.collectAsState()
-    val continueChapter by viewModel.continueChapter.collectAsState()
-    val relatedManga    by viewModel.relatedManga.collectAsState()
-    val sortAscending   by viewModel.sortAscending.collectAsState()
-    val allCategories   by viewModel.allCategories.collectAsState()
-    val categoryIds     by viewModel.mangaCategoryIds.collectAsState()
-    val isRefreshing    by viewModel.isRefreshing.collectAsState()
-    val errorMessage    by viewModel.errorMessage.collectAsState()
+    val manga            by viewModel.manga.collectAsState()
+    val chapters         by viewModel.chapters.collectAsState()
+    val continueChapter  by viewModel.continueChapter.collectAsState()
+    val firstUnread      by viewModel.firstUnreadChapter.collectAsState()
+    val relatedManga     by viewModel.relatedManga.collectAsState()
+    val sortAscending    by viewModel.sortAscending.collectAsState()
+    val allCategories    by viewModel.allCategories.collectAsState()
+    val categoryIds      by viewModel.mangaCategoryIds.collectAsState()
+    val isRefreshing     by viewModel.isRefreshing.collectAsState()
+    val errorMessage     by viewModel.errorMessage.collectAsState()
+    val autoDownload     by viewModel.autoDownload.collectAsState()
+    val mangaNote        by viewModel.mangaNote.collectAsState()
+    val mangaTags        by viewModel.mangaTags.collectAsState()
 
     val chapterFilter     by viewModel.chapterFilter.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -114,6 +133,10 @@ fun MangaDetailScreen(
     val pullToRefreshState = rememberPullToRefreshState()
     var showBulkMenu by remember { mutableStateOf(false) }
     var chapterSearchActive by remember { mutableStateOf(false) }
+    var chapterGridView by remember { mutableStateOf(false) }
+    var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
+    var addTagText by remember { mutableStateOf("") }
+    var showAddTagField by remember { mutableStateOf(false) }
 
     // Koordinace pull-to-refresh se stavem ViewModel
     LaunchedEffect(pullToRefreshState.isRefreshing) {
@@ -359,6 +382,103 @@ fun MangaDetailScreen(
                     }
                 }
 
+                // ── Tagy (#26) ────────────────────────────────────────────────
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "TAGY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { showAddTagField = !showAddTagField }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Filled.Add, contentDescription = "Přidat tag", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        if (showAddTagField) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                BasicTextField(
+                                    value = addTagText,
+                                    onValueChange = { addTagText = it },
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
+                                    decorationBox = { inner ->
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.White.copy(alpha = 0.06f))
+                                                .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        ) {
+                                            if (addTagText.isEmpty()) Text("Nový tag…", color = TextSecondary, fontSize = 13.sp)
+                                            inner()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = {
+                                    viewModel.addTag(addTagText)
+                                    addTagText = ""
+                                    showAddTagField = false
+                                }) { Text("OK", color = GlowCyan) }
+                            }
+                        }
+                        if (mangaTags.isNotEmpty()) {
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                mangaTags.forEach { tagEntity ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(GlowCyan.copy(alpha = 0.12f))
+                                            .border(1.dp, GlowCyan.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                            .clickable { viewModel.removeTag(tagEntity.tag) }
+                                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(tagEntity.tag, color = GlowCyan, fontSize = 11.sp)
+                                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Text("Žádné tagy", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                        }
+                    }
+                }
+
+                // ── Poznámky (#27) ────────────────────────────────────────────
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(text = "POZNÁMKY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
+                        BasicTextField(
+                            value = noteText,
+                            onValueChange = { noteText = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
+                            decorationBox = { inner ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.White.copy(alpha = 0.04f))
+                                        .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                                        .padding(12.dp),
+                                ) {
+                                    if (noteText.isEmpty()) Text("Přidej poznámku k tomuto mangu…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
+                                    inner()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (noteText != (mangaNote?.content ?: "")) {
+                            TextButton(
+                                onClick = { viewModel.saveNote(noteText) },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Uložit", color = GlowViolet) }
+                        }
+                    }
+                }
+
                 // ── Continue / Start reading ──────────────────────────────────
                 continueChapter?.let { chapter ->
                     item {
@@ -387,12 +507,51 @@ fun MangaDetailScreen(
 
                 // ── Chapters header se sort + bulk download ───────────────────
                 item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                    // Auto-download toggle (#32)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                            .clickable { viewModel.toggleAutoDownload() }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Auto-stahování nových kapitol", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = autoDownload,
+                            onCheckedChange = { viewModel.toggleAutoDownload() },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "KAPITOLY", style = MaterialTheme.typography.labelSmall, color = Violet, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
 
                         // Mark all read
                         IconButton(onClick = { viewModel.markAllRead() }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Filled.DoneAll, contentDescription = "Označit vše přečtené", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+
+                        // First unread jump (#33)
+                        if (firstUnread != null) {
+                            IconButton(
+                                onClick = { firstUnread?.let { onOpenChapter(it.id) } },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(Icons.Filled.SkipNext, contentDescription = "Přejít na první nepřečtenou", tint = GlowCyan, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        // Grid/List toggle (#34)
+                        IconButton(
+                            onClick = { chapterGridView = !chapterGridView },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(if (chapterGridView) Icons.AutoMirrored.Filled.List else Icons.Filled.GridView, contentDescription = "Přepnout zobrazení", tint = if (chapterGridView) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Chapter search toggle
@@ -439,6 +598,7 @@ fun MangaDetailScreen(
                             Text(text = if (sortAscending) "Nejstarší" else "Nejnovější", color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                         }
                     }
+                    } // konec Column wrapperu
                 }
 
                 // ── Chapter search bar ────────────────────────────────────────
@@ -477,15 +637,48 @@ fun MangaDetailScreen(
                     }
                 }
 
-                // ── Chapter list ──────────────────────────────────────────────
-                items(chapters, key = { it.id }) { chapter ->
-                    GlassChapterRow(
-                        chapter = chapter,
-                        onOpen = { onOpenChapter(chapter.id) },
-                        onDownload = { viewModel.downloadChapter(chapter) },
-                        onMarkReadUpTo = { viewModel.markReadUpTo(chapter.id) },
-                        onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
-                    )
+                // ── Chapter list / grid (#34) ─────────────────────────────────
+                if (chapterGridView) {
+                    item {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(4),
+                            modifier = Modifier.fillMaxWidth().height(((chapters.size / 4 + 1) * 60).dp.coerceAtMost(400.dp)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(chapters) { chapter ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (chapter.read) GlowCyan.copy(alpha = 0.08f) else GlowViolet.copy(alpha = 0.15f))
+                                        .border(1.dp, if (chapter.read) GlowCyan.copy(alpha = 0.2f) else GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                        .clickable { onOpenChapter(chapter.id) }
+                                        .padding(6.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = chapter.chapterNumber.let { if (it == it.toLong().toFloat()) it.toLong().toString() else it.toString() },
+                                        color = if (chapter.read) TextSecondary else TextPrimary,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(chapters, key = { it.id }) { chapter ->
+                        GlassChapterRow(
+                            chapter = chapter,
+                            onOpen = { onOpenChapter(chapter.id) },
+                            onDownload = { viewModel.downloadChapter(chapter) },
+                            onMarkReadUpTo = { viewModel.markReadUpTo(chapter.id) },
+                            onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
+                        )
+                    }
                 }
 
                 item { Spacer(Modifier.height(32.dp)) }
