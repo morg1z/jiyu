@@ -88,6 +88,57 @@ class LibraryViewModel @Inject constructor(
         .map { list -> list.associate { it.mangaId to it.count } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // ── Bulk selection ────────────────────────────────────────────────────────
+    private val _selectionMode = MutableStateFlow(false)
+    val selectionMode: StateFlow<Boolean> = _selectionMode.asStateFlow()
+
+    private val _selectedIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
+
+    fun enterSelectionMode(firstId: String) {
+        _selectionMode.value = true
+        _selectedIds.value = setOf(firstId)
+    }
+
+    fun toggleSelection(id: String) {
+        val next = _selectedIds.value.let { if (id in it) it - id else it + id }
+        _selectedIds.value = next
+        if (next.isEmpty()) _selectionMode.value = false
+    }
+
+    fun selectAll() { _selectedIds.value = library.value.map { it.id }.toSet() }
+
+    fun clearSelection() {
+        _selectionMode.value = false
+        _selectedIds.value = emptySet()
+    }
+
+    fun bulkDownload() {
+        val ids = _selectedIds.value.toList(); clearSelection()
+        ids.forEach { downloadAllChapters(it) }
+    }
+
+    fun bulkMarkRead() {
+        val ids = _selectedIds.value.toList(); clearSelection()
+        viewModelScope.launch {
+            ids.forEach { mangaId ->
+                repository.getAllChapters(mangaId).forEach {
+                    repository.updateReadProgress(it.id, read = true, lastPageRead = 0)
+                }
+            }
+        }
+    }
+
+    fun bulkRemoveFromLibrary() {
+        val ids = _selectedIds.value.toList(); clearSelection()
+        ids.forEach { removeFromLibrary(it) }
+    }
+
+    fun bulkAddToCategory(categoryId: String) {
+        val ids = _selectedIds.value.toList(); clearSelection()
+        viewModelScope.launch { ids.forEach { repository.addMangaToCategory(it, categoryId) } }
+    }
+
     // ── Pull-to-refresh ───────────────────────────────────────────────────────
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()

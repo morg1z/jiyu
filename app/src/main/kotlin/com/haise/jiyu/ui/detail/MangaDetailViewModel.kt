@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -32,6 +33,15 @@ class MangaDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
+
+    init {
+        // Auto-retry chapter load when connectivity is restored after an error
+        viewModelScope.launch {
+            networkMonitor.networkState.drop(1).collect { online ->
+                if (online && _errorMessage.value != null && !_isRefreshing.value) refreshChapters()
+            }
+        }
+    }
 
     val manga: StateFlow<MangaEntity?> = repository.observeMangaById(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

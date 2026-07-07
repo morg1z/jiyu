@@ -51,6 +51,8 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.filled.AutoStories
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,14 +98,30 @@ fun HistoryScreen(
         }
 
         if (groups.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("( ˘•ω•˘ )", fontSize = 36.sp, color = GlowViolet.copy(alpha = 0.5f))
+            Box(modifier = Modifier.fillMaxSize().navigationBarsPadding(), contentAlignment = Alignment.Center) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 40.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.AutoStories,
+                        contentDescription = null,
+                        tint = GlowViolet.copy(alpha = 0.4f),
+                        modifier = Modifier.size(64.dp),
+                    )
+                    Spacer(Modifier.height(20.dp))
                     Text(
-                        "Žádná historie",
-                        style = MaterialTheme.typography.titleMedium,
+                        "Ještě jsi nic nečetl",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Přečtené kapitoly se budou zobrazovat tady",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
-                        modifier = Modifier.padding(top = 12.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }

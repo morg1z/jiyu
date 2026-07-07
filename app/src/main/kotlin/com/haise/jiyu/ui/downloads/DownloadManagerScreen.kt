@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -135,13 +136,29 @@ fun DownloadManagerScreen(
 
         if (groups.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("( ˘•ω•˘ )", fontSize = 36.sp, color = GlowViolet.copy(alpha = 0.5f))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 40.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.DownloadDone,
+                        contentDescription = null,
+                        tint = GlowCyan.copy(alpha = 0.4f),
+                        modifier = Modifier.size(64.dp),
+                    )
+                    Spacer(Modifier.height(20.dp))
                     Text(
-                        text = "Žádné stažené kapitoly",
-                        style = MaterialTheme.typography.titleMedium,
+                        "Nic nestaženo",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Stažené kapitoly najdeš tady — čti offline bez připojení",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
-                        modifier = Modifier.padding(top = 12.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -37,6 +38,12 @@ class BrowseViewModel @Inject constructor(
             if (_selectedSource.value == null) {
                 _selectedSource.value = first
                 if (first != null) loadPopular(_activeFilter.value)
+            }
+        }
+        // Auto-retry when connectivity is restored after an error
+        viewModelScope.launch {
+            networkMonitor.networkState.drop(1).collect { online ->
+                if (online && _error.value != null && !_loading.value) retry()
             }
         }
     }
