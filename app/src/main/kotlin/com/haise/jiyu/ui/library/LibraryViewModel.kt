@@ -61,7 +61,12 @@ class LibraryViewModel @Inject constructor(
         combine(_sortOption, _sortAscending, ::Pair),
     ) { list, query, unread, (sort, ascending) ->
         val filtered = if (query.isBlank()) list
-            else list.filter { it.title.contains(query, ignoreCase = true) }
+            else list.filter { m ->
+                m.title.contains(query, ignoreCase = true) ||
+                m.author?.contains(query, ignoreCase = true) == true ||
+                m.artist?.contains(query, ignoreCase = true) == true ||
+                m.genres.contains(query, ignoreCase = true)
+            }
 
         val sorted = when (sort) {
             LibrarySortOption.TITLE        -> filtered.sortedBy { it.title.lowercase() }

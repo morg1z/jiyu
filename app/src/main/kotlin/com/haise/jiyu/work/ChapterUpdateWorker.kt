@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -26,8 +27,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return try {
             val library = repository.getAllLibraryManga()
-            var newCount = 0
-            val updatedManga = mutableListOf<Pair<String, Int>>()
+            val updatedManga = mutableListOf<Pair<String, Pair<String, Int>>>() // title to (id, newCount)
 
             library.forEach { manga ->
                 try {
@@ -36,45 +36,81 @@ class ChapterUpdateWorker @AssistedInject constructor(
                     repository.refreshChapters(manga.id, sManga)
                     val after = repository.countChapters(manga.id)
                     val diff = after - before
-                    if (diff > 0) {
-                        newCount += diff
-                        updatedManga.add(manga.title to diff)
-                    }
-                } catch (_: Exception) {
-                    // Jedna manga selže → pokračuj s dalšími
-                }
+                    if (diff > 0) updatedManga.add(manga.title to (manga.id to diff))
+                } catch (_: Exception) {}
             }
 
-            if (newCount > 0) notify(newCount, updatedManga)
+            if (updatedManga.isNotEmpty()) notify(updatedManga)
             Result.success()
         } catch (e: Exception) {
             Result.retry()
         }
     }
 
-    private fun notify(count: Int, updatedManga: List<Pair<String, Int>>) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    private fun notify(updated: List<Pair<String, Pair<String, Int>>>) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val totalNew = updated.sumOf { it.second.second }
+
+        if (updated.size == 1) {
+            // Jedna manga → notif s přímým deep linkem do detailu
+            val (title, idAndCount) = updated.first()
+            val (mangaId, count) = idAndCount
+            val encodedId = Uri.encode(mangaId)
+            val deepUri = Uri.parse("jiyu://manga?mangaId=$encodedId")
+            val intent = Intent(Intent.ACTION_VIEW, deepUri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                setClass(context, MainActivity::class.java)
+            }
+            val pi = PendingIntent.getActivity(context, mangaId.hashCode(), intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+            nm.notify(mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(if (count == 1) "1 nová kapitola" else "$count nových kapitol")
+                .setContentText(title)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build())
+        } else {
+            // Více mang → souhrnná notif + skupinové notifikace
+            val bigText = updated.joinToString("\n") { (t, ic) -> "• $t (+${ic.second})" }
+            val summaryIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val summaryPi = PendingIntent.getActivity(context, 0, summaryIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+            updated.forEach { (title, idAndCount) ->
+                val (mangaId, count) = idAndCount
+                val encodedId = Uri.encode(mangaId)
+                val deepUri = Uri.parse("jiyu://manga?mangaId=$encodedId")
+                val intent = Intent(Intent.ACTION_VIEW, deepUri).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    setClass(context, MainActivity::class.java)
+                }
+                val pi = PendingIntent.getActivity(context, mangaId.hashCode(), intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+                nm.notify(mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(if (count == 1) "1 nová kapitola" else "$count nových kapitol")
+                    .setContentText(title)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setGroup("jiyu_updates")
+                    .build())
+            }
+
+            nm.notify(0, NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("$totalNew nových kapitol")
+                .setContentText("${updated.size} mang aktualizováno")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+                .setContentIntent(summaryPi)
+                .setAutoCancel(true)
+                .setGroup("jiyu_updates")
+                .setGroupSummary(true)
+                .build())
         }
-        val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        val notifTitle = if (count == 1) "1 nová kapitola" else "$count nových kapitol"
-        val preview = updatedManga.first().first
-        val bigText = updatedManga.joinToString("\n") { (mangaTitle, n) -> "• $mangaTitle (+$n)" }
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(notifTitle)
-            .setContentText(preview)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
-
-        context.getSystemService(NotificationManager::class.java)
-            .notify(1, notification)
     }
 }

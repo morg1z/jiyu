@@ -33,7 +33,7 @@ class Converters {
         CustomSourceEntity::class,
         ReadHistoryEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -121,6 +121,15 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE manga ADD COLUMN artist TEXT")
                 db.execSQL("ALTER TABLE manga ADD COLUMN genres TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE manga ADD COLUMN year INTEGER")
+            }
+        }
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_inLibrary` ON `manga` (`inLibrary`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_lastReadAt` ON `manga` (`lastReadAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_mangaId` ON `chapter` (`mangaId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_read` ON `chapter` (`read`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_downloadStatus` ON `chapter` (`downloadStatus`)")
             }
         }
     }

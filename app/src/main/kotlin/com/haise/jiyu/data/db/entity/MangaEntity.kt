@@ -1,13 +1,14 @@
 package com.haise.jiyu.data.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * `id` je vždy "{sourceId}::{url}" - díky tomu je unikátní napříč zdroji
  * a nepotřebujeme žádný centrální generátor ID.
  */
-@Entity(tableName = "manga")
+@Entity(tableName = "manga", indices = [Index("inLibrary"), Index("lastReadAt")])
 data class MangaEntity(
     @PrimaryKey val id: String,
     val sourceId: String,

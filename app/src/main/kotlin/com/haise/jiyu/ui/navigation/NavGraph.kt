@@ -6,6 +6,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import com.haise.jiyu.ui.account.AccountScreen
 import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
@@ -57,6 +58,7 @@ fun JiyuNavGraph(navController: NavHostController) {
         composable(
             route = Routes.DETAIL,
             arguments = listOf(navArgument("mangaId") { type = NavType.StringType }),
+            deepLinks = listOf(navDeepLink { uriPattern = "jiyu://manga?mangaId={mangaId}" }),
         ) {
             MangaDetailScreen(
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },

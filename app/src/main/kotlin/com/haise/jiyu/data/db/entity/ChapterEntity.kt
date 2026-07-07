@@ -1,11 +1,12 @@
 package com.haise.jiyu.data.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 enum class DownloadStatus { NOT_DOWNLOADED, QUEUED, DOWNLOADING, DOWNLOADED, ERROR }
 
-@Entity(tableName = "chapter")
+@Entity(tableName = "chapter", indices = [Index("mangaId"), Index("read"), Index("downloadStatus")])
 data class ChapterEntity(
     @PrimaryKey val id: String,
     val mangaId: String,
