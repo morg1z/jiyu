@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.auth.AuthRepository
 import com.haise.jiyu.auth.JiyuUser
 import com.haise.jiyu.sync.SyncRepository
@@ -41,6 +42,7 @@ sealed interface SyncState {
 class AccountViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val syncRepository: SyncRepository,
+    private val aniListRepository: AniListRepository,
 ) : ViewModel() {
 
     val currentUser: StateFlow<JiyuUser?> = authRepository.currentUser
@@ -108,4 +110,15 @@ class AccountViewModel @Inject constructor(
     }
 
     fun clearSyncState() { _syncState.value = SyncState.Idle }
+
+    // ── AniList ───────────────────────────────────────────────────────────────
+
+    val isAniListAuthenticated: StateFlow<Boolean> = aniListRepository.isAuthenticated
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val aniListAuthUrl: String get() = AniListRepository.AUTH_URL
+
+    fun aniListSignOut() = viewModelScope.launch {
+        try { aniListRepository.signOut() } catch (_: Exception) {}
+    }
 }

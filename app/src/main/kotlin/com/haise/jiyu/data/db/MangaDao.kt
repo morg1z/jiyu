@@ -45,4 +45,10 @@ interface MangaDao {
 
     @Query("UPDATE manga SET author = :author, artist = :artist, genres = :genres, year = :year WHERE id = :mangaId")
     suspend fun updateMetadata(mangaId: String, author: String?, artist: String?, genres: String, year: Int?)
+
+    @Query("SELECT genres FROM manga WHERE inLibrary = 1 AND genres != ''")
+    suspend fun getAllLibraryGenres(): List<String>
+
+    @Query("SELECT author FROM manga WHERE inLibrary = 1 AND author IS NOT NULL AND author != ''")
+    suspend fun getAllLibraryAuthors(): List<String?>
 }

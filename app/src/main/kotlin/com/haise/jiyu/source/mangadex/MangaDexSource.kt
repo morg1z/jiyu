@@ -217,6 +217,24 @@ class MangaDexSource @Inject constructor(
         )
     }
 
+    suspend fun getRelatedManga(mangaId: String): List<SManga> = withContext(Dispatchers.IO) {
+        val relJson = try { get("$apiBase/manga/$mangaId/relation") } catch (_: Exception) { return@withContext emptyList() }
+        val relData = relJson.optJSONArray("data") ?: return@withContext emptyList()
+        val ids = (0 until relData.length()).mapNotNull { i ->
+            relData.getJSONObject(i)
+                .optJSONArray("relationships")
+                ?.let { rels ->
+                    (0 until rels.length()).firstNotNullOfOrNull { j ->
+                        val r = rels.getJSONObject(j)
+                        if (r.optString("type") == "manga") r.optString("id").ifBlank { null } else null
+                    }
+                }
+        }.take(10)
+        if (ids.isEmpty()) return@withContext emptyList()
+        val idsParam = ids.joinToString("&") { "ids[]=$it" }
+        try { parseMangaList(get("$apiBase/manga?$idsParam&limit=10&includes[]=cover_art")) } catch (_: Exception) { emptyList() }
+    }
+
     private fun parseIsoDateToMillis(iso: String): Long {
         return try {
             java.time.Instant.parse(iso).toEpochMilli()

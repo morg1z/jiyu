@@ -1,6 +1,8 @@
 package com.haise.jiyu
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -16,22 +18,38 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.settings.ThemeOption
 import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settings: SettingsRepository
+    @Inject lateinit var aniListRepository: AniListRepository
 
     private val notifPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* výsledek ignorujeme — appka funguje bez notifikací */ }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val uri: Uri = intent.data ?: return
+        if (uri.scheme == "jiyu" && uri.host == "anilist") {
+            val fragment = uri.fragment ?: return
+            val token = fragment.split("&")
+                .find { it.startsWith("access_token=") }
+                ?.removePrefix("access_token=") ?: return
+            lifecycleScope.launch { aniListRepository.handleCallback(token) }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Edge-to-edge: obsah se kreslí pod status barem i navigační lištou

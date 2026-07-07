@@ -6,6 +6,8 @@ import androidx.room.Upsert
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import kotlinx.coroutines.flow.Flow
 
+data class DayCount(val day: String, val count: Int)
+
 @Dao
 interface ReadHistoryDao {
     @Upsert
@@ -25,4 +27,11 @@ interface ReadHistoryDao {
 
     @Query("DELETE FROM read_history")
     suspend fun deleteAll()
+
+    @Query("""
+        SELECT strftime('%Y-%m-%d', readAt/1000, 'unixepoch') as day, COUNT(*) as count
+        FROM read_history WHERE readAt >= :sinceMs
+        GROUP BY day ORDER BY day ASC
+    """)
+    suspend fun getDailyReadCounts(sinceMs: Long): List<DayCount>
 }

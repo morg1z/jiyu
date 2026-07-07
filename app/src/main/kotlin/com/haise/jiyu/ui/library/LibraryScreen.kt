@@ -131,6 +131,7 @@ fun LibraryScreen(
     onOpenBrowse: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenChapter: (String) -> Unit = {},
+    onOpenStats: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -413,7 +414,11 @@ fun LibraryScreen(
     }
 
     // ── Dialogy ──────────────────────────────────────────────────────────────
-    if (showStatsDialog) StatsDialog(stats = readingStats, onDismiss = { showStatsDialog = false })
+    if (showStatsDialog) StatsDialog(
+        stats = readingStats,
+        onDismiss = { showStatsDialog = false },
+        onOpenExtended = { showStatsDialog = false; onOpenStats() },
+    )
     if (showManageDialog) ManageCategoriesDialog(categories = categories, viewModel = viewModel, onDismiss = { showManageDialog = false })
     if (showCategoryAssignDialog) {
         contextMenuManga?.let { manga ->
@@ -846,7 +851,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
 }
 
 @Composable
-private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit) {
+private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit, onOpenExtended: () -> Unit = {}) {
     val totalMinutes = stats.readingTimeMs / 60_000
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
@@ -869,6 +874,7 @@ private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Zavřít", color = GlowViolet) } },
+        dismissButton = { TextButton(onClick = onOpenExtended) { Text("Detailní →", color = GlowViolet) } },
     )
 }
 

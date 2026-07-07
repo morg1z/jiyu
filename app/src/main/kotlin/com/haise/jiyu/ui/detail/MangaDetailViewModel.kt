@@ -11,6 +11,7 @@ import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.NetworkMonitor
+import kotlinx.coroutines.flow.flow
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,11 @@ class MangaDetailViewModel @Inject constructor(
 
     val manga: StateFlow<MangaEntity?> = repository.observeMangaById(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val relatedManga: StateFlow<List<SManga>> = flow {
+        emit(emptyList())
+        try { emit(repository.getRelatedManga(mangaId)) } catch (_: Exception) {}
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Řazení + filtrování kapitol ───────────────────────────────────────────
     private val _sortAscending = MutableStateFlow(false)

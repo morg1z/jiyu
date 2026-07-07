@@ -59,7 +59,9 @@ fun MainScreen(navController: androidx.navigation.NavHostController) {
     val currentRoute = currentDest?.route
 
     val showNavBar = currentRoute != null &&
-        !currentRoute.startsWith(Routes.READER.substringBefore("{"))
+        !currentRoute.startsWith(Routes.READER.substringBefore("{")) &&
+        currentRoute != Routes.GLOBAL_SEARCH &&
+        currentRoute != Routes.STATS
 
     Scaffold(
         containerColor = Color.Transparent,

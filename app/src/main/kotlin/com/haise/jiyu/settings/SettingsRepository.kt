@@ -27,6 +27,8 @@ object SettingsKeys {
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
     val AUTO_DELETE_READ       = booleanPreferencesKey("auto_delete_read")
     val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
+    val ANILIST_TOKEN          = stringPreferencesKey("anilist_access_token")
+    val ANILIST_ID_MAP         = stringPreferencesKey("anilist_id_map")
 }
 
 object ThemeOption {
@@ -130,4 +132,14 @@ class SettingsRepository @Inject constructor(
         dataStore.edit { prefs ->
             prefs[SettingsKeys.TOTAL_PAGES_READ] = (prefs[SettingsKeys.TOTAL_PAGES_READ] ?: 0L) + count
         }
+
+    val aniListToken: Flow<String?> = dataStore.data.map { it[SettingsKeys.ANILIST_TOKEN] }
+    val aniListIdMap: Flow<String>  = dataStore.data.map { it[SettingsKeys.ANILIST_ID_MAP] ?: "{}" }
+
+    suspend fun saveAniListToken(token: String?) = dataStore.edit {
+        if (token == null) it.remove(SettingsKeys.ANILIST_TOKEN)
+        else it[SettingsKeys.ANILIST_TOKEN] = token
+    }
+
+    suspend fun saveAniListIdMap(json: String) = dataStore.edit { it[SettingsKeys.ANILIST_ID_MAP] = json }
 }

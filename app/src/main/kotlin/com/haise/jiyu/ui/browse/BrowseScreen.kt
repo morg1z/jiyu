@@ -72,6 +72,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.automirrored.filled.ManageSearch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -100,6 +101,7 @@ import com.haise.jiyu.ui.theme.violetGlow
 @Composable
 fun BrowseScreen(
     onMangaAdded: (String) -> Unit,
+    onGlobalSearch: () -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
     val results        by viewModel.results.collectAsState()
@@ -157,12 +159,21 @@ fun BrowseScreen(
                         letterSpacing = 2.sp,
                     ),
                 )
-                IconButton(onClick = { showFilterSheet = true }) {
-                    Icon(
-                        imageVector = Icons.Default.FilterList,
-                        contentDescription = "Filtry",
-                        tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
-                    )
+                Row {
+                    IconButton(onClick = onGlobalSearch) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ManageSearch,
+                            contentDescription = "Globální vyhledávání",
+                            tint = TextSecondary,
+                        )
+                    }
+                    IconButton(onClick = { showFilterSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filtry",
+                            tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
+                        )
+                    }
                 }
             }
 

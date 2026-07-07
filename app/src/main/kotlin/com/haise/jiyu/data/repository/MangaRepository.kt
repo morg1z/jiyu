@@ -17,6 +17,7 @@ import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
+import com.haise.jiyu.source.mangadex.MangaDexSource
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +29,7 @@ class MangaRepository @Inject constructor(
     private val chapterDao: ChapterDao,
     private val categoryDao: CategoryDao,
     private val customSourceDao: CustomSourceDao,
+    private val mangaDexSource: MangaDexSource,
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 
@@ -190,6 +192,13 @@ class MangaRepository @Inject constructor(
     suspend fun getAllCustomSourcesOnce(): List<CustomSourceEntity> = customSourceDao.getAllOnce()
     /** Zachová původní id (na rozdíl od addCustomSource) - potřeba pro obnovu zálohy, kde na id ukazují sourceId manga. */
     suspend fun upsertAllCustomSources(sources: List<CustomSourceEntity>) = customSourceDao.upsertAll(sources)
+
+    // ── Related manga (MangaDex) ──────────────────────────────────────────────
+
+    suspend fun getRelatedManga(mangaId: String): List<SManga> {
+        val mdMangaId = mangaId.substringAfterLast("/")
+        return mangaDexSource.getRelatedManga(mdMangaId)
+    }
 
     // ── Utils ─────────────────────────────────────────────────────────────────
 

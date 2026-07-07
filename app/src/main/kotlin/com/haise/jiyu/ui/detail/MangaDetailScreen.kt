@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -77,6 +79,7 @@ import coil.compose.AsyncImage
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
+import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
@@ -92,11 +95,13 @@ import com.haise.jiyu.ui.theme.titleGradient
 @Composable
 fun MangaDetailScreen(
     onOpenChapter: (String) -> Unit,
+    onOpenManga: (String) -> Unit = {},
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
     val manga           by viewModel.manga.collectAsState()
     val chapters        by viewModel.chapters.collectAsState()
     val continueChapter by viewModel.continueChapter.collectAsState()
+    val relatedManga    by viewModel.relatedManga.collectAsState()
     val sortAscending   by viewModel.sortAscending.collectAsState()
     val allCategories   by viewModel.allCategories.collectAsState()
     val categoryIds     by viewModel.mangaCategoryIds.collectAsState()
@@ -328,6 +333,32 @@ fun MangaDetailScreen(
                     }
                 }
 
+                // ── Podobné manga ─────────────────────────────────────────────
+                if (relatedManga.isNotEmpty()) {
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(
+                                text = "PODOBNÉ",
+                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                                color = Violet,
+                                modifier = Modifier.padding(bottom = 10.dp),
+                            )
+                        }
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(relatedManga) { related ->
+                                RelatedMangaCard(
+                                    manga = related,
+                                    onClick = { onOpenManga("${related.sourceId}::${related.url}") },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
                 // ── Continue / Start reading ──────────────────────────────────
                 continueChapter?.let { chapter ->
                     item {
@@ -540,5 +571,37 @@ private fun GlassChapterRow(chapter: ChapterEntity, onOpen: () -> Unit, onDownlo
                 onClick = { onToggleRead(); showMenu = false },
             )
         }
+    }
+}
+
+@Composable
+private fun RelatedMangaCard(manga: SManga, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.width(80.dp).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, GlowViolet.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
+        ) {
+            AsyncImage(
+                model = manga.coverUrl,
+                contentDescription = manga.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Text(
+            text = manga.title,
+            color = TextSecondary,
+            fontSize = 10.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }

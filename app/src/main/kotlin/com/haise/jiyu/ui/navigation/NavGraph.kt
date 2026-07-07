@@ -14,19 +14,23 @@ import com.haise.jiyu.ui.downloads.DownloadManagerScreen
 import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
+import com.haise.jiyu.ui.search.GlobalSearchScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 import com.haise.jiyu.ui.settings.SourceCatalogScreen
+import com.haise.jiyu.ui.stats.ExtendedStatsScreen
 
 internal object Routes {
-    const val LIBRARY   = "library"
-    const val BROWSE    = "browse"
-    const val DETAIL    = "detail/{mangaId}"
-    const val READER    = "reader/{chapterId}"
-    const val SETTINGS  = "settings"
-    const val DOWNLOADS = "downloads"
-    const val HISTORY   = "history"
-    const val CATALOG   = "catalog"
-    const val ACCOUNT   = "account"
+    const val LIBRARY       = "library"
+    const val BROWSE        = "browse"
+    const val DETAIL        = "detail/{mangaId}"
+    const val READER        = "reader/{chapterId}"
+    const val SETTINGS      = "settings"
+    const val DOWNLOADS     = "downloads"
+    const val HISTORY       = "history"
+    const val CATALOG       = "catalog"
+    const val ACCOUNT       = "account"
+    const val GLOBAL_SEARCH = "global_search"
+    const val STATS         = "stats"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -42,6 +46,7 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenStats = { navController.navigate(Routes.STATS) },
             )
         }
 
@@ -52,6 +57,7 @@ fun JiyuNavGraph(navController: NavHostController) {
                         popUpTo(Routes.LIBRARY)
                     }
                 },
+                onGlobalSearch = { navController.navigate(Routes.GLOBAL_SEARCH) },
             )
         }
 
@@ -62,6 +68,7 @@ fun JiyuNavGraph(navController: NavHostController) {
         ) {
             MangaDetailScreen(
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
             )
         }
 
@@ -97,6 +104,17 @@ fun JiyuNavGraph(navController: NavHostController) {
             HistoryScreen(
                 onResumeReading = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
             )
+        }
+
+        composable(Routes.GLOBAL_SEARCH) {
+            GlobalSearchScreen(
+                onBack = { navController.popBackStack() },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+            )
+        }
+
+        composable(Routes.STATS) {
+            ExtendedStatsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

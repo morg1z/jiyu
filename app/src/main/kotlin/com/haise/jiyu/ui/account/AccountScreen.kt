@@ -1,5 +1,7 @@
 package com.haise.jiyu.ui.account
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,11 +21,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHost
@@ -49,6 +53,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.haise.jiyu.auth.JiyuUser
 import com.haise.jiyu.ui.theme.Cyan
+import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
@@ -61,9 +66,10 @@ fun AccountScreen(
     onBack: () -> Unit,
     viewModel: AccountViewModel = hiltViewModel(),
 ) {
-    val currentUser by viewModel.currentUser.collectAsState()
-    val authState by viewModel.authState.collectAsState()
-    val syncState by viewModel.syncState.collectAsState()
+    val currentUser           by viewModel.currentUser.collectAsState()
+    val authState             by viewModel.authState.collectAsState()
+    val syncState             by viewModel.syncState.collectAsState()
+    val isAniListConnected    by viewModel.isAniListAuthenticated.collectAsState()
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -125,12 +131,72 @@ fun AccountScreen(
                     onSignOut = { viewModel.signOut() },
                 )
             }
+
+            Spacer(Modifier.height(16.dp))
+            AniListSection(
+                isConnected = isAniListConnected,
+                onConnect = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(viewModel.aniListAuthUrl))) },
+                onDisconnect = { viewModel.aniListSignOut() },
+            )
         }
 
         SnackbarHost(
             hostState = snackbarHost,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
         )
+    }
+}
+
+@Composable
+private fun AniListSection(
+    isConnected: Boolean,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(glassGradient)
+            .padding(20.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "AniList Tracking",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                )
+                if (isConnected) {
+                    Spacer(Modifier.size(8.dp))
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
+                }
+            }
+            Text(
+                if (isConnected) "Připojeno — progress kapitol se automaticky synchronizuje."
+                else "Připoj svůj AniList účet a progress se bude automaticky aktualizovat při čtení.",
+                color = TextSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+            HorizontalDivider(color = GlowViolet.copy(alpha = 0.1f))
+            if (isConnected) {
+                TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                    Text("  Odpojit AniList", color = TextSecondary, fontSize = 13.sp)
+                }
+            } else {
+                Button(
+                    onClick = onConnect,
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet.copy(alpha = 0.85f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Připojit AniList", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.reader
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -36,6 +37,7 @@ class ReaderViewModel @Inject constructor(
     private val translateRepository: TranslateRepository,
     private val settings: SettingsRepository,
     private val historyDao: ReadHistoryDao,
+    private val aniListRepository: AniListRepository,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -240,7 +242,14 @@ class ReaderViewModel @Inject constructor(
                     )
                 )
             }
-            if (isRead) maybeAutoDelete()
+            if (isRead) {
+                maybeAutoDelete()
+                if (manga != null) {
+                    viewModelScope.launch {
+                        try { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } catch (_: Exception) {}
+                    }
+                }
+            }
         }
     }
 
