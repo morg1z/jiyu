@@ -6,6 +6,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.haise.jiyu.ui.account.AccountScreen
 import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
 import com.haise.jiyu.ui.downloads.DownloadManagerScreen
@@ -24,6 +25,7 @@ internal object Routes {
     const val DOWNLOADS = "downloads"
     const val HISTORY   = "history"
     const val CATALOG   = "catalog"
+    const val ACCOUNT   = "account"
 
     fun detail(mangaId: String) = "detail/$mangaId"
     fun reader(chapterId: String) = "reader/$chapterId"
@@ -73,7 +75,12 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onBack = { navController.popBackStack() },
                 onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
                 onOpenSourceCatalog = { navController.navigate(Routes.CATALOG) },
+                onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
             )
+        }
+
+        composable(Routes.ACCOUNT) {
+            AccountScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.CATALOG) {

@@ -95,6 +95,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDownloadManager: () -> Unit = {},
     onOpenSourceCatalog: () -> Unit = {},
+    onOpenAccount: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val language          by viewModel.targetLanguage.collectAsState()
@@ -355,6 +356,19 @@ fun SettingsScreen(
                             },
                             dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Zrušit", color = TextSecondary) } },
                         )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Účet / Cloud sync ─────────────────────────────────────────
+                SettingsSection(title = "Účet") {
+                    OutlinedButton(
+                        onClick = onOpenAccount,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                    ) {
+                        Text("Přihlášení & Cloud sync")
                     }
                 }
 

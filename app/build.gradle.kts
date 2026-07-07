@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 ksp {
@@ -25,6 +26,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "GROQ_API_KEY", "\"${localProps["GROQ_API_KEY"] ?: ""}\"")
+        buildConfigField("String", "SUPABASE_URL", "\"${localProps["SUPABASE_URL"] ?: "https://placeholder.supabase.co"}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps["SUPABASE_ANON_KEY"] ?: "placeholder-anon-key"}\"")
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")
     }
 
     buildTypes {
@@ -125,6 +129,19 @@ dependencies {
     // OCR – ML Kit Text Recognition (funguje offline, bundled model)
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
+
+    // Supabase — cloud sync + auth (2.0.3 je poslední verze s Kotlin 1.9.x)
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.0.3")
+    implementation("io.github.jan-tennert.supabase:gotrue-kt:2.0.3")
+    implementation("io.ktor:ktor-client-okhttp:2.3.9")
+
+    // Google Sign-In via Credential Manager
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
+    // Kotlinx serialization — pro Supabase DTOs
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.room:room-testing:2.6.1")
