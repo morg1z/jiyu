@@ -1,13 +1,16 @@
 package com.haise.jiyu.source
 
 import com.haise.jiyu.data.db.CustomSourceDao
+import com.haise.jiyu.source.batoto.BatoToSource
 import com.haise.jiyu.source.comick.ComicKSource
 import com.haise.jiyu.source.hitomi.HitomiSource
+import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.source.mangaplus.MangaPlusSource
+import com.haise.jiyu.source.webtoon.WebtoonSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -28,6 +31,9 @@ class SourceManager @Inject constructor(
     comicKSource: ComicKSource,
     hitomiSource: HitomiSource,
     nhentaiSource: NhentaiSource,
+    mangaFireSource: MangaFireSource,
+    batoToSource: BatoToSource,
+    webtoonSource: WebtoonSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -37,6 +43,9 @@ class SourceManager @Inject constructor(
         comicKSource,
         hitomiSource,
         nhentaiSource,
+        mangaFireSource,
+        batoToSource,
+        webtoonSource,
     )
 
     fun observeAll(): Flow<List<MangaSource>> =
