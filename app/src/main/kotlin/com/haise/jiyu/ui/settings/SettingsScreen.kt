@@ -125,6 +125,8 @@ fun SettingsScreen(
     val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
     val malIsLoggedIn by viewModel.malIsLoggedIn.collectAsState()
     val malUsername by viewModel.malUsername.collectAsState()
+    val pageScale by viewModel.pageScale.collectAsState()
+    val autoBackupEnabled by viewModel.autoBackupEnabled.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -290,6 +292,19 @@ fun SettingsScreen(
                         )
                     }
 
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Přiblížení stránky", color = TextPrimary, fontSize = 14.sp)
+                        Spacer(Modifier.height(4.dp))
+                        listOf(
+                            "fit_width"  to "Na šířku (výchozí)",
+                            "fit_height" to "Na výšku",
+                            "fit_screen" to "Na obrazovku",
+                            "stretch"    to "Roztáhnout",
+                        ).forEach { (value, label) ->
+                            GlassRadioRow(label = label, selected = pageScale == value, onClick = { viewModel.setPageScale(value) })
+                        }
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -369,6 +384,24 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = autoBackupEnabled, role = Role.Switch, onValueChange = { viewModel.setAutoBackupEnabled(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Automatická záloha", color = TextPrimary, fontSize = 14.sp)
+                            Text("Denně ukládá zálohu do úložiště zařízení (3 zálohy)", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = autoBackupEnabled,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
 
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                         OutlinedButton(

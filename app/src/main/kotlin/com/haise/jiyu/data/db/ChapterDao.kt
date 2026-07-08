@@ -13,6 +13,18 @@ data class MangaUnreadCount(val mangaId: String, val count: Int)
 data class MangaTotalCount(val mangaId: String, val count: Int)
 data class MangaDownloadedCount(val mangaId: String, val count: Int)
 
+data class UpdateItem(
+    val chapterId: String,
+    val chapterName: String,
+    val chapterNumber: Float,
+    val dateUpload: Long,
+    val mangaId: String,
+    val mangaTitle: String,
+    val coverUrl: String?,
+    val sourceId: String,
+    val read: Boolean,
+)
+
 @Dao
 interface ChapterDao {
 
@@ -78,4 +90,15 @@ interface ChapterDao {
 
     @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED', localPath = NULL, pageCount = 0 WHERE id = :id")
     suspend fun resetDownloadForChapter(id: String)
+
+    @Query("""
+        SELECT c.id as chapterId, c.name as chapterName, c.chapterNumber, c.dateUpload,
+               c.mangaId, m.title as mangaTitle, m.coverUrl, c.sourceId, c.read
+        FROM chapter c
+        INNER JOIN manga m ON c.mangaId = m.id
+        WHERE m.inLibrary = 1
+        ORDER BY c.dateUpload DESC
+        LIMIT 200
+    """)
+    fun observeUpdates(): Flow<List<UpdateItem>>
 }

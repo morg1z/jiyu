@@ -346,4 +346,37 @@ class SettingsViewModel @Inject constructor(
     fun setFullscreenEnabled(enabled: Boolean) = viewModelScope.launch { settings.setFullscreenEnabled(enabled) }
     fun setReaderTheme(theme: String)           = viewModelScope.launch { settings.setReaderTheme(theme) }
     fun setOledMode(enabled: Boolean)           = viewModelScope.launch { settings.setOledMode(enabled) }
+
+    // ── Přiblížení stránek ────────────────────────────────────────────────────
+    val pageScale: StateFlow<String> = settings.pageScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "fit_width")
+
+    fun setPageScale(scale: String) = viewModelScope.launch { settings.setPageScale(scale) }
+
+    // ── Auto-záloha ───────────────────────────────────────────────────────────
+    val autoBackupEnabled: StateFlow<Boolean> = settings.autoBackupEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setAutoBackupEnabled(enabled: Boolean) = viewModelScope.launch {
+        settings.setAutoBackupEnabled(enabled)
+        if (enabled) scheduleAutoBackup() else WorkManager.getInstance(context).cancelUniqueWork("auto_backup")
+    }
+
+    private fun scheduleAutoBackup() {
+        val request = PeriodicWorkRequestBuilder<com.haise.jiyu.work.AutoBackupWorker>(1, TimeUnit.DAYS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_REQUIRED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "auto_backup",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    // ── Uložená vyhledávání ───────────────────────────────────────────────────
+    val savedSearches: StateFlow<List<String>> = settings.savedSearches
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addSavedSearch(query: String) = viewModelScope.launch { settings.addSavedSearch(query) }
+    fun removeSavedSearch(query: String) = viewModelScope.launch { settings.removeSavedSearch(query) }
 }

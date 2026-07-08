@@ -121,6 +121,14 @@ class BrowseViewModel @Inject constructor(
         if (q == null) loadPopular(filter) else search(q, filter)
     }
 
+    private val _showLatest = MutableStateFlow(false)
+    val showLatest: StateFlow<Boolean> = _showLatest.asStateFlow()
+
+    fun setShowLatest(latest: Boolean) {
+        _showLatest.value = latest
+        loadPopular(_activeFilter.value.copy(sortBy = if (latest) "latest" else "popular"))
+    }
+
     fun loadPopular(filter: MangaFilter = _activeFilter.value) {
         val sourceId = _selectedSource.value?.id ?: return
         lastQuery = null

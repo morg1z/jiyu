@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
@@ -12,8 +13,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -29,7 +32,14 @@ data class SourceResult(
 class GlobalSearchViewModel @Inject constructor(
     private val sourceManager: SourceManager,
     private val repository: MangaRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
+
+    val savedSearches: StateFlow<List<String>> = settings.savedSearches
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun saveSearch(q: String) = viewModelScope.launch { if (q.isNotBlank()) settings.addSavedSearch(q) }
+    fun removeSavedSearch(q: String) = viewModelScope.launch { settings.removeSavedSearch(q) }
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()

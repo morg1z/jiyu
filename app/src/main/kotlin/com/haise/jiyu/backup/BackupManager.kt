@@ -27,6 +27,10 @@ class BackupManager @Inject constructor(
             ?: error("Nelze otevřít výstupní soubor")
     }
 
+    suspend fun exportToFile(file: java.io.File): Result<Unit> = runCatching {
+        file.writeText(buildBackupJson())
+    }
+
     private suspend fun buildBackupJson(): String {
         val mangaList     = repository.getAllLibraryManga()
         val categories    = repository.getAllCategories()

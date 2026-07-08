@@ -120,6 +120,9 @@ class ReaderViewModel @Inject constructor(
     val oledMode: StateFlow<Boolean> = settings.oledMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val pageScale: StateFlow<String> = settings.pageScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "fit_width")
+
     // ── Incognito mode ───────────────────────────────────────────────────────
     private val _incognitoMode = MutableStateFlow(false)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()

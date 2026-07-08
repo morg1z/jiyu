@@ -112,6 +112,7 @@ fun BrowseScreen(
     val hasMore        by viewModel.hasMore.collectAsState()
     val sources        by viewModel.sources.collectAsState()
     val activeFilter   by viewModel.activeFilter.collectAsState()
+    val showLatest     by viewModel.showLatest.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
@@ -245,6 +246,30 @@ fun BrowseScreen(
                             )
                         },
                     )
+                }
+            }
+        }
+
+        // ── Popular / Latest toggle ───────────────────────────────────────────
+        if (query.isBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(false to "Populární", true to "Nejnovější").forEach { (isLatest, label) ->
+                    val selected = showLatest == isLatest
+                    Button(
+                        onClick = { if (!selected) viewModel.setShowLatest(isLatest) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) Violet.copy(alpha = 0.2f) else androidx.compose.ui.graphics.Color.Transparent,
+                            contentColor = if (selected) Violet else TextSecondary,
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Violet.copy(alpha = 0.5f) else TextSecondary.copy(alpha = 0.15f)),
+                        elevation = null,
+                    ) { Text(label, fontSize = 13.sp) }
                 }
             }
         }

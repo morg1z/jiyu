@@ -163,6 +163,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
     val isNovelSource        by viewModel.isNovelSource.collectAsState()
     val novelText            by viewModel.novelText.collectAsState()
+    val pageScale            by viewModel.pageScale.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -291,6 +292,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 tapZoneLeft = tapZoneLeft,
                 tapZoneRight = tapZoneRight,
                 webtoonScrollSpeed = webtoonScrollSpeed,
+                pageScale = pageScale,
             )
         }
 
@@ -507,6 +509,7 @@ private fun ReaderContent(
     tapZoneLeft: Float = 0.3f,
     tapZoneRight: Float = 0.3f,
     webtoonScrollSpeed: Float = 1.0f,
+    pageScale: String = "fit_width",
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -586,12 +589,12 @@ private fun ReaderContent(
                 onScaleChange = { scale = it },
                 onPanChange = { panOffset = it },
                 onPageChanged = { page ->
-                    // Reset zoom při přechodu na jinou stránku
                     scale = 1f; panOffset = Offset.Zero
                     onPageChanged(page)
                 },
                 onTap = { controlsVisible = !controlsVisible },
                 onSharePage = onSharePage,
+                pageScale = pageScale,
             )
         }
 
@@ -934,7 +937,14 @@ private fun MangaReader(
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
     onSharePage: (String) -> Unit = {},
+    pageScale: String = "fit_width",
 ) {
+    val resolvedContentScale = when (pageScale) {
+        "fit_height" -> ContentScale.FillHeight
+        "fit_screen" -> ContentScale.Fit
+        "stretch"    -> ContentScale.FillBounds
+        else         -> ContentScale.FillWidth
+    }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val useSpread = doublePageSpread && isLandscape
@@ -1085,7 +1095,7 @@ private fun MangaReader(
                 AsyncImage(
                     model = pages[indices[0]],
                     contentDescription = "Stránka ${indices[0] + 1}",
-                    contentScale = ContentScale.Fit,
+                    contentScale = resolvedContentScale,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer(
@@ -1115,7 +1125,7 @@ private fun MangaReader(
                             AsyncImage(
                                 model = pages[idx],
                                 contentDescription = "Stránka ${idx + 1}",
-                                contentScale = ContentScale.Fit,
+                                contentScale = resolvedContentScale,
                                 modifier = Modifier.fillMaxSize(),
                             )
                             if (translateMode) {

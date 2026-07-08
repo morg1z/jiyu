@@ -13,6 +13,11 @@ import com.haise.jiyu.source.evilmanga.EvilMangaSource
 import com.haise.jiyu.source.mangaboomers.MangaBoomersSource
 import com.haise.jiyu.source.mangago.MangagoSource
 import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
+import com.haise.jiyu.source.asurascans.AsuraScansSource
+import com.haise.jiyu.source.flamecomics.FlameComicsSource
+import com.haise.jiyu.source.reaperscans.ReaperScansSource
+import com.haise.jiyu.source.mangalek.MangaLekSource
+import com.haise.jiyu.source.rawkuma.RawKumaSource
 import com.haise.jiyu.source.mangalife.MangaLifeSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.mangasee.MangaSeeSource
@@ -56,6 +61,11 @@ class SourceManager @Inject constructor(
     evilMangaSource: EvilMangaSource,
     mangaBoomersSource: MangaBoomersSource,
     mangagoSource: MangagoSource,
+    asuraScansSource: AsuraScansSource,
+    flameComicsSource: FlameComicsSource,
+    reaperScansSource: ReaperScansSource,
+    mangaLekSource: MangaLekSource,
+    rawKumaSource: RawKumaSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -79,6 +89,11 @@ class SourceManager @Inject constructor(
         evilMangaSource,
         mangaBoomersSource,
         mangagoSource,
+        asuraScansSource,
+        flameComicsSource,
+        reaperScansSource,
+        mangaLekSource,
+        rawKumaSource,
     )
 
     fun observeAll(): Flow<List<MangaSource>> =

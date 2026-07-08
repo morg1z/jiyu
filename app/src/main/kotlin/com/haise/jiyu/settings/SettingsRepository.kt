@@ -39,6 +39,9 @@ object SettingsKeys {
     val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
     val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
     val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
+    val PAGE_SCALE             = stringPreferencesKey("page_scale")
+    val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
+    val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
 }
 
 object ReaderTheme {
@@ -212,6 +215,36 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setCustomCss(css: String) =
         dataStore.edit { it[SettingsKeys.CUSTOM_CSS] = css }
+
+    val pageScale: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.PAGE_SCALE] ?: "fit_width" }
+
+    suspend fun setPageScale(scale: String) =
+        dataStore.edit { it[SettingsKeys.PAGE_SCALE] = scale }
+
+    val autoBackupEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.AUTO_BACKUP_ENABLED] ?: false }
+
+    suspend fun setAutoBackupEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.AUTO_BACKUP_ENABLED] = enabled }
+
+    val savedSearches: Flow<List<String>> =
+        dataStore.data.map { prefs ->
+            val raw = prefs[SettingsKeys.SAVED_SEARCHES] ?: return@map emptyList()
+            raw.split("|||").filter { it.isNotBlank() }
+        }
+
+    suspend fun addSavedSearch(query: String) = dataStore.edit { prefs ->
+        val existing = prefs[SettingsKeys.SAVED_SEARCHES]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
+        if (!existing.contains(query)) {
+            prefs[SettingsKeys.SAVED_SEARCHES] = (listOf(query) + existing).take(10).joinToString("|||")
+        }
+    }
+
+    suspend fun removeSavedSearch(query: String) = dataStore.edit { prefs ->
+        val existing = prefs[SettingsKeys.SAVED_SEARCHES]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
+        prefs[SettingsKeys.SAVED_SEARCHES] = existing.filter { it != query }.joinToString("|||")
+    }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()

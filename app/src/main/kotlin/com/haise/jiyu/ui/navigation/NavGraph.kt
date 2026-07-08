@@ -22,9 +22,11 @@ import com.haise.jiyu.ui.search.GlobalSearchScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 import com.haise.jiyu.ui.settings.SourceCatalogScreen
 import com.haise.jiyu.ui.stats.ExtendedStatsScreen
+import com.haise.jiyu.ui.updates.UpdatesScreen
 
 internal object Routes {
     const val LIBRARY       = "library"
+    const val UPDATES       = "updates"
     const val BROWSE        = "browse"
     const val DETAIL        = "detail/{mangaId}"
     const val READER        = "reader/{chapterId}"
@@ -57,6 +59,13 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
                 onOpenStats = { navController.navigate(Routes.STATS) },
+            )
+        }
+
+        composable(Routes.UPDATES) {
+            UpdatesScreen(
+                onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
             )
         }
 

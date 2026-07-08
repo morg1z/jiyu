@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,8 +25,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -76,6 +81,7 @@ fun GlobalSearchScreen(
 ) {
     val results by viewModel.results.collectAsState()
     val query   by viewModel.query.collectAsState()
+    val savedSearches by viewModel.savedSearches.collectAsState()
     var inputText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
@@ -96,6 +102,19 @@ fun GlobalSearchScreen(
                 style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
+            val isSaved = savedSearches.contains(inputText.trim())
+            if (inputText.isNotBlank()) {
+                IconButton(onClick = {
+                    if (isSaved) viewModel.removeSavedSearch(inputText.trim())
+                    else viewModel.saveSearch(inputText.trim())
+                }) {
+                    Icon(
+                        if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = if (isSaved) "Odebrat ze záložek" else "Uložit vyhledávání",
+                        tint = if (isSaved) Violet else TextSecondary,
+                    )
+                }
+            }
         }
 
         TextField(
@@ -127,14 +146,55 @@ fun GlobalSearchScreen(
         )
 
         if (results.isEmpty() && query.isBlank()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "Zadej název mangy a prohledej\nvšechny zdroje najednou",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 40.dp),
-                )
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (savedSearches.isNotEmpty()) {
+                    Text(
+                        text = "ULOŽENÁ VYHLEDÁVÁNÍ",
+                        color = Violet,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        items(savedSearches) { saved ->
+                            Row(
+                                modifier = Modifier
+                                    .clickable {
+                                        inputText = saved
+                                        viewModel.search(saved)
+                                        focusManager.clearFocus()
+                                    }
+                                    .border(1.dp, GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                                    .background(NightBlue, RoundedCornerShape(20.dp))
+                                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(saved, color = TextPrimary, fontSize = 13.sp)
+                                Spacer(Modifier.width(4.dp))
+                                IconButton(onClick = { viewModel.removeSavedSearch(saved) }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(12.dp))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Zadej název mangy a prohledej\nvšechny zdroje najednou",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp),
+                    )
+                }
             }
         } else {
             LazyColumn(
