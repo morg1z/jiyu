@@ -123,6 +123,8 @@ fun SettingsScreen(
     val oledMode          by viewModel.oledMode.collectAsState()
     val tachyImportResult by viewModel.tachyImportResult.collectAsState()
     val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
+    val malIsLoggedIn by viewModel.malIsLoggedIn.collectAsState()
+    val malUsername by viewModel.malUsername.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -755,6 +757,52 @@ fun SettingsScreen(
                         Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Vymazat cache")
                     }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── MAL OAuth ────────────────────────────────────────────────
+                SettingsSection(title = "MyAnimeList") {
+                    if (malIsLoggedIn) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                if (malUsername.isNotBlank()) Text(malUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { viewModel.malLogout() }) {
+                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    } else {
+                        Text(
+                            "Přihlas se přes MAL OAuth pro synchronizaci sledování.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.startMalOAuth { uri ->
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                                }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text("Přihlásit se přes MyAnimeList")
+                        }
+                    }
+                    Text(
+                        "MAL Client ID: přidej do local.properties jako MAL_CLIENT_ID=xxx",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                    )
                 }
 
                 Spacer(Modifier.height(12.dp))

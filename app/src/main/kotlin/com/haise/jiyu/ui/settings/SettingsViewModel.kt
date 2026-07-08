@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import com.haise.jiyu.data.backup.TachiyomiBackupImporter
 import com.haise.jiyu.data.backup.TachiyomiImportResult
+import com.haise.jiyu.BuildConfig
 import com.haise.jiyu.data.tracking.MalAuthManager
 import com.haise.jiyu.data.tracking.MalRepository
 import androidx.lifecycle.viewModelScope
@@ -136,7 +137,26 @@ class SettingsViewModel @Inject constructor(
     private val _sourceTestState = MutableStateFlow<SourceTestState>(SourceTestState.Idle)
     val sourceTestState: StateFlow<SourceTestState> = _sourceTestState.asStateFlow()
 
-    init { refreshCacheCount() }
+    // ── MAL OAuth ────────────────────────────────────────────────────────────
+    val malIsLoggedIn: StateFlow<Boolean> = malAuthManager.isLoggedIn
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _malUsername = MutableStateFlow("")
+    val malUsername: StateFlow<String> = _malUsername.asStateFlow()
+
+    init {
+        refreshCacheCount()
+        viewModelScope.launch {
+            malAuthManager.isLoggedIn.collect { loggedIn ->
+                if (loggedIn) {
+                    val profile = malRepository.getUserProfile()
+                    _malUsername.value = profile?.optString("name") ?: ""
+                } else {
+                    _malUsername.value = ""
+                }
+            }
+        }
+    }
 
     fun setTargetLanguage(lang: String)  = viewModelScope.launch { settings.setTargetLanguage(lang) }
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
@@ -273,6 +293,14 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearSourceTestState() { _sourceTestState.value = SourceTestState.Idle }
+
+    fun startMalOAuth(openBrowser: (Uri) -> Unit) = viewModelScope.launch {
+        val clientId = BuildConfig.MAL_CLIENT_ID.takeIf { it.isNotBlank() } ?: return@launch
+        val uri = malAuthManager.startOAuthFlow(clientId)
+        openBrowser(uri)
+    }
+
+    fun malLogout() = viewModelScope.launch { malAuthManager.logout() }
 
     // ── Katalog zdrojů ───────────────────────────────────────────────────────
     fun getCatalog(): List<CatalogSource> = catalogManager.catalog
