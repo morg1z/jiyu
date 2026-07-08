@@ -5,7 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import com.haise.jiyu.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -24,6 +26,7 @@ data class MalManga(
 @Singleton
 class MalRepository @Inject constructor(
     private val httpClient: OkHttpClient,
+    private val authManager: MalAuthManager,
 ) {
     private val clientId get() = BuildConfig.MAL_CLIENT_ID
     val hasClientId get() = clientId.isNotBlank()
@@ -47,6 +50,34 @@ class MalRepository @Inject constructor(
                 )
             }
         } catch (_: Exception) { emptyList() }
+    }
+
+    suspend fun getUserProfile(): JSONObject? = withContext(Dispatchers.IO) {
+        val token = authManager.accessToken.first() ?: return@withContext null
+        try {
+            val req = Request.Builder()
+                .url("https://api.myanimelist.net/v2/users/@me")
+                .header("Authorization", "Bearer $token")
+                .build()
+            httpClient.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                JSONObject(response.body?.string() ?: return@withContext null)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun updateMangaStatus(malId: Int, status: String, score: Int? = null) = withContext(Dispatchers.IO) {
+        val token = authManager.accessToken.first() ?: return@withContext
+        try {
+            val formBuilder = FormBody.Builder().add("status", status)
+            if (score != null) formBuilder.add("score", score.toString())
+            val req = Request.Builder()
+                .url("https://api.myanimelist.net/v2/manga/$malId/my_list_status")
+                .header("Authorization", "Bearer $token")
+                .patch(formBuilder.build())
+                .build()
+            httpClient.newCall(req).execute().close()
+        } catch (_: Exception) { }
     }
 
     fun openMalPage(context: Context, malId: Int) {

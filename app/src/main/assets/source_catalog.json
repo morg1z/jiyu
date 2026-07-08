@@ -1243,5 +1243,21 @@
     "language": "en",
     "description": "Light novel reader — textový formát",
     "nsfw": false
+  },
+  {
+    "id": "evilmanga",
+    "name": "Evil Manga",
+    "baseUrl": "https://evil-manga.eu",
+    "language": "cs",
+    "description": "Český manga web s vlastním enginem.",
+    "nsfw": false
+  },
+  {
+    "id": "mangaboomers",
+    "name": "Manga Boomers",
+    "baseUrl": "https://manga-boomers.cz",
+    "language": "cs",
+    "description": "Česká manga scanlation skupina.",
+    "nsfw": false
   }
 ]

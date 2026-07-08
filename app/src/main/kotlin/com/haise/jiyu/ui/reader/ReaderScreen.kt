@@ -564,6 +564,8 @@ private fun ReaderContent(
                 textScale = textScale,
                 onPageChanged = onPageChanged,
                 onTap = { controlsVisible = !controlsVisible },
+                onNavigatePrev = onNavigatePrev,
+                onNavigateNext = onNavigateNext,
                 scrollSpeedMultiplier = webtoonScrollSpeed,
             )
         } else {
@@ -1138,6 +1140,8 @@ private fun WebtoonReader(
     textScale: Float,
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
+    onNavigatePrev: () -> Unit = {},
+    onNavigateNext: () -> Unit = {},
     scrollSpeedMultiplier: Float = 1.0f,
 ) {
     val listState = rememberLazyListState()
@@ -1165,7 +1169,16 @@ private fun WebtoonReader(
         flingBehavior = speedFling,
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }) },
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { offset ->
+                    val relY = offset.y / size.height.toFloat()
+                    when {
+                        relY < 0.15f -> onNavigatePrev()
+                        relY > 0.85f -> onNavigateNext()
+                        else -> onTap()
+                    }
+                })
+            },
     ) {
         itemsIndexed(pages) { index, pageUrl ->
             WebtoonPage(

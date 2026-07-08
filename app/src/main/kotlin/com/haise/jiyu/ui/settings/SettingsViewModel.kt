@@ -1,10 +1,13 @@
 package com.haise.jiyu.ui.settings
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import com.haise.jiyu.data.backup.TachiyomiBackupImporter
 import com.haise.jiyu.data.backup.TachiyomiImportResult
+import com.haise.jiyu.data.tracking.MalAuthManager
+import com.haise.jiyu.data.tracking.MalRepository
 import androidx.lifecycle.viewModelScope
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -30,7 +33,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -67,6 +72,8 @@ class SettingsViewModel @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val catalogManager: SourceCatalogManager,
     private val tachiyomiBackupImporter: TachiyomiBackupImporter,
+    private val malAuthManager: MalAuthManager,
+    private val malRepository: MalRepository,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage

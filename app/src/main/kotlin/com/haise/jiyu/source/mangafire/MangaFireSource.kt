@@ -76,38 +76,80 @@ class MangaFireSource @Inject constructor(
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
-            val items = doc.select("#chapter-list li a, .chapter-list li a")
-            if (items.isNotEmpty()) {
-                return@withContext items.mapIndexed { i, el ->
-                    val href = el.attr("href").removePrefix(base)
-                    val chName = el.selectFirst(".name, .chapter-name")?.text()?.trim()
-                        ?: el.text().trim().takeIf { it.isNotBlank() }
+            val html = get("$base${manga.url}")
+            val doc = Jsoup.parse(html)
+
+            // Metoda 1: Přímé parsování HTML chapter listu
+            val htmlChapters = doc.select("#chapter-list li, .chapter-list li, [class*='chapter'] li")
+                .mapIndexedNotNull { i, li ->
+                    val a = li.selectFirst("a") ?: return@mapIndexedNotNull null
+                    val href = a.attr("href").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                    val title = li.selectFirst(".name, span")?.text()?.trim()
+                        ?: a.text().trim().takeIf { it.isNotBlank() }
                         ?: "Chapter ${i + 1}"
-                    val num = el.attr("data-number").toFloatOrNull() ?: (items.size - i).toFloat()
+                    val num = li.attr("data-number").toFloatOrNull()
+                        ?: Regex("""[Cc]hapter[\s\-_]*([\d.]+)""").find(title)?.groupValues?.get(1)?.toFloatOrNull()
+                        ?: (i + 1).toFloat()
                     SChapter(
-                        sourceId = id,
-                        mangaUrl = manga.url,
-                        url = href,
-                        name = chName,
-                        chapterNumber = num,
-                        dateUpload = 0L,
+                        sourceId = id, mangaUrl = manga.url,
+                        url = href.removePrefix(base), name = title,
+                        chapterNumber = num, dateUpload = 0L,
                     )
                 }
-            }
-            emptyList()
+            if (htmlChapters.isNotEmpty()) return@withContext htmlChapters
+
+            // Metoda 2: Ajax API fallback
+            val mangaId = doc.selectFirst("[data-id]")?.attr("data-id")
+                ?: manga.url.substringAfterLast(".").takeIf { it.matches(Regex("[a-z0-9]+")) }
+                ?: manga.url.substringAfterLast("/").substringAfterLast(".")
+            if (mangaId.isBlank()) return@withContext emptyList()
+
+            val ajaxDoc = try {
+                Jsoup.parse(get("$base/ajax/manga/$mangaId/chapter/en"))
+            } catch (_: Exception) { return@withContext emptyList() }
+
+            ajaxDoc.select("li a, .item a").mapIndexedNotNull { i, a ->
+                val href = a.attr("href").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                val title = a.selectFirst(".name, span")?.text()?.trim()
+                    ?: a.text().trim().takeIf { it.isNotBlank() }
+                    ?: "Chapter ${i + 1}"
+                val num = Regex("""[Cc]hapter[\s\-_]*([\d.]+)""").find(title)?.groupValues?.get(1)?.toFloatOrNull()
+                    ?: (i + 1).toFloat()
+                SChapter(
+                    sourceId = id, mangaUrl = manga.url,
+                    url = href.removePrefix(base), name = title,
+                    chapterNumber = num, dateUpload = 0L,
+                )
+            }.reversed()
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val chapterId = chapter.url.substringAfterLast("/")
-            val json = get("$base/ajax/read/$chapterId/images")
-            val result = JSONObject(json).optJSONObject("result") ?: return@withContext emptyList()
-            val images = result.optJSONArray("images") ?: return@withContext emptyList()
-            (0 until images.length()).map { i ->
-                val img = images.getJSONArray(i)
-                val url = img.getString(0)
+            val chapterId = chapter.url.substringAfterLast("/").substringBefore("?")
+
+            // Metoda 1: Ajax images API
+            val json = try { get("$base/ajax/read/$chapterId/images") } catch (_: Exception) { "" }
+            if (json.isNotBlank() && json.contains("images")) {
+                try {
+                    val result = JSONObject(json).optJSONObject("result")
+                    val images = result?.optJSONArray("images")
+                    if (images != null && images.length() > 0) {
+                        return@withContext (0 until images.length()).mapNotNull { i ->
+                            val img = images.optJSONArray(i) ?: return@mapNotNull null
+                            val url = img.optString(0).takeIf { it.startsWith("http") } ?: return@mapNotNull null
+                            Page(i, url, url)
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+
+            // Metoda 2: HTML parsování stránky kapitoly
+            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            doc.select(".reader-images img, [class*='read'] img, .chapter-images img").mapIndexedNotNull { i, img ->
+                val url = img.attr("data-src").takeIf { it.isNotBlank() }
+                    ?: img.attr("src").takeIf { it.isNotBlank() && it.startsWith("http") }
+                    ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
         } catch (_: Exception) { emptyList() }
