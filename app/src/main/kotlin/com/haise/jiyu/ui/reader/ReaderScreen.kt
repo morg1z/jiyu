@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.size
@@ -160,6 +161,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val tapZoneLeft          by viewModel.tapZoneLeftFraction.collectAsState()
     val tapZoneRight         by viewModel.tapZoneRightFraction.collectAsState()
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
+    val isNovelSource        by viewModel.isNovelSource.collectAsState()
+    val novelText            by viewModel.novelText.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -229,6 +232,14 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     ) {
         when {
             loading      -> CircularProgressIndicator(color = Color(0xFF8B5CF6))
+            isNovelSource -> NovelContent(
+                text = novelText,
+                chapterTitle = chapterTitle,
+                hasPrev = hasPrevChapter,
+                hasNext = hasNextChapter,
+                onPrev = { viewModel.navigatePrev() },
+                onNext = { viewModel.navigateNext() },
+            )
             pages.isEmpty() -> Text("Kapitolu se nepodařilo načíst.", color = Color.White)
             else -> ReaderContent(
                 pages = pages,
@@ -339,6 +350,112 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Text(translationError.orEmpty(), color = Color.White, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NovelContent(
+    text: String,
+    chapterTitle: String,
+    hasPrev: Boolean,
+    hasNext: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+) {
+    var fontSize by remember { mutableStateOf(16f) }
+    var lineSpacing by remember { mutableStateOf(1.6f) }
+    var bgColorIndex by remember { mutableStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
+
+    val bgOptions = listOf(
+        Color(0xFF0A0A14) to Color(0xFFE8E8E8),
+        Color(0xFF1A110A) to Color(0xFFE8D8C0),
+        Color(0xFFF5F0E8) to Color(0xFF1A1A1A),
+        Color.White to Color.Black,
+    )
+    val (bgColor, textColor) = bgOptions[bgColorIndex.coerceIn(0, bgOptions.lastIndex)]
+    val paragraphs = remember(text) { text.split("\n").filter { it.isNotBlank() } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor),
+    ) {
+        androidx.compose.material3.TopAppBar(
+            title = { Text(chapterTitle, color = Color(0xFFE8E8E8), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp) },
+            actions = {
+                IconButton(onClick = { showSettings = !showSettings }) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.BrightnessHigh, "Nastavení", tint = Color(0xFFB0BEC5))
+                }
+            },
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0D0D1A)),
+        )
+
+        AnimatedVisibility(visible = showSettings, enter = slideInVertically(), exit = slideOutVertically()) {
+            androidx.compose.material3.Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = Color(0xFF1A1B35)),
+                shape = RoundedCornerShape(0.dp),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text("Velikost: ${fontSize.toInt()}sp", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(onClick = { if (fontSize > 10f) fontSize -= 1f }, modifier = Modifier.size(36.dp)) {
+                                Text("A-", color = Color(0xFFE8E8E8), fontSize = 13.sp)
+                            }
+                            IconButton(onClick = { if (fontSize < 30f) fontSize += 1f }, modifier = Modifier.size(36.dp)) {
+                                Text("A+", color = Color(0xFFE8E8E8), fontSize = 17.sp)
+                            }
+                        }
+                    }
+                    Text("Řádkování: ${String.format("%.1f", lineSpacing)}x", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                    Slider(
+                        value = lineSpacing, onValueChange = { lineSpacing = it },
+                        valueRange = 1.0f..2.5f,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFF8B5CF6), activeTrackColor = Color(0xFF8B5CF6)),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("🌙 Tmavé", "🟤 Sépiové", "📄 Papír", "☀️ Bílé").forEachIndexed { i, label ->
+                            TextButton(
+                                onClick = { bgColorIndex = i },
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                    contentColor = if (bgColorIndex == i) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
+                                ),
+                            ) { Text(label, fontSize = 11.sp) }
+                        }
+                    }
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
+            items(paragraphs) { paragraph: String ->
+                Text(
+                    text = paragraph,
+                    color = textColor,
+                    fontSize = fontSize.sp,
+                    lineHeight = (fontSize * lineSpacing).sp,
+                    modifier = Modifier.padding(bottom = (fontSize * 0.75f).dp),
+                )
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    Arrangement.SpaceBetween,
+                ) {
+                    if (hasPrev) {
+                        TextButton(onClick = onPrev) { Text("← Předchozí", color = Color(0xFF34D1BF)) }
+                    } else { Spacer(Modifier) }
+                    if (hasNext) {
+                        TextButton(onClick = onNext) { Text("Další →", color = Color(0xFF34D1BF)) }
+                    }
+                }
             }
         }
     }

@@ -8,6 +8,10 @@ import com.haise.jiyu.source.hitomi.HitomiSource
 import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangapark.MangaParkSource
 import com.haise.jiyu.source.mangareader.MangaReaderSource
+import com.haise.jiyu.source.boxnovel.BoxNovelSource
+import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
+import com.haise.jiyu.source.mangalife.MangaLifeSource
+import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.mangasee.MangaSeeSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraSelectors
@@ -40,8 +44,12 @@ class SourceManager @Inject constructor(
     webtoonSource: WebtoonSource,
     dynastySource: DynastySource,
     mangaSeeSource: MangaSeeSource,
+    mangaLifeSource: MangaLifeSource,
     mangaParkSource: MangaParkSource,
     mangaReaderSource: MangaReaderSource,
+    boxNovelSource: BoxNovelSource,
+    novelFullSource: NovelFullSource,
+    lightNovelWorldSource: LightNovelWorldSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -56,8 +64,12 @@ class SourceManager @Inject constructor(
         webtoonSource,
         dynastySource,
         mangaSeeSource,
+        mangaLifeSource,
         mangaParkSource,
         mangaReaderSource,
+        boxNovelSource,
+        novelFullSource,
+        lightNovelWorldSource,
     )
 
     fun observeAll(): Flow<List<MangaSource>> =

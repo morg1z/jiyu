@@ -133,6 +133,12 @@ class ReaderViewModel @Inject constructor(
     private val _isOfflineChapter = MutableStateFlow(false)
     val isOfflineChapter: StateFlow<Boolean> = _isOfflineChapter.asStateFlow()
 
+    private val _isNovelSource = MutableStateFlow(false)
+    val isNovelSource: StateFlow<Boolean> = _isNovelSource.asStateFlow()
+
+    private val _novelText = MutableStateFlow("")
+    val novelText: StateFlow<String> = _novelText.asStateFlow()
+
     private val _chapterIndex = MutableStateFlow(0)
     private val _chapterCount = MutableStateFlow(0)
     val chapterProgress: StateFlow<Float> = kotlinx.coroutines.flow.combine(_chapterIndex, _chapterCount) { idx, count ->
@@ -297,13 +303,22 @@ class ReaderViewModel @Inject constructor(
             _spreadPageIndices.value = emptySet()
             val manga = repository.getManga(chapter.mangaId)
             if (manga != null) {
-                _pages.value = try {
-                    repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
-                        .map { it.imageUrl ?: it.url }
+                try {
+                    val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
+                    val isNovel = rawPages.any { it.imageUrl == "novel://text" }
+                    _isNovelSource.value = isNovel
+                    if (isNovel) {
+                        _novelText.value = rawPages.firstOrNull()?.url ?: ""
+                        _pages.value = emptyList()
+                    } else {
+                        _novelText.value = ""
+                        _pages.value = rawPages.map { it.imageUrl ?: it.url }
+                    }
                 } catch (_: Exception) {
                     // Zdroj selhal (expirovana/geoblokovana kapitola, sitova chyba...) -
                     // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo načíst."
-                    emptyList()
+                    _isNovelSource.value = false
+                    _pages.value = emptyList()
                 }
             }
         }
