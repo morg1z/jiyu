@@ -164,7 +164,6 @@ fun LibraryScreen(
     var showManageDialog          by remember { mutableStateOf(false) }
     var showStatsDialog           by remember { mutableStateOf(false) }
     var sortMenuExpanded          by remember { mutableStateOf(false) }
-    var searchActive              by remember { mutableStateOf(false) }
     var contextMenuManga          by remember { mutableStateOf<MangaEntity?>(null) }
     var showCategoryAssignDialog  by remember { mutableStateOf(false) }
     var showBulkCategoryDialog    by remember { mutableStateOf(false) }
@@ -185,87 +184,90 @@ fun LibraryScreen(
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
 
         // ── Header ───────────────────────────────────────────────────────────
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(NightBlue, DeepSpace.copy(alpha = 0f))))
                 .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp)
+                .padding(top = 10.dp, bottom = 8.dp),
         ) {
-            when {
-                selectionMode -> {
-                    // Selection bar
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Zrušit výběr", tint = TextSecondary)
-                        }
-                        Text(
-                            text = "${selectedIds.size} vybráno",
-                            color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { viewModel.selectAll() }) {
-                            Icon(Icons.Filled.SelectAll, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Vše", color = GlowViolet, fontSize = 14.sp)
-                        }
+            if (selectionMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { viewModel.clearSelection() }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Zrušit výběr", tint = TextSecondary)
+                    }
+                    Text(
+                        text = "${selectedIds.size} vybráno",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewModel.selectAll() }) {
+                        Icon(Icons.Filled.SelectAll, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Vše", color = GlowViolet, fontSize = 14.sp)
                     }
                 }
-                searchActive -> {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth().height(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .border(1.dp, GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            singleLine = true,
-                            textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
-                            decorationBox = { inner ->
-                                Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                    if (searchQuery.isEmpty()) Text("Hledat v knihovně…", color = TextSecondary, fontSize = 15.sp)
-                                    inner()
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = { searchActive = false; viewModel.setSearchQuery("") }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Zavřít", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                        }
+            } else {
+                // Title row
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text(text = "JIYU", style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp))
+                        Text(text = "Knihovna · ${library.size} titulů", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                     }
-                }
-                else -> {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                            Text(text = "JIYU", style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp))
-                            Text(text = "Knihovna · ${library.size} manga", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                    Box {
+                        IconButton(onClick = { sortMenuExpanded = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Řadit", tint = TextSecondary)
                         }
-                        IconButton(onClick = { searchActive = true }) { Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = TextSecondary) }
-                        Box {
-                            IconButton(onClick = { sortMenuExpanded = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Řadit", tint = TextSecondary)
+                        SortMenu(
+                            expanded = sortMenuExpanded,
+                            sortOption = sortOption,
+                            ascending = sortAscending,
+                            onSelect = { viewModel.setSortOption(it) },
+                            onDismiss = { sortMenuExpanded = false },
+                        )
+                    }
+                    IconButton(onClick = { showStatsDialog = true }) { Icon(Icons.Filled.AutoStories, contentDescription = "Statistiky", tint = TextSecondary) }
+                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Nastavení", tint = TextSecondary) }
+                }
+
+                // Always-visible search bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, start = 4.dp, end = 4.dp)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {}),
+                        decorationBox = { inner ->
+                            Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                if (searchQuery.isEmpty()) Text("Hledat v knihovně…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                                inner()
                             }
-                            SortMenu(
-                                expanded = sortMenuExpanded,
-                                sortOption = sortOption,
-                                ascending = sortAscending,
-                                onSelect = { viewModel.setSortOption(it) },
-                                onDismiss = { sortMenuExpanded = false },
-                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
-                        IconButton(onClick = { showStatsDialog = true }) { Icon(Icons.Filled.AutoStories, contentDescription = "Statistiky", tint = TextSecondary) }
-                        IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Nastavení", tint = TextSecondary) }
                     }
                 }
             }

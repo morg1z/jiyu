@@ -1,10 +1,13 @@
 package com.haise.jiyu.ui.browse
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,12 +70,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.automirrored.filled.ManageSearch
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -104,15 +108,16 @@ fun BrowseScreen(
     onGlobalSearch: () -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
-    val results        by viewModel.results.collectAsState()
-    val loading        by viewModel.loading.collectAsState()
-    val error          by viewModel.error.collectAsState()
-    val selectedSource by viewModel.selectedSource.collectAsState()
-    val previewManga   by viewModel.previewManga.collectAsState()
-    val hasMore        by viewModel.hasMore.collectAsState()
-    val sources        by viewModel.sources.collectAsState()
-    val activeFilter   by viewModel.activeFilter.collectAsState()
-    val showLatest     by viewModel.showLatest.collectAsState()
+    val results           by viewModel.results.collectAsState()
+    val loading           by viewModel.loading.collectAsState()
+    val error             by viewModel.error.collectAsState()
+    val selectedSource    by viewModel.selectedSource.collectAsState()
+    val previewManga      by viewModel.previewManga.collectAsState()
+    val hasMore           by viewModel.hasMore.collectAsState()
+    val sources           by viewModel.sources.collectAsState()
+    val activeFilter      by viewModel.activeFilter.collectAsState()
+    val showLatest        by viewModel.showLatest.collectAsState()
+    val contentTypeFilter by viewModel.contentTypeFilter.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
@@ -138,13 +143,9 @@ fun BrowseScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(NightBlue, DeepSpace.copy(alpha = 0f)),
-                    )
-                )
+                .background(Brush.verticalGradient(colors = listOf(NightBlue, DeepSpace.copy(alpha = 0f))))
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -153,60 +154,91 @@ fun BrowseScreen(
             ) {
                 Text(
                     text = "Procházet",
-                    style = TextStyle(
-                        brush = titleGradient,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 2.sp,
-                    ),
+                    style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
                 )
-                Row {
-                    IconButton(onClick = onGlobalSearch) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ManageSearch,
-                            contentDescription = "Globální vyhledávání",
-                            tint = TextSecondary,
-                        )
-                    }
-                    IconButton(onClick = { showFilterSheet = true }) {
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filtry",
-                            tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
-                        )
-                    }
+                IconButton(onClick = { showFilterSheet = true }) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filtry",
+                        tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
+                    )
                 }
             }
 
-            // Glass search field
-            TextField(
-                value = query,
-                onValueChange = {
-                    query = it
-                    viewModel.search(it)
-                },
-                placeholder = {
-                    Text("Hledat mangu…", color = TextSecondary)
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = NightBlue,
-                    unfocusedContainerColor = NightBlue.copy(alpha = 0.7f),
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = Cyan,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                ),
-                shape = RoundedCornerShape(14.dp),
+            // Search bar → navigates to GlobalSearch on tap
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp)
-                    .glassBorder(14.dp),
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(NightBlue.copy(alpha = 0.7f))
+                    .glassBorder(14.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onGlobalSearch,
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Hledat ve všech zdrojích…", color = TextSecondary, fontSize = 15.sp)
+                }
+            }
+
+            // ── Dynamic Island content-type filter ───────────────────────────
+            val contentTypes = listOf(
+                "ALL" to "Vše",
+                "MANGA" to "Manga",
+                "MANHWA" to "Manhwa",
+                "MANHUA" to "Manhua",
+                "NOVEL" to "Novely",
+                "COMIC" to "Komiksy",
             )
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(Color(0xFF0D1526))
+                        .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(50.dp))
+                        .padding(4.dp),
+                ) {
+                    Row {
+                        contentTypes.forEach { (type, label) ->
+                            val selected = contentTypeFilter == type
+                            val bgColor by animateColorAsState(
+                                targetValue = if (selected) Violet.copy(alpha = 0.35f) else Color.Transparent,
+                                animationSpec = tween(200),
+                                label = "pill_bg",
+                            )
+                            val textColor by animateColorAsState(
+                                targetValue = if (selected) Color.White else TextSecondary,
+                                animationSpec = tween(200),
+                                label = "pill_text",
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50.dp))
+                                    .background(bgColor)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { viewModel.setContentTypeFilter(type) }
+                                    .padding(horizontal = 13.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = textColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // ── Source tabs ──────────────────────────────────────────────────────

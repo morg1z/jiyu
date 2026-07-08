@@ -21,6 +21,7 @@ class WebtoonSource @Inject constructor(
 
     override val id = "webtoons"
     override val name = "Webtoon (LINE)"
+    override val contentType = "MANHWA"
 
     private val base = "https://www.webtoons.com"
 

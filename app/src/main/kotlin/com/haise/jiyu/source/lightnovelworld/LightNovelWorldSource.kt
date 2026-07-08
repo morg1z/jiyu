@@ -19,6 +19,7 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
 
     override val id = "lightnovelworld"
     override val name = "LightNovelWorld"
+    override val contentType = "NOVEL"
     private val base = "https://www.lightnovelworld.com"
 
     private fun get(url: String): String {

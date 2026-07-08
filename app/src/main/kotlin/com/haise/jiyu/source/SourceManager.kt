@@ -18,6 +18,17 @@ import com.haise.jiyu.source.flamecomics.FlameComicsSource
 import com.haise.jiyu.source.reaperscans.ReaperScansSource
 import com.haise.jiyu.source.mangalek.MangaLekSource
 import com.haise.jiyu.source.rawkuma.RawKumaSource
+import com.haise.jiyu.source.comic.ReadComicOnlineSource
+import com.haise.jiyu.source.comic.ReadAllComicsSource
+import com.haise.jiyu.source.comic.ViewComicSource
+import com.haise.jiyu.source.comic.XoxoComicsSource
+import com.haise.jiyu.source.comic.ZipComicSource
+import com.haise.jiyu.source.comic.ComicPunchSource
+import com.haise.jiyu.source.comic.ComicBookPlusSource
+import com.haise.jiyu.source.comic.GetComicsSource
+import com.haise.jiyu.source.comic.GoComicsSource
+import com.haise.jiyu.source.comic.GlobalComixSource
+import com.haise.jiyu.source.comic.ComicKingdomSource
 import com.haise.jiyu.source.mangalife.MangaLifeSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.mangasee.MangaSeeSource
@@ -66,6 +77,17 @@ class SourceManager @Inject constructor(
     reaperScansSource: ReaperScansSource,
     mangaLekSource: MangaLekSource,
     rawKumaSource: RawKumaSource,
+    readComicOnlineSource: ReadComicOnlineSource,
+    readAllComicsSource: ReadAllComicsSource,
+    viewComicSource: ViewComicSource,
+    xoxoComicsSource: XoxoComicsSource,
+    zipComicSource: ZipComicSource,
+    comicPunchSource: ComicPunchSource,
+    comicBookPlusSource: ComicBookPlusSource,
+    getComicsSource: GetComicsSource,
+    goComicsSource: GoComicsSource,
+    globalComixSource: GlobalComixSource,
+    comicKingdomSource: ComicKingdomSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -94,6 +116,17 @@ class SourceManager @Inject constructor(
         reaperScansSource,
         mangaLekSource,
         rawKumaSource,
+        readComicOnlineSource,
+        readAllComicsSource,
+        viewComicSource,
+        xoxoComicsSource,
+        zipComicSource,
+        comicPunchSource,
+        comicBookPlusSource,
+        getComicsSource,
+        goComicsSource,
+        globalComixSource,
+        comicKingdomSource,
     )
 
     fun observeAll(): Flow<List<MangaSource>> =

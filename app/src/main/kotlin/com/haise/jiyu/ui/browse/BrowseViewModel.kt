@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -26,8 +27,27 @@ class BrowseViewModel @Inject constructor(
     private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
-    val sources: StateFlow<List<MangaSource>> = sourceManager.observeAll()
+    private val _allSources: StateFlow<List<MangaSource>> = sourceManager.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _contentTypeFilter = MutableStateFlow("ALL")
+    val contentTypeFilter: StateFlow<String> = _contentTypeFilter.asStateFlow()
+
+    val sources: StateFlow<List<MangaSource>> = combine(_allSources, _contentTypeFilter) { all, type ->
+        if (type == "ALL") all else all.filter { it.contentType == type }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setContentTypeFilter(type: String) {
+        _contentTypeFilter.value = type
+        viewModelScope.launch {
+            val filtered = sourceManager.getAll().let { all ->
+                if (type == "ALL") all else all.filter { it.contentType == type }
+            }
+            val first = filtered.firstOrNull()
+            _selectedSource.value = first
+            if (first != null) loadPopular(_activeFilter.value)
+        }
+    }
 
     private val _selectedSource = MutableStateFlow<MangaSource?>(null)
     val selectedSource: StateFlow<MangaSource?> = _selectedSource.asStateFlow()

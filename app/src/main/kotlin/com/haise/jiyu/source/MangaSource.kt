@@ -61,6 +61,9 @@ interface MangaSource {
     /** Jméno zobrazené v UI (výběr zdroje). */
     val name: String
 
+    /** Typ obsahu: MANGA | MANHWA | MANHUA | NOVEL | COMIC. Výchozí = MANGA. */
+    val contentType: String get() = "MANGA"
+
     /** Fulltextové hledání podle názvu. */
     suspend fun search(query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>
 
