@@ -1148,4 +1148,100 @@
     "description": "Manhwa & manga scanlation skupina",
     "nsfw": false
   },
+  {
+    "id": "mangasee123",
+    "name": "MangaSee",
+    "baseUrl": "https://mangasee123.com",
+    "language": "en",
+    "description": "Velký manga archiv — vlastní engine (vyžaduje dedikovaný parser)",
+    "nsfw": false
+  },
+  {
+    "id": "manga4life",
+    "name": "MangaLife",
+    "baseUrl": "https://manga4life.com",
+    "language": "en",
+    "description": "Manga archiv — stejný engine jako MangaSee",
+    "nsfw": false
+  },
+  {
+    "id": "mangafire",
+    "name": "MangaFire",
+    "baseUrl": "https://mangafire.to",
+    "language": "en",
+    "description": "Rychlé aktualizace, čistý UI — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "mangareader",
+    "name": "MangaReader",
+    "baseUrl": "https://mangareader.to",
+    "language": "en",
+    "description": "Populární manga reader — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "mangapark",
+    "name": "MangaPark",
+    "baseUrl": "https://mangapark.net",
+    "language": "en",
+    "description": "Manga reader s verzováním — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "batoto",
+    "name": "Bato.to",
+    "baseUrl": "https://bato.to",
+    "language": "all",
+    "description": "Komunitní manga hosting, 40+ jazyků — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "dynastyscans",
+    "name": "Dynasty Scans",
+    "baseUrl": "https://dynasty-scans.com",
+    "language": "en",
+    "description": "Yuri & josei manga scanlace — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "mangago",
+    "name": "Mangago",
+    "baseUrl": "https://www.mangago.me",
+    "language": "en",
+    "description": "Velký manga archiv se sociálními funkcemi — vlastní engine",
+    "nsfw": false
+  },
+  {
+    "id": "webtoons",
+    "name": "Webtoon (LINE)",
+    "baseUrl": "https://www.webtoons.com",
+    "language": "en",
+    "description": "Oficiální LINE Webtoon — vlastní API",
+    "nsfw": false
+  },
+  {
+    "id": "boxnovel",
+    "name": "BoxNovel",
+    "baseUrl": "https://boxnovel.com",
+    "language": "en",
+    "description": "Light novel reader — textový formát (Light Novel reader fáze)",
+    "nsfw": false
+  },
+  {
+    "id": "novelfull",
+    "name": "NovelFull",
+    "baseUrl": "https://novelfull.com",
+    "language": "en",
+    "description": "Light novel & web novel — textový formát",
+    "nsfw": false
+  },
+  {
+    "id": "lightnovelworld",
+    "name": "LightNovelWorld",
+    "baseUrl": "https://lightnovelworld.com",
+    "language": "en",
+    "description": "Light novel reader — textový formát",
+    "nsfw": false
+  }
 ]
