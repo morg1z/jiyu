@@ -39,14 +39,16 @@ class BrowseViewModel @Inject constructor(
 
     fun setContentTypeFilter(type: String) {
         _contentTypeFilter.value = type
-        viewModelScope.launch {
-            val filtered = sourceManager.getAll().let { all ->
-                if (type == "ALL") all else all.filter { it.contentType == type }
-            }
-            val first = filtered.firstOrNull()
-            _selectedSource.value = first
-            if (first != null) loadPopular(_activeFilter.value)
+        // Use already-loaded _allSources.value synchronously to avoid the race where
+        // filteredSources emits the new list before _selectedSource is updated,
+        // causing TabRow to see sources=[X,Y] but selectedSource still pointing at
+        // the old source → index mismatch → UI blink.
+        val filtered = _allSources.value.let { all ->
+            if (type == "ALL") all else all.filter { it.contentType == type }
         }
+        val first = filtered.firstOrNull()
+        _selectedSource.value = first
+        if (first != null) loadPopular(_activeFilter.value)
     }
 
     private val _selectedSource = MutableStateFlow<MangaSource?>(null)

@@ -126,6 +126,7 @@ fun JiyuNavGraph(navController: NavHostController) {
         composable(Routes.HISTORY) {
             HistoryScreen(
                 onResumeReading = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
             )
         }
 

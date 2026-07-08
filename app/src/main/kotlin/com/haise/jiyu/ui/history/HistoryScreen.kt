@@ -61,6 +61,7 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     onResumeReading: (chapterId: String) -> Unit,
+    onOpenManga: (mangaId: String) -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsState()
@@ -145,6 +146,7 @@ fun HistoryScreen(
                         HistoryEntryRow(
                             entry = entry,
                             onResume = { onResumeReading(entry.chapterId) },
+                            onOpenManga = { onOpenManga(entry.mangaId) },
                             onDelete = { viewModel.deleteEntry(entry) },
                         )
                     }
@@ -160,6 +162,7 @@ fun HistoryScreen(
 private fun HistoryEntryRow(
     entry: ReadHistoryEntity,
     onResume: () -> Unit,
+    onOpenManga: () -> Unit = {},
     onDelete: () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -205,7 +208,8 @@ private fun HistoryEntryRow(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(48.dp, 68.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenManga),
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {

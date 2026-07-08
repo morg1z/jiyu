@@ -16,19 +16,29 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,103 +52,137 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UpdatesScreen(
     onOpenChapter: (chapterId: String) -> Unit,
     onOpenManga: (mangaId: String) -> Unit,
     viewModel: UpdatesViewModel = hiltViewModel(),
 ) {
-    val updates by viewModel.updates.collectAsState()
+    val updates      by viewModel.updates.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val refreshError by viewModel.refreshError.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(screenGradient),
-    ) {
-        Row(
+    val pullState      = rememberPullToRefreshState()
+    val snackbarState  = remember { SnackbarHostState() }
+    val scope          = rememberCoroutineScope()
+
+    LaunchedEffect(pullState.isRefreshing) {
+        if (pullState.isRefreshing) viewModel.refresh()
+    }
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing) pullState.endRefresh()
+    }
+    LaunchedEffect(refreshError) {
+        val msg = refreshError ?: return@LaunchedEffect
+        scope.launch { snackbarState.showSnackbar(msg) }
+        viewModel.clearRefreshError()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(NightBlue, Color.Transparent)))
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .fillMaxSize()
+                .background(screenGradient)
+                .nestedScroll(pullState.nestedScrollConnection),
         ) {
-            Text(
-                text = "Aktualizace",
-                style = TextStyle(
-                    brush = titleGradient,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp,
-                ),
-            )
-            val unreadCount = updates.count { !it.read }
-            if (unreadCount > 0) {
-                Spacer(Modifier.width(12.dp))
-                Box(
-                    modifier = Modifier
-                        .background(Violet.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        text = "$unreadCount nových",
-                        color = Violet,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-
-        if (updates.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(NightBlue, Color.Transparent)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = "Žádné aktualizace\nPřidej mangy do knihovny",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    text = "Aktualizace",
+                    style = TextStyle(
+                        brush = titleGradient,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 2.sp,
+                    ),
                 )
+                val unreadCount = updates.count { !it.read }
+                if (unreadCount > 0) {
+                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Violet.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "$unreadCount nových",
+                            color = Violet,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
-            return@Column
-        }
 
-        val grouped = updates.groupBy { item ->
-            val ms = item.dateUpload
-            if (ms > 0) {
-                SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(ms))
-            } else {
-                "Neznámé datum"
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            grouped.forEach { (date, items) ->
-                item(key = "header_$date") {
+            if (updates.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = date,
-                        color = Violet,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        text = "Žádné aktualizace\nPřidej mangy do knihovny",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
                     )
                 }
-                items(items, key = { it.chapterId }) { item ->
-                    UpdateRow(
-                        item = item,
-                        onOpenChapter = { onOpenChapter(item.chapterId) },
-                        onOpenManga = { onOpenManga(item.mangaId) },
-                    )
-                }
+                return@Column
             }
-            item { Spacer(Modifier.navigationBarsPadding()) }
+
+            // Group by date; items with dateUpload=0 go at the end by chapter number
+            val (dated, undated) = updates.partition { it.dateUpload > 0 }
+            val grouped = dated
+                .groupBy { SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(it.dateUpload)) }
+                .toMutableMap()
+            if (undated.isNotEmpty()) {
+                // Sort undated by chapterNumber descending so newest chapters appear first
+                grouped["Bez data"] = undated.sortedByDescending { it.chapterNumber }
+            }
+
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                grouped.forEach { (date, items) ->
+                    item(key = "header_$date") {
+                        Text(
+                            text = date,
+                            color = Violet,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                    }
+                    items(items, key = { it.chapterId }) { item ->
+                        UpdateRow(
+                            item = item,
+                            onOpenChapter = { onOpenChapter(item.chapterId) },
+                            onOpenManga = { onOpenManga(item.mangaId) },
+                        )
+                    }
+                }
+                item { Spacer(Modifier.navigationBarsPadding()) }
+            }
         }
+
+        PullToRefreshContainer(
+            state = pullState,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+            containerColor = NightBlue,
+            contentColor = Violet,
+        )
+
+        SnackbarHost(
+            hostState = snackbarState,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        )
     }
 }
 
