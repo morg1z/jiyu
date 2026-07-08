@@ -110,8 +110,11 @@ fun SettingsScreen(
     val downloadedCount   by viewModel.downloadedCount.collectAsState()
     val updateInterval    by viewModel.updateIntervalHours.collectAsState()
     val customSources     by viewModel.customSources.collectAsState()
-    val tapZonesEnabled   by viewModel.tapZonesEnabled.collectAsState()
-    val readerTextScale   by viewModel.readerTextScale.collectAsState()
+    val tapZonesEnabled    by viewModel.tapZonesEnabled.collectAsState()
+    val tapZoneLeft        by viewModel.tapZoneLeftFraction.collectAsState()
+    val tapZoneRight       by viewModel.tapZoneRightFraction.collectAsState()
+    val webtoonScrollSpeed by viewModel.webtoonScrollSpeed.collectAsState()
+    val readerTextScale    by viewModel.readerTextScale.collectAsState()
     val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
     val autoDeleteRead    by viewModel.autoDeleteRead.collectAsState()
     val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
@@ -237,6 +240,40 @@ fun SettingsScreen(
                             checked = tapZonesEnabled,
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    if (tapZonesEnabled) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("Levá zóna tapnutí · ${(tapZoneLeft * 100).toInt()} %", color = TextPrimary, fontSize = 14.sp)
+                            Slider(
+                                value = tapZoneLeft,
+                                onValueChange = { viewModel.setTapZoneLeftFraction(it) },
+                                valueRange = 0.1f..0.5f,
+                                modifier = Modifier.semantics { contentDescription = "Velikost levé zóny" },
+                                colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
+                            )
+                        }
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text("Pravá zóna tapnutí · ${(tapZoneRight * 100).toInt()} %", color = TextPrimary, fontSize = 14.sp)
+                            Slider(
+                                value = tapZoneRight,
+                                onValueChange = { viewModel.setTapZoneRightFraction(it) },
+                                valueRange = 0.1f..0.5f,
+                                modifier = Modifier.semantics { contentDescription = "Velikost pravé zóny" },
+                                colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text("Rychlost scrollování (Webtoon) · ${String.format("%.1f", webtoonScrollSpeed)}×", color = TextPrimary, fontSize = 14.sp)
+                        Slider(
+                            value = webtoonScrollSpeed,
+                            onValueChange = { viewModel.setWebtoonScrollSpeed(it) },
+                            valueRange = 0.5f..3.0f,
+                            modifier = Modifier.semantics { contentDescription = "Rychlost scrollování Webtoon" },
+                            colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
                         )
                     }
 

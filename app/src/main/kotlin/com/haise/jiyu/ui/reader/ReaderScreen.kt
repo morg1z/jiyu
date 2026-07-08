@@ -152,11 +152,14 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val isOfflineChapter    by viewModel.isOfflineChapter.collectAsState()
     val chapterProgress     by viewModel.chapterProgress.collectAsState()
     val spreadPageIndices   by viewModel.spreadPageIndices.collectAsState()
-    val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsState()
-    val panelMode           by viewModel.panelMode.collectAsState()
-    val oledMode            by viewModel.oledMode.collectAsState()
-    val incognitoMode       by viewModel.incognitoMode.collectAsState()
-    val sessionElapsed      by viewModel.sessionElapsed.collectAsState()
+    val sleepTimerRemaining  by viewModel.sleepTimerRemaining.collectAsState()
+    val panelMode            by viewModel.panelMode.collectAsState()
+    val oledMode             by viewModel.oledMode.collectAsState()
+    val incognitoMode        by viewModel.incognitoMode.collectAsState()
+    val sessionElapsed       by viewModel.sessionElapsed.collectAsState()
+    val tapZoneLeft          by viewModel.tapZoneLeftFraction.collectAsState()
+    val tapZoneRight         by viewModel.tapZoneRightFraction.collectAsState()
+    val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -274,6 +277,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 incognitoMode = incognitoMode,
                 onToggleIncognito = { viewModel.toggleIncognito() },
                 sessionElapsed = sessionElapsed,
+                tapZoneLeft = tapZoneLeft,
+                tapZoneRight = tapZoneRight,
+                webtoonScrollSpeed = webtoonScrollSpeed,
             )
         }
 
@@ -381,6 +387,9 @@ private fun ReaderContent(
     incognitoMode: Boolean = false,
     onToggleIncognito: () -> Unit = {},
     sessionElapsed: Long = 0L,
+    tapZoneLeft: Float = 0.3f,
+    tapZoneRight: Float = 0.3f,
+    webtoonScrollSpeed: Float = 1.0f,
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -438,6 +447,7 @@ private fun ReaderContent(
                 textScale = textScale,
                 onPageChanged = onPageChanged,
                 onTap = { controlsVisible = !controlsVisible },
+                scrollSpeedMultiplier = webtoonScrollSpeed,
             )
         } else {
             MangaReader(
@@ -450,6 +460,8 @@ private fun ReaderContent(
                 spreadPageIndices = spreadPageIndices,
                 textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
+                tapZoneLeft = tapZoneLeft,
+                tapZoneRight = tapZoneRight,
                 scale = scale,
                 panOffset = panOffset,
                 onScaleChange = { scale = it },
@@ -794,6 +806,8 @@ private fun MangaReader(
     spreadPageIndices: Set<Int> = emptySet(),
     textScale: Float,
     tapZonesEnabled: Boolean,
+    tapZoneLeft: Float = 0.3f,
+    tapZoneRight: Float = 0.3f,
     scale: Float,
     panOffset: Offset,
     onScaleChange: (Float) -> Unit,
@@ -925,7 +939,7 @@ private fun MangaReader(
                         else onPanChange(Offset.Zero)
                     }
                 }
-                .pointerInput(tapZonesEnabled, reverseLayout, groups.size) {
+                .pointerInput(tapZonesEnabled, tapZoneLeft, tapZoneRight, reverseLayout, groups.size) {
                     detectTapGestures(
                         onLongPress = {
                             sharePageUrl = pages.getOrElse(indices[0]) { "" }
@@ -935,8 +949,8 @@ private fun MangaReader(
                         if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
                         val fraction = offset.x / size.width
                         val delta = when {
-                            fraction < 0.3f -> if (reverseLayout) 1 else -1
-                            fraction > 0.7f -> if (reverseLayout) -1 else 1
+                            fraction < tapZoneLeft  -> if (reverseLayout) 1 else -1
+                            fraction > 1f - tapZoneRight -> if (reverseLayout) -1 else 1
                             else -> 0
                         }
                         if (delta == 0) {
@@ -1007,6 +1021,7 @@ private fun WebtoonReader(
     textScale: Float,
     onPageChanged: (Int) -> Unit,
     onTap: () -> Unit,
+    scrollSpeedMultiplier: Float = 1.0f,
 ) {
     val listState = rememberLazyListState()
 
@@ -1020,8 +1035,17 @@ private fun WebtoonReader(
         snapshotFlow { listState.firstVisibleItemIndex }.collect { onPageChanged(it) }
     }
 
+    val flingBehavior = androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
+    val speedFling = remember(scrollSpeedMultiplier, flingBehavior) {
+        object : androidx.compose.foundation.gestures.FlingBehavior {
+            override suspend fun androidx.compose.foundation.gestures.ScrollScope.performFling(initialVelocity: Float): Float =
+                with(flingBehavior) { performFling(initialVelocity * scrollSpeedMultiplier) }
+        }
+    }
+
     LazyColumn(
         state = listState,
+        flingBehavior = speedFling,
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }) },

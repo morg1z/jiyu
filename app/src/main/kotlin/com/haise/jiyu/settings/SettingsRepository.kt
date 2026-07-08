@@ -22,8 +22,11 @@ object SettingsKeys {
     val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
     val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
-    val TAP_ZONES_ENABLED      = booleanPreferencesKey("tap_zones_enabled")
-    val READER_TEXT_SCALE      = floatPreferencesKey("reader_text_scale")
+    val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
+    val TAP_ZONE_LEFT_FRACTION   = floatPreferencesKey("tap_zone_left_fraction")
+    val TAP_ZONE_RIGHT_FRACTION  = floatPreferencesKey("tap_zone_right_fraction")
+    val WEBTOON_SCROLL_SPEED     = floatPreferencesKey("webtoon_scroll_speed")
+    val READER_TEXT_SCALE        = floatPreferencesKey("reader_text_scale")
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
     val AUTO_DELETE_READ       = booleanPreferencesKey("auto_delete_read")
     val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
@@ -85,6 +88,15 @@ class SettingsRepository @Inject constructor(
     val tapZonesEnabled: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.TAP_ZONES_ENABLED] ?: true }
 
+    val tapZoneLeftFraction: Flow<Float> =
+        dataStore.data.map { it[SettingsKeys.TAP_ZONE_LEFT_FRACTION] ?: 0.3f }
+
+    val tapZoneRightFraction: Flow<Float> =
+        dataStore.data.map { it[SettingsKeys.TAP_ZONE_RIGHT_FRACTION] ?: 0.3f }
+
+    val webtoonScrollSpeed: Flow<Float> =
+        dataStore.data.map { it[SettingsKeys.WEBTOON_SCROLL_SPEED] ?: 1.0f }
+
     val readerTextScale: Flow<Float> =
         dataStore.data.map { it[SettingsKeys.READER_TEXT_SCALE] ?: 1f }
 
@@ -123,6 +135,15 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTapZonesEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.TAP_ZONES_ENABLED] = enabled }
+
+    suspend fun setTapZoneLeftFraction(fraction: Float) =
+        dataStore.edit { it[SettingsKeys.TAP_ZONE_LEFT_FRACTION] = fraction }
+
+    suspend fun setTapZoneRightFraction(fraction: Float) =
+        dataStore.edit { it[SettingsKeys.TAP_ZONE_RIGHT_FRACTION] = fraction }
+
+    suspend fun setWebtoonScrollSpeed(speed: Float) =
+        dataStore.edit { it[SettingsKeys.WEBTOON_SCROLL_SPEED] = speed }
 
     suspend fun setReaderTextScale(scale: Float) =
         dataStore.edit { it[SettingsKeys.READER_TEXT_SCALE] = scale }

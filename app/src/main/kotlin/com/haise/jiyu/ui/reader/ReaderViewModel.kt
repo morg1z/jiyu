@@ -96,6 +96,15 @@ class ReaderViewModel @Inject constructor(
     val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    val tapZoneLeftFraction: StateFlow<Float> = settings.tapZoneLeftFraction
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
+
+    val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
+
+    val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
+
     val readerTextScale: StateFlow<Float> = settings.readerTextScale
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
 

@@ -87,6 +87,15 @@ class SettingsViewModel @Inject constructor(
     val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    val tapZoneLeftFraction: StateFlow<Float> = settings.tapZoneLeftFraction
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
+
+    val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
+
+    val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
+
     val readerTextScale: StateFlow<Float> = settings.readerTextScale
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
 
@@ -126,8 +135,11 @@ class SettingsViewModel @Inject constructor(
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
     fun setReadingDirection(dir: String) = viewModelScope.launch { settings.setReadingDirection(dir) }
     fun setReadingMode(mode: String)     = viewModelScope.launch { settings.setReadingMode(mode) }
-    fun setTapZonesEnabled(enabled: Boolean) = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
-    fun setReaderTextScale(scale: Float)     = viewModelScope.launch { settings.setReaderTextScale(scale) }
+    fun setTapZonesEnabled(enabled: Boolean)      = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
+    fun setTapZoneLeftFraction(fraction: Float)   = viewModelScope.launch { settings.setTapZoneLeftFraction(fraction) }
+    fun setTapZoneRightFraction(fraction: Float)  = viewModelScope.launch { settings.setTapZoneRightFraction(fraction) }
+    fun setWebtoonScrollSpeed(speed: Float)       = viewModelScope.launch { settings.setWebtoonScrollSpeed(speed) }
+    fun setReaderTextScale(scale: Float)          = viewModelScope.launch { settings.setReaderTextScale(scale) }
     fun setDoublePageSpread(enabled: Boolean) = viewModelScope.launch { settings.setDoublePageSpread(enabled) }
 
     fun setUpdateInterval(hours: Long) = viewModelScope.launch {
