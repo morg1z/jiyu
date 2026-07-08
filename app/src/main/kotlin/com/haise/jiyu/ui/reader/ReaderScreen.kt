@@ -73,6 +73,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -995,141 +996,138 @@ private fun MangaReader(
         }
     }
 
-    // Sleduje aktuální JEDNOTLIVOU stránku (ne index skupiny) přes rememberSaveable,
-    // aby po rotaci s aktivním dvoustránkovým zobrazením šlo dopočítat správnou
-    // novou skupinu - jinak by pagerState obnovil svůj starý číselný index, který
-    // pod novým seskupením znamená úplně jinou (nebo mimo rozsah) dvojici stránek.
+    // Tracks the single page index across recompositions and spread-mode resets.
+    // Lives OUTSIDE key(useSpread) so it survives the pager recreation and gives the
+    // new pager its correct starting group.
     var currentSingleIndex by rememberSaveable { mutableStateOf(initialPage) }
 
-    val initialGroupIndex = remember(groups) {
-        groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
-    }
+    // key(useSpread) destroys and recreates the pager whenever spread mode changes
+    // (i.e. on rotation when double-page is enabled). The new pager receives the
+    // correct initialGroupIndex immediately — no post-hoc scrollToPage correction
+    // and no visual flash to a wrong page.
+    key(useSpread) {
+        val initialGroupIndex = remember(groups) {
+            groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
+        }
 
-    val pagerState = rememberPagerState(
-        initialPage = initialGroupIndex.coerceIn(0, groups.lastIndex.coerceAtLeast(0)),
-        pageCount = { groups.size },
-    )
-    val scope = rememberCoroutineScope()
+        val pagerState = rememberPagerState(
+            initialPage = initialGroupIndex.coerceIn(0, groups.lastIndex.coerceAtLeast(0)),
+            pageCount = { groups.size },
+        )
+        val scope = rememberCoroutineScope()
 
-    LaunchedEffect(pagerState, groups) {
-        snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
-            groups.getOrNull(groupIdx)?.firstOrNull()?.let {
-                currentSingleIndex = it
-                onPageChanged(it)
+        LaunchedEffect(pagerState, groups) {
+            snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
+                groups.getOrNull(groupIdx)?.firstOrNull()?.let {
+                    currentSingleIndex = it
+                    onPageChanged(it)
+                }
             }
         }
-    }
 
-    // Korekce po zmene seskupeni (typicky rotace obrazovky) - viz komentar u currentSingleIndex.
-    LaunchedEffect(useSpread) {
-        val target = groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
-        if (target in groups.indices && target != pagerState.currentPage) {
-            pagerState.scrollToPage(target)
-        }
-    }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { try { focusRequester.requestFocus() } catch (_: Exception) {} }
 
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { try { focusRequester.requestFocus() } catch (_: Exception) {} }
-
-    HorizontalPager(
-        state = pagerState,
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
-            .onKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                when (event.key) {
-                    Key.DirectionLeft, Key.A -> {
-                        val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                        true
-                    }
-                    Key.DirectionRight, Key.D -> {
-                        val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                        true
-                    }
-                    else -> false
-                }
-            },
-        reverseLayout = reverseLayout,
-        userScrollEnabled = scale <= 1f, // Zablokuj swipe při zoomu
-    ) { groupIdx ->
-        val indices = groups[groupIdx]
-        BoxWithConstraints(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        val newScale = (scale * zoom).coerceIn(1f, 5f)
-                        onScaleChange(newScale)
-                        if (newScale > 1f) onPanChange(panOffset + pan)
-                        else onPanChange(Offset.Zero)
-                    }
-                }
-                .pointerInput(tapZonesEnabled, tapZoneLeft, tapZoneRight, reverseLayout, groups.size) {
-                    detectTapGestures(
-                        onLongPress = {
-                            sharePageUrl = pages.getOrElse(indices[0]) { "" }
-                            if (sharePageUrl.isNotEmpty()) showShareSheet = true
-                        },
-                        onTap = { offset ->
-                        if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
-                        val fraction = offset.x / size.width
-                        val delta = when {
-                            fraction < tapZoneLeft  -> if (reverseLayout) 1 else -1
-                            fraction > 1f - tapZoneRight -> if (reverseLayout) -1 else 1
-                            else -> 0
-                        }
-                        if (delta == 0) {
-                            onTap()
-                        } else {
-                            val target = (pagerState.currentPage + delta).coerceIn(0, groups.lastIndex)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft, Key.A -> {
+                            val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
                             scope.launch { pagerState.animateScrollToPage(target) }
+                            true
                         }
-                    })
+                        Key.DirectionRight, Key.D -> {
+                            val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                            true
+                        }
+                        else -> false
+                    }
                 },
-        ) {
-            if (indices.size == 1) {
-                AsyncImage(
-                    model = pages[indices[0]],
-                    contentDescription = "Stránka ${indices[0] + 1}",
-                    contentScale = resolvedContentScale,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = panOffset.x,
-                            translationY = panOffset.y,
-                        ),
-                )
-                if (translateMode) {
-                    translatedPages[indices[0]]?.forEach { block -> TranslationOverlay(block, textScale) }
-                }
-            } else {
-                val ordered = if (reverseLayout) indices.reversed() else indices
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = panOffset.x,
-                            translationY = panOffset.y,
-                        ),
-                ) {
-                    ordered.forEach { idx ->
-                        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
-                            AsyncImage(
-                                model = pages[idx],
-                                contentDescription = "Stránka ${idx + 1}",
-                                contentScale = resolvedContentScale,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            if (translateMode) {
-                                translatedPages[idx]?.forEach { block -> TranslationOverlay(block, textScale) }
+            reverseLayout = reverseLayout,
+            userScrollEnabled = scale <= 1f,
+        ) { groupIdx ->
+            val indices = groups[groupIdx]
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                            onScaleChange(newScale)
+                            if (newScale > 1f) onPanChange(panOffset + pan)
+                            else onPanChange(Offset.Zero)
+                        }
+                    }
+                    .pointerInput(tapZonesEnabled, tapZoneLeft, tapZoneRight, reverseLayout, groups.size) {
+                        detectTapGestures(
+                            onLongPress = {
+                                sharePageUrl = pages.getOrElse(indices[0]) { "" }
+                                if (sharePageUrl.isNotEmpty()) showShareSheet = true
+                            },
+                            onTap = { offset ->
+                            if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
+                            val fraction = offset.x / size.width
+                            val delta = when {
+                                fraction < tapZoneLeft  -> if (reverseLayout) 1 else -1
+                                fraction > 1f - tapZoneRight -> if (reverseLayout) -1 else 1
+                                else -> 0
+                            }
+                            if (delta == 0) {
+                                onTap()
+                            } else {
+                                val target = (pagerState.currentPage + delta).coerceIn(0, groups.lastIndex)
+                                scope.launch { pagerState.animateScrollToPage(target) }
+                            }
+                        })
+                    },
+            ) {
+                if (indices.size == 1) {
+                    AsyncImage(
+                        model = pages[indices[0]],
+                        contentDescription = "Stránka ${indices[0] + 1}",
+                        contentScale = resolvedContentScale,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = panOffset.x,
+                                translationY = panOffset.y,
+                            ),
+                    )
+                    if (translateMode) {
+                        translatedPages[indices[0]]?.forEach { block -> TranslationOverlay(block, textScale) }
+                    }
+                } else {
+                    val ordered = if (reverseLayout) indices.reversed() else indices
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = panOffset.x,
+                                translationY = panOffset.y,
+                            ),
+                    ) {
+                        ordered.forEach { idx ->
+                            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
+                                AsyncImage(
+                                    model = pages[idx],
+                                    contentDescription = "Stránka ${idx + 1}",
+                                    contentScale = resolvedContentScale,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                if (translateMode) {
+                                    translatedPages[idx]?.forEach { block -> TranslationOverlay(block, textScale) }
+                                }
                             }
                         }
                     }
