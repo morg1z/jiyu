@@ -37,7 +37,7 @@ class Converters {
         MangaNoteEntity::class,
         MangaTagEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -187,6 +187,11 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE manga ADD COLUMN malId INTEGER")
                 db.execSQL("ALTER TABLE manga ADD COLUMN malScore REAL")
                 db.execSQL("ALTER TABLE manga ADD COLUMN malStatus TEXT")
+            }
+        }
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE custom_source ADD COLUMN contentType TEXT NOT NULL DEFAULT 'MANGA'")
             }
         }
     }

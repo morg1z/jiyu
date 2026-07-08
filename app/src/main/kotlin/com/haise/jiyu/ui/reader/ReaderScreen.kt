@@ -42,7 +42,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Translate
@@ -50,6 +52,8 @@ import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -165,6 +169,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val isNovelSource        by viewModel.isNovelSource.collectAsState()
     val novelText            by viewModel.novelText.collectAsState()
     val pageScale            by viewModel.pageScale.collectAsState()
+    val jumpToPage           by viewModel.jumpToPage.collectAsState()
+    val allChapters          by viewModel.allChaptersFlow.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -294,6 +300,11 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 tapZoneRight = tapZoneRight,
                 webtoonScrollSpeed = webtoonScrollSpeed,
                 pageScale = pageScale,
+                jumpToPage = jumpToPage,
+                onJumpToPage = { viewModel.jumpToPage(it) },
+                onJumpConsumed = { viewModel.clearJump() },
+                allChapters = allChapters,
+                onJumpToChapter = { viewModel.jumpToChapter(it) },
             )
         }
 
@@ -511,6 +522,11 @@ private fun ReaderContent(
     tapZoneRight: Float = 0.3f,
     webtoonScrollSpeed: Float = 1.0f,
     pageScale: String = "fit_width",
+    jumpToPage: Int? = null,
+    onJumpToPage: (Int) -> Unit = {},
+    onJumpConsumed: () -> Unit = {},
+    allChapters: List<com.haise.jiyu.data.db.entity.ChapterEntity> = emptyList(),
+    onJumpToChapter: (String) -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -596,6 +612,8 @@ private fun ReaderContent(
                 onTap = { controlsVisible = !controlsVisible },
                 onSharePage = onSharePage,
                 pageScale = pageScale,
+                jumpToPage = jumpToPage,
+                onJumpConsumed = onJumpConsumed,
             )
         }
 
@@ -701,6 +719,69 @@ private fun ReaderContent(
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
                             )
+                        }
+
+                        // Chapter picker
+                        if (allChapters.isNotEmpty()) {
+                            var showChapterSheet by remember { mutableStateOf(false) }
+                            IconButton(onClick = { showChapterSheet = true }) {
+                                Icon(
+                                    Icons.Filled.FormatListBulleted,
+                                    contentDescription = "Vybrat kapitolu",
+                                    tint = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            if (showChapterSheet) {
+                                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                                ModalBottomSheet(
+                                    onDismissRequest = { showChapterSheet = false },
+                                    sheetState = sheetState,
+                                    containerColor = Color(0xFF111B35),
+                                ) {
+                                    Text(
+                                        text = "Kapitoly (${allChapters.size})",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                    )
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(bottom = 32.dp),
+                                    ) {
+                                        items(allChapters, key = { it.id }) { chapter ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { onJumpToChapter(chapter.id); showChapterSheet = false }
+                                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = chapter.name,
+                                                        color = if (chapter.read) Color.White.copy(alpha = 0.45f) else Color.White,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = if (chapter.read) FontWeight.Normal else FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                                if (chapter.read) {
+                                                    Icon(
+                                                        Icons.Filled.Check,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF8B5CF6).copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                }
+                                            }
+                                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Incognito mode
@@ -826,6 +907,43 @@ private fun ReaderContent(
                         }
                     }
 
+                    // Page scrubber
+                    if (pages.size > 1) {
+                        var sliderPage by remember(currentPage) { mutableStateOf(currentPage.toFloat()) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${(sliderPage + 1).toInt()}",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 11.sp,
+                                modifier = Modifier.width(28.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            Slider(
+                                value = sliderPage,
+                                onValueChange = { sliderPage = it },
+                                onValueChangeFinished = { onJumpToPage(sliderPage.toInt()) },
+                                valueRange = 0f..(pages.size - 1).toFloat(),
+                                steps = 0,
+                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF8B5CF6),
+                                    activeTrackColor = Color(0xFF8B5CF6),
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.2f),
+                                ),
+                            )
+                            Text(
+                                text = "${pages.size}",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 11.sp,
+                                modifier = Modifier.width(28.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                    }
+
                     // Slider jasu
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.BrightnessLow, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
@@ -939,6 +1057,8 @@ private fun MangaReader(
     onTap: () -> Unit,
     onSharePage: (String) -> Unit = {},
     pageScale: String = "fit_width",
+    jumpToPage: Int? = null,
+    onJumpConsumed: () -> Unit = {},
 ) {
     val resolvedContentScale = when (pageScale) {
         "fit_height" -> ContentScale.FillHeight
@@ -1023,6 +1143,14 @@ private fun MangaReader(
                     onPageChanged(it)
                 }
             }
+        }
+
+        LaunchedEffect(jumpToPage) {
+            val target = jumpToPage ?: return@LaunchedEffect
+            val groupIdx = groups.indexOfFirst { target in it }.coerceAtLeast(0)
+                .coerceIn(0, groups.lastIndex.coerceAtLeast(0))
+            pagerState.animateScrollToPage(groupIdx)
+            onJumpConsumed()
         }
 
         val focusRequester = remember { FocusRequester() }

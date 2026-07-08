@@ -146,6 +146,7 @@ class SourceManager @Inject constructor(
                         chapterList = custom.chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
                         pageImage = custom.pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
                     ),
+                    contentTypeOverride = custom.contentType,
                 )
             }
         }

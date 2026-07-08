@@ -194,6 +194,7 @@ class MangaRepository @Inject constructor(
         statusSelector: String? = null,
         chapterListSelector: String? = null,
         pageImageSelector: String? = null,
+        contentType: String = "MANGA",
     ) = customSourceDao.upsert(
         CustomSourceEntity(
             name = name,
@@ -204,6 +205,7 @@ class MangaRepository @Inject constructor(
             statusSelector = statusSelector,
             chapterListSelector = chapterListSelector,
             pageImageSelector = pageImageSelector,
+            contentType = contentType,
         )
     )
     suspend fun deleteCustomSource(source: CustomSourceEntity) = customSourceDao.delete(source)

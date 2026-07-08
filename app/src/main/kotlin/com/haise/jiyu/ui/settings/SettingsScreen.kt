@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -614,6 +616,7 @@ fun SettingsScreen(
                     if (showAddDialog) {
                         var name by remember { mutableStateOf("") }
                         var url by remember { mutableStateOf("") }
+                        var selectedContentType by remember { mutableStateOf("MANGA") }
                         var showAdvanced by remember { mutableStateOf(false) }
                         var listItemSel by remember { mutableStateOf("") }
                         var titleLinkSel by remember { mutableStateOf("") }
@@ -650,6 +653,22 @@ fun SettingsScreen(
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("Typ obsahu", color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf("MANGA" to "Manga", "MANHWA" to "Manhwa", "MANHUA" to "Manhua", "NOVEL" to "Novely", "COMIC" to "Komiksy").forEach { (type, label) ->
+                                            val sel = selectedContentType == type
+                                            Box(
+                                                modifier = Modifier
+                                                    .border(1.dp, if (sel) GlowViolet else TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                                    .background(if (sel) Violet.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(6.dp))
+                                                    .clickable { selectedContentType = type }
+                                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                            ) {
+                                                Text(label, color = if (sel) Color.White else TextSecondary, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
                                     Spacer(Modifier.height(8.dp))
                                     TextButton(onClick = { showAdvanced = !showAdvanced }) {
                                         Text(
@@ -724,6 +743,7 @@ fun SettingsScreen(
                                                 statusSelector = statusSel.trim().ifBlank { null },
                                                 chapterListSelector = chapterListSel.trim().ifBlank { null },
                                                 pageImageSelector = pageImageSel.trim().ifBlank { null },
+                                                contentType = selectedContentType,
                                             )
                                             showAddDialog = false
                                         }

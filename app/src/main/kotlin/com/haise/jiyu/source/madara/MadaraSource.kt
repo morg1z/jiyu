@@ -49,7 +49,10 @@ class MadaraSource(
     private val baseUrl: String,
     private val client: OkHttpClient,
     private val selectors: MadaraSelectors = MadaraSelectors.DEFAULT,
+    private val contentTypeOverride: String = "MANGA",
 ) : MangaSource {
+
+    override val contentType: String get() = contentTypeOverride
 
     private val root get() = baseUrl.trimEnd('/')
 

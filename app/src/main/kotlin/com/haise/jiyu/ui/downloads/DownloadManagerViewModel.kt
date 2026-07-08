@@ -73,6 +73,26 @@ class DownloadManagerViewModel @Inject constructor(
         }
     }
 
+    private val _isPaused = MutableStateFlow(false)
+    val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
+
+    fun pauseAll() {
+        downloadQueue.pauseAll()
+        _isPaused.value = true
+    }
+
+    fun resumeAll() {
+        _isPaused.value = false
+        val groups = downloadGroups.value
+        viewModelScope.launch {
+            groups.forEach { group ->
+                group.chapters
+                    .filter { it.downloadStatus == DownloadStatus.DOWNLOADING }
+                    .forEach { chapter -> downloadQueue.enqueue(chapter, group.manga.url) }
+            }
+        }
+    }
+
     val totalStorageBytes: StateFlow<Long> = downloadGroups.map { groups ->
         groups.sumOf { group ->
             group.chapters.sumOf { chapter ->

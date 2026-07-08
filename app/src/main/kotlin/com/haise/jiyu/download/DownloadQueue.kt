@@ -44,4 +44,9 @@ class DownloadQueue @Inject constructor(
     fun cancelAll() {
         WorkManager.getInstance(context).cancelAllWorkByTag("jiyu_download")
     }
+
+    /** Pozastaví frontu: zruší WorkManager tasks bez resetování stavu v DB. */
+    fun pauseAll() {
+        WorkManager.getInstance(context).cancelAllWorkByTag("jiyu_download")
+    }
 }

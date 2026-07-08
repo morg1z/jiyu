@@ -20,8 +20,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -121,6 +125,16 @@ fun UpdatesScreen(
                             color = Violet,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                if (unreadCount > 0) {
+                    IconButton(onClick = { viewModel.markAllRead() }) {
+                        Icon(
+                            Icons.Filled.DoneAll,
+                            contentDescription = "Označit vše jako přečtené",
+                            tint = Violet,
                         )
                     }
                 }

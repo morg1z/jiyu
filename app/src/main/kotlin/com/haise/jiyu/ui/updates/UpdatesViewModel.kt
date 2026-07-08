@@ -17,7 +17,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class UpdatesViewModel @Inject constructor(
-    chapterDao: ChapterDao,
+    private val chapterDao: ChapterDao,
     private val repository: MangaRepository,
 ) : ViewModel() {
 
@@ -51,5 +51,9 @@ class UpdatesViewModel @Inject constructor(
             }
             _isRefreshing.value = false
         }
+    }
+
+    fun markAllRead() {
+        viewModelScope.launch { chapterDao.markAllRead() }
     }
 }

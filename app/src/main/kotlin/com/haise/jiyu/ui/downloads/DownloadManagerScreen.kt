@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,6 +76,7 @@ fun DownloadManagerScreen(
 ) {
     val groups by viewModel.downloadGroups.collectAsState()
     val totalStorageBytes by viewModel.totalStorageBytes.collectAsState()
+    val isPaused by viewModel.isPaused.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var showDeleteReadConfirm by remember { mutableStateOf(false) }
 
@@ -111,6 +114,16 @@ fun DownloadManagerScreen(
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+            val hasQueued = groups.any { g -> g.chapters.any { it.downloadStatus == com.haise.jiyu.data.db.entity.DownloadStatus.DOWNLOADING } }
+            if (hasQueued || isPaused) {
+                IconButton(onClick = { if (isPaused) viewModel.resumeAll() else viewModel.pauseAll() }) {
+                    Icon(
+                        if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                        contentDescription = if (isPaused) "Obnovit stahování" else "Pozastavit stahování",
+                        tint = Violet,
+                    )
+                }
             }
             TextButton(onClick = { showDeleteReadConfirm = true }) {
                 Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))

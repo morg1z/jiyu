@@ -46,6 +46,14 @@ class ReaderViewModel @Inject constructor(
     private var currentChapter: ChapterEntity? = null
     private var allChapters: List<ChapterEntity> = emptyList()
 
+    private val _allChaptersFlow = MutableStateFlow<List<ChapterEntity>>(emptyList())
+    val allChaptersFlow: StateFlow<List<ChapterEntity>> = _allChaptersFlow.asStateFlow()
+
+    private val _jumpToPage = MutableStateFlow<Int?>(null)
+    val jumpToPage: StateFlow<Int?> = _jumpToPage.asStateFlow()
+    fun jumpToPage(pageIndex: Int) { _jumpToPage.value = pageIndex }
+    fun clearJump() { _jumpToPage.value = null }
+
     private val _pages = MutableStateFlow<List<String>>(emptyList())
     val pages: StateFlow<List<String>> = _pages.asStateFlow()
 
@@ -280,6 +288,7 @@ class ReaderViewModel @Inject constructor(
         _currentPage.value = _initialPage.value
 
         allChapters = repository.getAllChapters(chapter.mangaId)
+        _allChaptersFlow.value = allChapters
         _chapterCount.value = allChapters.size
         _chapterIndex.value = allChapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
         updateNavState()
@@ -336,6 +345,10 @@ class ReaderViewModel @Inject constructor(
         // prev = starší = vyšší index; next = novější = nižší index
         _hasPrevChapter.value = idx < allChapters.lastIndex
         _hasNextChapter.value = idx > 0
+    }
+
+    fun jumpToChapter(chapterId: String) {
+        viewModelScope.launch { loadChapter(chapterId) }
     }
 
     fun navigateNext() {

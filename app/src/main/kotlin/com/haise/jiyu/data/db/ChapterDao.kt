@@ -101,4 +101,7 @@ interface ChapterDao {
         LIMIT 200
     """)
     fun observeUpdates(): Flow<List<UpdateItem>>
+
+    @Query("UPDATE chapter SET read = 1 WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
+    suspend fun markAllRead()
 }

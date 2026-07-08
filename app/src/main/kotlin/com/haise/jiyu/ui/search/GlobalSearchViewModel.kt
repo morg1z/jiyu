@@ -62,7 +62,15 @@ class GlobalSearchViewModel @Inject constructor(
                         SourceResult(source, loading = false, error = e.toFriendlyMessage())
                     }
                     _results.update { current ->
-                        current.toMutableList().also { if (i < it.size) it[i] = result }
+                        current.map { if (it.source.id == source.id) result else it }
+                            .sortedWith(compareBy {
+                                when {
+                                    it.results.isNotEmpty() -> 0
+                                    it.loading -> 1
+                                    it.error != null -> 2
+                                    else -> 3
+                                }
+                            })
                     }
                 }
             }.awaitAll()

@@ -247,11 +247,13 @@ class SettingsViewModel @Inject constructor(
         statusSelector: String? = null,
         chapterListSelector: String? = null,
         pageImageSelector: String? = null,
+        contentType: String = "MANGA",
     ) = viewModelScope.launch {
         repository.addCustomSource(
             name, baseUrl,
             listItemSelector, titleLinkSelector, descriptionSelector,
             statusSelector, chapterListSelector, pageImageSelector,
+            contentType,
         )
     }
 

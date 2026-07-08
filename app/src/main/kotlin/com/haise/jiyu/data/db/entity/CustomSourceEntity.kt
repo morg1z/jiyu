@@ -26,4 +26,6 @@ data class CustomSourceEntity(
     val statusSelector: String? = null,
     val chapterListSelector: String? = null,
     val pageImageSelector: String? = null,
+    /** Typ obsahu: MANGA | MANHWA | MANHUA | NOVEL | COMIC */
+    val contentType: String = "MANGA",
 )

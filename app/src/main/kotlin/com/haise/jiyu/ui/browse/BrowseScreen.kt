@@ -69,7 +69,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material.icons.filled.MenuBook
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
@@ -488,12 +492,29 @@ private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
                 )
             },
     ) {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = manga.coverUrl,
             contentDescription = manga.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
-        )
+        ) {
+            val state = painter.state
+            if (manga.coverUrl.isNullOrBlank() || state is AsyncImagePainter.State.Error) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color(0xFF0D1526)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.MenuBook,
+                        contentDescription = null,
+                        tint = TextSecondary.copy(alpha = 0.3f),
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+            } else {
+                SubcomposeAsyncImageContent()
+            }
+        }
 
         Box(
             modifier = Modifier
