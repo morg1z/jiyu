@@ -104,4 +104,10 @@ interface ChapterDao {
 
     @Query("UPDATE chapter SET read = 1 WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
     suspend fun markAllRead()
+
+    @Query("SELECT id FROM chapter WHERE mangaId = :mangaId")
+    suspend fun getAllIdsForManga(mangaId: String): List<String>
+
+    @Query("UPDATE chapter SET read = 1, lastPageRead = 0 WHERE mangaId IN (:mangaIds)")
+    suspend fun markAllReadForMangas(mangaIds: List<String>)
 }

@@ -139,7 +139,7 @@ class ReaderViewModel @Inject constructor(
     val cropBorders: StateFlow<Boolean> = settings.cropBorders
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // ── Webtoon scroll memory (in-memory, per chapter) ───────────────────────
+    // ── Webtoon scroll memory (in-memory, per chapter, max 50 entries LRU) ──
     private val webtoonPositions = mutableMapOf<String, Int>()
 
     private val _webtoonScrollOffset = MutableStateFlow(0)
@@ -148,6 +148,7 @@ class ReaderViewModel @Inject constructor(
     fun saveWebtoonScrollOffset(offset: Int) {
         val id = currentChapter?.id ?: return
         webtoonPositions[id] = offset
+        if (webtoonPositions.size > 50) webtoonPositions.remove(webtoonPositions.keys.first())
     }
 
     // ── AI shrnutí kapitoly ──────────────────────────────────────────────────
@@ -157,16 +158,27 @@ class ReaderViewModel @Inject constructor(
     private val _summaryLoading = MutableStateFlow(false)
     val summaryLoading: StateFlow<Boolean> = _summaryLoading.asStateFlow()
 
+    private val summaryCache = mutableMapOf<String, String>()
+    private var lastSummaryRequestMs = 0L
+
     fun loadChapterSummary() {
         val chapter = currentChapter ?: return
         if (_summaryLoading.value) return
+        summaryCache[chapter.id]?.let { cached ->
+            _chapterSummary.value = cached
+            return
+        }
+        if (System.currentTimeMillis() - lastSummaryRequestMs < 10_000L) return
+        lastSummaryRequestMs = System.currentTimeMillis()
         val idx = allChapters.indexOfFirst { it.id == chapter.id }
         val prevChapter = allChapters.getOrNull(idx + 1) // DESC → starší kapitola
         viewModelScope.launch {
             _summaryLoading.value = true
             _chapterSummary.value = null
             val mangaTitle = repository.getManga(chapter.mangaId)?.title ?: ""
-            _chapterSummary.value = groqRepository.getChapterSummary(mangaTitle, chapter.name, prevChapter?.name)
+            val result = groqRepository.getChapterSummary(mangaTitle, chapter.name, prevChapter?.name)
+            if (result != null) summaryCache[chapter.id] = result
+            _chapterSummary.value = result
             _summaryLoading.value = false
         }
     }

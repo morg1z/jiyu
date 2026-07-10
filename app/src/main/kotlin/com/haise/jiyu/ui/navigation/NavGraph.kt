@@ -42,8 +42,8 @@ internal object Routes {
     const val CUSTOM_CSS    = "custom_css"
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
-    fun detail(mangaId: String) = "detail/$mangaId"
-    fun reader(chapterId: String) = "reader/$chapterId"
+    fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
+    fun reader(chapterId: String) = "reader/${android.net.Uri.encode(chapterId)}"
     fun qr(mangaId: String, mangaTitle: String) =
         "qr/${android.net.Uri.encode(mangaId)}?title=${android.net.Uri.encode(mangaTitle)}"
 }

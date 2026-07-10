@@ -10,6 +10,7 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.local.LocalMangaImporter
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,7 @@ class LibraryViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
     private val localMangaImporter: LocalMangaImporter,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     val categories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
@@ -158,13 +160,7 @@ class LibraryViewModel @Inject constructor(
 
     fun bulkMarkRead() {
         val ids = _selectedIds.value.toList(); clearSelection()
-        viewModelScope.launch {
-            ids.forEach { mangaId ->
-                repository.getAllChapters(mangaId).forEach {
-                    repository.updateReadProgress(it.id, read = true, lastPageRead = 0)
-                }
-            }
-        }
+        viewModelScope.launch { repository.markAllChaptersRead(ids) }
     }
 
     fun bulkRemoveFromLibrary() {
@@ -276,9 +272,9 @@ class LibraryViewModel @Inject constructor(
     }
 
     // ── Zobrazení ─────────────────────────────────────────────────────────────
-    private val _gridMode = MutableStateFlow(true)
-    val gridMode: StateFlow<Boolean> = _gridMode.asStateFlow()
-    fun toggleGridMode() { _gridMode.value = !_gridMode.value }
+    val gridMode: StateFlow<Boolean> = settings.libraryGridMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    fun toggleGridMode() { viewModelScope.launch { settings.setLibraryGridMode(!gridMode.value) } }
 
     // ── Lokální CBZ/ZIP import ────────────────────────────────────────────────
     private val _localImportState = MutableStateFlow<LocalImportState>(LocalImportState.Idle)

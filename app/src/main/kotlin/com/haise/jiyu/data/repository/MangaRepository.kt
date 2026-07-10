@@ -44,6 +44,7 @@ class MangaRepository @Inject constructor(
     fun observeChapters(mangaId: String): Flow<List<ChapterEntity>> = chapterDao.observeForManga(mangaId)
     suspend fun countChapters(mangaId: String): Int = chapterDao.countForManga(mangaId)
     suspend fun getAllChapters(mangaId: String): List<ChapterEntity> = chapterDao.getAllForManga(mangaId)
+    suspend fun markAllChaptersRead(mangaIds: List<String>) = chapterDao.markAllReadForMangas(mangaIds)
     suspend fun countReadChapters(): Int = chapterDao.countRead()
     fun observeReadChaptersCount(): Flow<Int> = chapterDao.observeReadCount()
     suspend fun getAllLibraryChapters(): List<ChapterEntity> = chapterDao.getAllForLibrary()

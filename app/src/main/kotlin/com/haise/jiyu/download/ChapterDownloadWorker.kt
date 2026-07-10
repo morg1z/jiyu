@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
@@ -28,55 +29,58 @@ class ChapterDownloadWorker @AssistedInject constructor(
     private val client: OkHttpClient,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val chapterEntityId = inputData.getString(KEY_CHAPTER_ENTITY_ID) ?: return@withContext Result.failure()
-        val sourceId = inputData.getString(KEY_SOURCE_ID) ?: return@withContext Result.failure()
-        val chapterUrl = inputData.getString(KEY_CHAPTER_URL) ?: return@withContext Result.failure()
-        val mangaUrl = inputData.getString(KEY_MANGA_URL) ?: return@withContext Result.failure()
+    override suspend fun doWork(): Result {
+        val chapterEntityId = inputData.getString(KEY_CHAPTER_ENTITY_ID) ?: return Result.failure()
+        val sourceId = inputData.getString(KEY_SOURCE_ID) ?: return Result.failure()
+        val chapterUrl = inputData.getString(KEY_CHAPTER_URL) ?: return Result.failure()
+        val mangaUrl = inputData.getString(KEY_MANGA_URL) ?: return Result.failure()
 
         val nm = applicationContext.getSystemService(NotificationManager::class.java)
         val progressId = chapterEntityId.hashCode() xor 0x1000
 
-        repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
-
-        nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+        val progressNotification = NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("Stahování kapitoly")
             .setProgress(0, 0, true)
             .setOngoing(true)
-            .build())
+            .build()
 
-        try {
-            val pages = repository.getChapterPages(sourceId, chapterUrl, mangaUrl)
-            val chapterDir = File(applicationContext.filesDir, "downloads/$chapterEntityId")
-            chapterDir.mkdirs()
+        setForeground(ForegroundInfo(progressId, progressNotification))
+        repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
 
-            pages.forEachIndexed { index, page ->
-                val imageUrl = page.imageUrl ?: page.url
-                val bytes = downloadBytes(imageUrl)
-                val extension = imageUrl.substringAfterLast('.', "jpg").take(4)
-                File(chapterDir, "%03d.%s".format(index, extension)).writeBytes(bytes)
-                nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
-                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setContentTitle("Stahování kapitoly")
-                    .setContentText("${index + 1} / ${pages.size} stránek")
-                    .setProgress(pages.size, index + 1, false)
-                    .setOngoing(true)
-                    .build())
+        return withContext(Dispatchers.IO) {
+            try {
+                val pages = repository.getChapterPages(sourceId, chapterUrl, mangaUrl)
+                val chapterDir = File(applicationContext.filesDir, "downloads/$chapterEntityId")
+                chapterDir.mkdirs()
+
+                pages.forEachIndexed { index, page ->
+                    val imageUrl = page.imageUrl ?: page.url
+                    val bytes = downloadBytes(imageUrl)
+                    val extension = imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
+                    File(chapterDir, "%03d.%s".format(index, extension)).writeBytes(bytes)
+                    nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                        .setContentTitle("Stahování kapitoly")
+                        .setContentText("${index + 1} / ${pages.size} stránek")
+                        .setProgress(pages.size, index + 1, false)
+                        .setOngoing(true)
+                        .build())
+                }
+
+                nm.cancel(progressId)
+                repository.markDownloaded(chapterEntityId, chapterDir.absolutePath, pages.size)
+                notifyDone(chapterEntityId)
+                Result.success()
+            } catch (e: CancellationException) {
+                nm.cancel(progressId)
+                repository.setDownloadStatus(chapterEntityId, DownloadStatus.NOT_DOWNLOADED)
+                throw e
+            } catch (e: Exception) {
+                nm.cancel(progressId)
+                repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
+                Result.failure()
             }
-
-            nm.cancel(progressId)
-            repository.markDownloaded(chapterEntityId, chapterDir.absolutePath, pages.size)
-            notifyDone(chapterEntityId)
-            Result.success()
-        } catch (e: CancellationException) {
-            nm.cancel(progressId)
-            repository.setDownloadStatus(chapterEntityId, DownloadStatus.NOT_DOWNLOADED)
-            throw e
-        } catch (e: Exception) {
-            nm.cancel(progressId)
-            repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
-            Result.failure()
         }
     }
 

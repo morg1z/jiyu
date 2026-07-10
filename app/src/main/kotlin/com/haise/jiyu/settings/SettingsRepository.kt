@@ -44,6 +44,7 @@ object SettingsKeys {
     val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
+    val LIBRARY_GRID_MODE      = booleanPreferencesKey("library_grid_mode")
 }
 
 object ReaderTheme {
@@ -259,6 +260,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setCropBorders(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.CROP_BORDERS] = enabled }
+
+    val libraryGridMode: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.LIBRARY_GRID_MODE] ?: true }
+
+    suspend fun setLibraryGridMode(gridMode: Boolean) =
+        dataStore.edit { it[SettingsKeys.LIBRARY_GRID_MODE] = gridMode }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()
