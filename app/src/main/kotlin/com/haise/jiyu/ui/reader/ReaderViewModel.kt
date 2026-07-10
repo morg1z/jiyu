@@ -146,6 +146,10 @@ class ReaderViewModel @Inject constructor(
     // ── Webtoon scroll memory (in-memory, per chapter, max 50 entries LRU) ──
     private val webtoonPositions = mutableMapOf<String, Int>()
 
+    // ── Přednačítání další kapitoly ──────────────────────────────────────────
+    private val nextChapterCache = mutableMapOf<String, List<String>>()
+    private var preloadJob: Job? = null
+
     private val _webtoonScrollOffset = MutableStateFlow(0)
     val webtoonScrollOffset: StateFlow<Int> = _webtoonScrollOffset.asStateFlow()
 
@@ -378,24 +382,31 @@ class ReaderViewModel @Inject constructor(
         } else {
             _isOfflineChapter.value = false
             _spreadPageIndices.value = emptySet()
-            val manga = repository.getManga(chapter.mangaId)
-            if (manga != null) {
-                try {
-                    val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
-                    val isNovel = rawPages.any { it.imageUrl == "novel://text" }
-                    _isNovelSource.value = isNovel
-                    if (isNovel) {
-                        _novelText.value = rawPages.firstOrNull()?.url ?: ""
+            val cached = nextChapterCache.remove(chapter.id)
+            if (cached != null) {
+                _isNovelSource.value = false
+                _novelText.value = ""
+                _pages.value = cached
+            } else {
+                val manga = repository.getManga(chapter.mangaId)
+                if (manga != null) {
+                    try {
+                        val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
+                        val isNovel = rawPages.any { it.imageUrl == "novel://text" }
+                        _isNovelSource.value = isNovel
+                        if (isNovel) {
+                            _novelText.value = rawPages.firstOrNull()?.url ?: ""
+                            _pages.value = emptyList()
+                        } else {
+                            _novelText.value = ""
+                            _pages.value = rawPages.map { it.imageUrl ?: it.url }
+                        }
+                    } catch (_: Exception) {
+                        // Zdroj selhal (expirovana/geoblokovana kapitola, sitova chyba...) -
+                        // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo načíst."
+                        _isNovelSource.value = false
                         _pages.value = emptyList()
-                    } else {
-                        _novelText.value = ""
-                        _pages.value = rawPages.map { it.imageUrl ?: it.url }
                     }
-                } catch (_: Exception) {
-                    // Zdroj selhal (expirovana/geoblokovana kapitola, sitova chyba...) -
-                    // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo načíst."
-                    _isNovelSource.value = false
-                    _pages.value = emptyList()
                 }
             }
         }
@@ -430,8 +441,29 @@ class ReaderViewModel @Inject constructor(
 
     // ── Čtení ────────────────────────────────────────────────────────────────
 
+    private fun preloadNextChapter() {
+        val chapter = currentChapter ?: return
+        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        if (idx <= 0) return
+        val nextChapter = allChapters[idx - 1]
+        if (nextChapterCache.containsKey(nextChapter.id)) return
+        if (nextChapter.downloadStatus == DownloadStatus.DOWNLOADED) return
+        preloadJob?.cancel()
+        preloadJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val manga = repository.getManga(nextChapter.mangaId) ?: return@launch
+                val rawPages = repository.getChapterPages(nextChapter.sourceId, nextChapter.url, manga.url)
+                val urls = rawPages.mapNotNull { it.imageUrl?.takeIf { u -> u.isNotBlank() } ?: it.url.takeIf { u -> u.isNotBlank() } }
+                if (urls.isNotEmpty()) nextChapterCache[nextChapter.id] = urls
+            } catch (_: Exception) {}
+        }
+    }
+
     fun onPageChanged(index: Int) {
         _currentPage.value = index
+
+        val total = _pages.value.size
+        if (total > 0 && index >= total - 3 && _hasNextChapter.value) preloadNextChapter()
 
         // Čas od poslední stránky — max 3 min (filtrace idle)
         val now = System.currentTimeMillis()
@@ -439,8 +471,8 @@ class ReaderViewModel @Inject constructor(
         lastPageChangeMs = now
 
         viewModelScope.launch {
-            val total = _pages.value.size
-            val isRead = index >= total - 1
+            val pageCount = _pages.value.size
+            val isRead = index >= pageCount - 1
             val chapter = currentChapter ?: return@launch
             val chapterId = chapter.id
             val incognito = _incognitoMode.value

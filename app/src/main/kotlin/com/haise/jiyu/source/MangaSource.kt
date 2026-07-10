@@ -64,6 +64,9 @@ interface MangaSource {
     /** Typ obsahu: MANGA | MANHWA | MANHUA | NOVEL | COMIC. Výchozí = MANGA. */
     val contentType: String get() = "MANGA"
 
+    /** Kód jazyka dle BCP-47 (en, cs, fr, es, pt, ja, ko, zh, …). Výchozí = en. */
+    val language: String get() = "en"
+
     /** Fulltextové hledání podle názvu. */
     suspend fun search(query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>
 

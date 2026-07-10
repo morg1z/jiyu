@@ -121,6 +121,7 @@ fun SettingsScreen(
     val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
     val autoDeleteRead    by viewModel.autoDeleteRead.collectAsState()
     val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
+    val downloadOnlyWifi  by viewModel.downloadOnlyWifi.collectAsState()
     val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme       by viewModel.readerTheme.collectAsState()
     val oledMode          by viewModel.oledMode.collectAsState()
@@ -798,6 +799,23 @@ fun SettingsScreen(
 
                 // ── Stahování / Auto-mazání ───────────────────────────────────
                 SettingsSection(title = "Stahování") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = downloadOnlyWifi, onValueChange = { viewModel.setDownloadOnlyWifi(it) }, role = Role.Switch)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Stahovat pouze přes Wi-Fi", color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text("Mobilní data se nepoužijí ke stahování kapitol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = downloadOnlyWifi,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

@@ -16,9 +16,9 @@ import javax.inject.Singleton
 
 @Singleton
 class RawKumaSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id = "rawkuma"
-    override val name = "RawKuma (Raw)"
-    val language = "ja"
+    override val id       = "rawkuma"
+    override val name     = "RawKuma (Raw)"
+    override val language = "ja"
     private val base = "https://rawkuma.com"
 
     private fun get(url: String): String {

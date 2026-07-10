@@ -335,6 +335,11 @@ class SettingsViewModel @Inject constructor(
     fun setAutoDeleteRead(enabled: Boolean) = viewModelScope.launch { settings.setAutoDeleteRead(enabled) }
     fun setAutoDeleteDelayDays(days: Int)    = viewModelScope.launch { settings.setAutoDeleteDelayDays(days) }
 
+    val downloadOnlyWifi: StateFlow<Boolean> = settings.downloadOnlyWifi
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setDownloadOnlyWifi(enabled: Boolean) = viewModelScope.launch { settings.setDownloadOnlyWifi(enabled) }
+
     // ── Automatický přechod na další kapitolu ─────────────────────────────────
     val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)

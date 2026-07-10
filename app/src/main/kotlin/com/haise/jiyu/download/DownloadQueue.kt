@@ -7,15 +7,22 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class DownloadQueue @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val settings: SettingsRepository,
 ) {
     fun enqueue(chapter: ChapterEntity, mangaUrl: String) {
+        val wifiOnly = runBlocking { settings.downloadOnlyWifi.first() }
+        val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+
         val data = Data.Builder()
             .putString(ChapterDownloadWorker.KEY_CHAPTER_ENTITY_ID, chapter.id)
             .putString(ChapterDownloadWorker.KEY_SOURCE_ID, chapter.sourceId)
@@ -27,7 +34,7 @@ class DownloadQueue @Inject constructor(
             .setInputData(data)
             .setConstraints(
                 Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiredNetworkType(networkType)
                     .build()
             )
             .addTag("download_${chapter.id}")

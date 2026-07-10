@@ -33,22 +33,42 @@ class BrowseViewModel @Inject constructor(
     private val _contentTypeFilter = MutableStateFlow("ALL")
     val contentTypeFilter: StateFlow<String> = _contentTypeFilter.asStateFlow()
 
-    val sources: StateFlow<List<MangaSource>> = combine(_allSources, _contentTypeFilter) { all, type ->
-        if (type == "ALL") all else all.filter { it.contentType == type }
+    private val _languageFilter = MutableStateFlow("ALL")
+    val languageFilter: StateFlow<String> = _languageFilter.asStateFlow()
+
+    val sources: StateFlow<List<MangaSource>> = combine(
+        _allSources, _contentTypeFilter, _languageFilter,
+    ) { all, type, lang ->
+        all.filter { src ->
+            (type == "ALL" || src.contentType == type) &&
+            (lang == "ALL" || src.language == lang)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun setContentTypeFilter(type: String) {
-        _contentTypeFilter.value = type
+    private fun applyFiltersAndSelectFirst() {
         // Use already-loaded _allSources.value synchronously to avoid the race where
         // filteredSources emits the new list before _selectedSource is updated,
         // causing TabRow to see sources=[X,Y] but selectedSource still pointing at
         // the old source → index mismatch → UI blink.
-        val filtered = _allSources.value.let { all ->
-            if (type == "ALL") all else all.filter { it.contentType == type }
+        val type = _contentTypeFilter.value
+        val lang = _languageFilter.value
+        val filtered = _allSources.value.filter { src ->
+            (type == "ALL" || src.contentType == type) &&
+            (lang == "ALL" || src.language == lang)
         }
         val first = filtered.firstOrNull()
         _selectedSource.value = first
         if (first != null) loadPopular(_activeFilter.value)
+    }
+
+    fun setContentTypeFilter(type: String) {
+        _contentTypeFilter.value = type
+        applyFiltersAndSelectFirst()
+    }
+
+    fun setLanguageFilter(lang: String) {
+        _languageFilter.value = lang
+        applyFiltersAndSelectFirst()
     }
 
     private val _selectedSource = MutableStateFlow<MangaSource?>(null)

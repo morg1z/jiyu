@@ -17,9 +17,10 @@ import javax.inject.Singleton
 // ── Japscan (FR) ──────────────────────────────────────────────────────────────
 @Singleton
 class JapscanSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "japscan"
-    override val name = "Japscan 🇫🇷"
-    private val base  = "https://www.japscan.lol"
+    override val id       = "japscan"
+    override val name     = "Japscan 🇫🇷"
+    override val language = "fr"
+    private val base      = "https://www.japscan.lol"
 
     private fun get(url: String) = client.newCall(
         Request.Builder().url(url)
@@ -91,9 +92,10 @@ class JapscanSource @Inject constructor(private val client: OkHttpClient) : Mang
 // ── Anime-Sama (FR) ───────────────────────────────────────────────────────────
 @Singleton
 class AnimeSamaSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "animesama"
-    override val name = "Anime-Sama 🇫🇷"
-    private val base  = "https://anime-sama.fr"
+    override val id       = "animesama"
+    override val name     = "Anime-Sama 🇫🇷"
+    override val language = "fr"
+    private val base      = "https://anime-sama.fr"
 
     private fun get(url: String) = client.newCall(
         Request.Builder().url(url)
@@ -165,9 +167,10 @@ class AnimeSamaSource @Inject constructor(private val client: OkHttpClient) : Ma
 // ── ScanVF (FR) ───────────────────────────────────────────────────────────────
 @Singleton
 class ScanVFSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "scanvf"
-    override val name = "ScanVF 🇫🇷"
-    private val base  = "https://www.scan-vf.net"
+    override val id       = "scanvf"
+    override val name     = "ScanVF 🇫🇷"
+    override val language = "fr"
+    private val base      = "https://www.scan-vf.net"
 
     private fun get(url: String) = client.newCall(
         Request.Builder().url(url)

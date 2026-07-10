@@ -17,9 +17,10 @@ import javax.inject.Singleton
 // ── TuMangaOnline / LectorTMO (ES) ────────────────────────────────────────────
 @Singleton
 class TMOSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "tmo"
-    override val name = "TuMangaOnline 🇪🇸"
-    private val base  = "https://lectortmo.com"
+    override val id       = "tmo"
+    override val name     = "TuMangaOnline 🇪🇸"
+    override val language = "es"
+    private val base      = "https://lectortmo.com"
 
     private fun get(url: String) = client.newCall(
         Request.Builder().url(url)
@@ -105,9 +106,10 @@ class TMOSource @Inject constructor(private val client: OkHttpClient) : MangaSou
 // ── InManga (ES) ──────────────────────────────────────────────────────────────
 @Singleton
 class InMangaSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "inmanga"
-    override val name = "InManga 🇪🇸"
-    private val base  = "https://inmanga.com"
+    override val id       = "inmanga"
+    override val name     = "InManga 🇪🇸"
+    override val language = "es"
+    private val base      = "https://inmanga.com"
 
     private fun get(url: String) = client.newCall(
         Request.Builder().url(url)
@@ -181,8 +183,9 @@ class InMangaSource @Inject constructor(private val client: OkHttpClient) : Mang
 // ── MangaLeer (ES) ────────────────────────────────────────────────────────────
 @Singleton
 class MangaLeerSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "mangaleer"
-    override val name = "MangaLeer 🇪🇸"
+    override val id       = "mangaleer"
+    override val name     = "MangaLeer 🇪🇸"
+    override val language = "es"
     private val base  = "https://mangaleer.com"
 
     private fun get(url: String) = client.newCall(
@@ -256,7 +259,8 @@ class MangaLeerSource @Inject constructor(private val client: OkHttpClient) : Ma
 // ── Union Mangás (PT-BR) ──────────────────────────────────────────────────────
 @Singleton
 class UnionMangasSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id   = "unionmangas"
+    override val id       = "unionmangas"
+    override val language = "pt"
     override val name = "Union Mangás 🇧🇷"
     private val base  = "https://unionmangas.xyz"
 

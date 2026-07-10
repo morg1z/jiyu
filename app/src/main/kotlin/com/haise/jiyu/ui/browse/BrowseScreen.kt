@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -122,6 +124,7 @@ fun BrowseScreen(
     val activeFilter      by viewModel.activeFilter.collectAsState()
     val showLatest        by viewModel.showLatest.collectAsState()
     val contentTypeFilter by viewModel.contentTypeFilter.collectAsState()
+    val languageFilter    by viewModel.languageFilter.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
@@ -241,6 +244,43 @@ fun BrowseScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // ── Jazykový filtr ───────────────────────────────────────────────────
+        val languages = listOf(
+            "ALL" to "🌐 Vše",
+            "en"  to "🇺🇸 EN",
+            "fr"  to "🇫🇷 FR",
+            "es"  to "🇪🇸 ES",
+            "pt"  to "🇧🇷 PT",
+            "ja"  to "🇯🇵 RAW",
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(languages) { (code, label) ->
+                val selected = languageFilter == code
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(if (selected) Violet.copy(alpha = 0.25f) else Color.Transparent)
+                        .border(1.dp, if (selected) Violet else GlowViolet.copy(alpha = 0.25f), RoundedCornerShape(50.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { viewModel.setLanguageFilter(code) }
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) Color.White else TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
                 }
             }
         }

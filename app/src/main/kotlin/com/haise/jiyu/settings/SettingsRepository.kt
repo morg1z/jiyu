@@ -45,6 +45,7 @@ object SettingsKeys {
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
     val LIBRARY_GRID_MODE      = booleanPreferencesKey("library_grid_mode")
+    val DOWNLOAD_ONLY_WIFI     = booleanPreferencesKey("download_only_wifi")
 }
 
 object ReaderTheme {
@@ -266,6 +267,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setLibraryGridMode(gridMode: Boolean) =
         dataStore.edit { it[SettingsKeys.LIBRARY_GRID_MODE] = gridMode }
+
+    val downloadOnlyWifi: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.DOWNLOAD_ONLY_WIFI] ?: false }
+
+    suspend fun setDownloadOnlyWifi(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.DOWNLOAD_ONLY_WIFI] = enabled }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()
