@@ -227,3 +227,56 @@ class ComicKingdomSource @Inject constructor(client: OkHttpClient) : ComicSiteSo
     override val searchPath = "/search?query="
     override val searchResultSelector = "div.comic-cover"
 }
+
+// ── ComicExtra ────────────────────────────────────────────────────────────────
+@Singleton
+class ComicExtraSource @Inject constructor(client: OkHttpClient) : ComicSiteSource(
+    id = "comicextra",
+    name = "ComicExtra",
+    base = "https://comicextra.me",
+    client = client,
+) {
+    override val popularPath = "/popular-comic"
+    override val comicItemSelector = ".cartoon-box, .movie-list .item"
+    override val comicLinkSelector = "a"
+    override val comicCoverSelector = "img"
+    override val chapterItemSelector = ".chapter-list tr td a, .ch-name"
+    override val pageImgSelector = ".chapter-container img, img#main_img"
+    override val searchPath = "/comic-search?key="
+    override val searchResultSelector = ".cartoon-box, .movie-list .item"
+}
+
+// ── ReadComicsOnline (alternatívní doména) ────────────────────────────────────
+@Singleton
+class ReadComicsOnline2Source @Inject constructor(client: OkHttpClient) : ComicSiteSource(
+    id = "readcomicsonline2",
+    name = "ReadComicsOnline",
+    base = "https://readcomicsonline.ru",
+    client = client,
+) {
+    override val popularPath = "/comic?sort=name&order=asc"
+    override val comicItemSelector = ".card, .media"
+    override val comicLinkSelector = "a"
+    override val comicCoverSelector = "img.img-responsive, img"
+    override val chapterItemSelector = ".chapter-list .row a, #chapter-list a"
+    override val pageImgSelector = ".chapter-container img, .img-responsive"
+    override val searchPath = "/search?query="
+    override val searchResultSelector = ".card, .media"
+}
+
+// ── SuperHeroComics ───────────────────────────────────────────────────────────
+@Singleton
+class SuperHeroComicsSource @Inject constructor(client: OkHttpClient) : ComicSiteSource(
+    id = "superherocomics",
+    name = "SuperHeroComics",
+    base = "https://www.superherocomics.org",
+    client = client,
+) {
+    override val popularPath = "/popular"
+    override val comicItemSelector = ".bsx, .bs"
+    override val comicLinkSelector = "a"
+    override val comicCoverSelector = "img"
+    override val chapterItemSelector = ".eph-num a, li.wp-manga-chapter a"
+    override val pageImgSelector = ".reading-content img, .page-break img"
+    override val searchPath = "/?s="
+}
