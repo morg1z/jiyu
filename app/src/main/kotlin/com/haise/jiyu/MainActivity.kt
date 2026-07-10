@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import com.haise.jiyu.settings.ThemeOption
 import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -35,19 +37,27 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var aniListRepository: AniListRepository
 
+    private val _pendingDeepLink = MutableStateFlow<Intent?>(null)
+
     private val notifPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* výsledek ignorujeme — appka funguje bez notifikací */ }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         val uri: Uri = intent.data ?: return
-        if (uri.scheme == "jiyu" && uri.host == "anilist") {
-            val fragment = uri.fragment ?: return
-            val token = fragment.split("&")
-                .find { it.startsWith("access_token=") }
-                ?.removePrefix("access_token=") ?: return
-            lifecycleScope.launch { aniListRepository.handleCallback(token) }
+        if (uri.scheme == "jiyu") {
+            when (uri.host) {
+                "anilist" -> {
+                    val fragment = uri.fragment ?: return
+                    val token = fragment.split("&")
+                        .find { it.startsWith("access_token=") }
+                        ?.removePrefix("access_token=") ?: return
+                    lifecycleScope.launch { aniListRepository.handleCallback(token) }
+                }
+                else -> _pendingDeepLink.value = intent
+            }
         }
     }
 
@@ -92,6 +102,12 @@ class MainActivity : ComponentActivity() {
             }) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
+                    val pendingDeepLink by _pendingDeepLink.collectAsState()
+                    LaunchedEffect(pendingDeepLink) {
+                        val i = pendingDeepLink ?: return@LaunchedEffect
+                        navController.handleDeepLink(i)
+                        _pendingDeepLink.value = null
+                    }
                     MainScreen(navController = navController)
                 }
             }

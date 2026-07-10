@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -40,6 +41,7 @@ class ReaderViewModel @Inject constructor(
     private val historyDao: ReadHistoryDao,
     private val aniListRepository: AniListRepository,
     private val sleepTimerManager: SleepTimerManager,
+    private val groqRepository: GroqRepository,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -133,6 +135,27 @@ class ReaderViewModel @Inject constructor(
 
     val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // ── AI shrnutí kapitoly ──────────────────────────────────────────────────
+    private val _chapterSummary = MutableStateFlow<String?>(null)
+    val chapterSummary: StateFlow<String?> = _chapterSummary.asStateFlow()
+
+    private val _summaryLoading = MutableStateFlow(false)
+    val summaryLoading: StateFlow<Boolean> = _summaryLoading.asStateFlow()
+
+    fun loadChapterSummary() {
+        val chapter = currentChapter ?: return
+        if (_summaryLoading.value) return
+        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val prevChapter = allChapters.getOrNull(idx + 1) // DESC → starší kapitola
+        viewModelScope.launch {
+            _summaryLoading.value = true
+            _chapterSummary.value = null
+            val mangaTitle = repository.getManga(chapter.mangaId)?.title ?: ""
+            _chapterSummary.value = groqRepository.getChapterSummary(mangaTitle, chapter.name, prevChapter?.name)
+            _summaryLoading.value = false
+        }
+    }
 
     // ── Incognito mode ───────────────────────────────────────────────────────
     private val _incognitoMode = MutableStateFlow(false)
@@ -278,6 +301,8 @@ class ReaderViewModel @Inject constructor(
     private suspend fun loadChapter(id: String) {
         _loading.value = true
         _pages.value = emptyList()
+        _chapterSummary.value = null
+        _summaryLoading.value = false
         _translatedPages.value = emptyMap()
         _translateMode.value = false
         translationJob?.cancel()

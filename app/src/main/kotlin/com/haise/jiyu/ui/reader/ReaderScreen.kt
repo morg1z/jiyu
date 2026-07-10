@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.WifiOff
@@ -172,6 +173,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val jumpToPage           by viewModel.jumpToPage.collectAsState()
     val allChapters          by viewModel.allChaptersFlow.collectAsState()
     val autoNextChapter      by viewModel.autoNextChapter.collectAsState()
+    val chapterSummary       by viewModel.chapterSummary.collectAsState()
+    val summaryLoading       by viewModel.summaryLoading.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -308,6 +311,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 onJumpToChapter = { viewModel.jumpToChapter(it) },
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = { viewModel.navigateNext() },
+                chapterSummary = chapterSummary,
+                summaryLoading = summaryLoading,
+                onLoadSummary = { viewModel.loadChapterSummary() },
             )
         }
 
@@ -532,6 +538,9 @@ private fun ReaderContent(
     onJumpToChapter: (String) -> Unit = {},
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
+    chapterSummary: String? = null,
+    summaryLoading: Boolean = false,
+    onLoadSummary: () -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -817,6 +826,55 @@ private fun ReaderContent(
                                     else          -> Color.White
                                 },
                             )
+                        }
+
+                        // AI shrnutí
+                        var showSummarySheet by remember { mutableStateOf(false) }
+                        IconButton(onClick = {
+                            showSummarySheet = true
+                            if (chapterSummary == null && !summaryLoading) onLoadSummary()
+                        }) {
+                            Icon(
+                                Icons.Filled.AutoAwesome,
+                                contentDescription = "AI shrnutí kapitoly",
+                                tint = if (chapterSummary != null) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        if (showSummarySheet) {
+                            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                            ModalBottomSheet(
+                                onDismissRequest = { showSummarySheet = false },
+                                sheetState = sheetState,
+                                containerColor = Color(0xFF111B35),
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                                    Text("AI shrnutí ✨", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Spacer(Modifier.height(12.dp))
+                                    when {
+                                        summaryLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color(0xFFCE93D8), strokeWidth = 2.dp)
+                                            Spacer(Modifier.width(12.dp))
+                                            Text("Generuji shrnutí…", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                                        }
+                                        chapterSummary != null -> Text(chapterSummary, color = Color(0xFFE0E0E0), fontSize = 14.sp, lineHeight = 22.sp)
+                                        else -> {
+                                            Text("Nechte AI shrnout, co se dělo v předchozí kapitole.", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                                            Spacer(Modifier.height(12.dp))
+                                            OutlinedButton(
+                                                onClick = { onLoadSummary() },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCE93D8).copy(alpha = 0.6f)),
+                                            ) {
+                                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("Generovat shrnutí", color = Color(0xFFCE93D8))
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.height(32.dp))
+                                }
+                            }
                         }
 
                         // Další kapitola

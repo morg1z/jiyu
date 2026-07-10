@@ -93,6 +93,7 @@ fun ExtendedStatsScreen(
                     StatCard(label = "Kapitoly", value = "${stats.chaptersRead}", modifier = Modifier.weight(1f))
                     StatCard(label = "Stránky", value = "${stats.pagesRead}", modifier = Modifier.weight(1f))
                     StatCard(label = "Čas čtení", value = formatTime(stats.readingTimeMs), modifier = Modifier.weight(1f))
+                    StatCard(label = "Série dnů", value = "${stats.readingStreak}🔥", modifier = Modifier.weight(1f))
                 }
             }
 
