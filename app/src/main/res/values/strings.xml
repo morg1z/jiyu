@@ -2,4 +2,42 @@
     <string name="app_name">Jiyū</string>
     <string name="widget_description">Zobrazuje nedávno aktualizované manga z knihovny</string>
     <string name="widget_title">Jiyu – Knihovna</string>
+
+    <!-- Onboarding -->
+    <string name="onb_welcome_title">Vítej v Jiyu</string>
+    <string name="onb_welcome_subtitle">Tvůj manga čtečka.\nVyber jazyk aplikace.</string>
+    <string name="onb_reading_title">Styl čtení</string>
+    <string name="onb_reading_subtitle">Jak chceš číst manga?</string>
+    <string name="onb_reading_opt_ltr">Zleva doprava (manhwa, webtoon)</string>
+    <string name="onb_reading_opt_rtl">Zprava doleva (japonská manga)</string>
+    <string name="onb_reading_opt_webtoon">Vertikální svitek (webtoon)</string>
+    <string name="onb_storage_title">Složka pro stahování</string>
+    <string name="onb_storage_subtitle">Kde se budou ukládat stažené kapitoly?</string>
+    <string name="onb_storage_default">Výchozí (interní úložiště)</string>
+    <string name="onb_storage_pick">Vybrat složku…</string>
+    <string name="onb_storage_selected">Vybraná složka:</string>
+    <string name="onb_done_title">Vše je připraveno!</string>
+    <string name="onb_done_subtitle">Jiyu je nakonfigurováno.\nMůžeš začít číst.</string>
+    <string name="onb_btn_next">Další</string>
+    <string name="onb_btn_skip">Přeskočit</string>
+    <string name="onb_btn_start">Začít číst</string>
+    <string name="onb_step_language">Jazyk</string>
+    <string name="onb_step_reading">Čtení</string>
+    <string name="onb_step_storage">Úložiště</string>
+    <string name="onb_step_done">Hotovo</string>
+
+    <!-- Quick actions (MangaDetail) -->
+    <string name="action_start_reading">Začít číst</string>
+    <string name="action_continue_reading">Pokračovat ve čtení</string>
+    <string name="action_read_normal">Číst normálně</string>
+    <string name="action_read_incognito">Číst anonymně</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Nastavení</string>
+    <string name="settings_language">Jazyk aplikace</string>
+    <string name="settings_download_folder">Složka stahování</string>
+    <string name="settings_download_folder_default">Výchozí (interní úložiště)</string>
+    <string name="settings_download_folder_change">Změnit složku</string>
+    <string name="settings_wifi_only">Stahovat pouze přes Wi-Fi</string>
+    <string name="settings_wifi_only_desc">Mobilní data se nepoužijí ke stahování kapitol</string>
 </resources>

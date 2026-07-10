@@ -16,6 +16,7 @@ import com.haise.jiyu.ui.downloads.DownloadManagerScreen
 import com.haise.jiyu.ui.goals.ReadingGoalsScreen
 import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
+import com.haise.jiyu.ui.onboarding.OnboardingScreen
 import com.haise.jiyu.ui.qr.MangaQrScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.search.GlobalSearchScreen
@@ -26,11 +27,12 @@ import com.haise.jiyu.ui.stats.ExtendedStatsScreen
 import com.haise.jiyu.ui.updates.UpdatesScreen
 
 internal object Routes {
+    const val ONBOARDING    = "onboarding"
     const val LIBRARY       = "library"
     const val UPDATES       = "updates"
     const val BROWSE        = "browse"
     const val DETAIL        = "detail/{mangaId}"
-    const val READER        = "reader/{chapterId}"
+    const val READER        = "reader/{chapterId}?incognito={incognito}"
     const val SETTINGS      = "settings"
     const val DOWNLOADS     = "downloads"
     const val HISTORY       = "history"
@@ -45,14 +47,28 @@ internal object Routes {
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
-    fun reader(chapterId: String) = "reader/${android.net.Uri.encode(chapterId)}"
+    fun reader(chapterId: String, incognito: Boolean = false) =
+        "reader/${android.net.Uri.encode(chapterId)}?incognito=$incognito"
     fun qr(mangaId: String, mangaTitle: String) =
         "qr/${android.net.Uri.encode(mangaId)}?title=${android.net.Uri.encode(mangaTitle)}"
 }
 
 @Composable
-fun JiyuNavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = Routes.LIBRARY) {
+fun JiyuNavGraph(
+    navController: NavHostController,
+    startDestination: String = Routes.LIBRARY,
+) {
+    NavHost(navController = navController, startDestination = startDestination) {
+
+        composable(Routes.ONBOARDING) {
+            OnboardingScreen(
+                onFinish = {
+                    navController.navigate(Routes.LIBRARY) {
+                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                    }
+                }
+            )
+        }
 
         composable(Routes.LIBRARY) {
             LibraryScreen(
@@ -89,6 +105,7 @@ fun JiyuNavGraph(navController: NavHostController) {
         ) {
             MangaDetailScreen(
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenChapterIncognito = { chapterId -> navController.navigate(Routes.reader(chapterId, incognito = true)) },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenQr = { mangaId, title -> navController.navigate(Routes.qr(mangaId, title)) },
             )
@@ -96,7 +113,10 @@ fun JiyuNavGraph(navController: NavHostController) {
 
         composable(
             route = Routes.READER,
-            arguments = listOf(navArgument("chapterId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("chapterId") { type = NavType.StringType },
+                navArgument("incognito") { type = NavType.BoolType; defaultValue = false },
+            ),
         ) {
             ReaderScreen()
         }

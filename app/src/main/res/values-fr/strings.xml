@@ -1,0 +1,40 @@
+<resources>
+    <string name="app_name">Jiyū</string>
+    <string name="widget_description">Affiche les mangas récemment mis à jour de votre bibliothèque</string>
+    <string name="widget_title">Jiyu – Bibliothèque</string>
+
+    <string name="onb_welcome_title">Bienvenue sur Jiyu</string>
+    <string name="onb_welcome_subtitle">Votre lecteur de manga.\nChoisissez la langue de l\'application.</string>
+    <string name="onb_reading_title">Style de lecture</string>
+    <string name="onb_reading_subtitle">Comment préférez-vous lire les manga?</string>
+    <string name="onb_reading_opt_ltr">Gauche à droite (manhwa, webtoon)</string>
+    <string name="onb_reading_opt_rtl">Droite à gauche (manga japonais)</string>
+    <string name="onb_reading_opt_webtoon">Défilement vertical (webtoon)</string>
+    <string name="onb_storage_title">Dossier de téléchargement</string>
+    <string name="onb_storage_subtitle">Où enregistrer les chapitres téléchargés?</string>
+    <string name="onb_storage_default">Par défaut (stockage interne)</string>
+    <string name="onb_storage_pick">Choisir un dossier…</string>
+    <string name="onb_storage_selected">Dossier sélectionné:</string>
+    <string name="onb_done_title">Tout est prêt!</string>
+    <string name="onb_done_subtitle">Jiyu est configuré.\nVous pouvez commencer à lire.</string>
+    <string name="onb_btn_next">Suivant</string>
+    <string name="onb_btn_skip">Passer</string>
+    <string name="onb_btn_start">Commencer à lire</string>
+    <string name="onb_step_language">Langue</string>
+    <string name="onb_step_reading">Lecture</string>
+    <string name="onb_step_storage">Stockage</string>
+    <string name="onb_step_done">Terminé</string>
+
+    <string name="action_start_reading">Commencer à lire</string>
+    <string name="action_continue_reading">Continuer la lecture</string>
+    <string name="action_read_normal">Lire normalement</string>
+    <string name="action_read_incognito">Lire en incognito</string>
+
+    <string name="settings_title">Paramètres</string>
+    <string name="settings_language">Langue de l\'application</string>
+    <string name="settings_download_folder">Dossier de téléchargement</string>
+    <string name="settings_download_folder_default">Par défaut (stockage interne)</string>
+    <string name="settings_download_folder_change">Changer de dossier</string>
+    <string name="settings_wifi_only">Télécharger en Wi-Fi uniquement</string>
+    <string name="settings_wifi_only_desc">Les données mobiles ne seront pas utilisées</string>
+</resources>

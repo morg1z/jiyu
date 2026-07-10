@@ -346,6 +346,19 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoNextChapter(enabled: Boolean) = viewModelScope.launch { settings.setAutoNextChapter(enabled) }
 
+    // ── Složka stahování ─────────────────────────────────────────────────────
+    val downloadFolderUri: StateFlow<String?> = settings.downloadFolderUri
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setDownloadFolderUri(uri: String?) = viewModelScope.launch { settings.setDownloadFolderUri(uri) }
+
+    // ── Jazyk aplikace ────────────────────────────────────────────────────────
+    fun setLanguage(tag: String) {
+        androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(
+            androidx.core.os.LocaleListCompat.forLanguageTags(tag)
+        )
+    }
+
     // ── Ořez okrajů stránek ───────────────────────────────────────────────────
     val cropBorders: StateFlow<Boolean> = settings.cropBorders
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)

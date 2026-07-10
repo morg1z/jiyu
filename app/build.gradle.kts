@@ -161,6 +161,9 @@ dependencies {
     // QR kód generování (bez Activity, pure Java)
     implementation("com.google.zxing:core:3.5.3")
 
+    // AppCompat — potřebné pro AppCompatDelegate.setApplicationLocales()
+    implementation("androidx.appcompat:appcompat:1.7.0")
+
     // App Widget (Glance — Compose-based home screen widget)
     implementation("androidx.glance:glance-appwidget:1.0.0")
     implementation("androidx.glance:glance-material3:1.0.0")

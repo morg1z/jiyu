@@ -1,0 +1,43 @@
+<resources>
+    <string name="app_name">Jiyū</string>
+    <string name="widget_description">Shows recently updated manga from your library</string>
+    <string name="widget_title">Jiyu – Library</string>
+
+    <!-- Onboarding -->
+    <string name="onb_welcome_title">Welcome to Jiyu</string>
+    <string name="onb_welcome_subtitle">Your manga reader.\nChoose the app language.</string>
+    <string name="onb_reading_title">Reading Style</string>
+    <string name="onb_reading_subtitle">How do you prefer to read manga?</string>
+    <string name="onb_reading_opt_ltr">Left to right (manhwa, webtoon)</string>
+    <string name="onb_reading_opt_rtl">Right to left (Japanese manga)</string>
+    <string name="onb_reading_opt_webtoon">Vertical scroll (webtoon)</string>
+    <string name="onb_storage_title">Download Folder</string>
+    <string name="onb_storage_subtitle">Where should downloaded chapters be saved?</string>
+    <string name="onb_storage_default">Default (internal storage)</string>
+    <string name="onb_storage_pick">Pick a folder…</string>
+    <string name="onb_storage_selected">Selected folder:</string>
+    <string name="onb_done_title">All set!</string>
+    <string name="onb_done_subtitle">Jiyu is configured.\nYou can start reading.</string>
+    <string name="onb_btn_next">Next</string>
+    <string name="onb_btn_skip">Skip</string>
+    <string name="onb_btn_start">Start reading</string>
+    <string name="onb_step_language">Language</string>
+    <string name="onb_step_reading">Reading</string>
+    <string name="onb_step_storage">Storage</string>
+    <string name="onb_step_done">Done</string>
+
+    <!-- Quick actions (MangaDetail) -->
+    <string name="action_start_reading">Start reading</string>
+    <string name="action_continue_reading">Continue reading</string>
+    <string name="action_read_normal">Read normally</string>
+    <string name="action_read_incognito">Read incognito</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_language">App language</string>
+    <string name="settings_download_folder">Download folder</string>
+    <string name="settings_download_folder_default">Default (internal storage)</string>
+    <string name="settings_download_folder_change">Change folder</string>
+    <string name="settings_wifi_only">Download on Wi-Fi only</string>
+    <string name="settings_wifi_only_desc">Mobile data won\'t be used for chapter downloads</string>
+</resources>

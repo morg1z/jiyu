@@ -6,10 +6,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var aniListRepository: AniListRepository
@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val theme by settings.theme.collectAsState(initial = ThemeOption.SYSTEM)
+            // null = ještě načítáme; false = onboarding nutný; true = přeskočit
+            val onboardingCompleted by settings.onboardingCompleted.collectAsState(initial = null)
             val isDark = when (theme) {
                 ThemeOption.DARK  -> true
                 ThemeOption.LIGHT -> false
@@ -100,15 +102,24 @@ class MainActivity : ComponentActivity() {
                 ThemeOption.LIGHT -> false
                 else              -> null
             }) {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    val navController = rememberNavController()
-                    val pendingDeepLink by _pendingDeepLink.collectAsState()
-                    LaunchedEffect(pendingDeepLink) {
-                        val i = pendingDeepLink ?: return@LaunchedEffect
-                        navController.handleDeepLink(i)
-                        _pendingDeepLink.value = null
+                // Počkáme na načtení onboarding statusu — zobrazíme prázdnou plochu
+                if (onboardingCompleted != null) {
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        val navController = rememberNavController()
+                        val pendingDeepLink by _pendingDeepLink.collectAsState()
+                        LaunchedEffect(pendingDeepLink) {
+                            val i = pendingDeepLink ?: return@LaunchedEffect
+                            navController.handleDeepLink(i)
+                            _pendingDeepLink.value = null
+                        }
+                        MainScreen(
+                            navController = navController,
+                            startDestination = if (onboardingCompleted == true)
+                                com.haise.jiyu.ui.navigation.Routes.LIBRARY
+                            else
+                                com.haise.jiyu.ui.navigation.Routes.ONBOARDING,
+                        )
                     }
-                    MainScreen(navController = navController)
                 }
             }
         }

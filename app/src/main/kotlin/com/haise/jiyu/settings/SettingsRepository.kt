@@ -46,6 +46,8 @@ object SettingsKeys {
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
     val LIBRARY_GRID_MODE      = booleanPreferencesKey("library_grid_mode")
     val DOWNLOAD_ONLY_WIFI     = booleanPreferencesKey("download_only_wifi")
+    val ONBOARDING_COMPLETED   = booleanPreferencesKey("onboarding_completed")
+    val DOWNLOAD_FOLDER_URI    = stringPreferencesKey("download_folder_uri")
 }
 
 object ReaderTheme {
@@ -273,6 +275,20 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setDownloadOnlyWifi(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.DOWNLOAD_ONLY_WIFI] = enabled }
+
+    val onboardingCompleted: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.ONBOARDING_COMPLETED] ?: false }
+
+    suspend fun setOnboardingCompleted() =
+        dataStore.edit { it[SettingsKeys.ONBOARDING_COMPLETED] = true }
+
+    val downloadFolderUri: Flow<String?> =
+        dataStore.data.map { it[SettingsKeys.DOWNLOAD_FOLDER_URI] }
+
+    suspend fun setDownloadFolderUri(uri: String?) = dataStore.edit {
+        if (uri == null) it.remove(SettingsKeys.DOWNLOAD_FOLDER_URI)
+        else it[SettingsKeys.DOWNLOAD_FOLDER_URI] = uri
+    }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()

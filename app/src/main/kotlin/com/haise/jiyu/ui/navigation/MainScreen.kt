@@ -53,7 +53,10 @@ private val TABS = listOf(
 )
 
 @Composable
-fun MainScreen(navController: androidx.navigation.NavHostController) {
+fun MainScreen(
+    navController: androidx.navigation.NavHostController,
+    startDestination: String = Routes.LIBRARY,
+) {
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDest = navBackStack?.destination
     val currentRoute = currentDest?.route
@@ -61,6 +64,7 @@ fun MainScreen(navController: androidx.navigation.NavHostController) {
     val showNavBar = currentRoute != null &&
         !currentRoute.startsWith(Routes.READER.substringBefore("{")) &&
         !currentRoute.startsWith(Routes.QR.substringBefore("{")) &&
+        currentRoute != Routes.ONBOARDING &&
         currentRoute != Routes.GLOBAL_SEARCH &&
         currentRoute != Routes.STATS &&
         currentRoute != Routes.GOALS &&
@@ -116,7 +120,7 @@ fun MainScreen(navController: androidx.navigation.NavHostController) {
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            JiyuNavGraph(navController = navController)
+            JiyuNavGraph(navController = navController, startDestination = startDestination)
         }
     }
 }

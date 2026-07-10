@@ -49,6 +49,7 @@ class ReaderViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
+    private val startIncognito: Boolean = savedStateHandle["incognito"] ?: false
     private var currentChapter: ChapterEntity? = null
     private var allChapters: List<ChapterEntity> = emptyList()
 
@@ -192,7 +193,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     // ── Incognito mode ───────────────────────────────────────────────────────
-    private val _incognitoMode = MutableStateFlow(false)
+    private val _incognitoMode = MutableStateFlow(startIncognito)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()
     fun toggleIncognito() { _incognitoMode.value = !_incognitoMode.value }
 

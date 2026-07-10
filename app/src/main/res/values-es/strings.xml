@@ -1,0 +1,40 @@
+<resources>
+    <string name="app_name">Jiyū</string>
+    <string name="widget_description">Muestra los manga actualizados recientemente de tu biblioteca</string>
+    <string name="widget_title">Jiyu – Biblioteca</string>
+
+    <string name="onb_welcome_title">Bienvenido a Jiyu</string>
+    <string name="onb_welcome_subtitle">Tu lector de manga.\nElige el idioma de la aplicación.</string>
+    <string name="onb_reading_title">Estilo de lectura</string>
+    <string name="onb_reading_subtitle">¿Cómo prefieres leer manga?</string>
+    <string name="onb_reading_opt_ltr">De izquierda a derecha (manhwa, webtoon)</string>
+    <string name="onb_reading_opt_rtl">De derecha a izquierda (manga japonés)</string>
+    <string name="onb_reading_opt_webtoon">Desplazamiento vertical (webtoon)</string>
+    <string name="onb_storage_title">Carpeta de descarga</string>
+    <string name="onb_storage_subtitle">¿Dónde guardar los capítulos descargados?</string>
+    <string name="onb_storage_default">Predeterminada (almacenamiento interno)</string>
+    <string name="onb_storage_pick">Elegir carpeta…</string>
+    <string name="onb_storage_selected">Carpeta seleccionada:</string>
+    <string name="onb_done_title">¡Todo listo!</string>
+    <string name="onb_done_subtitle">Jiyu está configurado.\nPuedes empezar a leer.</string>
+    <string name="onb_btn_next">Siguiente</string>
+    <string name="onb_btn_skip">Omitir</string>
+    <string name="onb_btn_start">Empezar a leer</string>
+    <string name="onb_step_language">Idioma</string>
+    <string name="onb_step_reading">Lectura</string>
+    <string name="onb_step_storage">Almacenamiento</string>
+    <string name="onb_step_done">Listo</string>
+
+    <string name="action_start_reading">Empezar a leer</string>
+    <string name="action_continue_reading">Continuar leyendo</string>
+    <string name="action_read_normal">Leer normalmente</string>
+    <string name="action_read_incognito">Leer de incógnito</string>
+
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_language">Idioma de la aplicación</string>
+    <string name="settings_download_folder">Carpeta de descarga</string>
+    <string name="settings_download_folder_default">Predeterminada (almacenamiento interno)</string>
+    <string name="settings_download_folder_change">Cambiar carpeta</string>
+    <string name="settings_wifi_only">Descargar solo por Wi-Fi</string>
+    <string name="settings_wifi_only_desc">No se usarán datos móviles para descargar capítulos</string>
+</resources>

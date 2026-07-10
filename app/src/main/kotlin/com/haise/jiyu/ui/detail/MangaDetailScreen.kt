@@ -45,7 +45,9 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Note
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -126,6 +128,7 @@ import com.haise.jiyu.ui.theme.titleGradient
 @Composable
 fun MangaDetailScreen(
     onOpenChapter: (String) -> Unit,
+    onOpenChapterIncognito: (String) -> Unit = {},
     onOpenManga: (String) -> Unit = {},
     onOpenQr: (mangaId: String, mangaTitle: String) -> Unit = { _, _ -> },
     viewModel: MangaDetailViewModel = hiltViewModel(),
@@ -769,23 +772,57 @@ fun MangaDetailScreen(
                 continueChapter?.let { chapter ->
                     item {
                         val hasHistory = manga?.lastReadChapterId != null
+                        var showReadMenu by remember { mutableStateOf(false) }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.linearGradient(listOf(GlowViolet.copy(alpha = 0.85f), GlowCyan.copy(alpha = 0.6f))))
-                                .clickable { onOpenChapter(chapter.id) }
-                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                                .background(Brush.linearGradient(listOf(GlowViolet.copy(alpha = 0.85f), GlowCyan.copy(alpha = 0.6f)))),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                            Column(modifier = Modifier.padding(start = 12.dp)) {
-                                Text(text = if (hasHistory) "Pokračovat ve čtení" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(
-                                    text = if (hasHistory) "${chapter.name} · str. ${chapter.lastPageRead + 1}" else chapter.name,
-                                    color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
+                            // Hlavní oblast — normální čtení
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onOpenChapter(chapter.id) }
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                Column(modifier = Modifier.padding(start = 12.dp)) {
+                                    Text(text = if (hasHistory) "Pokračovat ve čtení" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(
+                                        text = if (hasHistory) "${chapter.name} · str. ${chapter.lastPageRead + 1}" else chapter.name,
+                                        color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            // Oddělovač
+                            Box(modifier = Modifier.width(1.dp).height(44.dp).background(Color.White.copy(alpha = 0.25f)))
+                            // Šipka — dropdown s volbami
+                            Box {
+                                IconButton(
+                                    onClick = { showReadMenu = true },
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                ) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Možnosti čtení", tint = Color.White)
+                                }
+                                DropdownMenu(
+                                    expanded = showReadMenu,
+                                    onDismissRequest = { showReadMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Číst normálně") },
+                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                        onClick = { showReadMenu = false; onOpenChapter(chapter.id) },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Číst anonymně") },
+                                        leadingIcon = { Icon(Icons.Filled.VisibilityOff, contentDescription = null) },
+                                        onClick = { showReadMenu = false; onOpenChapterIncognito(chapter.id) },
+                                    )
+                                }
                             }
                         }
                     }

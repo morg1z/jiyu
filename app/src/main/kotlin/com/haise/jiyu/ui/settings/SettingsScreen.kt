@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.settings
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -122,6 +123,7 @@ fun SettingsScreen(
     val autoDeleteRead    by viewModel.autoDeleteRead.collectAsState()
     val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
     val downloadOnlyWifi  by viewModel.downloadOnlyWifi.collectAsState()
+    val downloadFolderUri by viewModel.downloadFolderUri.collectAsState()
     val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme       by viewModel.readerTheme.collectAsState()
     val oledMode          by viewModel.oledMode.collectAsState()
@@ -194,6 +196,72 @@ fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
+                // ── Jazyk aplikace ────────────────────────────────────────────
+                SettingsSection(title = androidx.compose.ui.res.stringResource(com.haise.jiyu.R.string.settings_language)) {
+                    val appLanguages = listOf(
+                        "cs" to "🇨🇿  Čeština",
+                        "en" to "🇬🇧  English",
+                        "fr" to "🇫🇷  Français",
+                        "es" to "🇪🇸  Español",
+                    )
+                    appLanguages.forEach { (tag, label) ->
+                        val currentTag = androidx.appcompat.app.AppCompatDelegate
+                            .getApplicationLocales().toLanguageTags()
+                            .split(",").firstOrNull()?.take(2) ?: "cs"
+                        GlassRadioRow(
+                            label = label,
+                            selected = currentTag == tag,
+                            onClick = { viewModel.setLanguage(tag) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                SettingsSection(title = androidx.compose.ui.res.stringResource(com.haise.jiyu.R.string.settings_download_folder)) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val folderPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+                    ) { uri ->
+                        if (uri != null) {
+                            ctx.contentResolver.takePersistableUriPermission(
+                                uri,
+                                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            )
+                            viewModel.setDownloadFolderUri(uri.toString())
+                        }
+                    }
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text(
+                            text = if (downloadFolderUri != null)
+                                android.net.Uri.parse(downloadFolderUri).lastPathSegment ?: downloadFolderUri!!
+                            else
+                                androidx.compose.ui.res.stringResource(com.haise.jiyu.R.string.settings_download_folder_default),
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { folderPicker.launch(null) },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                                border = BorderStroke(1.dp, GlowViolet.copy(alpha = 0.4f)),
+                                modifier = Modifier.weight(1f),
+                            ) { Text(androidx.compose.ui.res.stringResource(com.haise.jiyu.R.string.settings_download_folder_change), fontSize = 13.sp) }
+                            if (downloadFolderUri != null) {
+                                OutlinedButton(
+                                    onClick = { viewModel.setDownloadFolderUri(null) },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                                ) { Text("Reset") }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 SettingsSection(title = "Překlad") {
                     LANGUAGES.forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = language == value, onClick = { viewModel.setTargetLanguage(value) })
