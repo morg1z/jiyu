@@ -131,6 +131,9 @@ class ReaderViewModel @Inject constructor(
     val pageScale: StateFlow<String> = settings.pageScale
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit_width")
 
+    val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // ── Incognito mode ───────────────────────────────────────────────────────
     private val _incognitoMode = MutableStateFlow(false)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()

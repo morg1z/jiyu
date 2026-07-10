@@ -79,6 +79,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -202,13 +204,35 @@ fun MangaDetailScreen(
 
                 // ── Hero image ────────────────────────────────────────────────
                 item {
+                    var showCoverFullscreen by remember { mutableStateOf(false) }
                     Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
                         AsyncImage(
                             model = manga?.coverUrl,
                             contentDescription = manga?.title,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().clickable { showCoverFullscreen = true },
                         )
+                    if (showCoverFullscreen) {
+                        Dialog(
+                            onDismissRequest = { showCoverFullscreen = false },
+                            properties = DialogProperties(usePlatformDefaultWidth = false),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black)
+                                    .clickable { showCoverFullscreen = false },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                AsyncImage(
+                                    model = manga?.coverUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
                         Box(
                             modifier = Modifier.fillMaxSize().background(
                                 Brush.verticalGradient(listOf(Color.Transparent, DeepSpace.copy(alpha = 0.7f), DeepSpace), startY = 80f)

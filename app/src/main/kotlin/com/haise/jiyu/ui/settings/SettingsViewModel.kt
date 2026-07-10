@@ -335,6 +335,12 @@ class SettingsViewModel @Inject constructor(
     fun setAutoDeleteRead(enabled: Boolean) = viewModelScope.launch { settings.setAutoDeleteRead(enabled) }
     fun setAutoDeleteDelayDays(days: Int)    = viewModelScope.launch { settings.setAutoDeleteDelayDays(days) }
 
+    // ── Automatický přechod na další kapitolu ─────────────────────────────────
+    val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setAutoNextChapter(enabled: Boolean) = viewModelScope.launch { settings.setAutoNextChapter(enabled) }
+
     // ── Čtečka — fullscreen & téma ────────────────────────────────────────────
     val fullscreenEnabled: StateFlow<Boolean> = settings.fullscreenEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)

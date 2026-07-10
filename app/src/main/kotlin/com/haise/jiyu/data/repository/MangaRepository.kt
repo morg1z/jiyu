@@ -91,6 +91,7 @@ class MangaRepository @Inject constructor(
                 genres = manga.genres.joinToString(","),
                 year = manga.year,
                 contentType = manga.contentType,
+                addedAt = System.currentTimeMillis(),
             )
         )
         refreshChapters(id, manga)

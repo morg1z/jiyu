@@ -21,8 +21,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.random.Random
 
-enum class LibrarySortOption { TITLE, LAST_UPDATED, UNREAD_COUNT }
+enum class LibrarySortOption { TITLE, LAST_UPDATED, UNREAD_COUNT, DATE_ADDED, RANDOM }
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -48,6 +49,8 @@ class LibraryViewModel @Inject constructor(
 
     private val _sortAscending = MutableStateFlow(true)
     val sortAscending: StateFlow<Boolean> = _sortAscending.asStateFlow()
+
+    private var randomSeed = System.currentTimeMillis()
 
     // ── Počty kapitol ─────────────────────────────────────────────────────────
     val unreadCounts: StateFlow<Map<String, Int>> = repository.observeUnreadCounts()
@@ -81,6 +84,8 @@ class LibraryViewModel @Inject constructor(
             LibrarySortOption.TITLE        -> filtered.sortedBy { it.title.lowercase() }
             LibrarySortOption.LAST_UPDATED -> filtered.sortedByDescending { it.lastUpdated }
             LibrarySortOption.UNREAD_COUNT -> filtered.sortedByDescending { unread[it.id] ?: 0 }
+            LibrarySortOption.DATE_ADDED   -> filtered.sortedByDescending { it.addedAt }
+            LibrarySortOption.RANDOM       -> filtered.shuffled(Random(randomSeed))
         }
         if (ascending) sorted else sorted.reversed()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -199,6 +204,7 @@ class LibraryViewModel @Inject constructor(
     fun setSearchQuery(query: String) { _searchQuery.value = query }
 
     fun setSortOption(option: LibrarySortOption) {
+        if (option == LibrarySortOption.RANDOM) randomSeed = System.currentTimeMillis()
         if (_sortOption.value == option) _sortAscending.value = !_sortAscending.value
         else { _sortOption.value = option; _sortAscending.value = true }
     }

@@ -26,12 +26,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +74,8 @@ fun UpdatesScreen(
     val updates      by viewModel.updates.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val refreshError by viewModel.refreshError.collectAsState()
+    var showOnlyUnread by remember { mutableStateOf(false) }
+    val displayedUpdates = if (showOnlyUnread) updates.filter { !it.read } else updates
 
     val pullState      = rememberPullToRefreshState()
     val snackbarState  = remember { SnackbarHostState() }
@@ -129,6 +134,13 @@ fun UpdatesScreen(
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { showOnlyUnread = !showOnlyUnread }) {
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = if (showOnlyUnread) "Zobrazit vše" else "Jen nepřečtené",
+                        tint = if (showOnlyUnread) Violet else TextSecondary,
+                    )
+                }
                 if (unreadCount > 0) {
                     IconButton(onClick = { viewModel.markAllRead() }) {
                         Icon(
@@ -140,10 +152,10 @@ fun UpdatesScreen(
                 }
             }
 
-            if (updates.isEmpty()) {
+            if (displayedUpdates.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Žádné aktualizace\nPřidej mangy do knihovny",
+                        text = if (showOnlyUnread) "Žádné nepřečtené aktualizace" else "Žádné aktualizace\nPřidej mangy do knihovny",
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
@@ -153,7 +165,7 @@ fun UpdatesScreen(
             }
 
             // Group by date; items with dateUpload=0 go at the end by chapter number
-            val (dated, undated) = updates.partition { it.dateUpload > 0 }
+            val (dated, undated) = displayedUpdates.partition { it.dateUpload > 0 }
             val grouped = dated
                 .groupBy { SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(it.dateUpload)) }
                 .toMutableMap()

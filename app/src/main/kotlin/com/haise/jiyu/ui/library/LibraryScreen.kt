@@ -611,6 +611,8 @@ private fun SortMenu(
         LibrarySortOption.TITLE        to "Název",
         LibrarySortOption.LAST_UPDATED to "Naposledy aktualizováno",
         LibrarySortOption.UNREAD_COUNT to "Nepřečtené",
+        LibrarySortOption.DATE_ADDED   to "Datum přidání",
+        LibrarySortOption.RANDOM       to "Náhodně",
     )
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         options.forEach { (option, label) ->

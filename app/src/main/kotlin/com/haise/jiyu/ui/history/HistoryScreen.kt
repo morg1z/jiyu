@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +69,7 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
 
     Column(
         modifier = Modifier
@@ -91,9 +96,40 @@ fun HistoryScreen(
                 ),
                 modifier = Modifier.weight(1f),
             )
-            if (groups.isNotEmpty()) {
+            if (groups.isNotEmpty() || searchQuery.isNotBlank()) {
                 IconButton(onClick = { viewModel.clearAll() }) {
                     Icon(Icons.Default.DeleteSweep, contentDescription = "Smazat vše", tint = TextSecondary)
+                }
+            }
+        }
+
+        // Search bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(NightBlue.copy(alpha = 0.6f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = { viewModel.setSearchQuery(it) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                cursorBrush = SolidColor(Violet),
+                decorationBox = { inner ->
+                    if (searchQuery.isEmpty()) Text("Hledat v historii…", color = TextSecondary, fontSize = 14.sp)
+                    inner()
+                },
+            )
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -112,13 +148,13 @@ fun HistoryScreen(
                     )
                     Spacer(Modifier.height(20.dp))
                     Text(
-                        "Ještě jsi nic nečetl",
+                        if (searchQuery.isNotBlank()) "Nic nenalezeno" else "Ještě jsi nic nečetl",
                         style = MaterialTheme.typography.titleLarge,
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Přečtené kapitoly se budou zobrazovat tady",
+                        if (searchQuery.isNotBlank()) "Zkus jiný výraz" else "Přečtené kapitoly se budou zobrazovat tady",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,

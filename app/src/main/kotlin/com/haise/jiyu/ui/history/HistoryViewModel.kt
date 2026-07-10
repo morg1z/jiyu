@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -26,9 +28,21 @@ class HistoryViewModel @Inject constructor(
     private val historyDao: ReadHistoryDao,
 ) : ViewModel() {
 
-    val groups: StateFlow<List<HistoryGroup>> = historyDao.observeRecent()
-        .map { entries -> groupByDate(entries) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    fun setSearchQuery(query: String) { _searchQuery.value = query }
+
+    val groups: StateFlow<List<HistoryGroup>> = combine(
+        historyDao.observeRecent(),
+        _searchQuery,
+    ) { entries, query ->
+        val filtered = if (query.isBlank()) entries
+        else entries.filter {
+            it.mangaTitle.contains(query, ignoreCase = true) ||
+            it.chapterName.contains(query, ignoreCase = true)
+        }
+        groupByDate(filtered)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun deleteEntry(entry: ReadHistoryEntity) {
         viewModelScope.launch { historyDao.delete(entry.chapterId) }

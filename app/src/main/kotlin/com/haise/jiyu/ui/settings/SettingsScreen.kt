@@ -123,6 +123,7 @@ fun SettingsScreen(
     val fullscreenEnabled by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme       by viewModel.readerTheme.collectAsState()
     val oledMode          by viewModel.oledMode.collectAsState()
+    val autoNextChapter   by viewModel.autoNextChapter.collectAsState()
     val tachyImportResult by viewModel.tachyImportResult.collectAsState()
     val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
     val malIsLoggedIn by viewModel.malIsLoggedIn.collectAsState()
@@ -356,6 +357,24 @@ fun SettingsScreen(
                         }
                         Switch(
                             checked = oledMode,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = autoNextChapter, role = Role.Switch, onValueChange = { viewModel.setAutoNextChapter(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Po dočtení přejít na další kapitolu", color = TextPrimary, fontSize = 14.sp)
+                            Text("Po dosažení poslední stránky se automaticky přejde na další kapitolu", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = autoNextChapter,
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )
@@ -809,6 +828,38 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Vymazat cache")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                SettingsSection(title = "Cache obrázků") {
+                    val imgContext = androidx.compose.ui.platform.LocalContext.current
+                    var diskCacheSize by remember { mutableStateOf(0L) }
+                    LaunchedEffect(Unit) {
+                        diskCacheSize = coil.Coil.imageLoader(imgContext).diskCache?.size ?: 0L
+                    }
+                    val sizeStr = when {
+                        diskCacheSize >= 1_048_576L -> "%.1f MB".format(diskCacheSize / 1_048_576.0)
+                        diskCacheSize >= 1_024L -> "%.0f KB".format(diskCacheSize / 1_024.0)
+                        else -> "$diskCacheSize B"
+                    }
+                    Text(
+                        text = "Disk cache: $sizeStr",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            coil.Coil.imageLoader(imgContext).diskCache?.clear()
+                            diskCacheSize = 0L
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Vymazat cache obrázků")
                     }
                 }
 

@@ -41,4 +41,5 @@ data class MangaEntity(
     val malId: Int? = null,
     val malScore: Float? = null,
     val malStatus: String? = null,
+    val addedAt: Long = 0,
 )

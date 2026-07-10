@@ -171,6 +171,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val pageScale            by viewModel.pageScale.collectAsState()
     val jumpToPage           by viewModel.jumpToPage.collectAsState()
     val allChapters          by viewModel.allChaptersFlow.collectAsState()
+    val autoNextChapter      by viewModel.autoNextChapter.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -305,6 +306,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 onJumpConsumed = { viewModel.clearJump() },
                 allChapters = allChapters,
                 onJumpToChapter = { viewModel.jumpToChapter(it) },
+                autoNextChapter = autoNextChapter,
+                onAutoNextChapter = { viewModel.navigateNext() },
             )
         }
 
@@ -527,6 +530,8 @@ private fun ReaderContent(
     onJumpConsumed: () -> Unit = {},
     allChapters: List<com.haise.jiyu.data.db.entity.ChapterEntity> = emptyList(),
     onJumpToChapter: (String) -> Unit = {},
+    autoNextChapter: Boolean = false,
+    onAutoNextChapter: () -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -614,6 +619,8 @@ private fun ReaderContent(
                 pageScale = pageScale,
                 jumpToPage = jumpToPage,
                 onJumpConsumed = onJumpConsumed,
+                autoNextChapter = autoNextChapter,
+                onAutoNextChapter = onAutoNextChapter,
             )
         }
 
@@ -1059,7 +1066,10 @@ private fun MangaReader(
     pageScale: String = "fit_width",
     jumpToPage: Int? = null,
     onJumpConsumed: () -> Unit = {},
+    autoNextChapter: Boolean = false,
+    onAutoNextChapter: () -> Unit = {},
 ) {
+    val saveContext = androidx.compose.ui.platform.LocalContext.current
     val resolvedContentScale = when (pageScale) {
         "fit_height" -> ContentScale.FillHeight
         "fit_screen" -> ContentScale.Fit
@@ -1091,6 +1101,7 @@ private fun MangaReader(
         }
     }
 
+    val saveScope = rememberCoroutineScope()
     var showShareSheet by remember { mutableStateOf(false) }
     var sharePageUrl by remember { mutableStateOf("") }
     if (showShareSheet) {
@@ -1111,6 +1122,20 @@ private fun MangaReader(
                     Spacer(Modifier.width(8.dp))
                     Text("Sdílet odkaz", color = Color(0xFF4FC3F7))
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val url = sharePageUrl
+                        saveScope.launch { saveBitmapToGallery(saveContext, url) }
+                        showShareSheet = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
+                ) {
+                    Icon(Icons.Filled.Save, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Uložit do galerie", color = Color(0xFF8B5CF6))
+                }
                 Spacer(Modifier.height(32.dp))
             }
         }
@@ -1120,6 +1145,18 @@ private fun MangaReader(
     // Lives OUTSIDE key(useSpread) so it survives the pager recreation and gives the
     // new pager its correct starting group.
     var currentSingleIndex by rememberSaveable { mutableStateOf(initialPage) }
+
+    // Auto-advance to next chapter when reaching last page with autoNextChapter enabled.
+    // reachedEndManually ensures we only trigger after navigating away from initial page,
+    // preventing immediate jump when resuming on the last page.
+    var reachedEndManually by remember { mutableStateOf(false) }
+    LaunchedEffect(currentSingleIndex, pages.size) {
+        if (pages.size > 1 && currentSingleIndex < pages.size - 1) reachedEndManually = true
+        if (reachedEndManually && pages.isNotEmpty() && currentSingleIndex == pages.size - 1 && autoNextChapter) {
+            delay(2500)
+            if (currentSingleIndex == pages.size - 1) onAutoNextChapter()
+        }
+    }
 
     // key(useSpread) destroys and recreates the pager whenever spread mode changes
     // (i.e. on rotation when double-page is enabled). The new pager receives the
@@ -1402,5 +1439,39 @@ private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, t
             lineHeight = (13 * textScale).sp,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+private suspend fun saveBitmapToGallery(context: android.content.Context, url: String) {
+    val bitmap: android.graphics.Bitmap? = if (url.startsWith("/") || url.startsWith("file://")) {
+        val path = url.removePrefix("file://")
+        android.graphics.BitmapFactory.decodeFile(path)
+    } else {
+        val request = coil.request.ImageRequest.Builder(context).data(url).build()
+        val result = coil.Coil.imageLoader(context).execute(request)
+        (result as? coil.request.SuccessResult)?.drawable?.let {
+            (it as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        }
+    }
+    bitmap ?: return
+    val filename = "jiyu_${System.currentTimeMillis()}.jpg"
+    val values = android.content.ContentValues().apply {
+        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
+        put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                android.os.Environment.DIRECTORY_PICTURES + "/Jiyu")
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+        }
+    }
+    val resolver = context.contentResolver
+    val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+    resolver.openOutputStream(uri)?.use { out ->
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+    }
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        val updateValues = android.content.ContentValues()
+        updateValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, updateValues, null, null)
     }
 }

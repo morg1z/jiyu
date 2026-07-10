@@ -41,6 +41,7 @@ object SettingsKeys {
     val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
     val PAGE_SCALE             = stringPreferencesKey("page_scale")
     val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
+    val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
 }
 
@@ -227,6 +228,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAutoBackupEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.AUTO_BACKUP_ENABLED] = enabled }
+
+    val autoNextChapter: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.AUTO_NEXT_CHAPTER] ?: false }
+
+    suspend fun setAutoNextChapter(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.AUTO_NEXT_CHAPTER] = enabled }
 
     val savedSearches: Flow<List<String>> =
         dataStore.data.map { prefs ->
