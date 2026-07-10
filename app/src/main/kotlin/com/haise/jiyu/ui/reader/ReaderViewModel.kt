@@ -136,6 +136,20 @@ class ReaderViewModel @Inject constructor(
     val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val cropBorders: StateFlow<Boolean> = settings.cropBorders
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // ── Webtoon scroll memory (in-memory, per chapter) ───────────────────────
+    private val webtoonPositions = mutableMapOf<String, Int>()
+
+    private val _webtoonScrollOffset = MutableStateFlow(0)
+    val webtoonScrollOffset: StateFlow<Int> = _webtoonScrollOffset.asStateFlow()
+
+    fun saveWebtoonScrollOffset(offset: Int) {
+        val id = currentChapter?.id ?: return
+        webtoonPositions[id] = offset
+    }
+
     // ── AI shrnutí kapitoly ──────────────────────────────────────────────────
     private val _chapterSummary = MutableStateFlow<String?>(null)
     val chapterSummary: StateFlow<String?> = _chapterSummary.asStateFlow()
@@ -314,6 +328,7 @@ class ReaderViewModel @Inject constructor(
         _chapterTitle.value = chapter.name
         _initialPage.value = chapter.lastPageRead.coerceAtLeast(0)
         _currentPage.value = _initialPage.value
+        _webtoonScrollOffset.value = webtoonPositions[id] ?: 0
 
         allChapters = repository.getAllChapters(chapter.mangaId)
         _allChaptersFlow.value = allChapters

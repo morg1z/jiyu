@@ -341,6 +341,12 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoNextChapter(enabled: Boolean) = viewModelScope.launch { settings.setAutoNextChapter(enabled) }
 
+    // ── Ořez okrajů stránek ───────────────────────────────────────────────────
+    val cropBorders: StateFlow<Boolean> = settings.cropBorders
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setCropBorders(enabled: Boolean) = viewModelScope.launch { settings.setCropBorders(enabled) }
+
     // ── Čtečka — fullscreen & téma ────────────────────────────────────────────
     val fullscreenEnabled: StateFlow<Boolean> = settings.fullscreenEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)

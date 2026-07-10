@@ -43,6 +43,7 @@ object SettingsKeys {
     val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
     val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
+    val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
 }
 
 object ReaderTheme {
@@ -252,6 +253,12 @@ class SettingsRepository @Inject constructor(
         val existing = prefs[SettingsKeys.SAVED_SEARCHES]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
         prefs[SettingsKeys.SAVED_SEARCHES] = existing.filter { it != query }.joinToString("|||")
     }
+
+    val cropBorders: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.CROP_BORDERS] ?: false }
+
+    suspend fun setCropBorders(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.CROP_BORDERS] = enabled }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()

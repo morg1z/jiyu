@@ -175,6 +175,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val autoNextChapter      by viewModel.autoNextChapter.collectAsState()
     val chapterSummary       by viewModel.chapterSummary.collectAsState()
     val summaryLoading       by viewModel.summaryLoading.collectAsState()
+    val cropBorders          by viewModel.cropBorders.collectAsState()
+    val webtoonScrollOffset  by viewModel.webtoonScrollOffset.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -314,6 +316,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 chapterSummary = chapterSummary,
                 summaryLoading = summaryLoading,
                 onLoadSummary = { viewModel.loadChapterSummary() },
+                cropBorders = cropBorders,
+                webtoonScrollOffset = webtoonScrollOffset,
+                onWebtoonScrollOffset = { viewModel.saveWebtoonScrollOffset(it) },
             )
         }
 
@@ -541,6 +546,9 @@ private fun ReaderContent(
     chapterSummary: String? = null,
     summaryLoading: Boolean = false,
     onLoadSummary: () -> Unit = {},
+    cropBorders: Boolean = false,
+    webtoonScrollOffset: Int = 0,
+    onWebtoonScrollOffset: (Int) -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -593,6 +601,8 @@ private fun ReaderContent(
             WebtoonReader(
                 pages = pages,
                 initialPage = initialPage,
+                initialScrollOffset = webtoonScrollOffset,
+                onScrollOffsetChanged = onWebtoonScrollOffset,
                 translateMode = effectiveTranslateMode,
                 translatedPages = translatedPages,
                 textScale = textScale,
@@ -601,6 +611,7 @@ private fun ReaderContent(
                 onNavigatePrev = onNavigatePrev,
                 onNavigateNext = onNavigateNext,
                 scrollSpeedMultiplier = webtoonScrollSpeed,
+                cropBorders = cropBorders,
             )
         } else {
             MangaReader(
@@ -630,6 +641,7 @@ private fun ReaderContent(
                 onJumpConsumed = onJumpConsumed,
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = onAutoNextChapter,
+                cropBorders = cropBorders,
             )
         }
 
@@ -1126,6 +1138,7 @@ private fun MangaReader(
     onJumpConsumed: () -> Unit = {},
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
+    cropBorders: Boolean = false,
 ) {
     val saveContext = androidx.compose.ui.platform.LocalContext.current
     val resolvedContentScale = when (pageScale) {
@@ -1294,6 +1307,21 @@ private fun MangaReader(
                                 sharePageUrl = pages.getOrElse(indices[0]) { "" }
                                 if (sharePageUrl.isNotEmpty()) showShareSheet = true
                             },
+                            onDoubleTap = { offset ->
+                                if (scale > 1f) {
+                                    onScaleChange(1f)
+                                    onPanChange(Offset.Zero)
+                                } else {
+                                    val zoom = 2.5f
+                                    val cx = size.width / 2f
+                                    val cy = size.height / 2f
+                                    onScaleChange(zoom)
+                                    onPanChange(Offset(
+                                        (offset.x - cx) * (1f - zoom),
+                                        (offset.y - cy) * (1f - zoom),
+                                    ))
+                                }
+                            },
                             onTap = { offset ->
                             if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
                             val fraction = offset.x / size.width
@@ -1313,7 +1341,12 @@ private fun MangaReader(
             ) {
                 if (indices.size == 1) {
                     AsyncImage(
-                        model = pages[indices[0]],
+                        model = if (cropBorders) {
+                            coil.request.ImageRequest.Builder(saveContext)
+                                .data(pages[indices[0]])
+                                .transformations(CropBordersTransformation())
+                                .build()
+                        } else pages[indices[0]],
                         contentDescription = "Stránka ${indices[0] + 1}",
                         contentScale = resolvedContentScale,
                         modifier = Modifier
@@ -1366,6 +1399,8 @@ private fun MangaReader(
 private fun WebtoonReader(
     pages: List<String>,
     initialPage: Int,
+    initialScrollOffset: Int = 0,
+    onScrollOffsetChanged: (Int) -> Unit = {},
     translateMode: Boolean,
     translatedPages: Map<Int, List<TranslatedBlock>>,
     textScale: Float,
@@ -1374,17 +1409,26 @@ private fun WebtoonReader(
     onNavigatePrev: () -> Unit = {},
     onNavigateNext: () -> Unit = {},
     scrollSpeedMultiplier: Float = 1.0f,
+    cropBorders: Boolean = false,
 ) {
     val listState = rememberLazyListState()
 
     LaunchedEffect(pages, initialPage) {
-        if (pages.isNotEmpty() && initialPage > 0) {
-            listState.scrollToItem(initialPage.coerceIn(0, pages.lastIndex))
+        if (pages.isNotEmpty() && (initialPage > 0 || initialScrollOffset > 0)) {
+            listState.scrollToItem(
+                initialPage.coerceIn(0, pages.lastIndex),
+                initialScrollOffset,
+            )
         }
     }
 
     LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }.collect { onPageChanged(it) }
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (idx, offset) ->
+            onPageChanged(idx)
+            onScrollOffsetChanged(offset)
+        }
     }
 
     val flingBehavior = androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
@@ -1418,6 +1462,7 @@ private fun WebtoonReader(
                 translateMode = translateMode,
                 translatedBlocks = translatedPages[index] ?: emptyList(),
                 textScale = textScale,
+                cropBorders = cropBorders,
             )
         }
     }
@@ -1430,13 +1475,20 @@ private fun WebtoonPage(
     translateMode: Boolean,
     translatedBlocks: List<TranslatedBlock>,
     textScale: Float,
+    cropBorders: Boolean = false,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxWidth()) {
         AsyncImage(
-            model = pageUrl,
+            model = if (cropBorders) {
+                coil.request.ImageRequest.Builder(ctx)
+                    .data(pageUrl)
+                    .transformations(CropBordersTransformation())
+                    .build()
+            } else pageUrl,
             contentDescription = "Stránka ${pageIndex + 1}",
             contentScale = ContentScale.FillWidth,
             modifier = Modifier

@@ -124,6 +124,7 @@ fun SettingsScreen(
     val readerTheme       by viewModel.readerTheme.collectAsState()
     val oledMode          by viewModel.oledMode.collectAsState()
     val autoNextChapter   by viewModel.autoNextChapter.collectAsState()
+    val cropBorders       by viewModel.cropBorders.collectAsState()
     val tachyImportResult by viewModel.tachyImportResult.collectAsState()
     val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
     val malIsLoggedIn by viewModel.malIsLoggedIn.collectAsState()
@@ -375,6 +376,24 @@ fun SettingsScreen(
                         }
                         Switch(
                             checked = autoNextChapter,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = cropBorders, role = Role.Switch, onValueChange = { viewModel.setCropBorders(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Ořez bílých okrajů", color = TextPrimary, fontSize = 14.sp)
+                            Text("Automaticky odstraní prázdné okraje stránek", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = cropBorders,
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )
