@@ -75,4 +75,13 @@ interface MangaDao {
 
     @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
     suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
+
+    @Query("UPDATE manga SET readingStatus = :status WHERE id = :id")
+    suspend fun setReadingStatus(id: String, status: String?)
+
+    @Query("SELECT * FROM manga WHERE inLibrary = 1 AND readingStatus = :status ORDER BY title ASC")
+    fun observeByReadingStatus(status: String): Flow<List<MangaEntity>>
+
+    @Query("SELECT * FROM manga WHERE inLibrary = 1 ORDER BY title ASC")
+    suspend fun getAllLibraryForExport(): List<MangaEntity>
 }

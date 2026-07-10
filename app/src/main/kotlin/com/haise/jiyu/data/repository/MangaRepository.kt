@@ -119,6 +119,9 @@ class MangaRepository @Inject constructor(
     suspend fun setMalId(mangaId: String, malId: Int?) = mangaDao.setMalId(mangaId, malId)
     suspend fun setMalScore(mangaId: String, score: Float?) = mangaDao.setMalScore(mangaId, score)
     suspend fun setMalStatus(mangaId: String, status: String?) = mangaDao.setMalStatus(mangaId, status)
+    suspend fun setReadingStatus(mangaId: String, status: String?) = mangaDao.setReadingStatus(mangaId, status)
+    fun observeByReadingStatus(status: String): Flow<List<MangaEntity>> = mangaDao.observeByReadingStatus(status)
+    suspend fun getAllLibraryForExport(): List<MangaEntity> = mangaDao.getAllLibraryForExport()
 
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(

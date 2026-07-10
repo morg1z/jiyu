@@ -148,6 +148,14 @@ class MangaDetailViewModel @Inject constructor(
     val mangaTags: StateFlow<List<MangaTagEntity>> = mangaTagDao.observeForManga(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // ── Čtecí status ──────────────────────────────────────────────────────────
+    val readingStatus: StateFlow<String?> = manga.map { it?.readingStatus }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setReadingStatus(status: String?) = viewModelScope.launch {
+        repository.setReadingStatus(mangaId, status)
+    }
+
     // ── Hodnocení (#41) ───────────────────────────────────────────────────────
     val userRating: StateFlow<Int?> = manga.map { it?.userRating }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

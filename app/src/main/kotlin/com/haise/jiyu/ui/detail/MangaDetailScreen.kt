@@ -144,6 +144,7 @@ fun MangaDetailScreen(
     val mangaNote        by viewModel.mangaNote.collectAsState()
     val mangaTags        by viewModel.mangaTags.collectAsState()
     val userRating       by viewModel.userRating.collectAsState()
+    val readingStatus    by viewModel.readingStatus.collectAsState()
     val aiInsight        by viewModel.aiInsight.collectAsState()
     val aiInsightLoading by viewModel.aiInsightLoading.collectAsState()
 
@@ -395,6 +396,54 @@ fun MangaDetailScreen(
                                         text = { Text(label) },
                                         onClick = { viewModel.setReaderDirection(value); dirDropdownExpanded = false },
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Čtecí status ──────────────────────────────────────────────
+                item {
+                    val statusOptions = listOf(
+                        "READING"      to "Čtu",
+                        "COMPLETED"    to "Dokončeno",
+                        "ON_HOLD"      to "Pozastaveno",
+                        "DROPPED"      to "Opuštěno",
+                        "PLAN_TO_READ" to "Plánuji číst",
+                    )
+                    val statusColors = mapOf(
+                        "READING"      to Color(0xFF4CAF50),
+                        "COMPLETED"    to Color(0xFF4FC3F7),
+                        "ON_HOLD"      to Color(0xFFFFB74D),
+                        "DROPPED"      to Color(0xFFEF5350),
+                        "PLAN_TO_READ" to Color(0xFF9C27B0),
+                    )
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "ČTECÍ STATUS",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = Violet,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            statusOptions.forEach { (key, label) ->
+                                val isSelected = readingStatus == key
+                                val chipColor = statusColors[key] ?: Violet
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (isSelected) chipColor.copy(alpha = 0.22f) else Color.Transparent)
+                                        .border(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.35f), RoundedCornerShape(50))
+                                        .clickable { viewModel.setReadingStatus(if (isSelected) null else key) }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (isSelected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = chipColor, modifier = Modifier.size(13.dp).padding(end = 4.dp))
+                                        Text(label, color = if (isSelected) chipColor else TextSecondary, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
+                                    }
                                 }
                             }
                         }

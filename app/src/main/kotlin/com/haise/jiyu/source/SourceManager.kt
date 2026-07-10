@@ -47,6 +47,13 @@ import com.haise.jiyu.source.mangafreak.MangaFreakSource
 import com.haise.jiyu.source.comic.ComicExtraSource
 import com.haise.jiyu.source.comic.ReadComicsOnline2Source
 import com.haise.jiyu.source.comic.SuperHeroComicsSource
+import com.haise.jiyu.source.i18n.JapscanSource
+import com.haise.jiyu.source.i18n.AnimeSamaSource
+import com.haise.jiyu.source.i18n.ScanVFSource
+import com.haise.jiyu.source.i18n.TMOSource
+import com.haise.jiyu.source.i18n.InMangaSource
+import com.haise.jiyu.source.i18n.MangaLeerSource
+import com.haise.jiyu.source.i18n.UnionMangasSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -111,6 +118,13 @@ class SourceManager @Inject constructor(
     comicExtraSource: ComicExtraSource,
     readComicsOnline2Source: ReadComicsOnline2Source,
     superHeroComicsSource: SuperHeroComicsSource,
+    japscanSource: JapscanSource,
+    animeSamaSource: AnimeSamaSource,
+    scanVFSource: ScanVFSource,
+    tmoSource: TMOSource,
+    inMangaSource: InMangaSource,
+    mangaLeerSource: MangaLeerSource,
+    unionMangasSource: UnionMangasSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -198,6 +212,15 @@ class SourceManager @Inject constructor(
         MadaraSource("foxaholic",     "Foxaholic",          "https://foxaholic.com",        client, contentTypeOverride = "NOVEL"),
         MadaraSource("hostednovel",   "HostedNovel",        "https://hostednovel.com",      client, contentTypeOverride = "NOVEL"),
         MadaraSource("creativenovels","Creative Novels",    "https://creativenovels.com",   client, contentTypeOverride = "NOVEL"),
+        // ── Francouzské zdroje 🇫🇷 ──────────────────────────────────────────
+        japscanSource,
+        animeSamaSource,
+        scanVFSource,
+        // ── Španělské a portugalské zdroje 🇪🇸🇧🇷 ──────────────────────────
+        tmoSource,
+        inMangaSource,
+        mangaLeerSource,
+        unionMangasSource,
     )
 
     init {

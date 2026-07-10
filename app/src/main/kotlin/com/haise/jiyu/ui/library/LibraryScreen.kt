@@ -145,7 +145,8 @@ fun LibraryScreen(
     val library            by viewModel.library.collectAsState()
     val categories         by viewModel.categories.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
-    val contentTypeFilter  by viewModel.contentTypeFilter.collectAsState()
+    val contentTypeFilter      by viewModel.contentTypeFilter.collectAsState()
+    val readingStatusFilter    by viewModel.readingStatusFilter.collectAsState()
     val searchQuery        by viewModel.searchQuery.collectAsState()
     val sortOption         by viewModel.sortOption.collectAsState()
     val sortAscending      by viewModel.sortAscending.collectAsState()
@@ -347,6 +348,27 @@ fun LibraryScreen(
             ) {
                 items(types) { (key, label) ->
                     ContentTypeChip(label = label, selected = contentTypeFilter == key, onClick = { viewModel.setContentTypeFilter(key) })
+                }
+            }
+        }
+
+        // ── Reading status filter ────────────────────────────────────────────
+        if (!selectionMode) {
+            val readingStatuses = listOf(
+                "ALL" to "Vše",
+                "READING" to "Čtu",
+                "COMPLETED" to "Dokončeno",
+                "ON_HOLD" to "Pozastaveno",
+                "DROPPED" to "Opuštěno",
+                "PLAN_TO_READ" to "Plánuji",
+            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(readingStatuses) { (key, label) ->
+                    ContentTypeChip(label = label, selected = readingStatusFilter == key, onClick = { viewModel.setReadingStatusFilter(key) })
                 }
             }
         }

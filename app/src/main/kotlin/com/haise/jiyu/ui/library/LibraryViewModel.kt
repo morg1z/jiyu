@@ -53,6 +53,10 @@ class LibraryViewModel @Inject constructor(
     val contentTypeFilter: StateFlow<String> = _contentTypeFilter.asStateFlow()
     fun setContentTypeFilter(type: String) { _contentTypeFilter.value = type }
 
+    private val _readingStatusFilter = MutableStateFlow("ALL")
+    val readingStatusFilter: StateFlow<String> = _readingStatusFilter.asStateFlow()
+    fun setReadingStatusFilter(status: String) { _readingStatusFilter.value = status }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -77,8 +81,11 @@ class LibraryViewModel @Inject constructor(
                 else repository.observeLibraryInCategory(categoryId)
             },
             _contentTypeFilter,
-        ) { list, typeFilter ->
-            if (typeFilter == "ALL") list else list.filter { it.contentType == typeFilter }
+            _readingStatusFilter,
+        ) { list, typeFilter, statusFilter ->
+            var result = if (typeFilter == "ALL") list else list.filter { it.contentType == typeFilter }
+            if (statusFilter != "ALL") result = result.filter { it.readingStatus == statusFilter }
+            result
         },
         _searchQuery,
         unreadCounts,
