@@ -3,6 +3,7 @@ package com.haise.jiyu.data.repository
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.CustomSourceDao
+import com.haise.jiyu.data.db.MangaCategoryMapping
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaDownloadedCount
 import com.haise.jiyu.data.db.MangaTotalCount
@@ -45,6 +46,7 @@ class MangaRepository @Inject constructor(
     suspend fun countChapters(mangaId: String): Int = chapterDao.countForManga(mangaId)
     suspend fun getAllChapters(mangaId: String): List<ChapterEntity> = chapterDao.getAllForManga(mangaId)
     suspend fun markAllChaptersRead(mangaIds: List<String>) = chapterDao.markAllReadForMangas(mangaIds)
+    suspend fun resetActiveDownloads() = chapterDao.resetActiveDownloads()
     suspend fun countReadChapters(): Int = chapterDao.countRead()
     fun observeReadChaptersCount(): Flow<Int> = chapterDao.observeReadCount()
     suspend fun getAllLibraryChapters(): List<ChapterEntity> = chapterDao.getAllForLibrary()
@@ -59,6 +61,7 @@ class MangaRepository @Inject constructor(
     suspend fun upsertAllChapters(chapters: List<ChapterEntity>) = chapterDao.upsertAll(chapters)
     suspend fun getAllCategories(): List<com.haise.jiyu.data.db.entity.CategoryEntity> = categoryDao.getAllOnce()
     suspend fun getCategoryIdsForManga(mangaId: String): List<String> = categoryDao.getCategoryIdsForManga(mangaId)
+    suspend fun getAllCategoryMappings(): List<MangaCategoryMapping> = categoryDao.getAllMappings()
     suspend fun upsertAllCategories(categories: List<com.haise.jiyu.data.db.entity.CategoryEntity>) = categoryDao.upsertAll(categories)
 
     // ── Browse / Search ──────────────────────────────────────────────────────
@@ -163,10 +166,8 @@ class MangaRepository @Inject constructor(
     suspend fun updateReadProgress(chapterEntityId: String, read: Boolean, lastPageRead: Int) =
         chapterDao.updateProgress(chapterEntityId, read, lastPageRead)
 
-    suspend fun updateLastReadChapter(mangaId: String, chapterId: String) {
-        mangaDao.updateLastReadChapter(mangaId, chapterId)
-        mangaDao.updateLastReadAt(mangaId, System.currentTimeMillis())
-    }
+    suspend fun updateLastReadChapter(mangaId: String, chapterId: String) =
+        mangaDao.updateLastReadChapterAndTime(mangaId, chapterId, System.currentTimeMillis())
 
     suspend fun getChapter(chapterEntityId: String) = chapterDao.getById(chapterEntityId)
     suspend fun getManga(mangaId: String) = mangaDao.getById(mangaId)

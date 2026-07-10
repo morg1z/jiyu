@@ -110,4 +110,7 @@ interface ChapterDao {
 
     @Query("UPDATE chapter SET read = 1, lastPageRead = 0 WHERE mangaId IN (:mangaIds)")
     suspend fun markAllReadForMangas(mangaIds: List<String>)
+
+    @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED' WHERE downloadStatus IN ('QUEUED', 'DOWNLOADING')")
+    suspend fun resetActiveDownloads()
 }

@@ -37,4 +37,10 @@ interface ReadHistoryDao {
 
     @Query("SELECT COUNT(DISTINCT chapterId) FROM read_history WHERE readAt >= :sinceMs")
     suspend fun countSince(sinceMs: Long): Int
+
+    @Query("SELECT * FROM read_history ORDER BY readAt DESC")
+    suspend fun getAll(): List<ReadHistoryEntity>
+
+    @Upsert
+    suspend fun upsertAll(entries: List<ReadHistoryEntity>)
 }

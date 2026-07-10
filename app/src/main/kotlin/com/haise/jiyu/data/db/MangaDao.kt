@@ -72,4 +72,7 @@ interface MangaDao {
 
     @Query("UPDATE manga SET malStatus = :status WHERE id = :id")
     suspend fun setMalStatus(id: String, status: String?)
+
+    @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
+    suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
 }

@@ -24,4 +24,10 @@ interface MangaTagDao {
 
     @Query("SELECT mangaId FROM manga_tag WHERE tag = :tag")
     suspend fun getMangaIdsForTag(tag: String): List<String>
+
+    @Query("SELECT * FROM manga_tag")
+    suspend fun getAll(): List<MangaTagEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(tags: List<MangaTagEntity>)
 }

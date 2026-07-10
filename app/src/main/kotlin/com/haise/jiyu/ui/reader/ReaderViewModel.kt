@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.reader
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +8,7 @@ import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
+import com.haise.jiyu.work.AutoDeleteWorker
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
@@ -16,6 +18,7 @@ import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.translate.TranslatedBlock
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +38,7 @@ data class TranslationProgress(val done: Int, val total: Int)
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
+    @ApplicationContext private val context: Context,
     private val repository: MangaRepository,
     private val translateRepository: TranslateRepository,
     private val settings: SettingsRepository,
@@ -284,13 +288,19 @@ class ReaderViewModel @Inject constructor(
         val threshold = 80
         val minPanelHeight = h / 12
 
+        // Single getPixels() call instead of w/4 * h individual JNI calls
+        val pixels = IntArray(w * h)
+        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+
         val horizontalCuts = mutableListOf(0)
         for (y in 0 until h) {
             var darkCount = 0
-            for (x in 0 until w step 4) {
-                val pixel = bmp.getPixel(x, y)
-                val brightness = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
+            var x = 0
+            while (x < w) {
+                val pixel = pixels[y * w + x]
+                val brightness = ((pixel shr 16 and 0xFF) + (pixel shr 8 and 0xFF) + (pixel and 0xFF)) / 3
                 if (brightness < threshold) darkCount++
+                x += 4
             }
             if (darkCount > w / 8 && (horizontalCuts.last() == 0 || y - horizontalCuts.last() > minPanelHeight)) {
                 horizontalCuts.add(y)
@@ -519,20 +529,25 @@ class ReaderViewModel @Inject constructor(
             var done = pages.size - uncached.size
             _translationProgress.value = TranslationProgress(done, pages.size)
 
-            uncached.forEachIndexed { i, pageIndex ->
-                if (i > 0) delay(2_000L)
-                val blocks = translateRepository.translatePage(
-                    pageUrl = pages[pageIndex],
-                    chapterId = chapterId,
-                    pageIndex = pageIndex,
-                    targetLanguage = lang,
-                    sourceLanguage = _sourceLanguage.value,
-                )
-                _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
-                done++
-                _translationProgress.value = TranslationProgress(done, pages.size)
+            try {
+                uncached.forEachIndexed { i, pageIndex ->
+                    if (i > 0) delay(2_000L)
+                    try {
+                        val blocks = translateRepository.translatePage(
+                            pageUrl = pages[pageIndex],
+                            chapterId = chapterId,
+                            pageIndex = pageIndex,
+                            targetLanguage = lang,
+                            sourceLanguage = _sourceLanguage.value,
+                        )
+                        _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+                    } catch (_: Exception) { /* stránka selhala, pokračuj dál */ }
+                    done++
+                    _translationProgress.value = TranslationProgress(done, pages.size)
+                }
+            } finally {
+                _translationProgress.value = null
             }
-            _translationProgress.value = null
         }
     }
 
@@ -614,11 +629,13 @@ class ReaderViewModel @Inject constructor(
             if (!chapter.read) return@launch
             val delayDays = settings.autoDeleteDelayDays.first()
             if (delayDays > 0) {
-                delay(delayDays * 24 * 60 * 60 * 1000L)
-            }
-            val fresh = repository.getChapter(chapter.id) ?: return@launch
-            if (fresh.read && fresh.downloadStatus == DownloadStatus.DOWNLOADED) {
-                deleteChapterFiles(fresh)
+                // Plánuj přes WorkManager — viewModelScope se zruší při opuštění čtečky
+                AutoDeleteWorker.schedule(context, chapter.id, delayDays.toLong())
+            } else {
+                val fresh = repository.getChapter(chapter.id) ?: return@launch
+                if (fresh.read && fresh.downloadStatus == DownloadStatus.DOWNLOADED) {
+                    deleteChapterFiles(fresh)
+                }
             }
         }
     }

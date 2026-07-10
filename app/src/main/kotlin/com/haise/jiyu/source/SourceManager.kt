@@ -38,9 +38,14 @@ import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.source.mangaplus.MangaPlusSource
 import com.haise.jiyu.source.webtoon.WebtoonSource
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -91,6 +96,9 @@ class SourceManager @Inject constructor(
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val _cache = MutableStateFlow<List<MangaSource>>(emptyList())
+
     private val staticSources: List<MangaSource> = listOf(
         mangaDexSource,
         mangaPlusSource,
@@ -129,29 +137,34 @@ class SourceManager @Inject constructor(
         comicKingdomSource,
     )
 
-    fun observeAll(): Flow<List<MangaSource>> =
-        customSourceDao.observeAll().map { customs ->
-            staticSources + customs.map { custom ->
-                val defaults = MadaraSelectors.DEFAULT
-                MadaraSource(
-                    id = "madara:${custom.id}",
-                    name = custom.name,
-                    baseUrl = custom.baseUrl,
-                    client = client,
-                    selectors = MadaraSelectors(
-                        listItem = custom.listItemSelector?.ifBlank { null } ?: defaults.listItem,
-                        titleLink = custom.titleLinkSelector?.ifBlank { null } ?: defaults.titleLink,
-                        description = custom.descriptionSelector?.ifBlank { null } ?: defaults.description,
-                        status = custom.statusSelector?.ifBlank { null } ?: defaults.status,
-                        chapterList = custom.chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
-                        pageImage = custom.pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
-                    ),
-                    contentTypeOverride = custom.contentType,
-                )
+    init {
+        scope.launch {
+            customSourceDao.observeAll().collect { customs ->
+                _cache.value = staticSources + customs.map { custom ->
+                    val defaults = MadaraSelectors.DEFAULT
+                    MadaraSource(
+                        id = "madara:${custom.id}",
+                        name = custom.name,
+                        baseUrl = custom.baseUrl,
+                        client = client,
+                        selectors = MadaraSelectors(
+                            listItem = custom.listItemSelector?.ifBlank { null } ?: defaults.listItem,
+                            titleLink = custom.titleLinkSelector?.ifBlank { null } ?: defaults.titleLink,
+                            description = custom.descriptionSelector?.ifBlank { null } ?: defaults.description,
+                            status = custom.statusSelector?.ifBlank { null } ?: defaults.status,
+                            chapterList = custom.chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
+                            pageImage = custom.pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
+                        ),
+                        contentTypeOverride = custom.contentType,
+                    )
+                }
             }
         }
+    }
 
-    suspend fun getAll(): List<MangaSource> = observeAll().first()
+    fun observeAll(): Flow<List<MangaSource>> = _cache
+
+    suspend fun getAll(): List<MangaSource> = _cache.filter { it.isNotEmpty() }.first()
 
     suspend fun getById(id: String): MangaSource? = getAll().find { it.id == id }
 }

@@ -2,10 +2,16 @@ package com.haise.jiyu.backup
 
 import android.content.Context
 import android.net.Uri
+import com.haise.jiyu.data.db.MangaNoteDao
+import com.haise.jiyu.data.db.MangaTagDao
+import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.MangaNoteEntity
+import com.haise.jiyu.data.db.entity.MangaTagEntity
+import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
@@ -17,6 +23,9 @@ import javax.inject.Singleton
 class BackupManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val repository: MangaRepository,
+    private val mangaNoteDao: MangaNoteDao,
+    private val mangaTagDao: MangaTagDao,
+    private val readHistoryDao: ReadHistoryDao,
 ) {
 
     // ── Export ────────────────────────────────────────────────────────────────
@@ -36,9 +45,16 @@ class BackupManager @Inject constructor(
         val categories    = repository.getAllCategories()
         val allChapters   = repository.getAllLibraryChapters()
         val customSources = repository.getAllCustomSourcesOnce()
+        val notes         = mangaNoteDao.getAll()
+        val tags          = mangaTagDao.getAll()
+        val history       = readHistoryDao.getAll()
+
+        // Batch fetch all category mappings in one query instead of N per-manga queries
+        val catMappings = repository.getAllCategoryMappings()
+            .groupBy({ it.mangaId }, { it.categoryId })
 
         val root = JSONObject().apply {
-            put("version", 2)
+            put("version", 3)
             put("exportedAt", java.time.Instant.now().toString())
 
             put("categories", JSONArray().also { arr ->
@@ -51,8 +67,6 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            // Vlastní Madara zdroje - bez nich by po obnově zálohy nešlo dohledat
-            // zdroj pro mangu přidanou přes ně (sourceId = "madara:{id}" by odkazoval na nic).
             put("customSources", JSONArray().also { arr ->
                 customSources.forEach { s ->
                     arr.put(JSONObject().apply {
@@ -71,18 +85,30 @@ class BackupManager @Inject constructor(
 
             put("manga", JSONArray().also { arr ->
                 mangaList.forEach { m ->
-                    val catIds = repository.getCategoryIdsForManga(m.id)
                     arr.put(JSONObject().apply {
-                        put("id",                m.id)
-                        put("sourceId",          m.sourceId)
-                        put("url",               m.url)
-                        put("title",             m.title)
-                        put("coverUrl",          m.coverUrl ?: "")
-                        put("description",       m.description ?: "")
-                        put("status",            m.status ?: "")
-                        put("lastReadChapterId", m.lastReadChapterId ?: "")
-                        put("lastReadAt",        m.lastReadAt)
-                        put("categoryIds",       JSONArray(catIds))
+                        put("id",                  m.id)
+                        put("sourceId",            m.sourceId)
+                        put("url",                 m.url)
+                        put("title",               m.title)
+                        put("coverUrl",            m.coverUrl ?: "")
+                        put("description",         m.description ?: "")
+                        put("status",              m.status ?: "")
+                        put("author",              m.author ?: "")
+                        put("artist",              m.artist ?: "")
+                        put("genres",              m.genres)
+                        put("year",                m.year ?: 0)
+                        put("contentType",         m.contentType)
+                        put("autoDownload",        m.autoDownload)
+                        put("userRating",          m.userRating ?: -1)
+                        put("excludeFromUpdates",  m.excludeFromUpdates)
+                        put("malId",               m.malId ?: 0)
+                        put("malScore",            m.malScore ?: 0f)
+                        put("malStatus",           m.malStatus ?: "")
+                        put("readerDirectionOverride", m.readerDirectionOverride ?: "")
+                        put("addedAt",             m.addedAt)
+                        put("lastReadChapterId",   m.lastReadChapterId ?: "")
+                        put("lastReadAt",          m.lastReadAt)
+                        put("categoryIds",         JSONArray(catMappings[m.id] ?: emptyList<String>()))
                     })
                 }
             })
@@ -102,6 +128,38 @@ class BackupManager @Inject constructor(
                     })
                 }
             })
+
+            put("notes", JSONArray().also { arr ->
+                notes.forEach { n ->
+                    arr.put(JSONObject().apply {
+                        put("mangaId",   n.mangaId)
+                        put("content",   n.content)
+                        put("updatedAt", n.updatedAt)
+                    })
+                }
+            })
+
+            put("tags", JSONArray().also { arr ->
+                tags.forEach { t ->
+                    arr.put(JSONObject().apply {
+                        put("mangaId", t.mangaId)
+                        put("tag",     t.tag)
+                    })
+                }
+            })
+
+            put("readHistory", JSONArray().also { arr ->
+                history.forEach { h ->
+                    arr.put(JSONObject().apply {
+                        put("chapterId",   h.chapterId)
+                        put("mangaId",     h.mangaId)
+                        put("mangaTitle",  h.mangaTitle)
+                        put("coverUrl",    h.coverUrl ?: "")
+                        put("chapterName", h.chapterName)
+                        put("readAt",      h.readAt)
+                    })
+                }
+            })
         }
         return root.toString(2)
     }
@@ -117,7 +175,6 @@ class BackupManager @Inject constructor(
     private suspend fun restoreFromJson(json: String): ImportStats {
         val root = JSONObject(json)
 
-        // Kategorie
         val catsArr = root.optJSONArray("categories") ?: JSONArray()
         val categories = (0 until catsArr.length()).map { i ->
             val c = catsArr.getJSONObject(i)
@@ -129,8 +186,6 @@ class BackupManager @Inject constructor(
         }
         repository.upsertAllCategories(categories)
 
-        // Vlastní Madara zdroje - MUSÍ se obnovit před mangou, jinak manga přidaná
-        // přes ně odkazují na sourceId, který ještě v DB neexistuje.
         val customSourcesArr = root.optJSONArray("customSources") ?: JSONArray()
         val customSources = (0 until customSourcesArr.length()).map { i ->
             val s = customSourcesArr.getJSONObject(i)
@@ -148,25 +203,41 @@ class BackupManager @Inject constructor(
         }
         repository.upsertAllCustomSources(customSources)
 
-        // Manga
         val mangaArr = root.optJSONArray("manga") ?: JSONArray()
         val mangaList = mutableListOf<MangaEntity>()
         val catAssignments = mutableListOf<Pair<String, String>>()
 
         for (i in 0 until mangaArr.length()) {
             val m = mangaArr.getJSONObject(i)
+            val userRating = m.optInt("userRating", -1).takeIf { it >= 0 }
+            val year = m.optInt("year", 0).takeIf { it > 0 }
+            val malId = m.optInt("malId", 0).takeIf { it > 0 }
+            val malScore = m.optDouble("malScore", 0.0).takeIf { it > 0 }?.toFloat()
             mangaList.add(
                 MangaEntity(
-                    id                = m.getString("id"),
-                    sourceId          = m.getString("sourceId"),
-                    url               = m.getString("url"),
-                    title             = m.getString("title"),
-                    coverUrl          = m.optString("coverUrl").ifBlank { null },
-                    description       = m.optString("description").ifBlank { null },
-                    status            = m.optString("status").ifBlank { null },
-                    inLibrary         = true,
-                    lastReadChapterId = m.optString("lastReadChapterId").ifBlank { null },
-                    lastReadAt        = m.optLong("lastReadAt", 0L),
+                    id                      = m.getString("id"),
+                    sourceId                = m.getString("sourceId"),
+                    url                     = m.getString("url"),
+                    title                   = m.getString("title"),
+                    coverUrl                = m.optString("coverUrl").ifBlank { null },
+                    description             = m.optString("description").ifBlank { null },
+                    status                  = m.optString("status").ifBlank { null },
+                    author                  = m.optString("author").ifBlank { null },
+                    artist                  = m.optString("artist").ifBlank { null },
+                    genres                  = m.optString("genres", ""),
+                    year                    = year,
+                    contentType             = m.optString("contentType", "MANGA").ifBlank { "MANGA" },
+                    autoDownload            = m.optBoolean("autoDownload", false),
+                    userRating              = userRating,
+                    excludeFromUpdates      = m.optBoolean("excludeFromUpdates", false),
+                    malId                   = malId,
+                    malScore                = malScore,
+                    malStatus               = m.optString("malStatus").ifBlank { null },
+                    readerDirectionOverride = m.optString("readerDirectionOverride").ifBlank { null },
+                    addedAt                 = m.optLong("addedAt", 0L),
+                    inLibrary               = true,
+                    lastReadChapterId       = m.optString("lastReadChapterId").ifBlank { null },
+                    lastReadAt              = m.optLong("lastReadAt", 0L),
                 )
             )
             val ids = m.optJSONArray("categoryIds") ?: JSONArray()
@@ -175,7 +246,6 @@ class BackupManager @Inject constructor(
         repository.upsertAllManga(mangaList)
         repository.upsertAllMangaCategories(catAssignments)
 
-        // Kapitoly
         val chapArr = root.optJSONArray("chapters") ?: JSONArray()
         val chapters = (0 until chapArr.length()).map { i ->
             val c = chapArr.getJSONObject(i)
@@ -192,6 +262,38 @@ class BackupManager @Inject constructor(
             )
         }
         repository.upsertAllChapters(chapters)
+
+        val notesArr = root.optJSONArray("notes") ?: JSONArray()
+        val notes = (0 until notesArr.length()).map { i ->
+            val n = notesArr.getJSONObject(i)
+            MangaNoteEntity(
+                mangaId   = n.getString("mangaId"),
+                content   = n.getString("content"),
+                updatedAt = n.optLong("updatedAt", System.currentTimeMillis()),
+            )
+        }
+        if (notes.isNotEmpty()) mangaNoteDao.upsertAll(notes)
+
+        val tagsArr = root.optJSONArray("tags") ?: JSONArray()
+        val tags = (0 until tagsArr.length()).map { i ->
+            val t = tagsArr.getJSONObject(i)
+            MangaTagEntity(mangaId = t.getString("mangaId"), tag = t.getString("tag"))
+        }
+        if (tags.isNotEmpty()) mangaTagDao.insertAll(tags)
+
+        val histArr = root.optJSONArray("readHistory") ?: JSONArray()
+        val history = (0 until histArr.length()).map { i ->
+            val h = histArr.getJSONObject(i)
+            ReadHistoryEntity(
+                chapterId   = h.getString("chapterId"),
+                mangaId     = h.getString("mangaId"),
+                mangaTitle  = h.getString("mangaTitle"),
+                coverUrl    = h.optString("coverUrl").ifBlank { null },
+                chapterName = h.getString("chapterName"),
+                readAt      = h.getLong("readAt"),
+            )
+        }
+        if (history.isNotEmpty()) readHistoryDao.upsertAll(history)
 
         return ImportStats(mangaList.size, chapters.size, categories.size)
     }

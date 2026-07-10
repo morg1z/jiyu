@@ -160,4 +160,8 @@ class AccountViewModel @Inject constructor(
     fun aniListSignOut() = viewModelScope.launch {
         try { aniListRepository.signOut() } catch (_: Exception) {}
     }
+
+    fun handleAniListCallback(token: String) = viewModelScope.launch {
+        try { aniListRepository.handleCallback(token) } catch (_: Exception) {}
+    }
 }

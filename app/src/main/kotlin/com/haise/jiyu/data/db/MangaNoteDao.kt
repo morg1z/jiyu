@@ -16,4 +16,10 @@ interface MangaNoteDao {
 
     @Query("DELETE FROM manga_note WHERE mangaId = :mangaId")
     suspend fun deleteForManga(mangaId: String)
+
+    @Query("SELECT * FROM manga_note")
+    suspend fun getAll(): List<MangaNoteEntity>
+
+    @Upsert
+    suspend fun upsertAll(notes: List<MangaNoteEntity>)
 }

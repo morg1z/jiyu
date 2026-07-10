@@ -10,6 +10,8 @@ import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import kotlinx.coroutines.flow.Flow
 
+data class MangaCategoryMapping(val mangaId: String, val categoryId: String)
+
 @Dao
 interface CategoryDao {
 
@@ -42,6 +44,9 @@ interface CategoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(categories: List<CategoryEntity>)
+
+    @Query("SELECT mangaId, categoryId FROM manga_category")
+    suspend fun getAllMappings(): List<MangaCategoryMapping>
 
     @Query("""
         SELECT m.* FROM manga m

@@ -45,7 +45,7 @@ class MangaSeeSource @Inject constructor(
             sourceId = id,
             url = "/manga/$slug",
             title = obj.optString("s", slug),
-            coverUrl = "https://temp.comick.fun/static/$slug.jpg",
+            coverUrl = "https://cover.nep.li/cover/$slug.jpg",
         )
     }
 

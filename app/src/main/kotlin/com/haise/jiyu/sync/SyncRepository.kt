@@ -78,6 +78,28 @@ class SyncRepository @Inject constructor(
     suspend fun pullFromCloud() {
         val userId = authRepository.currentUserId() ?: return
 
+        // Obnov mangu ze zálohy — bez toho na novém zařízení nikdy nezmizí prázdná knihovna
+        val remoteManga = supabase.from("manga_sync")
+            .select { filter { eq("user_id", userId) } }
+            .decodeList<MangaSyncDto>()
+
+        val localIds = mangaRepository.getAllLibraryManga().map { it.id }.toSet()
+        val toInsertManga = remoteManga
+            .filter { it.inLibrary && it.id !in localIds }
+            .map { dto ->
+                com.haise.jiyu.data.db.entity.MangaEntity(
+                    id = dto.id,
+                    sourceId = dto.sourceId,
+                    url = dto.url,
+                    title = dto.title,
+                    coverUrl = dto.coverUrl,
+                    description = null,
+                    status = null,
+                    inLibrary = true,
+                )
+            }
+        if (toInsertManga.isNotEmpty()) mangaRepository.upsertAllManga(toInsertManga)
+
         val remoteChapters = supabase.from("chapter_sync")
             .select { filter { eq("user_id", userId) } }
             .decodeList<ChapterSyncDto>()

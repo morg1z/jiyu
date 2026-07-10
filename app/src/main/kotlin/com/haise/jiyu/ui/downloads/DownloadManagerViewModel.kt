@@ -87,8 +87,11 @@ class DownloadManagerViewModel @Inject constructor(
         viewModelScope.launch {
             groups.forEach { group ->
                 group.chapters
-                    .filter { it.downloadStatus == DownloadStatus.DOWNLOADING }
-                    .forEach { chapter -> downloadQueue.enqueue(chapter, group.manga.url) }
+                    .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR }
+                    .forEach { chapter ->
+                        repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+                        downloadQueue.enqueue(chapter, group.manga.url)
+                    }
             }
         }
     }

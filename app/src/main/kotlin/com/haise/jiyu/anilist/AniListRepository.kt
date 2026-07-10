@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -30,6 +32,8 @@ class AniListRepository @Inject constructor(
             "&redirect_uri=${URLEncoder.encode(REDIRECT_URI, "UTF-8")}&response_type=token"
     }
 
+    private val mapMutex = Mutex()
+
     val isAuthenticated: Flow<Boolean> = settings.aniListToken.map { !it.isNullOrBlank() }
 
     suspend fun handleCallback(token: String) = settings.saveAniListToken(token)
@@ -39,16 +43,16 @@ class AniListRepository @Inject constructor(
         settings.saveAniListIdMap("{}")
     }
 
-    /** Vyhledá mangu na AniList a vrátí její ID. Cachuje výsledek. */
-    suspend fun resolveAniListId(mangaId: String, title: String): Int? {
+    /** Vyhledá mangu na AniList a vrátí její ID. Cachuje výsledek. Mutex brání race condition. */
+    suspend fun resolveAniListId(mangaId: String, title: String): Int? = mapMutex.withLock {
         val mapJson = settings.aniListIdMap.first()
         val map = try { JSONObject(mapJson) } catch (_: Exception) { JSONObject() }
         if (map.has(mangaId)) {
             val cached = map.optInt(mangaId, 0)
-            if (cached > 0) return cached
+            if (cached > 0) return@withLock cached
         }
 
-        val token = settings.aniListToken.first() ?: return null
+        val token = settings.aniListToken.first() ?: return@withLock null
         val query = """query(${'$'}s:String){Media(search:${'$'}s,type:MANGA){id title{romaji}}}"""
         val body = JSONObject().apply {
             put("query", query)
@@ -58,11 +62,11 @@ class AniListRepository @Inject constructor(
             ?.optJSONObject("data")
             ?.optJSONObject("Media")
             ?.optInt("id", 0)
-            ?.takeIf { it > 0 } ?: return null
+            ?.takeIf { it > 0 } ?: return@withLock null
 
         map.put(mangaId, aniId)
         settings.saveAniListIdMap(map.toString())
-        return aniId
+        aniId
     }
 
     /** Aktualizuje počet přečtených kapitol na AniList. */

@@ -1,7 +1,13 @@
 package com.haise.jiyu.ui.account
 
-import android.content.Intent
-import android.net.Uri
+import android.annotation.SuppressLint
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -93,6 +99,7 @@ fun AccountScreen(
     val isAniListConnected    by viewModel.isAniListAuthenticated.collectAsState()
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
+    var showAniListWebView by remember { mutableStateOf(false) }
 
     LaunchedEffect(authState) {
         when (val s = authState) {
@@ -163,9 +170,20 @@ fun AccountScreen(
             Spacer(Modifier.height(16.dp))
             AniListSection(
                 isConnected = isAniListConnected,
-                onConnect = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(viewModel.aniListAuthUrl))) },
+                onConnect = { showAniListWebView = true },
                 onDisconnect = { viewModel.aniListSignOut() },
             )
+
+            if (showAniListWebView) {
+                AniListLoginDialog(
+                    authUrl = viewModel.aniListAuthUrl,
+                    onTokenReceived = { token ->
+                        showAniListWebView = false
+                        viewModel.handleAniListCallback(token)
+                    },
+                    onDismiss = { showAniListWebView = false },
+                )
+            }
         }
 
         SnackbarHost(
@@ -466,5 +484,43 @@ private fun SignedInContent(
             Icon(Icons.Filled.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
             Text("  Odhlásit se", color = TextSecondary)
         }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun AniListLoginDialog(
+    authUrl: String,
+    onTokenReceived: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val url = request.url
+                            if (url.scheme == "jiyu" && url.host == "anilist") {
+                                val fragment = url.fragment ?: ""
+                                val token = fragment.split('&')
+                                    .firstOrNull { it.startsWith("access_token=") }
+                                    ?.substringAfter('=')
+                                if (token != null) onTokenReceived(token)
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    loadUrl(authUrl)
+                }
+            },
+        )
     }
 }
