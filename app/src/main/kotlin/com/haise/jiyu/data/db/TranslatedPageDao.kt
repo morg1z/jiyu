@@ -19,4 +19,7 @@ interface TranslatedPageDao {
 
     @Query("DELETE FROM translated_page")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM translated_page WHERE createdAt < :cutoff")
+    suspend fun deleteOlderThan(cutoff: Long)
 }

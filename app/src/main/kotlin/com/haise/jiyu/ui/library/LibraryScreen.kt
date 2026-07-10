@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -56,6 +58,8 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
@@ -152,6 +156,7 @@ fun LibraryScreen(
     val selectedIds        by viewModel.selectedIds.collectAsState()
 
     val localImportState   by viewModel.localImportState.collectAsState()
+    val gridMode           by viewModel.gridMode.collectAsState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -240,6 +245,13 @@ fun LibraryScreen(
                         onClick = { filePickerLauncher.launch(arrayOf("application/zip", "application/x-cbz", "application/octet-stream", "*/*")) },
                     ) {
                         Icon(Icons.Filled.Folder, contentDescription = "Otevřít CBZ/ZIP", tint = TextSecondary)
+                    }
+                    IconButton(onClick = { viewModel.toggleGridMode() }) {
+                        Icon(
+                            imageVector = if (gridMode) Icons.Filled.ViewList else Icons.Filled.ViewModule,
+                            contentDescription = if (gridMode) "Přepnout na seznam" else "Přepnout na mřížku",
+                            tint = TextSecondary,
+                        )
                     }
                     Box {
                         IconButton(onClick = { sortMenuExpanded = true }) {
@@ -353,7 +365,7 @@ fun LibraryScreen(
                     hasSearch = searchQuery.isNotEmpty(),
                     onOpenBrowse = onOpenBrowse,
                 )
-            } else {
+            } else if (gridMode) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 110.dp),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp + navBottom),
@@ -405,6 +417,28 @@ fun LibraryScreen(
                                 }
                             }
                         }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp + navBottom),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(library, key = { it.id }) { manga ->
+                        LibraryListRow(
+                            manga = manga,
+                            isSelected = manga.id in selectedIds,
+                            onClick = {
+                                if (selectionMode) viewModel.toggleSelection(manga.id)
+                                else onOpenManga(manga.id)
+                            },
+                            onLongPress = {
+                                if (selectionMode) viewModel.selectAll()
+                                else viewModel.enterSelectionMode(manga.id)
+                            },
+                            unreadCount = unreadCounts[manga.id] ?: 0,
+                            hasDownloads = (downloadedPerManga[manga.id] ?: 0) > 0,
+                        )
                     }
                 }
             }
@@ -634,6 +668,54 @@ private fun BulkAction(
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun LibraryListRow(
+    manga: MangaEntity,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    unreadCount: Int,
+    hasDownloads: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .background(if (isSelected) GlowViolet.copy(alpha = 0.15f) else Color.Transparent)
+            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() }) }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        AsyncImage(
+            model = manga.coverUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.width(38.dp).fillMaxHeight().clip(RoundedCornerShape(6.dp)),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(manga.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (manga.author != null) {
+                Text(manga.author, color = TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (hasDownloads) {
+            Icon(Icons.Filled.DownloadDone, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(14.dp))
+        }
+        if (unreadCount > 0) {
+            Box(
+                modifier = Modifier.background(GlowViolet, CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(unreadCount.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (isSelected) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
+        }
+    }
+}
 
 @Composable
 private fun SortMenu(

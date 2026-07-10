@@ -19,10 +19,16 @@ import coil.memory.MemoryCache
 import com.google.firebase.Firebase
 import com.google.firebase.analytics.analytics
 import com.google.firebase.crashlytics.crashlytics
+import com.haise.jiyu.data.db.TranslatedPageDao
+import com.haise.jiyu.download.CHANNEL_DOWNLOADS
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
 import com.haise.jiyu.work.CHANNEL_ID
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -32,6 +38,7 @@ class JiyuApp : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var httpClient: OkHttpClient
+    @Inject lateinit var translatedPageDao: TranslatedPageDao
 
     override fun onCreate() {
         super.onCreate()
@@ -59,6 +66,7 @@ class JiyuApp : Application(), Configuration.Provider {
         createNotificationChannel()
         scheduleChapterUpdates()
         initFirebase()
+        evictOldTranslationCache()
     }
 
     /**
@@ -80,15 +88,24 @@ class JiyuApp : Application(), Configuration.Provider {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Nové kapitoly",
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply {
-                description = "Upozornění na nové kapitoly v knihovně"
-            }
-            getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Nové kapitoly", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Upozornění na nové kapitoly v knihovně"
+                }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_DOWNLOADS, "Stahování kapitol", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Průběh stahování kapitol"
+                }
+            )
+        }
+    }
+
+    private fun evictOldTranslationCache() {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
+            translatedPageDao.deleteOlderThan(cutoff)
         }
     }
 

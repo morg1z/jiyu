@@ -18,12 +18,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 
-/**
- * Stáhne všechny stránky jedné kapitoly do interního úložiště appky,
- * aby šly číst offline (bez zdroje / bez internetu).
- *
- * Vstupní data: CHAPTER_ID (id v Room databázi), SOURCE_ID, CHAPTER_URL, MANGA_URL.
- */
+const val CHANNEL_DOWNLOADS = "channel_downloads"
+
 @HiltWorker
 class ChapterDownloadWorker @AssistedInject constructor(
     @Assisted context: Context,
@@ -38,7 +34,17 @@ class ChapterDownloadWorker @AssistedInject constructor(
         val chapterUrl = inputData.getString(KEY_CHAPTER_URL) ?: return@withContext Result.failure()
         val mangaUrl = inputData.getString(KEY_MANGA_URL) ?: return@withContext Result.failure()
 
+        val nm = applicationContext.getSystemService(NotificationManager::class.java)
+        val progressId = chapterEntityId.hashCode() xor 0x1000
+
         repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
+
+        nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Stahování kapitoly")
+            .setProgress(0, 0, true)
+            .setOngoing(true)
+            .build())
 
         try {
             val pages = repository.getChapterPages(sourceId, chapterUrl, mangaUrl)
@@ -50,15 +56,25 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 val bytes = downloadBytes(imageUrl)
                 val extension = imageUrl.substringAfterLast('.', "jpg").take(4)
                 File(chapterDir, "%03d.%s".format(index, extension)).writeBytes(bytes)
+                nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+                    .setSmallIcon(android.R.drawable.stat_sys_download)
+                    .setContentTitle("Stahování kapitoly")
+                    .setContentText("${index + 1} / ${pages.size} stránek")
+                    .setProgress(pages.size, index + 1, false)
+                    .setOngoing(true)
+                    .build())
             }
 
+            nm.cancel(progressId)
             repository.markDownloaded(chapterEntityId, chapterDir.absolutePath, pages.size)
             notifyDone(chapterEntityId)
             Result.success()
         } catch (e: CancellationException) {
+            nm.cancel(progressId)
             repository.setDownloadStatus(chapterEntityId, DownloadStatus.NOT_DOWNLOADED)
             throw e
         } catch (e: Exception) {
+            nm.cancel(progressId)
             repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
             Result.failure()
         }

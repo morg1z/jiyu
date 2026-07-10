@@ -275,6 +275,11 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    // ── Zobrazení ─────────────────────────────────────────────────────────────
+    private val _gridMode = MutableStateFlow(true)
+    val gridMode: StateFlow<Boolean> = _gridMode.asStateFlow()
+    fun toggleGridMode() { _gridMode.value = !_gridMode.value }
+
     // ── Lokální CBZ/ZIP import ────────────────────────────────────────────────
     private val _localImportState = MutableStateFlow<LocalImportState>(LocalImportState.Idle)
     val localImportState: StateFlow<LocalImportState> = _localImportState.asStateFlow()

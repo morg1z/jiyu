@@ -10,7 +10,9 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.haise.jiyu.MainActivity
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -22,21 +24,31 @@ class ChapterUpdateWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val repository: MangaRepository,
+    private val downloadQueue: DownloadQueue,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         return try {
             val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
-            val updatedManga = mutableListOf<Pair<String, Pair<String, Int>>>() // title to (id, newCount)
+            val updatedManga = mutableListOf<Pair<String, Pair<String, Int>>>()
 
             library.forEach { manga ->
                 try {
-                    val before = repository.countChapters(manga.id)
+                    val existingIds = repository.getAllChapters(manga.id).map { it.id }.toSet()
                     val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl)
                     repository.refreshChapters(manga.id, sManga)
-                    val after = repository.countChapters(manga.id)
-                    val diff = after - before
+                    val afterAll = repository.getAllChapters(manga.id)
+                    val newChapters = afterAll.filter { it.id !in existingIds }
+                    val diff = newChapters.size
                     if (diff > 0) updatedManga.add(manga.title to (manga.id to diff))
+                    if (manga.autoDownload && newChapters.isNotEmpty()) {
+                        newChapters
+                            .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED }
+                            .forEach { ch ->
+                                repository.setDownloadStatus(ch.id, DownloadStatus.QUEUED)
+                                downloadQueue.enqueue(ch, manga.url)
+                            }
+                    }
                 } catch (_: Exception) {}
             }
 
@@ -52,7 +64,6 @@ class ChapterUpdateWorker @AssistedInject constructor(
         val totalNew = updated.sumOf { it.second.second }
 
         if (updated.size == 1) {
-            // Jedna manga → notif s přímým deep linkem do detailu
             val (title, idAndCount) = updated.first()
             val (mangaId, count) = idAndCount
             val encodedId = Uri.encode(mangaId)
@@ -72,7 +83,6 @@ class ChapterUpdateWorker @AssistedInject constructor(
                 .setAutoCancel(true)
                 .build())
         } else {
-            // Více mang → souhrnná notif + skupinové notifikace
             val bigText = updated.joinToString("\n") { (t, ic) -> "• $t (+${ic.second})" }
             val summaryIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
