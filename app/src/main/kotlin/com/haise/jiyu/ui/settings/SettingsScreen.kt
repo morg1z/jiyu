@@ -101,6 +101,7 @@ fun SettingsScreen(
     onOpenCustomCss: () -> Unit = {},
     onOpenGoals: () -> Unit = {},
     onOpenCommunity: () -> Unit = {},
+    onOpenDuplicates: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val language          by viewModel.targetLanguage.collectAsState()
@@ -941,10 +942,17 @@ fun SettingsScreen(
                     }
                     OutlinedButton(
                         onClick = onOpenCommunity,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
                         Text("Community manga listy")
+                    }
+                    OutlinedButton(
+                        onClick = onOpenDuplicates,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                    ) {
+                        Text("Duplikát detektor")
                     }
                 }
 

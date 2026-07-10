@@ -21,6 +21,7 @@ import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.search.GlobalSearchScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 import com.haise.jiyu.ui.settings.SourceCatalogScreen
+import com.haise.jiyu.ui.duplicates.DuplicateDetectorScreen
 import com.haise.jiyu.ui.stats.ExtendedStatsScreen
 import com.haise.jiyu.ui.updates.UpdatesScreen
 
@@ -40,6 +41,7 @@ internal object Routes {
     const val GOALS         = "goals"
     const val COMMUNITY     = "community"
     const val CUSTOM_CSS    = "custom_css"
+    const val DUPLICATES    = "duplicates"
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
@@ -108,6 +110,7 @@ fun JiyuNavGraph(navController: NavHostController) {
                 onOpenCustomCss = { navController.navigate(Routes.CUSTOM_CSS) },
                 onOpenGoals = { navController.navigate(Routes.GOALS) },
                 onOpenCommunity = { navController.navigate(Routes.COMMUNITY) },
+                onOpenDuplicates = { navController.navigate(Routes.DUPLICATES) },
             )
         }
 
@@ -151,6 +154,13 @@ fun JiyuNavGraph(navController: NavHostController) {
 
         composable(Routes.CUSTOM_CSS) {
             CustomCssScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.DUPLICATES) {
+            DuplicateDetectorScreen(
+                onBack = { navController.popBackStack() },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+            )
         }
 
         composable(
