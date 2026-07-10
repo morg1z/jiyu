@@ -1,6 +1,8 @@
 package com.haise.jiyu.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -111,6 +113,7 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.settings.ReadingStats
 import com.haise.jiyu.ui.settings.SettingsViewModel
+import androidx.compose.material3.CircularProgressIndicator
 import com.haise.jiyu.ui.theme.CyanLight
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
@@ -148,6 +151,12 @@ fun LibraryScreen(
     val selectionMode      by viewModel.selectionMode.collectAsState()
     val selectedIds        by viewModel.selectedIds.collectAsState()
 
+    val localImportState   by viewModel.localImportState.collectAsState()
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let { viewModel.importLocalFile(it) } }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope    = rememberCoroutineScope()
 
@@ -155,6 +164,13 @@ fun LibraryScreen(
         val msg = refreshError ?: return@LaunchedEffect
         coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
         viewModel.clearRefreshError()
+    }
+    LaunchedEffect(localImportState) {
+        when (val s = localImportState) {
+            is LocalImportState.Done  -> { onOpenChapter(s.chapterId); viewModel.clearLocalImportState() }
+            is LocalImportState.Error -> { snackbarHostState.showSnackbar("Chyba: ${s.message}"); viewModel.clearLocalImportState() }
+            else -> {}
+        }
     }
     val recentlyRead       by viewModel.recentlyRead.collectAsState()
     val unreadCounts       by viewModel.unreadCounts.collectAsState()
@@ -219,6 +235,11 @@ fun LibraryScreen(
                     Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(text = "JIYU", style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp))
                         Text(text = "Knihovna · ${library.size} titulů", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                    }
+                    IconButton(
+                        onClick = { filePickerLauncher.launch(arrayOf("application/zip", "application/x-cbz", "application/octet-stream", "*/*")) },
+                    ) {
+                        Icon(Icons.Filled.Folder, contentDescription = "Otevřít CBZ/ZIP", tint = TextSecondary)
                     }
                     Box {
                         IconButton(onClick = { sortMenuExpanded = true }) {
@@ -389,6 +410,21 @@ fun LibraryScreen(
             }
 
             PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+        }
+
+        if (localImportState is LocalImportState.Importing) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(color = Color(0xFF8B5CF6))
+                    androidx.compose.material3.Text("Importuji soubor…", color = Color.White, fontSize = 14.sp)
+                }
+            }
         }
     }
 

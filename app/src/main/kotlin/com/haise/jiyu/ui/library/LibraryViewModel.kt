@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.library
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.entity.CATEGORY_COLORS
@@ -8,6 +9,7 @@ import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
+import com.haise.jiyu.local.LocalMangaImporter
 import com.haise.jiyu.source.SManga
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,10 +27,18 @@ import kotlin.random.Random
 
 enum class LibrarySortOption { TITLE, LAST_UPDATED, UNREAD_COUNT, DATE_ADDED, RANDOM }
 
+sealed interface LocalImportState {
+    data object Idle      : LocalImportState
+    data object Importing : LocalImportState
+    data class  Done(val chapterId: String) : LocalImportState
+    data class  Error(val message: String)  : LocalImportState
+}
+
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
+    private val localMangaImporter: LocalMangaImporter,
 ) : ViewModel() {
 
     val categories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
@@ -264,4 +274,20 @@ class LibraryViewModel @Inject constructor(
                 }
         }
     }
+
+    // ── Lokální CBZ/ZIP import ────────────────────────────────────────────────
+    private val _localImportState = MutableStateFlow<LocalImportState>(LocalImportState.Idle)
+    val localImportState: StateFlow<LocalImportState> = _localImportState.asStateFlow()
+
+    fun importLocalFile(uri: Uri) {
+        viewModelScope.launch {
+            _localImportState.value = LocalImportState.Importing
+            localMangaImporter.import(uri).fold(
+                onSuccess  = { chapterId -> _localImportState.value = LocalImportState.Done(chapterId) },
+                onFailure  = { _localImportState.value = LocalImportState.Error(it.message ?: "Chyba importu") },
+            )
+        }
+    }
+
+    fun clearLocalImportState() { _localImportState.value = LocalImportState.Idle }
 }
