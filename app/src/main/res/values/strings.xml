@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Jiyū</string>
+    <string name="widget_description">Zobrazuje nedávno aktualizované manga z knihovny</string>
+    <string name="widget_title">Jiyu – Knihovna</string>
 </resources>

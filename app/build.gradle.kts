@@ -161,6 +161,10 @@ dependencies {
     // QR kód generování (bez Activity, pure Java)
     implementation("com.google.zxing:core:3.5.3")
 
+    // App Widget (Glance — Compose-based home screen widget)
+    implementation("androidx.glance:glance-appwidget:1.0.0")
+    implementation("androidx.glance:glance-material3:1.0.0")
+
     // Firebase Crashlytics + Analytics (zdarma) — knihovny se přidávají vždy,
     // ale reálně se inicializují (viz JiyuApp) jen když je FIREBASE_ENABLED.
     implementation(platform("com.google.firebase:firebase-bom:33.1.0"))
