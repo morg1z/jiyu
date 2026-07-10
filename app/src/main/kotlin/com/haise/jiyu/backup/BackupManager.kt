@@ -108,6 +108,7 @@ class BackupManager @Inject constructor(
                         put("addedAt",             m.addedAt)
                         put("lastReadChapterId",   m.lastReadChapterId ?: "")
                         put("lastReadAt",          m.lastReadAt)
+                        put("readingStatus",       m.readingStatus ?: "")
                         put("categoryIds",         JSONArray(catMappings[m.id] ?: emptyList<String>()))
                     })
                 }
@@ -238,6 +239,7 @@ class BackupManager @Inject constructor(
                     inLibrary               = true,
                     lastReadChapterId       = m.optString("lastReadChapterId").ifBlank { null },
                     lastReadAt              = m.optLong("lastReadAt", 0L),
+                    readingStatus           = m.optString("readingStatus").ifBlank { null },
                 )
             )
             val ids = m.optJSONArray("categoryIds") ?: JSONArray()

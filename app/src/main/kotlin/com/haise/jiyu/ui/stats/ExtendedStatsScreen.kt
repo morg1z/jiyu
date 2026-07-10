@@ -195,6 +195,51 @@ fun ExtendedStatsScreen(
                 }
             }
 
+            if (stats.totalInLibrary > 0 && stats.statusBreakdown.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "STAV ČTENÍ", modifier = Modifier.padding(horizontal = 16.dp))
+                    val statusLabels = mapOf(
+                        "READING"      to "Čtu",
+                        "COMPLETED"    to "Dokončeno",
+                        "ON_HOLD"      to "Pozastaveno",
+                        "DROPPED"      to "Opuštěno",
+                        "PLAN_TO_READ" to "Plánuji",
+                        "UNSET"        to "Bez statusu",
+                    )
+                    val statusColors = mapOf(
+                        "READING"      to GlowCyan,
+                        "COMPLETED"    to androidx.compose.ui.graphics.Color(0xFF4FC3F7),
+                        "ON_HOLD"      to androidx.compose.ui.graphics.Color(0xFFFFB74D),
+                        "DROPPED"      to androidx.compose.ui.graphics.Color(0xFFEF5350),
+                        "PLAN_TO_READ" to GlowViolet,
+                        "UNSET"        to TextSecondary,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(glassGradient)
+                            .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        val total = stats.totalInLibrary.coerceAtLeast(1)
+                        stats.statusBreakdown.entries
+                            .sortedByDescending { it.value }
+                            .forEach { (key, count) ->
+                                val color = statusColors[key] ?: TextSecondary
+                                HorizontalBar(
+                                    label = "${statusLabels[key] ?: key} ($count)",
+                                    value = count,
+                                    fraction = count.toFloat() / total,
+                                    color = Brush.horizontalGradient(listOf(color, color.copy(alpha = 0.6f))),
+                                )
+                            }
+                    }
+                }
+            }
+
             item { Spacer(Modifier.height(16.dp)) }
         }
     }

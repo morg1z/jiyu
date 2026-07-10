@@ -25,6 +25,8 @@ data class ExtendedStats(
     val dailyCounts: List<Pair<String, Int>> = emptyList(),
     val topGenres: List<Pair<String, Int>> = emptyList(),
     val topAuthors: List<Pair<String, Int>> = emptyList(),
+    val statusBreakdown: Map<String, Int> = emptyMap(),
+    val totalInLibrary: Int = 0,
 )
 
 @HiltViewModel
@@ -72,6 +74,11 @@ class ExtendedStatsViewModel @Inject constructor(
         }
         val topAuthors = authorMap.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
 
+        val library = mangaDao.getAllLibrary()
+        val statusBreakdown = library
+            .groupBy { it.readingStatus ?: "UNSET" }
+            .mapValues { it.value.size }
+
         _stats.value = ExtendedStats(
             chaptersRead = repository.observeReadChaptersCount().first(),
             pagesRead = settings.totalPagesRead.first(),
@@ -80,6 +87,8 @@ class ExtendedStatsViewModel @Inject constructor(
             dailyCounts = allDays,
             topGenres = topGenres,
             topAuthors = topAuthors,
+            statusBreakdown = statusBreakdown,
+            totalInLibrary = library.size,
         )
     }
 }
