@@ -38,6 +38,9 @@ import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.source.mangaplus.MangaPlusSource
 import com.haise.jiyu.source.webtoon.WebtoonSource
+import com.haise.jiyu.source.manganato.MangaNatoSource
+import com.haise.jiyu.source.royalroad.RoyalRoadSource
+import com.haise.jiyu.source.scribblehub.ScribbleHubSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -93,6 +96,9 @@ class SourceManager @Inject constructor(
     goComicsSource: GoComicsSource,
     globalComixSource: GlobalComixSource,
     comicKingdomSource: ComicKingdomSource,
+    mangaNatoSource: MangaNatoSource,
+    royalRoadSource: RoyalRoadSource,
+    scribbleHubSource: ScribbleHubSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -135,6 +141,20 @@ class SourceManager @Inject constructor(
         goComicsSource,
         globalComixSource,
         comicKingdomSource,
+        mangaNatoSource,
+        royalRoadSource,
+        scribbleHubSource,
+        // ── Manhua (čínské komiksy) ──────────────────────────────────────────
+        MadaraSource("manhuafast",  "ManhuaFast",      "https://manhuafast.com",  client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuaplus",  "Manhuaplus",      "https://manhuaplus.com",  client, contentTypeOverride = "MANHUA"),
+        MadaraSource("zinmanga",    "ZinManga",        "https://zinmanga.com",    client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuaes",    "ManhuaES",        "https://manhuaes.com",    client, contentTypeOverride = "MANHUA"),
+        // ── Manhwa scanlation skupiny ────────────────────────────────────────
+        MadaraSource("1stkissmanga", "1st Kiss Manga", "https://1stkissmanga.io", client, contentTypeOverride = "MANHWA"),
+        MadaraSource("cosmicscans", "Cosmic Scans",    "https://cosmicscans.org", client, contentTypeOverride = "MANHWA"),
+        MadaraSource("nightscans",  "Night Scans",     "https://nightscans.net",  client, contentTypeOverride = "MANHWA"),
+        MadaraSource("manhwatop",   "Manhwatop",       "https://manhwatop.com",   client, contentTypeOverride = "MANHWA"),
+        MadaraSource("mangaclash",  "MangaClash",      "https://mangaclash.com",  client, contentTypeOverride = "MANGA"),
     )
 
     init {
