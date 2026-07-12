@@ -15,6 +15,12 @@ ksp {
 val localProps = Properties()
 rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(localProps::load)
 
+// Buildy určené k veřejné distribuci (GitHub Releases apod.) se spouští s
+// -PpublicBuild=true, aby se do APK nezabudoval tajný GROQ_API_KEY — ten by
+// šel z binárky triviálně vytáhnout (viz app/build/outputs prohledávatelné
+// jako zip). Appka bez klíče AI překlad jen vypne s hláškou, nespadne.
+val isPublicBuild = project.hasProperty("publicBuild")
+
 // Firebase (Crashlytics) je volitelný a zdarma — aplikuje se jen tehdy, když
 // existuje app/google-services.json (stažený z console.firebase.google.com).
 // Bez toho souboru appka jede úplně normálně dál, jen bez crash reportingu.
@@ -37,7 +43,7 @@ android {
         targetSdk = 34
         versionCode = 2
         versionName = "0.2.0"
-        buildConfigField("String", "GROQ_API_KEY", "\"${localProps["GROQ_API_KEY"] ?: ""}\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"${if (isPublicBuild) "" else (localProps["GROQ_API_KEY"] ?: "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${localProps["SUPABASE_URL"] ?: "https://placeholder.supabase.co"}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps["SUPABASE_ANON_KEY"] ?: "placeholder-anon-key"}\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")
