@@ -9,6 +9,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.haise.jiyu.ui.account.AccountScreen
 import com.haise.jiyu.ui.browse.BrowseScreen
+import com.haise.jiyu.ui.browse.SourceBrowseScreen
 import com.haise.jiyu.ui.community.CommunityScreen
 import com.haise.jiyu.ui.css.CustomCssScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
@@ -32,6 +33,7 @@ internal object Routes {
     const val LIBRARY       = "library"
     const val UPDATES       = "updates"
     const val BROWSE        = "browse"
+    const val SOURCE_BROWSE = "source_browse/{sourceId}"
     const val DETAIL        = "detail/{mangaId}"
     const val READER        = "reader/{chapterId}?incognito={incognito}"
     const val SETTINGS      = "settings"
@@ -49,6 +51,7 @@ internal object Routes {
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
+    fun sourceBrowse(sourceId: String) = "source_browse/${android.net.Uri.encode(sourceId)}"
     fun reader(chapterId: String, incognito: Boolean = false) =
         "reader/${android.net.Uri.encode(chapterId)}?incognito=$incognito"
     fun qr(mangaId: String, mangaTitle: String) =
@@ -91,12 +94,22 @@ fun JiyuNavGraph(
 
         composable(Routes.BROWSE) {
             BrowseScreen(
+                onOpenSource = { sourceId -> navController.navigate(Routes.sourceBrowse(sourceId)) },
+                onGlobalSearch = { navController.navigate(Routes.GLOBAL_SEARCH) },
+            )
+        }
+
+        composable(
+            route = Routes.SOURCE_BROWSE,
+            arguments = listOf(navArgument("sourceId") { type = NavType.StringType }),
+        ) {
+            SourceBrowseScreen(
+                onBack = { navController.popBackStack() },
                 onMangaAdded = { mangaId ->
                     navController.navigate(Routes.detail(mangaId)) {
                         popUpTo(Routes.LIBRARY)
                     }
                 },
-                onGlobalSearch = { navController.navigate(Routes.GLOBAL_SEARCH) },
             )
         }
 
