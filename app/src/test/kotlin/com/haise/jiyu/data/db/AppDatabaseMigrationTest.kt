@@ -79,6 +79,18 @@ class AppDatabaseMigrationTest {
                 AppDatabase.MIGRATION_10_11,
                 AppDatabase.MIGRATION_11_12,
                 AppDatabase.MIGRATION_12_13,
+                AppDatabase.MIGRATION_13_14,
+                AppDatabase.MIGRATION_14_15,
+                AppDatabase.MIGRATION_15_16,
+                AppDatabase.MIGRATION_16_17,
+                AppDatabase.MIGRATION_17_18,
+                AppDatabase.MIGRATION_18_19,
+                AppDatabase.MIGRATION_19_20,
+                AppDatabase.MIGRATION_20_21,
+                AppDatabase.MIGRATION_21_22,
+                AppDatabase.MIGRATION_22_23,
+                AppDatabase.MIGRATION_23_24,
+                AppDatabase.MIGRATION_24_25,
             )
             .build()
 
@@ -92,6 +104,22 @@ class AppDatabaseMigrationTest {
         val chapters = db.chapterDao()
         // scanlationGroup pridany v ramci stejne migrace musi byt citelny (nullable, default null)
         assertEquals(0, chapters.countForManga("neexistujici"))
+
+        // Sloupce pridane v MIGRATION_22_23/23_24/24_25 (Kitsu/MangaUpdates tracking,
+        // DB indexy, per-manga cas cteni) - tyto migrace jeste nebyly overeny.
+        val manga = com.haise.jiyu.data.db.entity.MangaEntity(
+            id = "m1", sourceId = "mangadex", url = "https://example.com/m1", title = "Test",
+            coverUrl = null, description = null, status = null, inLibrary = true,
+        )
+        db.mangaDao().upsert(manga)
+        db.mangaDao().setKitsuId("m1", "kitsu-1")
+        db.mangaDao().setMangaUpdatesId("m1", 42L)
+        db.mangaDao().addReadingTime("m1", 5000L)
+
+        val result = db.mangaDao().getById("m1")!!
+        assertEquals("kitsu-1", result.kitsuId)
+        assertEquals(42L, result.mangaUpdatesId)
+        assertEquals(5000L, result.readingTimeMs)
 
         db.close()
         context.deleteDatabase(dbName)
