@@ -1,12 +1,10 @@
 package com.haise.jiyu.data.tracking
 
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
+import com.haise.jiyu.security.SecureCredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -18,25 +16,28 @@ import javax.inject.Singleton
 
 @Singleton
 class KitsuAuthManager @Inject constructor(
-    private val dataStore: DataStore<Preferences>,
+    private val secureStore: SecureCredentialStore,
     private val client: OkHttpClient,
 ) {
     companion object {
-        private val KEY_TOKEN    = stringPreferencesKey("kitsu_access_token")
-        private val KEY_REFRESH  = stringPreferencesKey("kitsu_refresh_token")
-        private val KEY_USERNAME = stringPreferencesKey("kitsu_username")
-        private val KEY_USER_ID  = stringPreferencesKey("kitsu_user_id")
+        private const val KEY_TOKEN    = "kitsu_access_token"
+        private const val KEY_REFRESH  = "kitsu_refresh_token"
+        private const val KEY_USERNAME = "kitsu_username"
+        private const val KEY_USER_ID  = "kitsu_user_id"
         // Kitsu public OAuth client (documented, used by community apps)
         private const val CLIENT_ID     = "dd031b32d2f56c990b1425efe6c42ad847e7fe3ab46bf1299f05ecd856bdb7dd"
         private const val CLIENT_SECRET = "54d7307928f63414defd96399fc31ba847961ceaecef3a5fd93144e960c0e151"
         private const val TOKEN_URL     = "https://kitsu.app/api/oauth/token"
     }
 
-    val isLoggedIn: Flow<Boolean> = dataStore.data.map { !it[KEY_TOKEN].isNullOrBlank() }
-    val username:   Flow<String>  = dataStore.data.map { it[KEY_USERNAME] ?: "" }
+    private val _token = MutableStateFlow(secureStore.get(KEY_TOKEN))
+    private val _username = MutableStateFlow(secureStore.get(KEY_USERNAME) ?: "")
 
-    suspend fun getToken(): String? = dataStore.data.first()[KEY_TOKEN]
-    suspend fun getUserId(): String? = dataStore.data.first()[KEY_USER_ID]
+    val isLoggedIn: Flow<Boolean> = _token.map { !it.isNullOrBlank() }
+    val username:   Flow<String>  = _username.asStateFlow()
+
+    suspend fun getToken(): String? = withContext(Dispatchers.IO) { secureStore.get(KEY_TOKEN) }
+    suspend fun getUserId(): String? = withContext(Dispatchers.IO) { secureStore.get(KEY_USER_ID) }
 
     suspend fun login(email: String, password: String): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -53,21 +54,20 @@ class KitsuAuthManager @Inject constructor(
             val json = JSONObject(resp.body?.string() ?: return@withContext false)
             val token = json.optString("access_token").takeIf { it.isNotBlank() } ?: return@withContext false
             val refresh = json.optString("refresh_token")
-            dataStore.edit { prefs ->
-                prefs[KEY_TOKEN]    = token
-                prefs[KEY_USERNAME] = email
-                if (refresh.isNotBlank()) prefs[KEY_REFRESH] = refresh
-            }
+            secureStore.set(KEY_TOKEN, token)
+            secureStore.set(KEY_USERNAME, email)
+            if (refresh.isNotBlank()) secureStore.set(KEY_REFRESH, refresh)
+            _token.value = token
+            _username.value = email
             true
         } catch (_: Exception) { false }
     }
 
-    suspend fun saveUserId(id: String) = dataStore.edit { it[KEY_USER_ID] = id }
+    suspend fun saveUserId(id: String) = withContext(Dispatchers.IO) { secureStore.set(KEY_USER_ID, id) }
 
-    suspend fun logout() = dataStore.edit {
-        it.remove(KEY_TOKEN)
-        it.remove(KEY_REFRESH)
-        it.remove(KEY_USERNAME)
-        it.remove(KEY_USER_ID)
+    suspend fun logout() = withContext(Dispatchers.IO) {
+        secureStore.remove(KEY_TOKEN, KEY_REFRESH, KEY_USERNAME, KEY_USER_ID)
+        _token.value = null
+        _username.value = ""
     }
 }

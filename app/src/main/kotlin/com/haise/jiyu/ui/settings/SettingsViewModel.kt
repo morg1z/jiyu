@@ -26,6 +26,8 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.update.UpdateChecker
+import com.haise.jiyu.update.UpdateInfo
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.catalog.CatalogSource
@@ -81,6 +83,7 @@ class SettingsViewModel @Inject constructor(
     private val tachiyomiBackupImporter: TachiyomiBackupImporter,
     private val malAuthManager: MalAuthManager,
     private val malRepository: MalRepository,
+    private val updateChecker: UpdateChecker,
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
@@ -539,4 +542,42 @@ class SettingsViewModel @Inject constructor(
 
     val categories: StateFlow<List<com.haise.jiyu.data.db.entity.CategoryEntity>> = repository.observeCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Notifikace — jednotlivé typy ─────────────────────────────────────────
+    val notifyNewChapters: StateFlow<Boolean> = settings.notifyNewChapters
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setNotifyNewChapters(enabled: Boolean) = viewModelScope.launch { settings.setNotifyNewChapters(enabled) }
+
+    val notifyDownloads: StateFlow<Boolean> = settings.notifyDownloads
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setNotifyDownloads(enabled: Boolean) = viewModelScope.launch { settings.setNotifyDownloads(enabled) }
+
+    // ── Cloudová záloha (SAF složka) ─────────────────────────────────────────
+    val backupFolderUri: StateFlow<String?> = settings.backupFolderUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setBackupFolderUri(uri: String?) = viewModelScope.launch { settings.setBackupFolderUri(uri) }
+
+    // ── Kontrola aktualizací (GitHub Releases) ───────────────────────────────
+    val appVersion: String get() = BuildConfig.VERSION_NAME
+
+    private val _updateCheckLoading = MutableStateFlow(false)
+    val updateCheckLoading: StateFlow<Boolean> = _updateCheckLoading.asStateFlow()
+
+    private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
+
+    private val _updateCheckedAndNoneFound = MutableStateFlow(false)
+    val updateCheckedAndNoneFound: StateFlow<Boolean> = _updateCheckedAndNoneFound.asStateFlow()
+
+    fun checkForUpdate() = viewModelScope.launch {
+        _updateCheckLoading.value = true
+        _updateCheckedAndNoneFound.value = false
+        val result = updateChecker.checkForUpdate(appVersion)
+        _updateInfo.value = result
+        _updateCheckedAndNoneFound.value = result == null
+        _updateCheckLoading.value = false
+    }
 }

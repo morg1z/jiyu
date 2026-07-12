@@ -105,7 +105,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
                     createCbz(chapterDir)
                 }
 
-                notifyDone(chapterEntityId)
+                if (settings.notifyDownloads.first()) notifyDone(chapterEntityId)
                 Result.success()
             } catch (e: CancellationException) {
                 nm.cancel(progressId)
@@ -114,6 +114,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
             } catch (e: Exception) {
                 nm.cancel(progressId)
                 repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
+                if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, e)
                 Result.failure()
             }
         }
@@ -139,6 +140,18 @@ class ChapterDownloadWorker @AssistedInject constructor(
             .build()
         applicationContext.getSystemService(NotificationManager::class.java)
             .notify(chapterId.hashCode(), notification)
+    }
+
+    private suspend fun notifyFailed(chapterId: String, error: Exception) {
+        val chapterName = repository.getChapter(chapterId)?.name ?: "Kapitola"
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle("Stahování selhalo")
+            .setContentText("$chapterName: ${error.message ?: "neznámá chyba"}")
+            .setAutoCancel(true)
+            .build()
+        applicationContext.getSystemService(NotificationManager::class.java)
+            .notify(chapterId.hashCode() xor 0x2000, notification)
     }
 
     private fun downloadBytes(url: String): ByteArray {

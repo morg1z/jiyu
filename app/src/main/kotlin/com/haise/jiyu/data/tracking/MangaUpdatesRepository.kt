@@ -3,13 +3,11 @@ package com.haise.jiyu.data.tracking
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
+import com.haise.jiyu.security.SecureCredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -33,18 +31,21 @@ data class MuManga(
 @Singleton
 class MangaUpdatesRepository @Inject constructor(
     private val httpClient: OkHttpClient,
-    private val dataStore: DataStore<Preferences>,
+    private val secureStore: SecureCredentialStore,
 ) {
     companion object {
-        private val KEY_SESSION = stringPreferencesKey("mu_session_token")
-        private val KEY_USER    = stringPreferencesKey("mu_username")
+        private const val KEY_SESSION = "mu_session_token"
+        private const val KEY_USER    = "mu_username"
         private const val BASE  = "https://api.mangaupdates.com/v1"
     }
 
-    val isLoggedIn: Flow<Boolean> = dataStore.data.map { !it[KEY_SESSION].isNullOrBlank() }
-    val username:   Flow<String>  = dataStore.data.map { it[KEY_USER] ?: "" }
+    private val _session = MutableStateFlow(secureStore.get(KEY_SESSION))
+    private val _username = MutableStateFlow(secureStore.get(KEY_USER) ?: "")
 
-    private suspend fun sessionToken(): String? = dataStore.data.first()[KEY_SESSION]
+    val isLoggedIn: Flow<Boolean> = _session.map { !it.isNullOrBlank() }
+    val username:   Flow<String>  = _username.asStateFlow()
+
+    private suspend fun sessionToken(): String? = withContext(Dispatchers.IO) { secureStore.get(KEY_SESSION) }
 
     suspend fun login(user: String, pass: String): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -58,17 +59,18 @@ class MangaUpdatesRepository @Inject constructor(
             val body = JSONObject(resp.body?.string() ?: return@withContext false)
             val ctx = body.optJSONObject("context")
             val token = ctx?.optString("session_token")?.takeIf { it.isNotBlank() } ?: return@withContext false
-            dataStore.edit {
-                it[KEY_SESSION] = token
-                it[KEY_USER]    = user
-            }
+            secureStore.set(KEY_SESSION, token)
+            secureStore.set(KEY_USER, user)
+            _session.value = token
+            _username.value = user
             true
         } catch (_: Exception) { false }
     }
 
-    suspend fun logout() = dataStore.edit {
-        it.remove(KEY_SESSION)
-        it.remove(KEY_USER)
+    suspend fun logout() = withContext(Dispatchers.IO) {
+        secureStore.remove(KEY_SESSION, KEY_USER)
+        _session.value = null
+        _username.value = ""
     }
 
     suspend fun searchManga(query: String): List<MuManga> = withContext(Dispatchers.IO) {

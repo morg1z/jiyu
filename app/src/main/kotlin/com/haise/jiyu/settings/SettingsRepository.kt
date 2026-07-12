@@ -58,6 +58,9 @@ object SettingsKeys {
     val LIBRARY_GRID_COLUMNS   = intPreferencesKey("library_grid_columns")
     val DEFAULT_CATEGORY_ID    = stringPreferencesKey("default_category_id")
     val PARALLEL_DOWNLOADS     = intPreferencesKey("parallel_downloads")
+    val NOTIFY_NEW_CHAPTERS    = booleanPreferencesKey("notify_new_chapters")
+    val NOTIFY_DOWNLOADS       = booleanPreferencesKey("notify_downloads")
+    val BACKUP_FOLDER_URI      = stringPreferencesKey("backup_folder_uri")
 }
 
 object ReaderTheme {
@@ -365,6 +368,31 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setParallelDownloads(n: Int) =
         dataStore.edit { it[SettingsKeys.PARALLEL_DOWNLOADS] = n }
+
+    val notifyNewChapters: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.NOTIFY_NEW_CHAPTERS] ?: true }
+
+    suspend fun setNotifyNewChapters(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.NOTIFY_NEW_CHAPTERS] = enabled }
+
+    val notifyDownloads: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.NOTIFY_DOWNLOADS] ?: true }
+
+    suspend fun setNotifyDownloads(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.NOTIFY_DOWNLOADS] = enabled }
+
+    /**
+     * Volitelná složka pro automatickou zálohu (přes SAF). Může mířit na složku
+     * synchronizovanou appkou jako Google Drive / Dropbox - appka samotná žádné
+     * cloud API nevolá, jen zapisuje do vybrané složky jako do lokálního úložiště.
+     */
+    val backupFolderUri: Flow<String?> =
+        dataStore.data.map { it[SettingsKeys.BACKUP_FOLDER_URI] }
+
+    suspend fun setBackupFolderUri(uri: String?) = dataStore.edit {
+        if (uri == null) it.remove(SettingsKeys.BACKUP_FOLDER_URI)
+        else it[SettingsKeys.BACKUP_FOLDER_URI] = uri
+    }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()

@@ -164,6 +164,13 @@ dependencies {
     // AppCompat — potřebné pro AppCompatDelegate.setApplicationLocales()
     implementation("androidx.appcompat:appcompat:1.7.0")
 
+    // Jetpack Security — šifrované úložiště pro tracker tokeny/hesla (MAL/Kitsu/MangaUpdates).
+    // Verze zůstává v alpha už roky (MasterKey API), ale je produkčně používaná ve velkém množství appek.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // DocumentFile — zápis do uživatelem vybrané SAF složky (např. lokálně synchronizovaná Google Drive/Dropbox složka)
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     // App Widget (Glance — Compose-based home screen widget)
     implementation("androidx.glance:glance-appwidget:1.0.0")
     implementation("androidx.glance:glance-material3:1.0.0")

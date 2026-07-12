@@ -50,13 +50,18 @@ Hotovo (2026-07-06):
   sleep timer, reading goals, hodnocení, panel mode, community listy, DB
   indexy, Coil cache, ProGuard/R8, UI testy)
 
-Rozpracováno (2026-07-07):
-- **#48 Firebase Crashlytics + Analytics** — gradle scaffolding hotový
-  (`build.gradle.kts`, `app/build.gradle.kts`, `JiyuApp.kt`), ale
-  chybí `app/google-services.json`. Bez něj build.gradle plugin
-  přeskočí a appka jede dál normálně, jen bez crash reportingu
-  (`BuildConfig.FIREBASE_ENABLED == false`). Až uživatel doplní soubor,
-  stačí ho hodit do `app/` a přebuildit.
+Hotovo (2026-07-12):
+- **#48 Firebase Crashlytics + Analytics** — `app/google-services.json` doplněn,
+  `BuildConfig.FIREBASE_ENABLED == true`, plugin aktivní.
+- Kompletní JVM unit test suite (156 testů, 45 tříd) pokrývající všech 30+
+  zdrojů, sdílené parsovací enginy (Madara, ComicSiteSource), repository
+  vrstvu a DB migrace.
+- GitHub Actions CI (`.github/workflows/android-tests.yml`) spouští testy
+  při každém push/PR. Repo: github.com/morg1z/jiyu (private).
+- Kitsu + MangaUpdates tracker (vedle MAL) s obousměrnou synchronizací statusu/skóre.
+- Export/import nastavení appky, export statistik (JSON/CSV), globální
+  "označit knihovnu jako přečtenou", per-manga čas čtení, retry jednotlivé
+  stránky v readeru, tap zóny, deep linky i při cold startu appky.
 
 ## Styl práce
 

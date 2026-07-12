@@ -154,6 +154,9 @@ fun SettingsScreen(
     val libraryGridColumns by viewModel.libraryGridColumns.collectAsState()
     val defaultCategoryId  by viewModel.defaultCategoryId.collectAsState()
     val allCategories      by viewModel.categories.collectAsState()
+    val notifyNewChapters  by viewModel.notifyNewChapters.collectAsState()
+    val notifyDownloads    by viewModel.notifyDownloads.collectAsState()
+    val backupFolderUri    by viewModel.backupFolderUri.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -597,6 +600,53 @@ fun SettingsScreen(
                             onCheckedChange = null,
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )
+                    }
+
+                    // ── Cíl automatické zálohy — libovolná SAF složka, klidně lokálně
+                    //    synchronizovaná Google Drive / Dropbox / OneDrive appkou ──
+                    run {
+                        val backupFolderCtx = androidx.compose.ui.platform.LocalContext.current
+                        val backupFolderPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                            androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+                        ) { uri ->
+                            if (uri != null) {
+                                backupFolderCtx.contentResolver.takePersistableUriPermission(
+                                    uri,
+                                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                )
+                                viewModel.setBackupFolderUri(uri.toString())
+                            }
+                        }
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(
+                                text = if (backupFolderUri != null)
+                                    "Cíl auto-zálohy: ${Uri.parse(backupFolderUri).lastPathSegment ?: backupFolderUri}"
+                                else
+                                    "Cíl auto-zálohy: úložiště zařízení (výchozí)",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                            )
+                            Text(
+                                "Vyber složku synchronizovanou appkou Google Drive/Dropbox pro cloudovou zálohu bez nastavování API.",
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { backupFolderPicker.launch(null) },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Vybrat složku", fontSize = 12.sp) }
+                                if (backupFolderUri != null) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.setBackupFolderUri(null) },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    ) { Text("Reset", fontSize = 12.sp) }
+                                }
+                            }
+                        }
                     }
 
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -1074,6 +1124,46 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
+                // ── Notifikace ────────────────────────────────────────────────
+                SettingsSection(title = "Notifikace") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = notifyNewChapters, onValueChange = { viewModel.setNotifyNewChapters(it) }, role = Role.Switch)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Nové kapitoly", color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text("Upozornění při automatické kontrole nových kapitol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = notifyNewChapters,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = notifyDownloads, onValueChange = { viewModel.setNotifyDownloads(it) }, role = Role.Switch)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Stahování", color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text("Upozornění při dokončení nebo selhání stahování kapitoly", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = notifyDownloads,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 // ── Knihovna ──────────────────────────────────────────────────
                 SettingsSection(title = "Knihovna") {
                     Text(
@@ -1354,6 +1444,70 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
                         Text("Duplikát detektor")
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── O aplikaci / kontrola aktualizací ────────────────────────────
+                SettingsSection(title = "O aplikaci") {
+                    val updateCheckLoading by viewModel.updateCheckLoading.collectAsState()
+                    val updateInfo by viewModel.updateInfo.collectAsState()
+                    val updateCheckedNone by viewModel.updateCheckedAndNoneFound.collectAsState()
+                    val updateCtx = androidx.compose.ui.platform.LocalContext.current
+
+                    Text(
+                        text = "Verze ${viewModel.appVersion}",
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+
+                    if (updateInfo != null) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(
+                                "Nová verze ${updateInfo!!.version} je k dispozici",
+                                color = GlowViolet,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                            )
+                            if (updateInfo!!.notes.isNotBlank()) {
+                                Text(
+                                    updateInfo!!.notes,
+                                    color = TextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 4,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                updateCtx.startActivity(
+                                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateInfo!!.releaseUrl))
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
+                        ) { Text("Otevřít stránku vydání") }
+                    } else if (updateCheckedNone) {
+                        Text(
+                            "Máš nejnovější verzi",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.checkForUpdate() },
+                        enabled = !updateCheckLoading,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                    ) {
+                        if (updateCheckLoading) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(16.dp), strokeWidth = 2.dp, color = Violet)
+                        Text("Zkontrolovat aktualizace")
                     }
                 }
 

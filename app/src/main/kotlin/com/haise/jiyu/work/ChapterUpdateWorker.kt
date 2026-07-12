@@ -20,6 +20,7 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -63,7 +64,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
             }
 
             if (updatedManga.isNotEmpty()) {
-                notify(updatedManga)
+                if (settings.notifyNewChapters.first()) notify(updatedManga)
                 settings.addNewChapters(updatedManga.sumOf { it.second.second })
             }
             Result.success()
