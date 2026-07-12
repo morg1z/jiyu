@@ -311,10 +311,14 @@ fun SettingsScreen(
                 Spacer(Modifier.height(12.dp))
 
                 SettingsSection(title = "Téma") {
-                    listOf(ThemeOption.SYSTEM to "Systémové", ThemeOption.DARK to "Tmavé", ThemeOption.LIGHT to "Světlé")
-                        .forEach { (value, label) ->
-                            GlassRadioRow(label = label, selected = theme == value, onClick = { viewModel.setTheme(value) })
-                        }
+                    listOf(
+                        ThemeOption.SYSTEM to "Systémové",
+                        ThemeOption.LIGHT to "Světlé",
+                        ThemeOption.DARK to "Tmavé",
+                        ThemeOption.TRUE_BLACK to "Čistě černé (OLED)",
+                    ).forEach { (value, label) ->
+                        GlassRadioRow(label = label, selected = theme == value, onClick = { viewModel.setTheme(value) })
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))

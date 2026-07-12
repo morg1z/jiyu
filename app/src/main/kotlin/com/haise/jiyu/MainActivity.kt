@@ -89,9 +89,9 @@ class MainActivity : AppCompatActivity() {
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit
             val onboardingCompleted by settings.onboardingCompleted.collectAsState(initial = null)
             val isDark = when (theme) {
-                ThemeOption.DARK  -> true
-                ThemeOption.LIGHT -> false
-                else              -> isSystemInDarkTheme()
+                ThemeOption.DARK, ThemeOption.TRUE_BLACK -> true
+                ThemeOption.LIGHT                        -> false
+                else                                      -> isSystemInDarkTheme()
             }
 
             // Přizpůsob barvu ikon systémových lišt aktuálnímu tématu
@@ -101,11 +101,7 @@ class MainActivity : AppCompatActivity() {
                 controller.isAppearanceLightNavigationBars = !isDark
             }
 
-            JiyuTheme(forceDark = when (theme) {
-                ThemeOption.DARK  -> true
-                ThemeOption.LIGHT -> false
-                else              -> null
-            }) {
+            JiyuTheme(mode = theme) {
                 // Počkáme na načtení onboarding statusu — zobrazíme prázdnou plochu
                 if (onboardingCompleted != null) {
                     Surface(modifier = Modifier.fillMaxSize()) {

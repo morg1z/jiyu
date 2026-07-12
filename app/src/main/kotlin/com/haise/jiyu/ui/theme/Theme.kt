@@ -9,56 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-
-private val JiyuDarkColors = darkColorScheme(
-    primary             = Violet,
-    onPrimary           = Color.White,
-    primaryContainer    = VioletDeep,
-    onPrimaryContainer  = VioletLight,
-    secondary           = Cyan,
-    onSecondary         = Color.White,
-    secondaryContainer  = CyanDark,
-    onSecondaryContainer= CyanLight,
-    tertiary            = Pink,
-    onTertiary          = Color.White,
-    tertiaryContainer   = Color(0xFF831843),
-    onTertiaryContainer = PinkLight,
-    background          = DeepSpace,
-    onBackground        = TextPrimary,
-    surface             = Midnight,
-    onSurface           = TextPrimary,
-    surfaceVariant      = NightBlue,
-    onSurfaceVariant    = TextSecondary,
-    outline             = Color(0xFF2D3D5C),
-    outlineVariant      = Color(0xFF1A2540),
-    error               = Color(0xFFF87171),
-    onError             = Color.White,
-)
-
-private val JiyuLightColors = lightColorScheme(
-    primary              = VioletDark,
-    onPrimary            = Color.White,
-    primaryContainer     = Color(0xFFEDE9FE),
-    onPrimaryContainer   = Color(0xFF3B0764),
-    secondary            = CyanDark,
-    onSecondary          = Color.White,
-    secondaryContainer   = Color(0xFFCFFAFE),
-    onSecondaryContainer = Color(0xFF0E4F5C),
-    tertiary             = Pink,
-    onTertiary           = Color.White,
-    tertiaryContainer    = Color(0xFFFCE7F3),
-    onTertiaryContainer  = Color(0xFF831843),
-    background           = Color(0xFFF1F5FF),
-    onBackground         = Color(0xFF0F172A),
-    surface              = Color(0xFFFFFFFF),
-    onSurface            = Color(0xFF0F172A),
-    surfaceVariant       = Color(0xFFE8EDFF),
-    onSurfaceVariant     = Color(0xFF334155),
-    outline              = Color(0xFF94A3B8),
-    outlineVariant       = Color(0xFFCBD5E1),
-    error                = Color(0xFFDC2626),
-    onError              = Color.White,
-)
+import com.haise.jiyu.settings.ThemeOption
 
 val JiyuShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
@@ -69,13 +20,56 @@ val JiyuShapes = Shapes(
 )
 
 /**
- * @param forceDark true = tmavé, false = světlé, null = systémové
+ * @param mode ThemeOption.SYSTEM / DARK / LIGHT / TRUE_BLACK - SYSTEM se rozhodne
+ * podle OS mezi DARK a LIGHT (true black je vždy jen explicitní volba, ne systémová).
  */
 @Composable
-fun JiyuTheme(forceDark: Boolean? = null, content: @Composable () -> Unit) {
-    val dark = forceDark ?: isSystemInDarkTheme()
+fun JiyuTheme(mode: String = ThemeOption.SYSTEM, content: @Composable () -> Unit) {
+    val resolvedMode = if (mode == ThemeOption.SYSTEM) {
+        if (isSystemInDarkTheme()) ThemeOption.DARK else ThemeOption.LIGHT
+    } else mode
+    val isLight = resolvedMode == ThemeOption.LIGHT
+
+    // Přepočítá reaktivní paletu (Color.kt) synchronně v rámci téhle kompozice -
+    // odtud se to samo propíše do všech obrazovek, které na tyto barvy odkazují.
+    // Volání je idempotentní (stejný mode = stejné hodnoty), takže je bezpečné
+    // volat ho přímo v těle composable (ne přes LaunchedEffect, kde by se
+    // hodnoty aplikovaly až o snímek později a colorScheme níže by na prvním
+    // snímku ještě četl staré barvy).
+    applyPaletteMode(resolvedMode)
+
+    val colorScheme = if (isLight) {
+        lightColorScheme(
+            primary = Accent, onPrimary = Color.White,
+            primaryContainer = AccentLight.copy(alpha = 0.25f), onPrimaryContainer = AccentDark,
+            secondary = Accent, onSecondary = Color.White,
+            secondaryContainer = AccentLight.copy(alpha = 0.25f), onSecondaryContainer = AccentDark,
+            tertiary = Pink, onTertiary = Color.White,
+            tertiaryContainer = PinkLight.copy(alpha = 0.4f), onTertiaryContainer = Color(0xFF831843),
+            background = DeepSpace, onBackground = TextPrimary,
+            surface = Midnight, onSurface = TextPrimary,
+            surfaceVariant = NightBlue, onSurfaceVariant = TextSecondary,
+            outline = CardBorder, outlineVariant = CardBorder,
+            error = Color(0xFFDC2626), onError = Color.White,
+        )
+    } else {
+        darkColorScheme(
+            primary = Accent, onPrimary = Color.White,
+            primaryContainer = AccentDark, onPrimaryContainer = AccentLight,
+            secondary = Accent, onSecondary = Color.White,
+            secondaryContainer = AccentDark, onSecondaryContainer = AccentLight,
+            tertiary = Pink, onTertiary = Color.White,
+            tertiaryContainer = Color(0xFF831843), onTertiaryContainer = PinkLight,
+            background = DeepSpace, onBackground = TextPrimary,
+            surface = Midnight, onSurface = TextPrimary,
+            surfaceVariant = NightBlue, onSurfaceVariant = TextSecondary,
+            outline = CardBorder, outlineVariant = CardBorder,
+            error = Color(0xFFF87171), onError = Color.White,
+        )
+    }
+
     MaterialTheme(
-        colorScheme = if (dark) JiyuDarkColors else JiyuLightColors,
+        colorScheme = colorScheme,
         shapes = JiyuShapes,
         content = content,
     )

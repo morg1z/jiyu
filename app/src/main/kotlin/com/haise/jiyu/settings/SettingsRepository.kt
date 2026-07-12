@@ -70,9 +70,10 @@ object ReaderTheme {
 }
 
 object ThemeOption {
-    const val SYSTEM = "system"
-    const val DARK   = "dark"
-    const val LIGHT  = "light"
+    const val SYSTEM     = "system"
+    const val DARK       = "dark"
+    const val LIGHT      = "light"
+    const val TRUE_BLACK = "true_black"
 }
 
 object ReadingDirection {
