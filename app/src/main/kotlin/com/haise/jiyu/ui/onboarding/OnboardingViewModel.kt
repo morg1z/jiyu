@@ -57,12 +57,20 @@ class OnboardingViewModel @Inject constructor(
         if (_step.value > 0) _step.value--
     }
 
-    fun complete() {
+    /**
+     * Zápisy do DataStore běží v NonCancellable kontextu a onDone se volá až po jejich
+     * dokončení — jinak by navigace pryč z onboardingu zrušila viewModelScope (a tím i
+     * rozepsaný zápis) dřív, než se onboardingCompleted stihne uložit na disk.
+     */
+    fun complete(onDone: () -> Unit) {
         viewModelScope.launch {
-            settings.setReadingDirection(_readingDir.value)
-            settings.setReadingMode(_readingMode.value)
-            settings.setDownloadFolderUri(_downloadFolderUri.value)
-            settings.setOnboardingCompleted()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                settings.setReadingDirection(_readingDir.value)
+                settings.setReadingMode(_readingMode.value)
+                settings.setDownloadFolderUri(_downloadFolderUri.value)
+                settings.setOnboardingCompleted()
+            }
+            onDone()
         }
     }
 }

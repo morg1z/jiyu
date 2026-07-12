@@ -169,7 +169,7 @@ fun OnboardingScreen(
                 Button(
                     onClick = {
                         if (step < viewModel.totalSteps - 1) viewModel.nextStep()
-                        else { viewModel.complete(); onFinish() }
+                        else viewModel.complete(onDone = onFinish)
                     },
                     modifier = Modifier.weight(2f),
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),
