@@ -79,6 +79,26 @@ class BrowseViewModel @Inject constructor(
     private val _selectedSource = MutableStateFlow<MangaSource?>(null)
     val selectedSource: StateFlow<MangaSource?> = _selectedSource.asStateFlow()
 
+    // Musí být deklarováno před init blokem: viewModelScope.launch níže může (podle
+    // toho, jestli sourceManager.getAll() skutečně suspenduje) doběhnout synchronně
+    // ještě v rámci konstruktoru - init blok pak přes loadPopular() sahá na všechna
+    // tato pole (a volání na Main.immediate dispatcheru se suspendovat nemusí), takže
+    // kdyby byla deklarovaná až ZA init blokem, byla by v tu chvíli ještě null.
+    private val _activeFilter = MutableStateFlow(MangaFilter())
+    val activeFilter: StateFlow<MangaFilter> = _activeFilter.asStateFlow()
+
+    private val _results = MutableStateFlow<List<SManga>>(emptyList())
+    val results: StateFlow<List<SManga>> = _results.asStateFlow()
+
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _hasMore = MutableStateFlow(false)
+    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
+
     init {
         viewModelScope.launch {
             val first = sourceManager.getAll().firstOrNull()
@@ -94,18 +114,6 @@ class BrowseViewModel @Inject constructor(
             }
         }
     }
-
-    private val _results = MutableStateFlow<List<SManga>>(emptyList())
-    val results: StateFlow<List<SManga>> = _results.asStateFlow()
-
-    private val _loading = MutableStateFlow(false)
-    val loading: StateFlow<Boolean> = _loading.asStateFlow()
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    private val _hasMore = MutableStateFlow(false)
-    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
     private var currentPage = 1
     private var lastQuery: String? = null
@@ -201,9 +209,6 @@ class BrowseViewModel @Inject constructor(
     }
 
     fun cancelDuplicateAdd() { _pendingDuplicateAdd.value = null }
-
-    private val _activeFilter = MutableStateFlow(MangaFilter())
-    val activeFilter: StateFlow<MangaFilter> = _activeFilter.asStateFlow()
 
     fun setFilters(filter: MangaFilter) {
         _activeFilter.value = filter
