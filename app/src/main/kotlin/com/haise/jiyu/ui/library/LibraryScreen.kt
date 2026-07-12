@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Search
@@ -187,6 +188,7 @@ fun LibraryScreen(
     var showManageDialog          by remember { mutableStateOf(false) }
     var showStatsDialog           by remember { mutableStateOf(false) }
     var sortMenuExpanded          by remember { mutableStateOf(false) }
+    var headerMenuExpanded        by remember { mutableStateOf(false) }
     var contextMenuManga          by remember { mutableStateOf<MangaEntity?>(null) }
     var showCategoryAssignDialog  by remember { mutableStateOf(false) }
     var showBulkCategoryDialog    by remember { mutableStateOf(false) }
@@ -241,13 +243,8 @@ fun LibraryScreen(
                 // Title row
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(text = "JIYU", style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp))
-                        Text(text = "Knihovna · ${library.size} titulů", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-                    }
-                    IconButton(
-                        onClick = { filePickerLauncher.launch(arrayOf("application/zip", "application/x-cbz", "application/octet-stream", "*/*")) },
-                    ) {
-                        Icon(Icons.Filled.Folder, contentDescription = "Otevřít CBZ/ZIP", tint = TextSecondary)
+                        Text(text = "JIYU", style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp), maxLines = 1)
+                        Text(text = "Knihovna · ${library.size} titulů", style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
                     }
                     if (gridMode) {
                         androidx.compose.material3.TextButton(
@@ -281,9 +278,37 @@ fun LibraryScreen(
                             onDismiss = { sortMenuExpanded = false },
                         )
                     }
-                    IconButton(onClick = { showMarkAllReadDialog = true }) { Icon(Icons.Filled.DoneAll, contentDescription = "Označit celou knihovnu jako přečtenou", tint = TextSecondary) }
-                    IconButton(onClick = { showStatsDialog = true }) { Icon(Icons.Filled.AutoStories, contentDescription = "Statistiky", tint = TextSecondary) }
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Nastavení", tint = TextSecondary) }
+                    Box {
+                        IconButton(onClick = { headerMenuExpanded = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Další možnosti", tint = TextSecondary)
+                        }
+                        DropdownMenu(expanded = headerMenuExpanded, onDismissRequest = { headerMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Otevřít CBZ/ZIP") },
+                                leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+                                onClick = {
+                                    headerMenuExpanded = false
+                                    filePickerLauncher.launch(arrayOf("application/zip", "application/x-cbz", "application/octet-stream", "*/*"))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Označit knihovnu jako přečtenou") },
+                                leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                onClick = {
+                                    headerMenuExpanded = false
+                                    showMarkAllReadDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Statistiky") },
+                                leadingIcon = { Icon(Icons.Filled.AutoStories, contentDescription = null) },
+                                onClick = {
+                                    headerMenuExpanded = false
+                                    showStatsDialog = true
+                                },
+                            )
+                        }
+                    }
                 }
 
                 // Always-visible search bar
@@ -481,7 +506,9 @@ fun LibraryScreen(
                 }
             }
 
-            PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+            if (pullToRefreshState.verticalOffset > 0f) {
+                PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+            }
         }
 
         if (localImportState is LocalImportState.Importing) {
