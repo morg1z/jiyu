@@ -34,6 +34,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1487,6 +1488,13 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                        }
+                        if (updateInfo!!.apkUrl != null) {
+                            Button(
+                                onClick = { viewModel.downloadUpdate() },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = GlowViolet),
+                            ) { Text("Stáhnout a nainstalovat") }
                         }
                         OutlinedButton(
                             onClick = {

@@ -8,7 +8,7 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class UpdateInfo(val version: String, val releaseUrl: String, val notes: String)
+data class UpdateInfo(val version: String, val releaseUrl: String, val notes: String, val apkUrl: String?)
 
 /**
  * Kontroluje nejnovější GitHub Release repozitáře jako jednoduchou náhradu
@@ -36,7 +36,18 @@ class UpdateChecker @Inject constructor(
             val tag = json.optString("tag_name").removePrefix("v").ifBlank { return@withContext null }
             val notes = json.optString("body").take(500)
             val url = json.optString("html_url")
-            if (isNewer(tag, currentVersion)) UpdateInfo(tag, url, notes) else null
+            val assets = json.optJSONArray("assets")
+            var apkUrl: String? = null
+            if (assets != null) {
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = asset.optString("browser_download_url")
+                        break
+                    }
+                }
+            }
+            if (isNewer(tag, currentVersion)) UpdateInfo(tag, url, notes, apkUrl) else null
         } catch (_: Exception) { null }
     }
 

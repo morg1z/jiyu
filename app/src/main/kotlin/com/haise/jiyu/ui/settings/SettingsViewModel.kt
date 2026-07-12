@@ -26,6 +26,7 @@ import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.update.ApkUpdateInstaller
 import com.haise.jiyu.update.UpdateChecker
 import com.haise.jiyu.update.UpdateInfo
 import com.haise.jiyu.source.madara.MadaraSelectors
@@ -86,6 +87,7 @@ class SettingsViewModel @Inject constructor(
     private val malAuthManager: MalAuthManager,
     private val malRepository: MalRepository,
     private val updateChecker: UpdateChecker,
+    private val updateInstaller: ApkUpdateInstaller,
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
@@ -590,5 +592,29 @@ class SettingsViewModel @Inject constructor(
         _updateInfo.value = result
         _updateCheckedAndNoneFound.value = result == null
         _updateCheckLoading.value = false
+    }
+
+    /**
+     * Stáhne a nabídne instalaci aktualizace přes systémový DownloadManager.
+     * Pokud appka ještě nemá povolení instalovat balíčky (Android 8+), místo stažení
+     * otevře systémové nastavení, kde to uživatel povolí - musí to zkusit znovu poté.
+     */
+    fun downloadUpdate() {
+        val apkUrl = _updateInfo.value?.apkUrl ?: return
+        if (!updateInstaller.canInstallPackages(context)) {
+            android.widget.Toast.makeText(
+                context,
+                "Povol prosím instalaci z Jiyu a zkus stažení znovu",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+            updateInstaller.requestInstallPermission(context)
+            return
+        }
+        updateInstaller.downloadUpdate(context, apkUrl, _updateInfo.value?.version ?: appVersion)
+        android.widget.Toast.makeText(
+            context,
+            "Stahování zahájeno - sleduj lištu oznámení",
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }
