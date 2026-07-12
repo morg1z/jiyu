@@ -43,6 +43,9 @@ class MangaRepository @Inject constructor(
     fun observeMangaById(mangaId: String): Flow<MangaEntity?> = mangaDao.observeById(mangaId)
     suspend fun getAllLibraryManga(): List<MangaEntity> = mangaDao.getAllLibrary()
     fun observeRecentlyRead(): Flow<List<MangaEntity>> = mangaDao.observeRecentlyRead()
+    fun observeContinueReading(): Flow<List<com.haise.jiyu.data.db.ContinueReadingItem>> = mangaDao.observeContinueReading()
+    fun observeRecentlyAdded(): Flow<List<MangaEntity>> = mangaDao.observeRecentlyAdded()
+    fun observeCompleted(): Flow<List<MangaEntity>> = mangaDao.observeCompleted()
 
     // ── Chapters ─────────────────────────────────────────────────────────────
 

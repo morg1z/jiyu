@@ -1,11 +1,18 @@
 package com.haise.jiyu.data.db
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
 import com.haise.jiyu.data.db.entity.MangaEntity
 import kotlinx.coroutines.flow.Flow
+
+data class ContinueReadingItem(
+    @Embedded val manga: MangaEntity,
+    val lastChapterName: String?,
+    val lastChapterNumber: Float?,
+)
 
 @Dao
 interface MangaDao {
@@ -36,6 +43,21 @@ interface MangaDao {
 
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND lastReadAt > 0 ORDER BY lastReadAt DESC LIMIT 20")
     fun observeRecentlyRead(): Flow<List<MangaEntity>>
+
+    @Query("""
+        SELECT m.*, c.name as lastChapterName, c.chapterNumber as lastChapterNumber
+        FROM manga m
+        LEFT JOIN chapter c ON c.id = m.lastReadChapterId
+        WHERE m.inLibrary = 1 AND m.lastReadAt > 0
+        ORDER BY m.lastReadAt DESC LIMIT 20
+    """)
+    fun observeContinueReading(): Flow<List<ContinueReadingItem>>
+
+    @Query("SELECT * FROM manga WHERE inLibrary = 1 ORDER BY addedAt DESC LIMIT 20")
+    fun observeRecentlyAdded(): Flow<List<MangaEntity>>
+
+    @Query("SELECT * FROM manga WHERE inLibrary = 1 AND readingStatus = 'COMPLETED' ORDER BY lastUpdated DESC LIMIT 20")
+    fun observeCompleted(): Flow<List<MangaEntity>>
 
     @Query("UPDATE manga SET readerDirectionOverride = :direction WHERE id = :mangaId")
     suspend fun setReaderDirection(mangaId: String, direction: String?)

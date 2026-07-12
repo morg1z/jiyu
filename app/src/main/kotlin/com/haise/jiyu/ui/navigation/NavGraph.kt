@@ -17,6 +17,7 @@ import com.haise.jiyu.ui.downloads.DownloadManagerScreen
 import com.haise.jiyu.ui.goals.ReadingGoalsScreen
 import com.haise.jiyu.ui.history.HistoryScreen
 import com.haise.jiyu.ui.library.LibraryScreen
+import com.haise.jiyu.ui.library.MyListScreen
 import com.haise.jiyu.ui.onboarding.OnboardingScreen
 import com.haise.jiyu.ui.qr.MangaQrScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
@@ -31,6 +32,7 @@ import com.haise.jiyu.ui.updates.UpdatesScreen
 internal object Routes {
     const val ONBOARDING    = "onboarding"
     const val LIBRARY       = "library"
+    const val MY_LIST       = "my_list"
     const val UPDATES       = "updates"
     const val BROWSE        = "browse"
     const val SOURCE_BROWSE = "source_browse/{sourceId}"
@@ -77,6 +79,16 @@ fun JiyuNavGraph(
 
         composable(Routes.LIBRARY) {
             LibraryScreen(
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenBrowse = { navController.navigate(Routes.BROWSE) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenStats = { navController.navigate(Routes.STATS) },
+            )
+        }
+
+        composable(Routes.MY_LIST) {
+            MyListScreen(
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },

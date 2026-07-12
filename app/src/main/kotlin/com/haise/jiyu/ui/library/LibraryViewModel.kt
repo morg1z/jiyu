@@ -117,6 +117,16 @@ class LibraryViewModel @Inject constructor(
     val recentlyRead: StateFlow<List<MangaEntity>> = repository.observeRecentlyRead()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // ── Dashboard karusely (hlavní Knihovna) ────────────────────────────────────
+    val continueReading: StateFlow<List<com.haise.jiyu.data.db.ContinueReadingItem>> = repository.observeContinueReading()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentlyAdded: StateFlow<List<MangaEntity>> = repository.observeRecentlyAdded()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val completed: StateFlow<List<MangaEntity>> = repository.observeCompleted()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val totalCounts: StateFlow<Map<String, Int>> = repository.observeTotalCounts()
         .map { list -> list.associate { it.mangaId to it.count } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())

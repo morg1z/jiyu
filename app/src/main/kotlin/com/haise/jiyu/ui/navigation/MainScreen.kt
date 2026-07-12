@@ -43,7 +43,8 @@ private data class NavTab(
 
 private val TABS = listOf(
     NavTab(Routes.LIBRARY,  "Knihovna",    TablerIcons.Book,        TablerIcons.Book),
-    NavTab(Routes.UPDATES,  "Aktualizace", TablerIcons.BellRinging, TablerIcons.BellRinging),
+    NavTab(Routes.MY_LIST,  "Seznam",      TablerIcons.ListCheck,   TablerIcons.ListCheck),
+    NavTab(Routes.UPDATES,  "Novinky",     TablerIcons.BellRinging, TablerIcons.BellRinging),
     NavTab(Routes.BROWSE,   "Procházet",   TablerIcons.Search,      TablerIcons.Search),
     NavTab(Routes.HISTORY,  "Historie",    TablerIcons.History,     TablerIcons.History),
     NavTab(Routes.SETTINGS, "Nastavení",   TablerIcons.Settings,    TablerIcons.Settings),
