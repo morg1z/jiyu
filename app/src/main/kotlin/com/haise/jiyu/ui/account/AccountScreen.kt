@@ -170,6 +170,7 @@ fun AccountScreen(
             Spacer(Modifier.height(16.dp))
             AniListSection(
                 isConnected = isAniListConnected,
+                hasClientId = viewModel.aniListHasClientId,
                 onConnect = { showAniListWebView = true },
                 onDisconnect = { viewModel.aniListSignOut() },
             )
@@ -196,6 +197,7 @@ fun AccountScreen(
 @Composable
 private fun AniListSection(
     isConnected: Boolean,
+    hasClientId: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -232,6 +234,13 @@ private fun AniListSection(
                     Icon(Icons.Filled.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                     Text("  Odpojit AniList", color = TextSecondary, fontSize = 13.sp)
                 }
+            } else if (!hasClientId) {
+                Text(
+                    "AniList Client ID není nastaven. Zaregistruj appku na anilist.co/settings/developer (redirect URI: jiyu://anilist/callback) a vlož Client ID do local.properties jako ANILIST_CLIENT_ID=xxx",
+                    color = Color(0xFFF59E0B),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                )
             } else {
                 Button(
                     onClick = onConnect,

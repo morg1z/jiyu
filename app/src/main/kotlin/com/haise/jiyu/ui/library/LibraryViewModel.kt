@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.library
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,7 +13,9 @@ import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.local.LocalMangaImporter
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +40,7 @@ sealed interface LocalImportState {
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
     private val localMangaImporter: LocalMangaImporter,
@@ -264,9 +268,7 @@ class LibraryViewModel @Inject constructor(
         repository.getAllChapters(mangaId)
             .filter { it.downloadStatus == DownloadStatus.DOWNLOADED }
             .forEach { ch ->
-                ch.localPath?.let { path ->
-                    try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-                }
+                ch.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
             }
         repository.removeFromLibrary(mangaId)
     }

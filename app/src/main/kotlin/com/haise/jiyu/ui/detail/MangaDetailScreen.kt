@@ -167,11 +167,17 @@ fun MangaDetailScreen(
     val malSearchLoading    by viewModel.malSearchLoading.collectAsState()
     var showMalSheet        by remember { mutableStateOf(false) }
     var malSearchQuery      by remember { mutableStateOf("") }
+    val aniListIsLoggedIn   by viewModel.aniListIsLoggedIn.collectAsState()
+    val aniListId           by viewModel.aniListId.collectAsState()
+    val aniListSearchResults by viewModel.aniListSearchResults.collectAsState()
+    val aniListSearchLoading by viewModel.aniListSearchLoading.collectAsState()
     val kitsuId             by viewModel.kitsuId.collectAsState()
     val kitsuScore          by viewModel.kitsuScore.collectAsState()
     val kitsuIsLoggedIn     by viewModel.kitsuIsLoggedIn.collectAsState()
     val kitsuSearchResults  by viewModel.kitsuSearchResults.collectAsState()
     val kitsuSearchLoading  by viewModel.kitsuSearchLoading.collectAsState()
+    var showAniListSheet    by remember { mutableStateOf(false) }
+    var aniListSearchQuery  by remember { mutableStateOf("") }
     var showKitsuSheet      by remember { mutableStateOf(false) }
     var kitsuSearchQuery    by remember { mutableStateOf("") }
     val muId                by viewModel.muId.collectAsState()
@@ -688,6 +694,61 @@ fun MangaDetailScreen(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                        }
+                    }
+                }
+
+                // ── AniList tracking ─────────────────────────────────────────────
+                item {
+                    val aniListColor = Color(0xFF2E51A2)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "ANILIST",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = aniListColor,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        if (!aniListIsLoggedIn) {
+                            Text(
+                                "Přihlas se k AniListu v Účtu pro párování.",
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                            )
+                        } else if (aniListId != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(aniListColor.copy(alpha = 0.08f))
+                                    .border(1.dp, aniListColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.openAniListPage(context) }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("AniList ID: $aniListId", color = TextPrimary, fontSize = 14.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = {
+                                        aniListSearchQuery = manga?.title ?: ""
+                                        viewModel.searchAniList(aniListSearchQuery)
+                                        showAniListSheet = true
+                                    }) { Text("Změnit", color = aniListColor, fontSize = 12.sp) }
+                                    IconButton(onClick = { viewModel.unlinkAniList() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    aniListSearchQuery = manga?.title ?: ""
+                                    viewModel.searchAniList(aniListSearchQuery)
+                                    showAniListSheet = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, aniListColor.copy(alpha = 0.4f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = aniListColor),
+                            ) { Text("Propojit s AniList") }
                         }
                     }
                 }
@@ -1425,6 +1486,72 @@ fun MangaDetailScreen(
             }
 
             PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+        }
+    }
+
+    // ── AniList search bottom sheet ────────────────────────────────────────────
+    if (showAniListSheet) {
+        val aniListSheetColor = Color(0xFF2E51A2)
+        ModalBottomSheet(
+            onDismissRequest = { showAniListSheet = false; aniListSearchQuery = "" },
+            containerColor = NightBlue,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Hledat na AniListu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = aniListSearchQuery,
+                        onValueChange = { aniListSearchQuery = it },
+                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = aniListSheetColor,
+                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                        ),
+                    )
+                    IconButton(onClick = { viewModel.searchAniList(aniListSearchQuery) }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = aniListSheetColor)
+                    }
+                }
+                if (aniListSearchLoading) {
+                    CircularProgressIndicator(color = aniListSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        aniListSearchResults.forEach { am ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable { viewModel.linkAniList(am); showAniListSheet = false }
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AsyncImage(
+                                    model = am.coverUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                Text(am.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            }
+                        }
+                        if (aniListSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 

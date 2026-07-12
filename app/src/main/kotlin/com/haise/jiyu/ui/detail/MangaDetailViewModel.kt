@@ -26,6 +26,7 @@ import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.util.NetworkMonitor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -45,6 +46,7 @@ import javax.inject.Inject
 @HiltViewModel
 class MangaDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
     private val networkMonitor: NetworkMonitor,
@@ -257,6 +259,44 @@ class MangaDetailViewModel @Inject constructor(
         remote.score?.let { score -> repository.setRating(mangaId, score * 10) }
     }
 
+    // ── AniList tracking ──────────────────────────────────────────────────────
+    val aniListIsLoggedIn: StateFlow<Boolean> = aniListRepository.isAuthenticated
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val aniListId: StateFlow<Int?> = settings.aniListIdMap
+        .map { json ->
+            try { org.json.JSONObject(json).optInt(mangaId, 0).takeIf { it > 0 } } catch (_: Exception) { null }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    private val _aniListSearchResults = MutableStateFlow<List<AniListRepository.AniListManga>>(emptyList())
+    val aniListSearchResults: StateFlow<List<AniListRepository.AniListManga>> = _aniListSearchResults.asStateFlow()
+
+    private val _aniListSearchLoading = MutableStateFlow(false)
+    val aniListSearchLoading: StateFlow<Boolean> = _aniListSearchLoading.asStateFlow()
+
+    fun searchAniList(query: String) {
+        viewModelScope.launch {
+            _aniListSearchLoading.value = true
+            _aniListSearchResults.value = aniListRepository.searchManga(query)
+            _aniListSearchLoading.value = false
+        }
+    }
+
+    fun linkAniList(result: AniListRepository.AniListManga) = viewModelScope.launch {
+        aniListRepository.linkManually(mangaId, result.id)
+    }
+
+    fun unlinkAniList() = viewModelScope.launch {
+        aniListRepository.unlink(mangaId)
+    }
+
+    fun openAniListPage(context: Context) {
+        aniListId.value?.let { id ->
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://anilist.co/manga/$id")))
+        }
+    }
+
     // ── Kitsu tracking ────────────────────────────────────────────────────────
     val kitsuId: StateFlow<String?> = manga.map { it?.kitsuId }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -411,9 +451,7 @@ class MangaDetailViewModel @Inject constructor(
     fun removeFromLibrary() {
         viewModelScope.launch {
             chapters.value.forEach { chapter ->
-                chapter.localPath?.let { path ->
-                    try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-                }
+                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(appContext, path) }
             }
             repository.removeFromLibrary(mangaId)
         }

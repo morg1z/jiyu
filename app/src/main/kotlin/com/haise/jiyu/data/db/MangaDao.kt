@@ -22,9 +22,6 @@ interface MangaDao {
     @Query("UPDATE manga SET inLibrary = :inLibrary WHERE id = :id")
     suspend fun setInLibrary(id: String, inLibrary: Boolean)
 
-    @Query("UPDATE manga SET lastReadChapterId = :chapterId WHERE id = :mangaId")
-    suspend fun updateLastReadChapter(mangaId: String, chapterId: String)
-
     @Query("SELECT * FROM manga WHERE id = :id")
     fun observeById(id: String): Flow<MangaEntity?>
 
@@ -93,7 +90,4 @@ interface MangaDao {
 
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND readingStatus = :status ORDER BY title ASC")
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>>
-
-    @Query("SELECT * FROM manga WHERE inLibrary = 1 ORDER BY title ASC")
-    suspend fun getAllLibraryForExport(): List<MangaEntity>
 }

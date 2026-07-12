@@ -43,6 +43,7 @@ android {
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")
         buildConfigField("Boolean", "FIREBASE_ENABLED", "$firebaseEnabled")
         buildConfigField("String", "MAL_CLIENT_ID", "\"${localProps["MAL_CLIENT_ID"] ?: ""}\"")
+        buildConfigField("String", "ANILIST_CLIENT_ID", "\"${localProps["ANILIST_CLIENT_ID"] ?: ""}\"")
 
     }
 

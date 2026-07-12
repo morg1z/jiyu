@@ -10,6 +10,7 @@ import androidx.work.WorkerParameters
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.work.CHANNEL_ID
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -21,11 +22,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.BufferedOutputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 const val CHANNEL_DOWNLOADS = "channel_downloads"
 
@@ -76,14 +72,14 @@ class ChapterDownloadWorker @AssistedInject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val pages = repository.getChapterPages(sourceId, chapterUrl, mangaUrl)
-                val chapterDir = File(applicationContext.filesDir, "downloads/$chapterEntityId")
-                chapterDir.mkdirs()
+                val downloadFolderUri = settings.downloadFolderUri.first()
+                val chapterDirPath = ChapterStorage.createChapterDir(applicationContext, downloadFolderUri, chapterEntityId)
 
                 pages.forEachIndexed { index, page ->
                     val imageUrl = page.imageUrl ?: page.url
                     val bytes = downloadBytes(imageUrl)
                     val extension = imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
-                    File(chapterDir, "%03d.%s".format(index, extension)).writeBytes(bytes)
+                    ChapterStorage.writePage(applicationContext, chapterDirPath, "%03d.%s".format(index, extension), bytes)
                     val fraction = (index + 1).toFloat() / pages.size
                     nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
                         .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -99,10 +95,10 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 }
 
                 nm.cancel(progressId)
-                repository.markDownloaded(chapterEntityId, chapterDir.absolutePath, pages.size)
+                repository.markDownloaded(chapterEntityId, chapterDirPath, pages.size)
 
                 if (settings.saveAsCbz.first()) {
-                    createCbz(chapterDir)
+                    ChapterStorage.createCbz(applicationContext, chapterDirPath, chapterEntityId)
                 }
 
                 if (settings.notifyDownloads.first()) notifyDone(chapterEntityId)
@@ -116,17 +112,6 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
                 if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, e)
                 Result.failure()
-            }
-        }
-    }
-
-    private fun createCbz(chapterDir: File) {
-        val cbzFile = File(chapterDir.parent, "${chapterDir.name}.cbz")
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(cbzFile))).use { zip ->
-            chapterDir.listFiles()?.sortedBy { it.name }?.forEach { file ->
-                zip.putNextEntry(ZipEntry(file.name))
-                file.inputStream().use { it.copyTo(zip) }
-                zip.closeEntry()
             }
         }
     }

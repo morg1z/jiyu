@@ -24,6 +24,7 @@ import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.translate.TranslatedBlock
+import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -499,15 +500,22 @@ class ReaderViewModel @Inject constructor(
         _mangaDirectionOverride.value = mangaForDir?.readerDirectionOverride
 
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
-            val dir = File(chapter.localPath)
-            val sortedFiles = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
-            _pages.value = sortedFiles.map { "file://${it.absolutePath}" }
+            val pageUrls = ChapterStorage.listPageUrls(context, chapter.localPath)
+            _pages.value = pageUrls
             _isOfflineChapter.value = true
             // Detect landscape pages for smart spread grouping
             viewModelScope.launch {
-                val spread = sortedFiles.mapIndexedNotNull { idx, file ->
+                val spread = pageUrls.mapIndexedNotNull { idx, url ->
                     val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)
+                    try {
+                        if (url.startsWith("content://")) {
+                            context.contentResolver.openInputStream(android.net.Uri.parse(url))?.use {
+                                android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                            }
+                        } else {
+                            android.graphics.BitmapFactory.decodeFile(url.removePrefix("file://"), opts)
+                        }
+                    } catch (_: Exception) {}
                     if (opts.outWidth > 0 && opts.outWidth > opts.outHeight * 1.2f) idx else null
                 }.toSet()
                 _spreadPageIndices.value = spread
@@ -818,9 +826,7 @@ class ReaderViewModel @Inject constructor(
     // ── Feature C: Smart offline deletion ───────────────────────────────────
 
     private fun deleteChapterFiles(chapter: ChapterEntity) {
-        chapter.localPath?.let { path ->
-            try { File(path).deleteRecursively() } catch (_: Exception) {}
-        }
+        chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
         viewModelScope.launch { repository.resetDownloadForChapter(chapter.id) }
     }
 

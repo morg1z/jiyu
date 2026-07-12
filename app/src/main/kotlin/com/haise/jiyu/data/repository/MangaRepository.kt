@@ -176,7 +176,7 @@ class MangaRepository @Inject constructor(
     suspend fun addMangaReadingTime(mangaId: String, deltaMs: Long) = mangaDao.addReadingTime(mangaId, deltaMs)
     suspend fun setReadingStatus(mangaId: String, status: String?) = mangaDao.setReadingStatus(mangaId, status)
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>> = mangaDao.observeByReadingStatus(status)
-    suspend fun getAllLibraryForExport(): List<MangaEntity> = mangaDao.getAllLibraryForExport()
+    suspend fun getAllLibraryForExport(): List<MangaEntity> = mangaDao.getAllLibrary()
 
     suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
         mangaDao.updateMetadata(

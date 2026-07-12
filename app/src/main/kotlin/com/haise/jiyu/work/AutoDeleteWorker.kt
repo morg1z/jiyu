@@ -9,13 +9,14 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.util.ChapterStorage
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
 
 @HiltWorker
 class AutoDeleteWorker @AssistedInject constructor(
-    @Assisted context: Context,
+    @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val repository: MangaRepository,
 ) : CoroutineWorker(context, params) {
@@ -24,9 +25,7 @@ class AutoDeleteWorker @AssistedInject constructor(
         val chapterId = inputData.getString(KEY_CHAPTER_ID) ?: return Result.failure()
         val chapter = repository.getChapter(chapterId) ?: return Result.success()
         if (chapter.read && chapter.downloadStatus == DownloadStatus.DOWNLOADED) {
-            chapter.localPath?.let { path ->
-                try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-            }
+            chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
             repository.resetDownloadForChapter(chapterId)
         }
         return Result.success()

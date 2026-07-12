@@ -32,6 +32,7 @@ import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.catalog.CatalogSource
 import com.haise.jiyu.source.catalog.SourceCatalogManager
+import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.util.toFriendlyMessage
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -80,6 +81,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsBackupManager: SettingsBackupManager,
     private val okHttpClient: OkHttpClient,
     private val catalogManager: SourceCatalogManager,
+    private val sourceManager: SourceManager,
     private val tachiyomiBackupImporter: TachiyomiBackupImporter,
     private val malAuthManager: MalAuthManager,
     private val malRepository: MalRepository,
@@ -264,9 +266,7 @@ class SettingsViewModel @Inject constructor(
     fun deleteAllDownloads() = viewModelScope.launch {
         val chapters = repository.getAllLibraryChapters()
         chapters.filter { it.downloadStatus == DownloadStatus.DOWNLOADED }.forEach { chapter ->
-            chapter.localPath?.let { path ->
-                try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-            }
+            chapter.localPath?.let { path -> com.haise.jiyu.util.ChapterStorage.deleteRecursively(context, path) }
         }
         repository.clearAllDownloaded()
     }
@@ -397,7 +397,18 @@ class SettingsViewModel @Inject constructor(
     // ── Katalog zdrojů ───────────────────────────────────────────────────────
     fun getCatalog(): List<CatalogSource> = catalogManager.catalog
 
+    /** ID všech aktuálně aktivních zdrojů (vestavěných i vlastních Madara) - detekce duplicit z katalogu. */
+    private val activeSourceIds: StateFlow<Set<String>> = sourceManager.observeAll()
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /**
+     * Zdroj z katalogu je "nainstalovaný" i pokud už existuje jako vestavěný (MangaDex, ComicK,
+     * AsuraScans, ...) - jinak by šlo omylem vytvořit druhý, rozbitý generický Madara záznam
+     * nad webem, co má vlastní dedikovaný parser.
+     */
     fun isCatalogSourceInstalled(source: CatalogSource): Boolean =
+        activeSourceIds.value.contains(source.id) ||
         customSources.value.any { it.baseUrl.trimEnd('/') == source.baseUrl.trimEnd('/') }
 
     fun installCatalogSource(source: CatalogSource) = viewModelScope.launch {

@@ -11,6 +11,7 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.ChapterDownloadWorker
 import com.haise.jiyu.download.DownloadQueue
+import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,14 +22,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.io.File
 import javax.inject.Inject
 
 data class DownloadGroup(val manga: MangaEntity, val chapters: List<ChapterEntity>)
 
 @HiltViewModel
 class DownloadManagerViewModel @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
 ) : ViewModel() {
@@ -62,9 +62,7 @@ class DownloadManagerViewModel @Inject constructor(
 
     fun deleteChapter(chapter: ChapterEntity) {
         viewModelScope.launch {
-            chapter.localPath?.let { path ->
-                try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-            }
+            chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
             repository.resetDownloadForChapter(chapter.id)
         }
     }
@@ -72,9 +70,7 @@ class DownloadManagerViewModel @Inject constructor(
     fun deleteManga(chapters: List<ChapterEntity>) {
         viewModelScope.launch {
             chapters.forEach { chapter ->
-                chapter.localPath?.let { path ->
-                    try { java.io.File(path).deleteRecursively() } catch (_: Exception) {}
-                }
+                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
                 repository.resetDownloadForChapter(chapter.id)
             }
         }
@@ -125,9 +121,7 @@ class DownloadManagerViewModel @Inject constructor(
     val totalStorageBytes: StateFlow<Long> = downloadGroups.map { groups ->
         groups.sumOf { group ->
             group.chapters.sumOf { chapter ->
-                chapter.localPath?.let { path ->
-                    try { File(path).walkTopDown().filter { it.isFile }.sumOf { it.length() } } catch (_: Exception) { 0L }
-                } ?: 0L
+                chapter.localPath?.let { path -> ChapterStorage.sizeBytes(context, path) } ?: 0L
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
@@ -136,9 +130,7 @@ class DownloadManagerViewModel @Inject constructor(
         viewModelScope.launch {
             val allChapters = downloadGroups.value.flatMap { it.chapters }
             allChapters.filter { it.read && it.downloadStatus == DownloadStatus.DOWNLOADED }.forEach { chapter ->
-                chapter.localPath?.let { path ->
-                    try { File(path).deleteRecursively() } catch (_: Exception) {}
-                }
+                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
                 repository.resetDownloadForChapter(chapter.id)
             }
         }

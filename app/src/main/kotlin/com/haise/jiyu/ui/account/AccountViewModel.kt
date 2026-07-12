@@ -6,6 +6,11 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.haise.jiyu.BuildConfig
@@ -13,7 +18,9 @@ import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.auth.AuthRepository
 import com.haise.jiyu.auth.JiyuUser
 import com.haise.jiyu.sync.SyncRepository
+import com.haise.jiyu.work.SyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,10 +48,31 @@ sealed interface SyncState {
 
 @HiltViewModel
 class AccountViewModel @Inject constructor(
+    @ApplicationContext private val appContext: android.content.Context,
     private val authRepository: AuthRepository,
     private val syncRepository: SyncRepository,
     private val aniListRepository: AniListRepository,
 ) : ViewModel() {
+
+    companion object {
+        private const val SYNC_WORK_NAME = "cloud_sync"
+    }
+
+    /** Naplánuje periodickou synchronizaci na pozadí - jen když je uživatel přihlášený. */
+    private fun scheduleBackgroundSync() {
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(6, java.util.concurrent.TimeUnit.HOURS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(
+            SYNC_WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    private fun cancelBackgroundSync() {
+        WorkManager.getInstance(appContext).cancelUniqueWork(SYNC_WORK_NAME)
+    }
 
     val currentUser: StateFlow<JiyuUser?> = authRepository.currentUser
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -95,6 +123,7 @@ class AccountViewModel @Inject constructor(
 
     fun signOut() = viewModelScope.launch {
         try { authRepository.signOut() } catch (_: Exception) {}
+        cancelBackgroundSync()
     }
 
     fun clearAuthState() { _authState.value = AuthUiState.Idle }
@@ -118,6 +147,7 @@ class AccountViewModel @Inject constructor(
             try {
                 authRepository.signInWithEmail(email, password)
                 _authState.value = AuthUiState.Success
+                scheduleBackgroundSync()
                 syncNow()
             } catch (e: Exception) {
                 _authState.value = AuthUiState.Error(e.message ?: "Chyba přihlášení")
@@ -155,7 +185,8 @@ class AccountViewModel @Inject constructor(
     val isAniListAuthenticated: StateFlow<Boolean> = aniListRepository.isAuthenticated
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val aniListAuthUrl: String get() = AniListRepository.AUTH_URL
+    val aniListHasClientId: Boolean get() = aniListRepository.hasClientId
+    val aniListAuthUrl: String get() = aniListRepository.authUrl
 
     fun aniListSignOut() = viewModelScope.launch {
         try { aniListRepository.signOut() } catch (_: Exception) {}
