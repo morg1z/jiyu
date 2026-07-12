@@ -40,8 +40,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
@@ -291,10 +291,11 @@ fun BrowseScreen(
         // ── Source tabs ──────────────────────────────────────────────────────
         if (sources.isNotEmpty()) {
             val selectedIndex = sources.indexOfFirst { it.id == selectedSource?.id }.coerceAtLeast(0)
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = selectedIndex,
                 containerColor = Color.Transparent,
                 contentColor = Violet,
+                edgePadding = 12.dp,
                 indicator = { tabPositions ->
                     Box(
                         modifier = Modifier
