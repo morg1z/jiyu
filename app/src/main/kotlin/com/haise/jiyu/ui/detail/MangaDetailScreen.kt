@@ -1485,7 +1485,9 @@ fun MangaDetailScreen(
                 item { Spacer(Modifier.height(32.dp)) }
             }
 
-            PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+            if (pullToRefreshState.verticalOffset > 0f) {
+                PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+            }
         }
     }
 

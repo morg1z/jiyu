@@ -18,6 +18,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * org.json vraci pro JSON `null` hodnoty z optString() doslovny retezec "null"
+ * (JSONObject.NULL.toString()), ne prazdny string ani Kotlin null - MangaDex
+ * API vraci "title": null u vetsiny kapitol bez vlastniho nazvu, takze naivni
+ * optString(...).ifBlank{} tenhle pripad nikdy nezachyti.
+ */
+private fun JSONObject.optStringOrNull(key: String): String? =
+    if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
+
+/**
  * Zdroj napojený na veřejné REST API MangaDexu (https://api.mangadex.org).
  * Slouží jako referenční příklad zdroje - žádný scraping HTML, čistě JSON API.
  *
@@ -171,9 +180,9 @@ class MangaDexSource @Inject constructor(
             for (i in 0 until relationships.length()) {
                 val rel = relationships.getJSONObject(i)
                 when (rel.optString("type")) {
-                    "cover_art"  -> coverFileName = rel.optJSONObject("attributes")?.optString("fileName")
-                    "author"     -> if (author == null) author = rel.optJSONObject("attributes")?.optString("name")
-                    "artist"     -> if (artist == null) artist = rel.optJSONObject("attributes")?.optString("name")
+                    "cover_art"  -> coverFileName = rel.optJSONObject("attributes")?.optStringOrNull("fileName")
+                    "author"     -> if (author == null) author = rel.optJSONObject("attributes")?.optStringOrNull("name")
+                    "artist"     -> if (artist == null) artist = rel.optJSONObject("attributes")?.optStringOrNull("name")
                 }
             }
         }
@@ -198,7 +207,7 @@ class MangaDexSource @Inject constructor(
         val chapterId = data.getString("id")
         val attributes = data.getJSONObject("attributes")
         val chapterNumber = attributes.optString("chapter", "0").toFloatOrNull() ?: 0f
-        val title = attributes.optString("title").ifBlank { "Kapitola $chapterNumber" }
+        val title = attributes.optStringOrNull("title") ?: "Kapitola $chapterNumber"
         val dateUpload = attributes.optString("publishAt")
         val volume = attributes.optString("volume").ifBlank { null }
 
@@ -208,7 +217,7 @@ class MangaDexSource @Inject constructor(
             for (i in 0 until relationships.length()) {
                 val rel = relationships.getJSONObject(i)
                 if (rel.optString("type") == "scanlation_group") {
-                    scanlationGroup = rel.optJSONObject("attributes")?.optString("name")
+                    scanlationGroup = rel.optJSONObject("attributes")?.optStringOrNull("name")
                     break
                 }
             }
