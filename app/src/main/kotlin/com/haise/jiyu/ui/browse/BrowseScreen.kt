@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +45,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -125,6 +127,7 @@ fun BrowseScreen(
     val showLatest        by viewModel.showLatest.collectAsState()
     val contentTypeFilter by viewModel.contentTypeFilter.collectAsState()
     val languageFilter    by viewModel.languageFilter.collectAsState()
+    val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyGridState()
@@ -504,6 +507,58 @@ fun BrowseScreen(
             }
         }
     }
+
+    if (pendingDuplicateAdd != null) {
+        DuplicateWarningDialog(
+            pending = pendingDuplicateAdd!!,
+            onConfirm = { viewModel.confirmAddDespiteDuplicate(); viewModel.dismissPreview() },
+            onDismiss = { viewModel.cancelDuplicateAdd() },
+        )
+    }
+}
+
+@Composable
+private fun DuplicateWarningDialog(
+    pending: BrowseViewModel.PendingAdd,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF111B35),
+        title = { Text("Možná už tuhle mangu máš", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "\"${pending.manga.title}\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                pending.matches.forEach { match ->
+                    Text(
+                        "• ${match.sourceName} (v knihovně): ${match.chapterCount} kapitol",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+                val newCountText = pending.newChapterCount?.let { "$it kapitol" } ?: "zjišťuji…"
+                Text(
+                    "• ${pending.newSourceName} (nový): $newCountText",
+                    color = GlowViolet,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Přidat i tak", color = GlowViolet) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Zrušit", color = TextSecondary) }
+        },
+    )
 }
 
 @Composable

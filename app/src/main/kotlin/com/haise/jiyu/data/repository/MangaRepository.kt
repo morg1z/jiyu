@@ -19,9 +19,13 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.mangadex.MangaDexSource
+import com.haise.jiyu.util.normalizeMangaTitle
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** Manga entita v knihovně, o které appka usoudila, že je stejná jako nově přidávaná (podle názvu). */
+data class DuplicateMatch(val manga: MangaEntity, val sourceName: String, val chapterCount: Int)
 
 @Singleton
 class MangaRepository @Inject constructor(
@@ -120,6 +124,32 @@ class MangaRepository @Inject constructor(
             )
         }
         refreshChapters(id, manga)
+    }
+
+    /**
+     * Hledá manga v knihovně se stejným (normalizovaným) názvem, ale JINÝM zdrojem -
+     * uživatel na tohle přechodně narazí, když stejnou sérii najde na dvou webech.
+     * Různé zdroje mívají odlišný počet přeložených kapitol / kvalitu překladu,
+     * takže vracíme i countChapters pro každou shodu, aby šlo porovnat.
+     */
+    suspend fun findLibraryMatchesByTitle(title: String, excludeSourceId: String): List<DuplicateMatch> {
+        val normalized = normalizeMangaTitle(title)
+        if (normalized.isBlank()) return emptyList()
+        return getAllLibraryManga()
+            .filter { it.sourceId != excludeSourceId && normalizeMangaTitle(it.title) == normalized }
+            .map { entity ->
+                DuplicateMatch(
+                    manga = entity,
+                    sourceName = sourceManager.getById(entity.sourceId)?.name ?: entity.sourceId,
+                    chapterCount = chapterDao.countForManga(entity.id),
+                )
+            }
+    }
+
+    /** Načte počet kapitol pro mangu, která JEŠTĚ NENÍ v knihovně (bez zápisu do DB) - pro porovnání při možné duplicitě. */
+    suspend fun previewChapterCount(manga: SManga): Int {
+        val source = sourceManager.getById(manga.sourceId) ?: return 0
+        return try { source.getChapterList(manga).size } catch (_: Exception) { 0 }
     }
 
     suspend fun setMangaReaderDirection(mangaId: String, direction: String?) =

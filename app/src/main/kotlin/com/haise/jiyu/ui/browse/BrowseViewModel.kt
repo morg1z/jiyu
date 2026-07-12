@@ -2,6 +2,7 @@ package com.haise.jiyu.ui.browse
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -149,6 +151,26 @@ class BrowseViewModel @Inject constructor(
     fun addToLibrary(manga: SManga, onAdded: (String) -> Unit) {
         viewModelScope.launch {
             try {
+                val matches = repository.findLibraryMatchesByTitle(manga.title, manga.sourceId)
+                if (matches.isNotEmpty()) {
+                    val sourceName = _selectedSource.value?.name ?: manga.sourceId
+                    _pendingDuplicateAdd.value = PendingAdd(manga, sourceName, matches, onAdded = onAdded)
+                    launch {
+                        val count = repository.previewChapterCount(manga)
+                        _pendingDuplicateAdd.update { it?.copy(newChapterCount = count) }
+                    }
+                    return@launch
+                }
+                performAdd(manga, onAdded)
+            } catch (e: Exception) {
+                _error.value = e.toFriendlyMessage()
+            }
+        }
+    }
+
+    private fun performAdd(manga: SManga, onAdded: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
                 repository.addToLibrary(manga)
                 val id = repository.mangaId(manga.sourceId, manga.url)
                 val catId = settings.defaultCategoryId.first()
@@ -159,6 +181,26 @@ class BrowseViewModel @Inject constructor(
             }
         }
     }
+
+    // ── Detekce duplicit při přidávání ──────────────────────────────────────────
+    data class PendingAdd(
+        val manga: SManga,
+        val newSourceName: String,
+        val matches: List<DuplicateMatch>,
+        val newChapterCount: Int? = null,
+        val onAdded: (String) -> Unit,
+    )
+
+    private val _pendingDuplicateAdd = MutableStateFlow<PendingAdd?>(null)
+    val pendingDuplicateAdd: StateFlow<PendingAdd?> = _pendingDuplicateAdd.asStateFlow()
+
+    fun confirmAddDespiteDuplicate() {
+        val pending = _pendingDuplicateAdd.value ?: return
+        _pendingDuplicateAdd.value = null
+        performAdd(pending.manga, pending.onAdded)
+    }
+
+    fun cancelDuplicateAdd() { _pendingDuplicateAdd.value = null }
 
     private val _activeFilter = MutableStateFlow(MangaFilter())
     val activeFilter: StateFlow<MangaFilter> = _activeFilter.asStateFlow()

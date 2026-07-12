@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.util.normalizeMangaTitle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +35,7 @@ class DuplicateDetectorViewModel @Inject constructor(
             _isLoading.value = true
             val library = repository.getAllLibraryManga()
             val grouped = library
-                .groupBy { normalize(it.title) }
+                .groupBy { normalizeMangaTitle(it.title) }
                 .filter { (_, items) -> items.size > 1 }
                 .map { (key, items) -> DuplicateGroup(key, items.sortedBy { it.sourceId }) }
                 .sortedBy { it.normalizedTitle }
@@ -49,10 +50,4 @@ class DuplicateDetectorViewModel @Inject constructor(
             scan()
         }
     }
-
-    private fun normalize(title: String): String =
-        title.lowercase()
-            .replace(Regex("[^a-z0-9\\u00C0-\\u024F\\u0400-\\u04FF ]"), "")
-            .replace(Regex("\\s+"), " ")
-            .trim()
 }

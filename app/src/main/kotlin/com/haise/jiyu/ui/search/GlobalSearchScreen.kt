@@ -32,12 +32,14 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -82,6 +84,7 @@ fun GlobalSearchScreen(
     val results by viewModel.results.collectAsState()
     val query   by viewModel.query.collectAsState()
     val savedSearches by viewModel.savedSearches.collectAsState()
+    val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsState()
     var inputText by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
@@ -233,7 +236,7 @@ fun GlobalSearchScreen(
                                 items(sourceResult.results) { manga ->
                                     MiniMangaCard(
                                         manga = manga,
-                                        onClick = { onOpenManga(viewModel.mangaId(manga)) },
+                                        onClick = { viewModel.addToLibrary(manga) { id -> onOpenManga(id) } },
                                     )
                                 }
                             }
@@ -252,6 +255,58 @@ fun GlobalSearchScreen(
             }
         }
     }
+
+    if (pendingDuplicateAdd != null) {
+        GlobalSearchDuplicateDialog(
+            pending = pendingDuplicateAdd!!,
+            onConfirm = { viewModel.confirmAddDespiteDuplicate() },
+            onDismiss = { viewModel.cancelDuplicateAdd() },
+        )
+    }
+}
+
+@Composable
+private fun GlobalSearchDuplicateDialog(
+    pending: GlobalSearchViewModel.PendingAdd,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF111B35),
+        title = { Text("Možná už tuhle mangu máš", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "\"${pending.manga.title}\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                pending.matches.forEach { match ->
+                    Text(
+                        "• ${match.sourceName} (v knihovně): ${match.chapterCount} kapitol",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+                val newCountText = pending.newChapterCount?.let { "$it kapitol" } ?: "zjišťuji…"
+                Text(
+                    "• ${pending.newSourceName} (nový): $newCountText",
+                    color = GlowViolet,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Přidat i tak", color = GlowViolet) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Zrušit", color = TextSecondary) }
+        },
+    )
 }
 
 @Composable
