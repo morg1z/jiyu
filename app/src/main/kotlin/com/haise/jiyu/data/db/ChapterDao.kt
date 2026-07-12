@@ -32,9 +32,9 @@ interface ChapterDao {
     @Upsert
     suspend fun upsertAll(chapters: List<ChapterEntity>)
 
-    /** Vloží jen nové kapitoly; existující nechá beze změny (zachová read/download stav). */
+    /** Vloží jen nové kapitoly; existující nechá beze změny (zachová read/download stav). Vrací row IDs (-1L = conflict/ignored). */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertNewOnly(chapters: List<ChapterEntity>)
+    suspend fun insertNewOnly(chapters: List<ChapterEntity>): List<Long>
 
     @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
     fun observeForManga(mangaId: String): Flow<List<ChapterEntity>>
@@ -97,8 +97,10 @@ interface ChapterDao {
         FROM chapter c
         INNER JOIN manga m ON c.mangaId = m.id
         WHERE m.inLibrary = 1
+          AND (SELECT COUNT(*) FROM chapter c2
+               WHERE c2.mangaId = c.mangaId AND c2.dateUpload > c.dateUpload) < 20
         ORDER BY c.dateUpload DESC
-        LIMIT 200
+        LIMIT 500
     """)
     fun observeUpdates(): Flow<List<UpdateItem>>
 

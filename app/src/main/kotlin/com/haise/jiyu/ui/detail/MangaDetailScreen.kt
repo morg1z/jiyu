@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -59,6 +60,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -147,6 +149,7 @@ fun MangaDetailScreen(
     val mangaNote        by viewModel.mangaNote.collectAsState()
     val mangaTags        by viewModel.mangaTags.collectAsState()
     val userRating       by viewModel.userRating.collectAsState()
+    val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
     val aiInsight        by viewModel.aiInsight.collectAsState()
     val aiInsightLoading by viewModel.aiInsightLoading.collectAsState()
@@ -162,11 +165,25 @@ fun MangaDetailScreen(
     val malSearchLoading    by viewModel.malSearchLoading.collectAsState()
     var showMalSheet        by remember { mutableStateOf(false) }
     var malSearchQuery      by remember { mutableStateOf("") }
+    val kitsuId             by viewModel.kitsuId.collectAsState()
+    val kitsuScore          by viewModel.kitsuScore.collectAsState()
+    val kitsuIsLoggedIn     by viewModel.kitsuIsLoggedIn.collectAsState()
+    val kitsuSearchResults  by viewModel.kitsuSearchResults.collectAsState()
+    val kitsuSearchLoading  by viewModel.kitsuSearchLoading.collectAsState()
+    var showKitsuSheet      by remember { mutableStateOf(false) }
+    var kitsuSearchQuery    by remember { mutableStateOf("") }
+    val muId                by viewModel.muId.collectAsState()
+    val muIsLoggedIn        by viewModel.muIsLoggedIn.collectAsState()
+    val muSearchResults     by viewModel.muSearchResults.collectAsState()
+    val muSearchLoading     by viewModel.muSearchLoading.collectAsState()
+    var showMuSheet         by remember { mutableStateOf(false) }
+    var muSearchQuery       by remember { mutableStateOf("") }
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
     var showBulkMenu by remember { mutableStateOf(false) }
+    var showDownloadNDialog by remember { mutableStateOf(false) }
     var chapterSearchActive by remember { mutableStateOf(false) }
     var chapterGridView by remember { mutableStateOf(false) }
     var groupByVolume by remember { mutableStateOf(false) }
@@ -277,7 +294,34 @@ fun MangaDetailScreen(
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(text = "${chapters.size} kapitol", style = MaterialTheme.typography.labelMedium, color = TextSecondary, modifier = Modifier.padding(top = 2.dp))
+                            val readCount = chapters.count { it.read }
+                            val totalCount = chapters.size
+                            Text(text = "$totalCount kapitol", style = MaterialTheme.typography.labelMedium, color = TextSecondary, modifier = Modifier.padding(top = 2.dp))
+                            if (totalCount > 0) {
+                                val progress = readCount.toFloat() / totalCount
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                        color = GlowViolet,
+                                        trackColor = TextSecondary.copy(alpha = 0.18f),
+                                    )
+                                    Text(
+                                        text = " $readCount / $totalCount",
+                                        color = TextSecondary.copy(alpha = 0.7f),
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(start = 6.dp),
+                                    )
+                                }
+                            }
+                            if (readingTimeMs > 0) {
+                                Text(
+                                    text = "Čas čtení: ${formatReadingTime(readingTimeMs)}",
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
                             manga?.status?.let { status ->
                                 val (label, statusColor) = when (status.lowercase()) {
                                     "ongoing"   -> "Vychází"   to Color(0xFF4CAF50)
@@ -610,6 +654,9 @@ fun MangaDetailScreen(
                                         viewModel.searchMal(malSearchQuery)
                                         showMalSheet = true
                                     }) { Text("Změnit", color = malBlue, fontSize = 12.sp) }
+                                    IconButton(onClick = { viewModel.syncFromMal() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z MAL", tint = malBlue, modifier = Modifier.size(16.dp))
+                                    }
                                     IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
                                         Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
                                     }
@@ -636,6 +683,127 @@ fun MangaDetailScreen(
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
+                        }
+                    }
+                }
+
+                // ── Kitsu tracking ─────────────────────────────────────────────
+                item {
+                    val kitsuColor = Color(0xFF51A351)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "KITSU",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = kitsuColor,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        if (!kitsuIsLoggedIn) {
+                            Text(
+                                "Přihlas se ke Kitsu v Nastavení pro párování.",
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                            )
+                        } else if (kitsuId != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(kitsuColor.copy(alpha = 0.08f))
+                                    .border(1.dp, kitsuColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.openKitsuPage(context) }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text("Kitsu ID: $kitsuId", color = TextPrimary, fontSize = 14.sp)
+                                    if (kitsuScore != null) Text("Skóre: ${String.format("%.2f", kitsuScore)}", color = TextSecondary, fontSize = 12.sp)
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = {
+                                        kitsuSearchQuery = manga?.title ?: ""
+                                        viewModel.searchKitsu(kitsuSearchQuery)
+                                        showKitsuSheet = true
+                                    }) { Text("Změnit", color = kitsuColor, fontSize = 12.sp) }
+                                    IconButton(onClick = { viewModel.syncFromKitsu() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z Kitsu", tint = kitsuColor, modifier = Modifier.size(16.dp))
+                                    }
+                                    IconButton(onClick = { viewModel.unlinkKitsu() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    kitsuSearchQuery = manga?.title ?: ""
+                                    viewModel.searchKitsu(kitsuSearchQuery)
+                                    showKitsuSheet = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, kitsuColor.copy(alpha = 0.4f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = kitsuColor),
+                            ) { Text("Propojit s Kitsu") }
+                        }
+                    }
+                }
+
+                // ── MangaUpdates tracking ──────────────────────────────────────
+                item {
+                    val muColor = Color(0xFF3B82F6)
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            text = "MANGAUPDATES",
+                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                            color = muColor,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        if (!muIsLoggedIn) {
+                            Text(
+                                "Přihlas se k MangaUpdates v Nastavení pro párování.",
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                            )
+                        } else if (muId != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(muColor.copy(alpha = 0.08f))
+                                    .border(1.dp, muColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .clickable { viewModel.openMuPage(context) }
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text("MU Series ID: $muId", color = TextPrimary, fontSize = 14.sp)
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    TextButton(onClick = {
+                                        muSearchQuery = manga?.title ?: ""
+                                        viewModel.searchMu(muSearchQuery)
+                                        showMuSheet = true
+                                    }) { Text("Změnit", color = muColor, fontSize = 12.sp) }
+                                    IconButton(onClick = { viewModel.syncFromMu() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z MangaUpdates", tint = muColor, modifier = Modifier.size(16.dp))
+                                    }
+                                    IconButton(onClick = { viewModel.unlinkMu() }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = {
+                                    muSearchQuery = manga?.title ?: ""
+                                    viewModel.searchMu(muSearchQuery)
+                                    showMuSheet = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, muColor.copy(alpha = 0.4f)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = muColor),
+                            ) { Text("Propojit s MangaUpdates") }
                         }
                     }
                 }
@@ -932,6 +1100,26 @@ fun MangaDetailScreen(
                             DropdownMenu(expanded = showBulkMenu, onDismissRequest = { showBulkMenu = false }) {
                                 DropdownMenuItem(text = { Text("Stáhnout vše") }, onClick = { viewModel.downloadAll(); showBulkMenu = false })
                                 DropdownMenuItem(text = { Text("Stáhnout nepřečtené") }, onClick = { viewModel.downloadUnread(); showBulkMenu = false })
+                                DropdownMenuItem(text = { Text("Stáhnout prvních N…") }, onClick = { showDownloadNDialog = true; showBulkMenu = false })
+                            }
+                            if (showDownloadNDialog) {
+                                androidx.compose.material3.AlertDialog(
+                                    onDismissRequest = { showDownloadNDialog = false },
+                                    title = { Text("Stáhnout prvních N nepřečtených") },
+                                    text = {
+                                        androidx.compose.foundation.layout.Column {
+                                            listOf(5 to "5 kapitol", 10 to "10 kapitol", 25 to "25 kapitol", 50 to "50 kapitol").forEach { (n, label) ->
+                                                androidx.compose.material3.TextButton(
+                                                    onClick = { viewModel.downloadFirstN(n); showDownloadNDialog = false },
+                                                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                                ) { Text(label) }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = {
+                                        androidx.compose.material3.TextButton(onClick = { showDownloadNDialog = false }) { Text("Zrušit") }
+                                    },
+                                )
                             }
                         }
 
@@ -1132,6 +1320,144 @@ fun MangaDetailScreen(
             }
 
             PullToRefreshContainer(state = pullToRefreshState, modifier = Modifier.align(Alignment.TopCenter))
+        }
+    }
+
+    // ── Kitsu search bottom sheet ──────────────────────────────────────────────
+    if (showKitsuSheet) {
+        val kitsuSheetColor = Color(0xFF51A351)
+        ModalBottomSheet(
+            onDismissRequest = { showKitsuSheet = false; kitsuSearchQuery = "" },
+            containerColor = NightBlue,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Hledat na Kitsu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = kitsuSearchQuery,
+                        onValueChange = { kitsuSearchQuery = it },
+                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = kitsuSheetColor,
+                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                        ),
+                    )
+                    IconButton(onClick = { viewModel.searchKitsu(kitsuSearchQuery) }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = kitsuSheetColor)
+                    }
+                }
+                if (kitsuSearchLoading) {
+                    CircularProgressIndicator(color = kitsuSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        kitsuSearchResults.forEach { km ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable { viewModel.linkKitsu(km); showKitsuSheet = false }
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AsyncImage(
+                                    model = km.coverUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(km.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    if (km.score != null) Text("⭐ ${String.format("%.2f", km.score)}", color = Color(0xFFFFD700), fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        if (kitsuSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    // ── MangaUpdates search bottom sheet ──────────────────────────────────────
+    if (showMuSheet) {
+        val muSheetColor = Color(0xFF3B82F6)
+        ModalBottomSheet(
+            onDismissRequest = { showMuSheet = false; muSearchQuery = "" },
+            containerColor = NightBlue,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Hledat na MangaUpdates", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = muSearchQuery,
+                        onValueChange = { muSearchQuery = it },
+                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = muSheetColor,
+                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                        ),
+                    )
+                    IconButton(onClick = { viewModel.searchMu(muSearchQuery) }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = muSheetColor)
+                    }
+                }
+                if (muSearchLoading) {
+                    CircularProgressIndicator(color = muSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        muSearchResults.forEach { mu ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.05f))
+                                    .clickable { viewModel.linkMu(mu); showMuSheet = false }
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AsyncImage(
+                                    model = mu.coverUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(mu.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    if (mu.year != null) Text("Rok: ${mu.year}", color = TextSecondary, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        if (muSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 
@@ -1385,5 +1711,16 @@ private fun RelatedMangaCard(manga: SManga, onClick: () -> Unit) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+private fun formatReadingTime(ms: Long): String {
+    val totalMin = ms / 60_000L
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m"
+        else  -> "<1m"
     }
 }

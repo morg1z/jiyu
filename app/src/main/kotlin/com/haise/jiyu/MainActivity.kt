@@ -80,6 +80,10 @@ class MainActivity : AppCompatActivity() {
                 }
         }
 
+        // Cold start: notifikace nebo widget tap, appka nebyla v paměti
+        intent?.data?.takeIf { it.scheme == "jiyu" && it.host != "anilist" && it.host != "mal-auth" }
+            ?.let { _pendingDeepLink.value = intent }
+
         setContent {
             val theme by settings.theme.collectAsState(initial = ThemeOption.SYSTEM)
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit

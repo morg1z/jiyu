@@ -22,6 +22,7 @@ import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.search.GlobalSearchScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 import com.haise.jiyu.ui.settings.SourceCatalogScreen
+import com.haise.jiyu.ui.settings.TapZoneSettingsScreen
 import com.haise.jiyu.ui.duplicates.DuplicateDetectorScreen
 import com.haise.jiyu.ui.stats.ExtendedStatsScreen
 import com.haise.jiyu.ui.updates.UpdatesScreen
@@ -44,6 +45,7 @@ internal object Routes {
     const val COMMUNITY     = "community"
     const val CUSTOM_CSS    = "custom_css"
     const val DUPLICATES    = "duplicates"
+    const val TAP_ZONES     = "tap_zones"
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
@@ -131,7 +133,12 @@ fun JiyuNavGraph(
                 onOpenGoals = { navController.navigate(Routes.GOALS) },
                 onOpenCommunity = { navController.navigate(Routes.COMMUNITY) },
                 onOpenDuplicates = { navController.navigate(Routes.DUPLICATES) },
+                onOpenTapZones = { navController.navigate(Routes.TAP_ZONES) },
             )
+        }
+
+        composable(Routes.TAP_ZONES) {
+            TapZoneSettingsScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.ACCOUNT) {

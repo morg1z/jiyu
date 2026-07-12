@@ -37,7 +37,7 @@ class Converters {
         MangaNoteEntity::class,
         MangaTagEntity::class,
     ],
-    version = 21,
+    version = 25,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -202,6 +202,41 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE manga ADD COLUMN readingStatus TEXT")
+            }
+        }
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Indices that were declared on ReadHistoryEntity but missing in MIGRATION_7_8 SQL
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_read_history_readAt` ON `read_history` (`readAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_read_history_mangaId` ON `read_history` (`mangaId`)")
+                // Index for observeUpdates ORDER BY c.dateUpload DESC
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_dateUpload` ON `chapter` (`dateUpload`)")
+            }
+        }
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN kitsuId TEXT")
+                db.execSQL("ALTER TABLE manga ADD COLUMN kitsuScore REAL")
+                db.execSQL("ALTER TABLE manga ADD COLUMN mangaUpdatesId INTEGER")
+            }
+        }
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // manga — chybějící indexy z entit (sourceId, composite, nové sort indexy)
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_sourceId` ON `manga` (`sourceId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_inLibrary_sourceId` ON `manga` (`inLibrary`, `sourceId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_title` ON `manga` (`title`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_addedAt` ON `manga` (`addedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_lastUpdated` ON `manga` (`lastUpdated`)")
+                // chapter — chybějící composite a chapterNumber index
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_mangaId_read` ON `chapter` (`mangaId`, `read`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_mangaId_chapterNumber` ON `chapter` (`mangaId`, `chapterNumber`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_chapterNumber` ON `chapter` (`chapterNumber`)")
+            }
+        }
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN readingTimeMs INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

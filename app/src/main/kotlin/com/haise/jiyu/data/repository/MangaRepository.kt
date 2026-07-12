@@ -80,24 +80,45 @@ class MangaRepository @Inject constructor(
 
     suspend fun addToLibrary(manga: SManga) {
         val id = mangaId(manga.sourceId, manga.url)
-        mangaDao.upsert(
-            MangaEntity(
-                id = id,
-                sourceId = manga.sourceId,
-                url = manga.url,
-                title = manga.title,
-                coverUrl = manga.coverUrl,
-                description = manga.description,
-                status = manga.status,
-                inLibrary = true,
-                author = manga.author,
-                artist = manga.artist,
-                genres = manga.genres.joinToString(","),
-                year = manga.year,
-                contentType = manga.contentType,
-                addedAt = System.currentTimeMillis(),
+        val existing = mangaDao.getById(id)
+        if (existing != null) {
+            // Preserve all user-set fields: malId, userRating, readerDirectionOverride,
+            // autoDownload, excludeFromUpdates, readingStatus, addedAt, etc.
+            mangaDao.upsert(
+                existing.copy(
+                    inLibrary = true,
+                    title = manga.title,
+                    coverUrl = manga.coverUrl,
+                    description = manga.description,
+                    status = manga.status,
+                    author = manga.author,
+                    artist = manga.artist,
+                    genres = manga.genres.joinToString(","),
+                    year = manga.year,
+                    contentType = manga.contentType,
+                    addedAt = if (existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
+                )
             )
-        )
+        } else {
+            mangaDao.upsert(
+                MangaEntity(
+                    id = id,
+                    sourceId = manga.sourceId,
+                    url = manga.url,
+                    title = manga.title,
+                    coverUrl = manga.coverUrl,
+                    description = manga.description,
+                    status = manga.status,
+                    inLibrary = true,
+                    author = manga.author,
+                    artist = manga.artist,
+                    genres = manga.genres.joinToString(","),
+                    year = manga.year,
+                    contentType = manga.contentType,
+                    addedAt = System.currentTimeMillis(),
+                )
+            )
+        }
         refreshChapters(id, manga)
     }
 
@@ -119,6 +140,10 @@ class MangaRepository @Inject constructor(
     suspend fun setMalId(mangaId: String, malId: Int?) = mangaDao.setMalId(mangaId, malId)
     suspend fun setMalScore(mangaId: String, score: Float?) = mangaDao.setMalScore(mangaId, score)
     suspend fun setMalStatus(mangaId: String, status: String?) = mangaDao.setMalStatus(mangaId, status)
+    suspend fun setKitsuId(mangaId: String, kitsuId: String?) = mangaDao.setKitsuId(mangaId, kitsuId)
+    suspend fun setKitsuScore(mangaId: String, score: Float?) = mangaDao.setKitsuScore(mangaId, score)
+    suspend fun setMangaUpdatesId(mangaId: String, seriesId: Long?) = mangaDao.setMangaUpdatesId(mangaId, seriesId)
+    suspend fun addMangaReadingTime(mangaId: String, deltaMs: Long) = mangaDao.addReadingTime(mangaId, deltaMs)
     suspend fun setReadingStatus(mangaId: String, status: String?) = mangaDao.setReadingStatus(mangaId, status)
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>> = mangaDao.observeByReadingStatus(status)
     suspend fun getAllLibraryForExport(): List<MangaEntity> = mangaDao.getAllLibraryForExport()
@@ -134,24 +159,25 @@ class MangaRepository @Inject constructor(
 
     suspend fun removeFromLibrary(mangaId: String) = mangaDao.setInLibrary(mangaId, false)
 
-    suspend fun refreshChapters(mangaId: String, manga: SManga) {
-        val source = sourceManager.getById(manga.sourceId) ?: return
+    /** Vrací seznam nově přidaných kapitol (existující kapitoly jsou přeskočeny). */
+    suspend fun refreshChapters(mangaId: String, manga: SManga): List<ChapterEntity> {
+        val source = sourceManager.getById(manga.sourceId) ?: return emptyList()
         val chapters = source.getChapterList(manga)
-        chapterDao.insertNewOnly(
-            chapters.map { chapter ->
-                ChapterEntity(
-                    id = chapterId(chapter),
-                    mangaId = mangaId,
-                    sourceId = chapter.sourceId,
-                    url = chapter.url,
-                    name = chapter.name,
-                    chapterNumber = chapter.chapterNumber,
-                    dateUpload = chapter.dateUpload,
-                    scanlationGroup = chapter.scanlationGroup,
-                    volume = chapter.volume,
-                )
-            }
-        )
+        val entities = chapters.map { chapter ->
+            ChapterEntity(
+                id = chapterId(chapter),
+                mangaId = mangaId,
+                sourceId = chapter.sourceId,
+                url = chapter.url,
+                name = chapter.name,
+                chapterNumber = chapter.chapterNumber,
+                dateUpload = chapter.dateUpload,
+                scanlationGroup = chapter.scanlationGroup,
+                volume = chapter.volume,
+            )
+        }
+        val rowIds = chapterDao.insertNewOnly(entities)
+        return entities.filterIndexed { index, _ -> rowIds[index] != -1L }
     }
 
     suspend fun getChapterPages(sourceId: String, chapterUrl: String, mangaUrl: String): List<com.haise.jiyu.source.Page> {

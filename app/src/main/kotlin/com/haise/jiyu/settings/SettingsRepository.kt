@@ -48,6 +48,16 @@ object SettingsKeys {
     val DOWNLOAD_ONLY_WIFI     = booleanPreferencesKey("download_only_wifi")
     val ONBOARDING_COMPLETED   = booleanPreferencesKey("onboarding_completed")
     val DOWNLOAD_FOLDER_URI    = stringPreferencesKey("download_folder_uri")
+    val TAP_ZONE_GRID          = stringPreferencesKey("tap_zone_grid")
+    val NEW_CHAPTERS_COUNT     = intPreferencesKey("new_chapters_count")
+    val VOLUME_KEYS_NAV        = booleanPreferencesKey("volume_keys_nav")
+    val KEEP_SCREEN_ON         = booleanPreferencesKey("keep_screen_on")
+    val READER_ORIENTATION     = stringPreferencesKey("reader_orientation")
+    val SKIP_READ_CHAPTERS     = booleanPreferencesKey("skip_read_chapters")
+    val SAVE_AS_CBZ            = booleanPreferencesKey("save_as_cbz")
+    val LIBRARY_GRID_COLUMNS   = intPreferencesKey("library_grid_columns")
+    val DEFAULT_CATEGORY_ID    = stringPreferencesKey("default_category_id")
+    val PARALLEL_DOWNLOADS     = intPreferencesKey("parallel_downloads")
 }
 
 object ReaderTheme {
@@ -289,6 +299,72 @@ class SettingsRepository @Inject constructor(
         if (uri == null) it.remove(SettingsKeys.DOWNLOAD_FOLDER_URI)
         else it[SettingsKeys.DOWNLOAD_FOLDER_URI] = uri
     }
+
+    val tapZoneGrid: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.TAP_ZONE_GRID] ?: "" }
+
+    suspend fun setTapZoneGrid(serialized: String) =
+        dataStore.edit { it[SettingsKeys.TAP_ZONE_GRID] = serialized }
+
+    val newChaptersCount: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.NEW_CHAPTERS_COUNT] ?: 0 }
+
+    suspend fun addNewChapters(count: Int) = dataStore.edit { prefs ->
+        prefs[SettingsKeys.NEW_CHAPTERS_COUNT] = (prefs[SettingsKeys.NEW_CHAPTERS_COUNT] ?: 0) + count
+    }
+
+    suspend fun clearNewChapters() =
+        dataStore.edit { it[SettingsKeys.NEW_CHAPTERS_COUNT] = 0 }
+
+    val volumeKeysNav: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.VOLUME_KEYS_NAV] ?: true }
+
+    val keepScreenOn: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.KEEP_SCREEN_ON] ?: true }
+
+    val readerOrientation: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.READER_ORIENTATION] ?: "free" }
+
+    suspend fun setVolumeKeysNav(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.VOLUME_KEYS_NAV] = enabled }
+
+    suspend fun setKeepScreenOn(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.KEEP_SCREEN_ON] = enabled }
+
+    suspend fun setReaderOrientation(orientation: String) =
+        dataStore.edit { it[SettingsKeys.READER_ORIENTATION] = orientation }
+
+    val skipReadChapters: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.SKIP_READ_CHAPTERS] ?: false }
+
+    suspend fun setSkipReadChapters(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.SKIP_READ_CHAPTERS] = enabled }
+
+    val saveAsCbz: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.SAVE_AS_CBZ] ?: false }
+
+    suspend fun setSaveAsCbz(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.SAVE_AS_CBZ] = enabled }
+
+    val libraryGridColumns: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.LIBRARY_GRID_COLUMNS] ?: 3 }
+
+    suspend fun setLibraryGridColumns(n: Int) =
+        dataStore.edit { it[SettingsKeys.LIBRARY_GRID_COLUMNS] = n }
+
+    val defaultCategoryId: Flow<String?> =
+        dataStore.data.map { it[SettingsKeys.DEFAULT_CATEGORY_ID] }
+
+    suspend fun setDefaultCategoryId(id: String?) = dataStore.edit {
+        if (id == null) it.remove(SettingsKeys.DEFAULT_CATEGORY_ID)
+        else it[SettingsKeys.DEFAULT_CATEGORY_ID] = id
+    }
+
+    val parallelDownloads: Flow<Int> =
+        dataStore.data.map { it[SettingsKeys.PARALLEL_DOWNLOADS] ?: 3 }
+
+    suspend fun setParallelDownloads(n: Int) =
+        dataStore.edit { it[SettingsKeys.PARALLEL_DOWNLOADS] = n }
 
     suspend fun updateReadingStreak() = dataStore.edit { prefs ->
         val today = java.time.LocalDate.now().toString()

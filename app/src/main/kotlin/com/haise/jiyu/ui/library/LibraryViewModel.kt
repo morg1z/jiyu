@@ -177,7 +177,13 @@ class LibraryViewModel @Inject constructor(
 
     fun bulkAddToCategory(categoryId: String) {
         val ids = _selectedIds.value.toList(); clearSelection()
-        viewModelScope.launch { ids.forEach { repository.addMangaToCategory(it, categoryId) } }
+        viewModelScope.launch { repository.upsertAllMangaCategories(ids.map { it to categoryId }) }
+    }
+
+    /** Označí celou knihovnu (bez ohledu na aktuální filtr/kategorii) jako přečtenou. */
+    fun markEntireLibraryAsRead() = viewModelScope.launch {
+        val ids = repository.getAllLibraryManga().map { it.id }
+        repository.markAllChaptersRead(ids)
     }
 
     // ── Pull-to-refresh ───────────────────────────────────────────────────────
@@ -282,6 +288,14 @@ class LibraryViewModel @Inject constructor(
     val gridMode: StateFlow<Boolean> = settings.libraryGridMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
     fun toggleGridMode() { viewModelScope.launch { settings.setLibraryGridMode(!gridMode.value) } }
+
+    val gridColumns: StateFlow<Int> = settings.libraryGridColumns
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
+    fun setGridColumns(n: Int) { viewModelScope.launch { settings.setLibraryGridColumns(n) } }
+    fun cycleGridColumns() {
+        val next = when (gridColumns.value) { 2 -> 3; 3 -> 4; else -> 2 }
+        setGridColumns(next)
+    }
 
     // ── Lokální CBZ/ZIP import ────────────────────────────────────────────────
     private val _localImportState = MutableStateFlow<LocalImportState>(LocalImportState.Idle)

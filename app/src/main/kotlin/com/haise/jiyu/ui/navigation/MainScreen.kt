@@ -15,6 +15,8 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -22,7 +24,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -56,7 +60,9 @@ private val TABS = listOf(
 fun MainScreen(
     navController: androidx.navigation.NavHostController,
     startDestination: String = Routes.LIBRARY,
+    viewModel: MainViewModel = hiltViewModel(),
 ) {
+    val newChaptersCount by viewModel.newChaptersCount.collectAsState()
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDest = navBackStack?.destination
     val currentRoute = currentDest?.route
@@ -96,10 +102,24 @@ fun MainScreen(
                                 }
                             },
                             icon = {
-                                Icon(
-                                    imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
-                                    contentDescription = tab.label,
-                                )
+                                val showBadge = tab.route == Routes.UPDATES && newChaptersCount > 0
+                                if (showBadge) {
+                                    BadgedBox(badge = {
+                                        Badge {
+                                            Text(if (newChaptersCount > 99) "99+" else "$newChaptersCount")
+                                        }
+                                    }) {
+                                        Icon(
+                                            imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+                                            contentDescription = tab.label,
+                                        )
+                                    }
+                                } else {
+                                    Icon(
+                                        imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+                                        contentDescription = tab.label,
+                                    )
+                                }
                             },
                             label = { Text(tab.label, fontSize = 10.sp) },
                             colors = NavigationBarItemDefaults.colors(

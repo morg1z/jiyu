@@ -7,8 +7,11 @@ import androidx.lifecycle.ViewModel
 import com.haise.jiyu.data.backup.TachiyomiBackupImporter
 import com.haise.jiyu.data.backup.TachiyomiImportResult
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.data.tracking.KitsuAuthManager
+import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalAuthManager
 import com.haise.jiyu.data.tracking.MalRepository
+import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import androidx.lifecycle.viewModelScope
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -17,6 +20,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.haise.jiyu.backup.BackupManager
+import com.haise.jiyu.backup.SettingsBackupManager
 import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -37,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -70,11 +75,15 @@ class SettingsViewModel @Inject constructor(
     private val translatedPageDao: TranslatedPageDao,
     private val repository: MangaRepository,
     private val backupManager: BackupManager,
+    private val settingsBackupManager: SettingsBackupManager,
     private val okHttpClient: OkHttpClient,
     private val catalogManager: SourceCatalogManager,
     private val tachiyomiBackupImporter: TachiyomiBackupImporter,
     private val malAuthManager: MalAuthManager,
     private val malRepository: MalRepository,
+    private val kitsuAuthManager: KitsuAuthManager,
+    private val kitsuRepository: KitsuRepository,
+    private val muRepository: MangaUpdatesRepository,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
@@ -100,6 +109,10 @@ class SettingsViewModel @Inject constructor(
 
     val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
+
+    val tapZoneGrid: StateFlow<com.haise.jiyu.ui.reader.TapZoneGrid> = settings.tapZoneGrid
+        .map { com.haise.jiyu.ui.reader.TapZoneGrid.deserialize(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.ui.reader.TapZoneGrid())
 
     val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
@@ -165,6 +178,7 @@ class SettingsViewModel @Inject constructor(
     fun setTapZonesEnabled(enabled: Boolean)      = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
     fun setTapZoneLeftFraction(fraction: Float)   = viewModelScope.launch { settings.setTapZoneLeftFraction(fraction) }
     fun setTapZoneRightFraction(fraction: Float)  = viewModelScope.launch { settings.setTapZoneRightFraction(fraction) }
+    fun setTapZoneGrid(grid: com.haise.jiyu.ui.reader.TapZoneGrid) = viewModelScope.launch { settings.setTapZoneGrid(grid.serialize()) }
     fun setWebtoonScrollSpeed(speed: Float)       = viewModelScope.launch { settings.setWebtoonScrollSpeed(speed) }
     fun setReaderTextScale(scale: Float)          = viewModelScope.launch { settings.setReaderTextScale(scale) }
     fun setDoublePageSpread(enabled: Boolean) = viewModelScope.launch { settings.setDoublePageSpread(enabled) }
@@ -206,6 +220,26 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearBackupState() { _backupState.value = BackupUiState.Idle }
+
+    // ── Záloha nastavení ──────────────────────────────────────────────────────
+    private val _settingsBackupState = MutableStateFlow<BackupUiState>(BackupUiState.Idle)
+    val settingsBackupState: StateFlow<BackupUiState> = _settingsBackupState.asStateFlow()
+
+    fun exportSettings(uri: Uri) = viewModelScope.launch {
+        _settingsBackupState.value = BackupUiState.Working
+        settingsBackupManager.exportToUri(uri)
+            .onSuccess { _settingsBackupState.value = BackupUiState.Success("Nastavení exportováno") }
+            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: "Chyba exportu") }
+    }
+
+    fun importSettings(uri: Uri) = viewModelScope.launch {
+        _settingsBackupState.value = BackupUiState.Working
+        settingsBackupManager.importFromUri(uri)
+            .onSuccess { count -> _settingsBackupState.value = BackupUiState.Success("Obnoveno $count nastavení") }
+            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: "Chyba importu") }
+    }
+
+    fun clearSettingsBackupState() { _settingsBackupState.value = BackupUiState.Idle }
 
     // ── Tachiyomi/Mihon import ────────────────────────────────────────────────
     private val _tachyImportResult = MutableStateFlow<TachiyomiImportResult?>(null)
@@ -304,6 +338,59 @@ class SettingsViewModel @Inject constructor(
 
     fun malLogout() = viewModelScope.launch { malAuthManager.logout() }
 
+    // ── Kitsu OAuth ───────────────────────────────────────────────────────────
+    val kitsuIsLoggedIn: StateFlow<Boolean> = kitsuAuthManager.isLoggedIn
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val kitsuUsername: StateFlow<String> = kitsuAuthManager.username
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    private val _kitsuLoginLoading = MutableStateFlow(false)
+    val kitsuLoginLoading: StateFlow<Boolean> = _kitsuLoginLoading.asStateFlow()
+
+    private val _kitsuLoginError = MutableStateFlow<String?>(null)
+    val kitsuLoginError: StateFlow<String?> = _kitsuLoginError.asStateFlow()
+
+    fun kitsuLogin(email: String, password: String) = viewModelScope.launch {
+        _kitsuLoginLoading.value = true
+        _kitsuLoginError.value = null
+        val ok = kitsuAuthManager.login(email, password)
+        if (ok) {
+            val userId = kitsuRepository.fetchUserId()
+            if (userId != null) kitsuAuthManager.saveUserId(userId)
+        } else {
+            _kitsuLoginError.value = "Přihlášení k Kitsu selhalo — zkontroluj e-mail a heslo"
+        }
+        _kitsuLoginLoading.value = false
+    }
+
+    fun kitsuLogout() = viewModelScope.launch { kitsuAuthManager.logout() }
+    fun clearKitsuLoginError() { _kitsuLoginError.value = null }
+
+    // ── MangaUpdates ──────────────────────────────────────────────────────────
+    val muIsLoggedIn: StateFlow<Boolean> = muRepository.isLoggedIn
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val muUsername: StateFlow<String> = muRepository.username
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    private val _muLoginLoading = MutableStateFlow(false)
+    val muLoginLoading: StateFlow<Boolean> = _muLoginLoading.asStateFlow()
+
+    private val _muLoginError = MutableStateFlow<String?>(null)
+    val muLoginError: StateFlow<String?> = _muLoginError.asStateFlow()
+
+    fun muLogin(username: String, password: String) = viewModelScope.launch {
+        _muLoginLoading.value = true
+        _muLoginError.value = null
+        val ok = muRepository.login(username, password)
+        if (!ok) _muLoginError.value = "Přihlášení k MangaUpdates selhalo"
+        _muLoginLoading.value = false
+    }
+
+    fun muLogout() = viewModelScope.launch { muRepository.logout() }
+    fun clearMuLoginError() { _muLoginError.value = null }
+
     // ── Katalog zdrojů ───────────────────────────────────────────────────────
     fun getCatalog(): List<CatalogSource> = catalogManager.catalog
 
@@ -365,6 +452,20 @@ class SettingsViewModel @Inject constructor(
 
     fun setCropBorders(enabled: Boolean) = viewModelScope.launch { settings.setCropBorders(enabled) }
 
+    // ── Nastavení čtečky ─────────────────────────────────────────────────────
+    val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val volumeKeysNav: StateFlow<Boolean> = settings.volumeKeysNav
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val skipReadChapters: StateFlow<Boolean> = settings.skipReadChapters
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setKeepScreenOn(enabled: Boolean)    = viewModelScope.launch { settings.setKeepScreenOn(enabled) }
+    fun setVolumeKeysNav(enabled: Boolean)   = viewModelScope.launch { settings.setVolumeKeysNav(enabled) }
+    fun setSkipReadChapters(enabled: Boolean) = viewModelScope.launch { settings.setSkipReadChapters(enabled) }
+
     // ── Čtečka — fullscreen & téma ────────────────────────────────────────────
     val fullscreenEnabled: StateFlow<Boolean> = settings.fullscreenEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -411,4 +512,31 @@ class SettingsViewModel @Inject constructor(
 
     fun addSavedSearch(query: String) = viewModelScope.launch { settings.addSavedSearch(query) }
     fun removeSavedSearch(query: String) = viewModelScope.launch { settings.removeSavedSearch(query) }
+
+    // ── Stahování — paralelní limit ───────────────────────────────────────────
+    val parallelDownloads: StateFlow<Int> = settings.parallelDownloads
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
+
+    fun setParallelDownloads(n: Int) = viewModelScope.launch { settings.setParallelDownloads(n) }
+
+    // ── CBZ export ────────────────────────────────────────────────────────────
+    val saveAsCbz: StateFlow<Boolean> = settings.saveAsCbz
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setSaveAsCbz(enabled: Boolean) = viewModelScope.launch { settings.setSaveAsCbz(enabled) }
+
+    // ── Mřížka knihovny — počet sloupců ──────────────────────────────────────
+    val libraryGridColumns: StateFlow<Int> = settings.libraryGridColumns
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 3)
+
+    fun setLibraryGridColumns(n: Int) = viewModelScope.launch { settings.setLibraryGridColumns(n) }
+
+    // ── Výchozí kategorie pro nová manga ──────────────────────────────────────
+    val defaultCategoryId: StateFlow<String?> = settings.defaultCategoryId
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setDefaultCategoryId(id: String?) = viewModelScope.launch { settings.setDefaultCategoryId(id) }
+
+    val categories: StateFlow<List<com.haise.jiyu.data.db.entity.CategoryEntity>> = repository.observeCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }

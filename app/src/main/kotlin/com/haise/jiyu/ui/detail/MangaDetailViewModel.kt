@@ -7,8 +7,13 @@ import android.content.Context
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
+import com.haise.jiyu.data.tracking.KitsuAuthManager
+import com.haise.jiyu.data.tracking.KitsuManga
+import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalManga
 import com.haise.jiyu.data.tracking.MalRepository
+import com.haise.jiyu.data.tracking.MangaUpdatesRepository
+import com.haise.jiyu.data.tracking.MuManga
 import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
@@ -46,6 +51,9 @@ class MangaDetailViewModel @Inject constructor(
     private val groqRepository: GroqRepository,
     private val aniListRepository: AniListRepository,
     private val malRepository: MalRepository,
+    private val kitsuAuthManager: KitsuAuthManager,
+    private val kitsuRepository: KitsuRepository,
+    private val muRepository: MangaUpdatesRepository,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -160,6 +168,10 @@ class MangaDetailViewModel @Inject constructor(
     val userRating: StateFlow<Int?> = manga.map { it?.userRating }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    // ── Čas čtení této mangy ──────────────────────────────────────────────────
+    val readingTimeMs: StateFlow<Long> = manga.map { it?.readingTimeMs ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
     // ── MAL tracking ──────────────────────────────────────────────────────────
     val malId: StateFlow<Int?> = manga.map { it?.malId }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -195,6 +207,133 @@ class MangaDetailViewModel @Inject constructor(
 
     fun openMalPage(context: Context) {
         malId.value?.let { malRepository.openMalPage(context, it) }
+    }
+
+    /** Stáhne uživatelův status/skóre z MAL webu zpět do appky (obousměrná synchronizace). */
+    fun syncFromMal() = viewModelScope.launch {
+        val id = malId.value ?: return@launch
+        val remote = malRepository.getMyStatus(id) ?: return@launch
+        remote.status?.let { status ->
+            val mapped = when (status) {
+                "reading"      -> "READING"
+                "completed"    -> "COMPLETED"
+                "on_hold"      -> "ON_HOLD"
+                "dropped"      -> "DROPPED"
+                "plan_to_read" -> "PLAN_TO_READ"
+                else           -> null
+            }
+            if (mapped != null) repository.setReadingStatus(mangaId, mapped)
+        }
+        remote.score?.let { score -> repository.setRating(mangaId, score * 10) }
+    }
+
+    // ── Kitsu tracking ────────────────────────────────────────────────────────
+    val kitsuId: StateFlow<String?> = manga.map { it?.kitsuId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val kitsuScore: StateFlow<Float?> = manga.map { it?.kitsuScore }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val kitsuIsLoggedIn: StateFlow<Boolean> = kitsuAuthManager.isLoggedIn
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _kitsuSearchResults = MutableStateFlow<List<KitsuManga>>(emptyList())
+    val kitsuSearchResults: StateFlow<List<KitsuManga>> = _kitsuSearchResults.asStateFlow()
+
+    private val _kitsuSearchLoading = MutableStateFlow(false)
+    val kitsuSearchLoading: StateFlow<Boolean> = _kitsuSearchLoading.asStateFlow()
+
+    fun searchKitsu(query: String) {
+        viewModelScope.launch {
+            _kitsuSearchLoading.value = true
+            _kitsuSearchResults.value = kitsuRepository.searchManga(query)
+            _kitsuSearchLoading.value = false
+        }
+    }
+
+    fun linkKitsu(kitsuManga: KitsuManga) = viewModelScope.launch {
+        repository.setKitsuId(mangaId, kitsuManga.id)
+        repository.setKitsuScore(mangaId, kitsuManga.score)
+        val userId = kitsuRepository.fetchUserId()
+        if (userId != null) kitsuAuthManager.saveUserId(userId)
+    }
+
+    fun unlinkKitsu() = viewModelScope.launch {
+        repository.setKitsuId(mangaId, null)
+        repository.setKitsuScore(mangaId, null)
+    }
+
+    fun openKitsuPage(context: Context) {
+        kitsuId.value?.let { kitsuRepository.openKitsuPage(context, it) }
+    }
+
+    /** Stáhne uživatelův status/skóre z Kitsu webu zpět do appky (obousměrná synchronizace). */
+    fun syncFromKitsu() = viewModelScope.launch {
+        val id = kitsuId.value ?: return@launch
+        val remote = kitsuRepository.getMyLibraryEntry(id) ?: return@launch
+        remote.status?.let { status ->
+            val mapped = when (status) {
+                "current"   -> "READING"
+                "completed" -> "COMPLETED"
+                "on_hold"   -> "ON_HOLD"
+                "dropped"   -> "DROPPED"
+                "planned"   -> "PLAN_TO_READ"
+                else        -> null
+            }
+            if (mapped != null) repository.setReadingStatus(mangaId, mapped)
+        }
+        remote.ratingTwenty?.let { rt -> repository.setRating(mangaId, rt * 5) }
+    }
+
+    // ── MangaUpdates tracking ─────────────────────────────────────────────────
+    val muId: StateFlow<Long?> = manga.map { it?.mangaUpdatesId }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val muIsLoggedIn: StateFlow<Boolean> = muRepository.isLoggedIn
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _muSearchResults = MutableStateFlow<List<MuManga>>(emptyList())
+    val muSearchResults: StateFlow<List<MuManga>> = _muSearchResults.asStateFlow()
+
+    private val _muSearchLoading = MutableStateFlow(false)
+    val muSearchLoading: StateFlow<Boolean> = _muSearchLoading.asStateFlow()
+
+    fun searchMu(query: String) {
+        viewModelScope.launch {
+            _muSearchLoading.value = true
+            _muSearchResults.value = muRepository.searchManga(query)
+            _muSearchLoading.value = false
+        }
+    }
+
+    fun linkMu(muManga: MuManga) = viewModelScope.launch {
+        repository.setMangaUpdatesId(mangaId, muManga.id)
+    }
+
+    fun unlinkMu() = viewModelScope.launch {
+        repository.setMangaUpdatesId(mangaId, null)
+    }
+
+    fun openMuPage(context: Context) {
+        muId.value?.let { muRepository.openMuPage(context, it) }
+    }
+
+    /** Stáhne uživatelův status/skóre z MangaUpdates webu zpět do appky (obousměrná synchronizace). */
+    fun syncFromMu() = viewModelScope.launch {
+        val id = muId.value ?: return@launch
+        val remote = muRepository.getMyStatus(id) ?: return@launch
+        remote.listId?.let { listId ->
+            val mapped = when (listId) {
+                0    -> "READING"
+                1    -> "PLAN_TO_READ"
+                2    -> "COMPLETED"
+                3    -> "DROPPED"
+                4    -> "ON_HOLD"
+                else -> null
+            }
+            if (mapped != null) repository.setReadingStatus(mangaId, mapped)
+        }
+        remote.rating?.let { r -> repository.setRating(mangaId, (r * 10).toInt()) }
     }
 
     // ── AI doporučení (#37) ───────────────────────────────────────────────────
@@ -295,6 +434,20 @@ class MangaDetailViewModel @Inject constructor(
         viewModelScope.launch {
             chapters.value
                 .filter { !it.read && (it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR) }
+                .forEach { chapter ->
+                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+                    downloadQueue.enqueue(chapter, mangaUrl)
+                }
+        }
+    }
+
+    fun downloadFirstN(n: Int) {
+        val mangaUrl = manga.value?.url ?: return
+        viewModelScope.launch {
+            chapters.value
+                .filter { !it.read && (it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR) }
+                .sortedBy { it.chapterNumber }
+                .take(n)
                 .forEach { chapter ->
                     repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
                     downloadQueue.enqueue(chapter, mangaUrl)

@@ -14,6 +14,8 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class MalUserStatus(val status: String?, val score: Int?, val numChaptersRead: Int?)
+
 data class MalManga(
     val id: Int,
     val title: String,
@@ -66,11 +68,17 @@ class MalRepository @Inject constructor(
         } catch (_: Exception) { null }
     }
 
-    suspend fun updateMangaStatus(malId: Int, status: String, score: Int? = null) = withContext(Dispatchers.IO) {
+    suspend fun updateMangaStatus(
+        malId: Int,
+        status: String,
+        score: Int? = null,
+        numChaptersRead: Int? = null,
+    ) = withContext(Dispatchers.IO) {
         val token = authManager.accessToken.first() ?: return@withContext
         try {
             val formBuilder = FormBody.Builder().add("status", status)
             if (score != null) formBuilder.add("score", score.toString())
+            if (numChaptersRead != null) formBuilder.add("num_chapters_read", numChaptersRead.toString())
             val req = Request.Builder()
                 .url("https://api.myanimelist.net/v2/manga/$malId/my_list_status")
                 .header("Authorization", "Bearer $token")
@@ -78,6 +86,27 @@ class MalRepository @Inject constructor(
                 .build()
             httpClient.newCall(req).execute().close()
         } catch (_: Exception) { }
+    }
+
+    /** Stáhne uživatelův status/skóre uložený přímo na MAL (pro obousměrnou synchronizaci). */
+    suspend fun getMyStatus(malId: Int): MalUserStatus? = withContext(Dispatchers.IO) {
+        val token = authManager.accessToken.first() ?: return@withContext null
+        try {
+            val req = Request.Builder()
+                .url("https://api.myanimelist.net/v2/manga/$malId?fields=my_list_status")
+                .header("Authorization", "Bearer $token")
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val json = JSONObject(resp.body?.string() ?: return@withContext null)
+                val status = json.optJSONObject("my_list_status") ?: return@withContext null
+                MalUserStatus(
+                    status = status.optString("status").takeIf { it.isNotBlank() },
+                    score = status.optInt("score", 0).takeIf { it > 0 },
+                    numChaptersRead = status.optInt("num_chapters_read", 0).takeIf { it > 0 },
+                )
+            }
+        } catch (_: Exception) { null }
     }
 
     fun openMalPage(context: Context, malId: Int) {

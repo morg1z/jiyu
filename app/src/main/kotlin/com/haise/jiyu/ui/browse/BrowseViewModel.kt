@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -23,6 +25,7 @@ import javax.inject.Inject
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
     private val repository: MangaRepository,
+    private val settings: SettingsRepository,
     private val sourceManager: SourceManager,
     private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
@@ -147,7 +150,10 @@ class BrowseViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repository.addToLibrary(manga)
-                onAdded(repository.mangaId(manga.sourceId, manga.url))
+                val id = repository.mangaId(manga.sourceId, manga.url)
+                val catId = settings.defaultCategoryId.first()
+                if (catId != null) repository.addMangaToCategory(id, catId)
+                onAdded(id)
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
             }

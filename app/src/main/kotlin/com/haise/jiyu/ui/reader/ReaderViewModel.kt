@@ -6,11 +6,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.data.tracking.KitsuRepository
+import com.haise.jiyu.data.tracking.MalRepository
+import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
 import com.haise.jiyu.work.AutoDeleteWorker
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
+import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.ReadingDirection
@@ -44,6 +48,9 @@ class ReaderViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val historyDao: ReadHistoryDao,
     private val aniListRepository: AniListRepository,
+    private val malRepository: MalRepository,
+    private val kitsuRepository: KitsuRepository,
+    private val muRepository: MangaUpdatesRepository,
     private val sleepTimerManager: SleepTimerManager,
     private val groqRepository: GroqRepository,
 ) : ViewModel() {
@@ -51,6 +58,7 @@ class ReaderViewModel @Inject constructor(
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
     private val startIncognito: Boolean = savedStateHandle["incognito"] ?: false
     private var currentChapter: ChapterEntity? = null
+    private var currentManga: MangaEntity? = null
     private var allChapters: List<ChapterEntity> = emptyList()
 
     private val _allChaptersFlow = MutableStateFlow<List<ChapterEntity>>(emptyList())
@@ -117,6 +125,14 @@ class ReaderViewModel @Inject constructor(
     val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
 
+    val tapZoneGrid: StateFlow<TapZoneGrid> = settings.tapZoneGrid
+        .map { TapZoneGrid.deserialize(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, TapZoneGrid())
+
+    fun setTapZoneGrid(grid: TapZoneGrid) {
+        viewModelScope.launch { settings.setTapZoneGrid(grid.serialize()) }
+    }
+
     val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
 
@@ -143,6 +159,20 @@ class ReaderViewModel @Inject constructor(
 
     val cropBorders: StateFlow<Boolean> = settings.cropBorders
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val volumeKeysNav: StateFlow<Boolean> = settings.volumeKeysNav
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val keepScreenOn: StateFlow<Boolean> = settings.keepScreenOn
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val readerOrientation: StateFlow<String> = settings.readerOrientation
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "free")
+
+    val skipReadChapters: StateFlow<Boolean> = settings.skipReadChapters
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setReaderOrientation(orientation: String) { viewModelScope.launch { settings.setReaderOrientation(orientation) } }
 
     // ── Webtoon scroll memory (in-memory, per chapter, max 50 entries LRU) ──
     private val webtoonPositions = mutableMapOf<String, Int>()
@@ -364,6 +394,7 @@ class ReaderViewModel @Inject constructor(
         updateNavState()
 
         val mangaForDir = repository.getManga(chapter.mangaId)
+        currentManga = mangaForDir
         _mangaDirectionOverride.value = mangaForDir?.readerDirectionOverride
 
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
@@ -431,13 +462,25 @@ class ReaderViewModel @Inject constructor(
     fun navigateNext() {
         val chapter = currentChapter ?: return
         val idx = allChapters.indexOfFirst { it.id == chapter.id }
-        if (idx > 0) viewModelScope.launch { loadChapter(allChapters[idx - 1].id) }
+        if (idx <= 0) return
+        val target = if (skipReadChapters.value) {
+            (idx - 1 downTo 0).firstOrNull { !allChapters[it].read } ?: (idx - 1)
+        } else {
+            idx - 1
+        }
+        viewModelScope.launch { loadChapter(allChapters[target].id) }
     }
 
     fun navigatePrev() {
         val chapter = currentChapter ?: return
         val idx = allChapters.indexOfFirst { it.id == chapter.id }
-        if (idx < allChapters.lastIndex) viewModelScope.launch { loadChapter(allChapters[idx + 1].id) }
+        if (idx >= allChapters.lastIndex) return
+        val target = if (skipReadChapters.value) {
+            (idx + 1..allChapters.lastIndex).firstOrNull { !allChapters[it].read } ?: (idx + 1)
+        } else {
+            idx + 1
+        }
+        viewModelScope.launch { loadChapter(allChapters[target].id) }
     }
 
     // ── Čtení ────────────────────────────────────────────────────────────────
@@ -479,10 +522,13 @@ class ReaderViewModel @Inject constructor(
             val incognito = _incognitoMode.value
             repository.updateReadProgress(chapterId, read = isRead, lastPageRead = index)
             repository.updateLastReadChapter(chapter.mangaId, chapterId)
-            if (deltaMs > 0) settings.addReadingTime(deltaMs)
+            if (deltaMs > 0) {
+                settings.addReadingTime(deltaMs)
+                repository.addMangaReadingTime(chapter.mangaId, deltaMs)
+            }
             settings.addPagesRead(1)
 
-            val manga = repository.getManga(chapter.mangaId)
+            val manga = currentManga
             if (!incognito && manga != null) {
                 historyDao.record(
                     ReadHistoryEntity(
@@ -500,6 +546,27 @@ class ReaderViewModel @Inject constructor(
                 if (!incognito && manga != null) {
                     viewModelScope.launch {
                         try { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } catch (_: Exception) {}
+                    }
+                    manga.malId?.let { malId ->
+                        viewModelScope.launch {
+                            try {
+                                malRepository.updateMangaStatus(
+                                    malId = malId,
+                                    status = "reading",
+                                    numChaptersRead = chapter.chapterNumber.toInt(),
+                                )
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    manga.kitsuId?.let { kitsuId ->
+                        viewModelScope.launch {
+                            try { kitsuRepository.updateProgress(kitsuId, chapter.chapterNumber.toInt()) } catch (_: Exception) {}
+                        }
+                    }
+                    manga.mangaUpdatesId?.let { seriesId ->
+                        viewModelScope.launch {
+                            try { muRepository.updateProgress(seriesId, chapter.chapterNumber.toInt()) } catch (_: Exception) {}
+                        }
                     }
                 }
             }
@@ -659,7 +726,7 @@ class ReaderViewModel @Inject constructor(
             val enabled = settings.autoDeleteRead.first()
             if (!enabled) return@launch
             val chapter = currentChapter ?: return@launch
-            if (!chapter.read) return@launch
+            // chapter.read je stale in-memory entita; spolehni se na volajícího (onPageChanged isRead)
             val delayDays = settings.autoDeleteDelayDays.first()
             if (delayDays > 0) {
                 // Plánuj přes WorkManager — viewModelScope se zruší při opuštění čtečky

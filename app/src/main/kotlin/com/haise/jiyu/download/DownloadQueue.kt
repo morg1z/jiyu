@@ -10,7 +10,6 @@ import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,8 +18,8 @@ class DownloadQueue @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
 ) {
-    fun enqueue(chapter: ChapterEntity, mangaUrl: String) {
-        val wifiOnly = runBlocking { settings.downloadOnlyWifi.first() }
+    suspend fun enqueue(chapter: ChapterEntity, mangaUrl: String) {
+        val wifiOnly = settings.downloadOnlyWifi.first()
         val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
 
         val data = Data.Builder()

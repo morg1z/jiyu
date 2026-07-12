@@ -1,13 +1,18 @@
 package com.haise.jiyu.ui.downloads
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.download.ChapterDownloadWorker
 import com.haise.jiyu.download.DownloadQueue
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,9 +28,25 @@ data class DownloadGroup(val manga: MangaEntity, val chapters: List<ChapterEntit
 
 @HiltViewModel
 class DownloadManagerViewModel @Inject constructor(
+    @ApplicationContext context: Context,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
 ) : ViewModel() {
+
+    /** chapterId → progress 0..1 for currently running downloads */
+    val downloadProgress: StateFlow<Map<String, Float>> =
+        WorkManager.getInstance(context)
+            .getWorkInfosByTagFlow("jiyu_download")
+            .map { infos ->
+                infos.filter { it.state == WorkInfo.State.RUNNING }
+                    .associate { info ->
+                        val chapterId = info.progress.getString(ChapterDownloadWorker.KEY_CHAPTER_ENTITY_ID) ?: ""
+                        val progress  = info.progress.getFloat(ChapterDownloadWorker.KEY_PROGRESS, 0f)
+                        chapterId to progress
+                    }
+                    .filterKeys { it.isNotEmpty() }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val downloadGroups: StateFlow<List<DownloadGroup>> = combine(
         repository.observeNonEmptyDownloads(),
@@ -87,7 +108,12 @@ class DownloadManagerViewModel @Inject constructor(
         viewModelScope.launch {
             groups.forEach { group ->
                 group.chapters
-                    .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR }
+                    .filter {
+                        it.downloadStatus == DownloadStatus.NOT_DOWNLOADED ||
+                        it.downloadStatus == DownloadStatus.ERROR ||
+                        it.downloadStatus == DownloadStatus.QUEUED ||
+                        it.downloadStatus == DownloadStatus.DOWNLOADING
+                    }
                     .forEach { chapter ->
                         repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
                         downloadQueue.enqueue(chapter, group.manga.url)

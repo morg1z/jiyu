@@ -1,5 +1,7 @@
 package com.haise.jiyu.ui.stats
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.MangaDao
@@ -7,11 +9,14 @@ import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -29,8 +34,15 @@ data class ExtendedStats(
     val totalInLibrary: Int = 0,
 )
 
+sealed interface StatsExportState {
+    data object Idle : StatsExportState
+    data class Success(val message: String) : StatsExportState
+    data class Error(val message: String) : StatsExportState
+}
+
 @HiltViewModel
 class ExtendedStatsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
     private val historyDao: ReadHistoryDao,
     private val mangaDao: MangaDao,
@@ -90,5 +102,69 @@ class ExtendedStatsViewModel @Inject constructor(
             statusBreakdown = statusBreakdown,
             totalInLibrary = library.size,
         )
+    }
+
+    // ── Export statistik ──────────────────────────────────────────────────────
+    private val _exportState = MutableStateFlow<StatsExportState>(StatsExportState.Idle)
+    val exportState: StateFlow<StatsExportState> = _exportState.asStateFlow()
+
+    fun clearExportState() { _exportState.value = StatsExportState.Idle }
+
+    fun exportStatsJson(uri: Uri) = viewModelScope.launch {
+        try {
+            val s = _stats.value
+            val root = JSONObject().apply {
+                put("exportedAt", java.time.Instant.now().toString())
+                put("chaptersRead", s.chaptersRead)
+                put("pagesRead", s.pagesRead)
+                put("readingTimeMs", s.readingTimeMs)
+                put("readingStreak", s.readingStreak)
+                put("totalInLibrary", s.totalInLibrary)
+                put("dailyCounts", JSONArray().also { arr ->
+                    s.dailyCounts.forEach { (day, count) -> arr.put(JSONObject().put("day", day).put("count", count)) }
+                })
+                put("topGenres", JSONArray().also { arr ->
+                    s.topGenres.forEach { (genre, count) -> arr.put(JSONObject().put("genre", genre).put("count", count)) }
+                })
+                put("topAuthors", JSONArray().also { arr ->
+                    s.topAuthors.forEach { (author, count) -> arr.put(JSONObject().put("author", author).put("count", count)) }
+                })
+                put("statusBreakdown", JSONObject().also { obj ->
+                    s.statusBreakdown.forEach { (status, count) -> obj.put(status, count) }
+                })
+            }
+            context.contentResolver.openOutputStream(uri)?.use { it.write(root.toString(2).toByteArray()) }
+                ?: error("Nelze otevřít výstupní soubor")
+            _exportState.value = StatsExportState.Success("Statistiky exportovány (JSON)")
+        } catch (e: Exception) {
+            _exportState.value = StatsExportState.Error(e.message ?: "Chyba exportu")
+        }
+    }
+
+    fun exportStatsCsv(uri: Uri) = viewModelScope.launch {
+        try {
+            val s = _stats.value
+            val sb = StringBuilder()
+            sb.append("metric,value\n")
+            sb.append("chapters_read,${s.chaptersRead}\n")
+            sb.append("pages_read,${s.pagesRead}\n")
+            sb.append("reading_time_ms,${s.readingTimeMs}\n")
+            sb.append("reading_streak_days,${s.readingStreak}\n")
+            sb.append("total_in_library,${s.totalInLibrary}\n")
+            sb.append("\nday,chapters_read\n")
+            s.dailyCounts.forEach { (day, count) -> sb.append("$day,$count\n") }
+            sb.append("\ngenre,manga_count\n")
+            s.topGenres.forEach { (genre, count) -> sb.append("\"${genre.replace("\"", "\"\"")}\",$count\n") }
+            sb.append("\nauthor,manga_count\n")
+            s.topAuthors.forEach { (author, count) -> sb.append("\"${author.replace("\"", "\"\"")}\",$count\n") }
+            sb.append("\nreading_status,count\n")
+            s.statusBreakdown.forEach { (status, count) -> sb.append("$status,$count\n") }
+
+            context.contentResolver.openOutputStream(uri)?.use { it.write(sb.toString().toByteArray()) }
+                ?: error("Nelze otevřít výstupní soubor")
+            _exportState.value = StatsExportState.Success("Statistiky exportovány (CSV)")
+        } catch (e: Exception) {
+            _exportState.value = StatsExportState.Error(e.message ?: "Chyba exportu")
+        }
     }
 }

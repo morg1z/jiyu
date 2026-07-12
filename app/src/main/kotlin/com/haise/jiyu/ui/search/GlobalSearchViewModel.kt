@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -83,7 +84,10 @@ class GlobalSearchViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repository.addToLibrary(manga)
-                onAdded(repository.mangaId(manga.sourceId, manga.url))
+                val id = repository.mangaId(manga.sourceId, manga.url)
+                val catId = settings.defaultCategoryId.first()
+                if (catId != null) repository.addMangaToCategory(id, catId)
+                onAdded(id)
             } catch (_: Exception) {}
         }
     }

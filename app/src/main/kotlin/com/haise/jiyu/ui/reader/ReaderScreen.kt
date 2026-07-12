@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.AlertDialog
@@ -119,6 +120,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.request.ImageRequest
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.delay
@@ -164,8 +167,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val oledMode             by viewModel.oledMode.collectAsState()
     val incognitoMode        by viewModel.incognitoMode.collectAsState()
     val sessionElapsed       by viewModel.sessionElapsed.collectAsState()
-    val tapZoneLeft          by viewModel.tapZoneLeftFraction.collectAsState()
-    val tapZoneRight         by viewModel.tapZoneRightFraction.collectAsState()
+    val tapZoneGrid          by viewModel.tapZoneGrid.collectAsState()
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
     val isNovelSource        by viewModel.isNovelSource.collectAsState()
     val novelText            by viewModel.novelText.collectAsState()
@@ -177,6 +179,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val summaryLoading       by viewModel.summaryLoading.collectAsState()
     val cropBorders          by viewModel.cropBorders.collectAsState()
     val webtoonScrollOffset  by viewModel.webtoonScrollOffset.collectAsState()
+    val volumeKeysNav        by viewModel.volumeKeysNav.collectAsState()
+    val keepScreenOn         by viewModel.keepScreenOn.collectAsState()
+    val readerOrientation    by viewModel.readerOrientation.collectAsState()
 
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     val activity = LocalView.current.context as Activity
@@ -219,11 +224,20 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         onDispose { ctrl.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    // Obrazovka nezhasne, dokud se čte - nic nezkazí čtení hůř než timeout uprostřed kapitoly
-    DisposableEffect(Unit) {
+    DisposableEffect(keepScreenOn) {
         val window = (view.context as Activity).window
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (keepScreenOn) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
+
+    DisposableEffect(readerOrientation) {
+        val act = view.context as Activity
+        act.requestedOrientation = when (readerOrientation) {
+            "portrait"  -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else        -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose { act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 
     LaunchedEffect(translationError) {
@@ -282,6 +296,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
                 onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
                 tapZonesEnabled = tapZonesEnabled,
+                tapZoneGrid = tapZoneGrid,
                 textScale = readerTextScale,
                 doublePageSpread = doublePageSpread,
                 readerTheme = readerTheme,
@@ -302,8 +317,6 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 incognitoMode = incognitoMode,
                 onToggleIncognito = { viewModel.toggleIncognito() },
                 sessionElapsed = sessionElapsed,
-                tapZoneLeft = tapZoneLeft,
-                tapZoneRight = tapZoneRight,
                 webtoonScrollSpeed = webtoonScrollSpeed,
                 pageScale = pageScale,
                 jumpToPage = jumpToPage,
@@ -319,6 +332,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 cropBorders = cropBorders,
                 webtoonScrollOffset = webtoonScrollOffset,
                 onWebtoonScrollOffset = { viewModel.saveWebtoonScrollOffset(it) },
+                volumeKeysNav = volumeKeysNav,
+                readerOrientation = readerOrientation,
+                onSetReaderOrientation = { viewModel.setReaderOrientation(it) },
             )
         }
 
@@ -518,6 +534,7 @@ private fun ReaderContent(
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
     tapZonesEnabled: Boolean,
+    tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     textScale: Float,
     doublePageSpread: Boolean,
     readerTheme: String = "dark",
@@ -532,8 +549,6 @@ private fun ReaderContent(
     incognitoMode: Boolean = false,
     onToggleIncognito: () -> Unit = {},
     sessionElapsed: Long = 0L,
-    tapZoneLeft: Float = 0.3f,
-    tapZoneRight: Float = 0.3f,
     webtoonScrollSpeed: Float = 1.0f,
     pageScale: String = "fit_width",
     jumpToPage: Int? = null,
@@ -549,6 +564,9 @@ private fun ReaderContent(
     cropBorders: Boolean = false,
     webtoonScrollOffset: Int = 0,
     onWebtoonScrollOffset: (Int) -> Unit = {},
+    volumeKeysNav: Boolean = true,
+    readerOrientation: String = "free",
+    onSetReaderOrientation: (String) -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(controlsVisible) {
@@ -607,11 +625,14 @@ private fun ReaderContent(
                 translatedPages = translatedPages,
                 textScale = textScale,
                 onPageChanged = onPageChanged,
-                onTap = { controlsVisible = !controlsVisible },
+                tapZoneGrid = tapZoneGrid,
+                tapZonesEnabled = tapZonesEnabled,
+                onShowPanel = { controlsVisible = !controlsVisible },
                 onNavigatePrev = onNavigatePrev,
                 onNavigateNext = onNavigateNext,
                 scrollSpeedMultiplier = webtoonScrollSpeed,
                 cropBorders = cropBorders,
+                volumeKeysNav = volumeKeysNav,
             )
         } else {
             MangaReader(
@@ -624,8 +645,7 @@ private fun ReaderContent(
                 spreadPageIndices = spreadPageIndices,
                 textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
-                tapZoneLeft = tapZoneLeft,
-                tapZoneRight = tapZoneRight,
+                tapZoneGrid = tapZoneGrid,
                 scale = scale,
                 panOffset = panOffset,
                 onScaleChange = { scale = it },
@@ -634,7 +654,9 @@ private fun ReaderContent(
                     scale = 1f; panOffset = Offset.Zero
                     onPageChanged(page)
                 },
-                onTap = { controlsVisible = !controlsVisible },
+                onShowPanel = { controlsVisible = !controlsVisible },
+                onNavigatePrevChapter = onNavigatePrev,
+                onNavigateNextChapter = onNavigateNext,
                 onSharePage = onSharePage,
                 pageScale = pageScale,
                 jumpToPage = jumpToPage,
@@ -642,6 +664,7 @@ private fun ReaderContent(
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = onAutoNextChapter,
                 cropBorders = cropBorders,
+                volumeKeysNav = volumeKeysNav,
             )
         }
 
@@ -1041,6 +1064,26 @@ private fun ReaderContent(
                         Icon(Icons.Filled.BrightnessHigh, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(18.dp))
                     }
 
+                    // Orientace + volume klávesy
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Orientace:", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+                        Spacer(Modifier.width(4.dp))
+                        listOf("free" to "Auto", "portrait" to "↕ Portrét", "landscape" to "↔ Krajina").forEach { (value, label) ->
+                            TextButton(
+                                onClick = { onSetReaderOrientation(value) },
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                                    contentColor = if (readerOrientation == value) Color(0xFF8B5CF6) else Color.White.copy(alpha = 0.45f),
+                                ),
+                            ) { Text(label, fontSize = 11.sp) }
+                        }
+                    }
+
                     // Hromadný překlad — tlačítko + progress + přepínač originál/překlad
                     if (translateMode && !batchTranslating) {
                         Row(
@@ -1124,14 +1167,15 @@ private fun MangaReader(
     spreadPageIndices: Set<Int> = emptySet(),
     textScale: Float,
     tapZonesEnabled: Boolean,
-    tapZoneLeft: Float = 0.3f,
-    tapZoneRight: Float = 0.3f,
+    tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     scale: Float,
     panOffset: Offset,
     onScaleChange: (Float) -> Unit,
     onPanChange: (Offset) -> Unit,
     onPageChanged: (Int) -> Unit,
-    onTap: () -> Unit,
+    onShowPanel: () -> Unit,
+    onNavigatePrevChapter: () -> Unit = {},
+    onNavigateNextChapter: () -> Unit = {},
     onSharePage: (String) -> Unit = {},
     pageScale: String = "fit_width",
     jumpToPage: Int? = null,
@@ -1139,6 +1183,7 @@ private fun MangaReader(
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
+    volumeKeysNav: Boolean = true,
 ) {
     val saveContext = androidx.compose.ui.platform.LocalContext.current
     val resolvedContentScale = when (pageScale) {
@@ -1283,6 +1328,16 @@ private fun MangaReader(
                             scope.launch { pagerState.animateScrollToPage(target) }
                             true
                         }
+                        Key.VolumeDown -> if (volumeKeysNav) {
+                            val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                            true
+                        } else false
+                        Key.VolumeUp -> if (volumeKeysNav) {
+                            val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
+                            scope.launch { pagerState.animateScrollToPage(target) }
+                            true
+                        } else false
                         else -> false
                     }
                 },
@@ -1301,7 +1356,7 @@ private fun MangaReader(
                             else onPanChange(Offset.Zero)
                         }
                     }
-                    .pointerInput(tapZonesEnabled, tapZoneLeft, tapZoneRight, reverseLayout, groups.size) {
+                    .pointerInput(tapZonesEnabled, tapZoneGrid, reverseLayout, groups.size) {
                         detectTapGestures(
                             onLongPress = {
                                 sharePageUrl = pages.getOrElse(indices[0]) { "" }
@@ -1323,32 +1378,36 @@ private fun MangaReader(
                                 }
                             },
                             onTap = { offset ->
-                            if (!tapZonesEnabled) { onTap(); return@detectTapGestures }
-                            val fraction = offset.x / size.width
-                            val delta = when {
-                                fraction < tapZoneLeft  -> if (reverseLayout) 1 else -1
-                                fraction > 1f - tapZoneRight -> if (reverseLayout) -1 else 1
-                                else -> 0
-                            }
-                            if (delta == 0) {
-                                onTap()
+                            val action = if (!tapZonesEnabled) {
+                                TapZoneAction.SHOW_PANEL
                             } else {
-                                val target = (pagerState.currentPage + delta).coerceIn(0, groups.lastIndex)
-                                scope.launch { pagerState.animateScrollToPage(target) }
+                                val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
+                                val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
+                                tapZoneGrid[row, col]
+                            }
+                            when (action) {
+                                TapZoneAction.SHOW_PANEL -> onShowPanel()
+                                TapZoneAction.PREV_PAGE -> {
+                                    val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
+                                    scope.launch { pagerState.animateScrollToPage(target) }
+                                }
+                                TapZoneAction.NEXT_PAGE -> {
+                                    val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
+                                    scope.launch { pagerState.animateScrollToPage(target) }
+                                }
+                                TapZoneAction.PREV_CHAPTER -> onNavigatePrevChapter()
+                                TapZoneAction.NEXT_CHAPTER -> onNavigateNextChapter()
+                                TapZoneAction.NONE -> {}
                             }
                         })
                     },
             ) {
                 if (indices.size == 1) {
-                    AsyncImage(
-                        model = if (cropBorders) {
-                            coil.request.ImageRequest.Builder(saveContext)
-                                .data(pages[indices[0]])
-                                .transformations(CropBordersTransformation())
-                                .build()
-                        } else pages[indices[0]],
+                    RetryableAsyncImage(
+                        url = pages[indices[0]],
                         contentDescription = "Stránka ${indices[0] + 1}",
                         contentScale = resolvedContentScale,
+                        cropBorders = cropBorders,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer(
@@ -1375,8 +1434,8 @@ private fun MangaReader(
                     ) {
                         ordered.forEach { idx ->
                             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
-                                AsyncImage(
-                                    model = pages[idx],
+                                RetryableAsyncImage(
+                                    url = pages[idx],
                                     contentDescription = "Stránka ${idx + 1}",
                                     contentScale = resolvedContentScale,
                                     modifier = Modifier.fillMaxSize(),
@@ -1405,13 +1464,31 @@ private fun WebtoonReader(
     translatedPages: Map<Int, List<TranslatedBlock>>,
     textScale: Float,
     onPageChanged: (Int) -> Unit,
-    onTap: () -> Unit,
+    tapZoneGrid: TapZoneGrid = TapZoneGrid(),
+    tapZonesEnabled: Boolean = true,
+    onShowPanel: () -> Unit,
     onNavigatePrev: () -> Unit = {},
     onNavigateNext: () -> Unit = {},
     scrollSpeedMultiplier: Float = 1.0f,
     cropBorders: Boolean = false,
+    volumeKeysNav: Boolean = true,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { try { focusRequester.requestFocus() } catch (_: Exception) {} }
+
+    // Zabráníme náhodnému otevření panelu při scrollování ve webtoon módu.
+    // Po ukončení scrollu čekáme 150 ms, než přijmeme další tap jako záměrný.
+    var wasRecentlyScrolling by remember { mutableStateOf(false) }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            wasRecentlyScrolling = true
+        } else {
+            delay(150L)
+            wasRecentlyScrolling = false
+        }
+    }
 
     LaunchedEffect(pages, initialPage) {
         if (pages.isNotEmpty() && (initialPage > 0 || initialScrollOffset > 0)) {
@@ -1444,13 +1521,50 @@ private fun WebtoonReader(
         flingBehavior = speedFling,
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.VolumeDown -> if (volumeKeysNav) {
+                        scope.launch {
+                            listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(pages.lastIndex))
+                        }
+                        true
+                    } else false
+                    Key.VolumeUp -> if (volumeKeysNav) {
+                        scope.launch {
+                            listState.animateScrollToItem((listState.firstVisibleItemIndex - 1).coerceAtLeast(0))
+                        }
+                        true
+                    } else false
+                    else -> false
+                }
+            }
+            .pointerInput(tapZonesEnabled, tapZoneGrid) {
                 detectTapGestures(onTap = { offset ->
-                    val relY = offset.y / size.height.toFloat()
-                    when {
-                        relY < 0.15f -> onNavigatePrev()
-                        relY > 0.85f -> onNavigateNext()
-                        else -> onTap()
+                    val action = if (!tapZonesEnabled) {
+                        TapZoneAction.SHOW_PANEL
+                    } else {
+                        val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
+                        val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
+                        tapZoneGrid[row, col]
+                    }
+                    // Potlačení náhodného otevření panelu při scrollu
+                    if (action == TapZoneAction.SHOW_PANEL && wasRecentlyScrolling) return@detectTapGestures
+                    when (action) {
+                        TapZoneAction.SHOW_PANEL -> onShowPanel()
+                        TapZoneAction.PREV_PAGE -> scope.launch {
+                            val target = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
+                            listState.animateScrollToItem(target)
+                        }
+                        TapZoneAction.NEXT_PAGE -> scope.launch {
+                            val target = (listState.firstVisibleItemIndex + 1).coerceAtMost(pages.lastIndex)
+                            listState.animateScrollToItem(target)
+                        }
+                        TapZoneAction.PREV_CHAPTER -> onNavigatePrev()
+                        TapZoneAction.NEXT_CHAPTER -> onNavigateNext()
+                        TapZoneAction.NONE -> {}
                     }
                 })
             },
@@ -1479,19 +1593,15 @@ private fun WebtoonPage(
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        AsyncImage(
-            model = if (cropBorders) {
-                coil.request.ImageRequest.Builder(ctx)
-                    .data(pageUrl)
-                    .transformations(CropBordersTransformation())
-                    .build()
-            } else pageUrl,
+        RetryableAsyncImage(
+            url = pageUrl,
             contentDescription = "Stránka ${pageIndex + 1}",
             contentScale = ContentScale.FillWidth,
-            modifier = Modifier
+            cropBorders = cropBorders,
+            modifier = Modifier.fillMaxWidth(),
+            imageModifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { size = it },
         )
@@ -1517,6 +1627,54 @@ private fun WebtoonPage(
                             lineHeight = (13 * textScale).sp,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Stránka s možností opětovného načtení při selhání ────────────────────────
+
+@Composable
+private fun RetryableAsyncImage(
+    url: String,
+    contentDescription: String?,
+    contentScale: ContentScale,
+    modifier: Modifier = Modifier,
+    imageModifier: Modifier = Modifier.fillMaxSize(),
+    cropBorders: Boolean = false,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var retryTrigger by remember(url) { mutableStateOf(0) }
+    var isError by remember(url) { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        val request = remember(url, retryTrigger, cropBorders) {
+            ImageRequest.Builder(context)
+                .data(url)
+                .apply { if (cropBorders) transformations(CropBordersTransformation()) }
+                .build()
+        }
+        AsyncImage(
+            model = request,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = imageModifier,
+            onState = { state -> isError = state is AsyncImagePainter.State.Error },
+        )
+        if (isError) {
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Stránka se nenačetla", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { isError = false; retryTrigger++ }) {
+                        Text("Zkusit znovu")
                     }
                 }
             }

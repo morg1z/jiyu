@@ -73,6 +73,18 @@ interface MangaDao {
     @Query("UPDATE manga SET malStatus = :status WHERE id = :id")
     suspend fun setMalStatus(id: String, status: String?)
 
+    @Query("UPDATE manga SET kitsuId = :kitsuId WHERE id = :id")
+    suspend fun setKitsuId(id: String, kitsuId: String?)
+
+    @Query("UPDATE manga SET kitsuScore = :score WHERE id = :id")
+    suspend fun setKitsuScore(id: String, score: Float?)
+
+    @Query("UPDATE manga SET mangaUpdatesId = :seriesId WHERE id = :id")
+    suspend fun setMangaUpdatesId(id: String, seriesId: Long?)
+
+    @Query("UPDATE manga SET readingTimeMs = readingTimeMs + :deltaMs WHERE id = :id")
+    suspend fun addReadingTime(id: String, deltaMs: Long)
+
     @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
     suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
 

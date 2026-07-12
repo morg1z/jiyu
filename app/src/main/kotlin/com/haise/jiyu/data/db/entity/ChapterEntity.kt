@@ -11,9 +11,11 @@ enum class DownloadStatus { NOT_DOWNLOADED, QUEUED, DOWNLOADING, DOWNLOADED, ERR
     indices = [
         Index("mangaId"),
         Index(value = ["mangaId", "read"]),
+        Index(value = ["mangaId", "chapterNumber"]),
         Index("chapterNumber"),
         Index("read"),
         Index("downloadStatus"),
+        Index("dateUpload"),
     ],
 )
 data class ChapterEntity(

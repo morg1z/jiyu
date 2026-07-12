@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.UpdateItem
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +20,12 @@ import javax.inject.Inject
 class UpdatesViewModel @Inject constructor(
     private val chapterDao: ChapterDao,
     private val repository: MangaRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch { settings.clearNewChapters() }
+    }
 
     val updates: StateFlow<List<UpdateItem>> = chapterDao.observeUpdates()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -35,6 +35,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,6 +78,7 @@ fun DownloadManagerScreen(
     val groups by viewModel.downloadGroups.collectAsState()
     val totalStorageBytes by viewModel.totalStorageBytes.collectAsState()
     val isPaused by viewModel.isPaused.collectAsState()
+    val downloadProgress by viewModel.downloadProgress.collectAsState()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var showDeleteReadConfirm by remember { mutableStateOf(false) }
 
@@ -186,6 +188,7 @@ fun DownloadManagerScreen(
                 items(groups, key = { it.manga.id }) { group ->
                     DownloadGroupCard(
                         group = group,
+                        downloadProgress = downloadProgress,
                         onDeleteChapter = { viewModel.deleteChapter(it) },
                         onDeleteManga = { viewModel.deleteManga(group.chapters) },
                         onCancelChapter = { viewModel.cancelChapter(it) },
@@ -200,6 +203,7 @@ fun DownloadManagerScreen(
 @Composable
 private fun DownloadGroupCard(
     group: DownloadGroup,
+    downloadProgress: Map<String, Float>,
     onDeleteChapter: (ChapterEntity) -> Unit,
     onDeleteManga: () -> Unit,
     onCancelChapter: (ChapterEntity) -> Unit,
@@ -276,6 +280,7 @@ private fun DownloadGroupCard(
             group.chapters.forEach { chapter ->
                 ChapterDownloadRow(
                     chapter = chapter,
+                    progress = downloadProgress[chapter.id],
                     onDelete = { onDeleteChapter(chapter) },
                     onCancel = { onCancelChapter(chapter) },
                 )
@@ -307,60 +312,87 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
-private fun ChapterDownloadRow(chapter: ChapterEntity, onDelete: () -> Unit, onCancel: () -> Unit = {}) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
+private fun ChapterDownloadRow(
+    chapter: ChapterEntity,
+    progress: Float? = null,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit = {},
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .size(6.dp)
-                .background(
-                    when (chapter.downloadStatus) {
-                        DownloadStatus.DOWNLOADED  -> GlowCyan
-                        DownloadStatus.DOWNLOADING -> Violet
-                        DownloadStatus.QUEUED      -> GlowViolet.copy(alpha = 0.5f)
-                        else                       -> MaterialTheme.colorScheme.error
-                    },
-                    RoundedCornerShape(50),
-                ),
-        )
-        Text(
-            text = chapter.name,
-            color = TextPrimary,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-        )
-        when (chapter.downloadStatus) {
-            DownloadStatus.DOWNLOADED -> {
-                Text("${chapter.pageCount}str.", color = TextSecondary, fontSize = 11.sp)
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Smazat", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(
+                        when (chapter.downloadStatus) {
+                            DownloadStatus.DOWNLOADED  -> GlowCyan
+                            DownloadStatus.DOWNLOADING -> Violet
+                            DownloadStatus.QUEUED      -> GlowViolet.copy(alpha = 0.5f)
+                            else                       -> MaterialTheme.colorScheme.error
+                        },
+                        RoundedCornerShape(50),
+                    ),
+            )
+            Text(
+                text = chapter.name,
+                color = TextPrimary,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+            )
+            when (chapter.downloadStatus) {
+                DownloadStatus.DOWNLOADED -> {
+                    Text("${chapter.pageCount}str.", color = TextSecondary, fontSize = 11.sp)
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Smazat", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                    }
                 }
-            }
-            DownloadStatus.DOWNLOADING -> {
-                Text("Stahuje se…", color = Violet, fontSize = 11.sp)
-                IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = Violet, modifier = Modifier.size(16.dp))
+                DownloadStatus.DOWNLOADING -> {
+                    Text("Stahuje se…", color = Violet, fontSize = 11.sp)
+                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = Violet, modifier = Modifier.size(16.dp))
+                    }
                 }
-            }
-            DownloadStatus.QUEUED -> {
-                Text("Ve frontě", color = TextSecondary, fontSize = 11.sp)
-                IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                DownloadStatus.QUEUED -> {
+                    Text("Ve frontě", color = TextSecondary, fontSize = 11.sp)
+                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                    }
                 }
-            }
-            DownloadStatus.ERROR -> {
-                Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.ErrorOutline, contentDescription = "Stahování selhalo, klepnutím odstranit", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                DownloadStatus.ERROR -> {
+                    Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.ErrorOutline, contentDescription = "Stahování selhalo, klepnutím odstranit", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                    }
                 }
+                DownloadStatus.NOT_DOWNLOADED -> Unit
             }
-            DownloadStatus.NOT_DOWNLOADED -> Unit
+        }
+        if (chapter.downloadStatus == DownloadStatus.DOWNLOADING) {
+            if (progress != null && progress > 0f) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 6.dp),
+                    color = Violet,
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 6.dp),
+                    color = Violet,
+                )
+            }
         }
     }
 }

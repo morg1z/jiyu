@@ -15,6 +15,9 @@ import androidx.room.PrimaryKey
         Index("sourceId"),
         Index(value = ["inLibrary", "sourceId"]),
         Index("lastReadAt"),
+        Index("title"),
+        Index("addedAt"),
+        Index("lastUpdated"),
     ],
 )
 data class MangaEntity(
@@ -43,4 +46,8 @@ data class MangaEntity(
     val malStatus: String? = null,
     val addedAt: Long = 0,
     val readingStatus: String? = null,
+    val kitsuId: String? = null,
+    val kitsuScore: Float? = null,
+    val mangaUpdatesId: Long? = null,
+    val readingTimeMs: Long = 0L,
 )

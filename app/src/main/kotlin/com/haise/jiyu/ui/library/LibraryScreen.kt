@@ -158,6 +158,7 @@ fun LibraryScreen(
 
     val localImportState   by viewModel.localImportState.collectAsState()
     val gridMode           by viewModel.gridMode.collectAsState()
+    val gridColumns        by viewModel.gridColumns.collectAsState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -189,6 +190,7 @@ fun LibraryScreen(
     var contextMenuManga          by remember { mutableStateOf<MangaEntity?>(null) }
     var showCategoryAssignDialog  by remember { mutableStateOf(false) }
     var showBulkCategoryDialog    by remember { mutableStateOf(false) }
+    var showMarkAllReadDialog     by remember { mutableStateOf(false) }
 
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -247,7 +249,20 @@ fun LibraryScreen(
                     ) {
                         Icon(Icons.Filled.Folder, contentDescription = "Otevřít CBZ/ZIP", tint = TextSecondary)
                     }
-                    IconButton(onClick = { viewModel.toggleGridMode() }) {
+                    if (gridMode) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                if (gridColumns >= 4) viewModel.toggleGridMode()
+                                else viewModel.cycleGridColumns()
+                            },
+                        ) {
+                            Text("${gridColumns}×", color = TextSecondary, fontSize = 13.sp)
+                        }
+                    }
+                    IconButton(onClick = {
+                        if (!gridMode) viewModel.toggleGridMode()
+                        else viewModel.toggleGridMode()
+                    }) {
                         Icon(
                             imageVector = if (gridMode) Icons.Filled.ViewList else Icons.Filled.ViewModule,
                             contentDescription = if (gridMode) "Přepnout na seznam" else "Přepnout na mřížku",
@@ -266,6 +281,7 @@ fun LibraryScreen(
                             onDismiss = { sortMenuExpanded = false },
                         )
                     }
+                    IconButton(onClick = { showMarkAllReadDialog = true }) { Icon(Icons.Filled.DoneAll, contentDescription = "Označit celou knihovnu jako přečtenou", tint = TextSecondary) }
                     IconButton(onClick = { showStatsDialog = true }) { Icon(Icons.Filled.AutoStories, contentDescription = "Statistiky", tint = TextSecondary) }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "Nastavení", tint = TextSecondary) }
                 }
@@ -389,7 +405,7 @@ fun LibraryScreen(
                 )
             } else if (gridMode) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    columns = GridCells.Fixed(gridColumns),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp + navBottom),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -541,6 +557,20 @@ fun LibraryScreen(
             categories = categories,
             onPickCategory = { viewModel.bulkAddToCategory(it) },
             onDismiss = { showBulkCategoryDialog = false },
+        )
+    }
+    if (showMarkAllReadDialog) {
+        AlertDialog(
+            onDismissRequest = { showMarkAllReadDialog = false },
+            containerColor = Color(0xFF111B35),
+            title = { Text("Označit celou knihovnu jako přečtenou?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Všechny kapitoly u všech ${library.size} mang v knihovně budou označeny jako přečtené. Tuto akci nelze hromadně vrátit.", color = TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.markEntireLibraryAsRead(); showMarkAllReadDialog = false }) {
+                    Text("Označit vše", color = GlowViolet)
+                }
+            },
+            dismissButton = { TextButton(onClick = { showMarkAllReadDialog = false }) { Text("Zrušit", color = TextSecondary) } },
         )
     }
 

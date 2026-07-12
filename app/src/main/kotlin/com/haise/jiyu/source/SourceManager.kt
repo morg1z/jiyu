@@ -212,6 +212,41 @@ class SourceManager @Inject constructor(
         MadaraSource("foxaholic",     "Foxaholic",          "https://foxaholic.com",        client, contentTypeOverride = "NOVEL"),
         MadaraSource("hostednovel",   "HostedNovel",        "https://hostednovel.com",      client, contentTypeOverride = "NOVEL"),
         MadaraSource("creativenovels","Creative Novels",    "https://creativenovels.com",   client, contentTypeOverride = "NOVEL"),
+        // ── Manhwa — další populární scanlace ───────────────────────────────
+        MadaraSource("anigliscans",   "Anigli Scans",       "https://anigliscans.com",      client, contentTypeOverride = "MANHWA"),
+        MadaraSource("azuremanga",    "Azure Manga",        "https://azuremanga.com",       client, contentTypeOverride = "MANHWA"),
+        MadaraSource("demonscans",    "Demon Scans",        "https://demonscans.net",       client, contentTypeOverride = "MANHWA"),
+        MadaraSource("disasterscans", "Disaster Scans",     "https://disasterscans.com",    client, contentTypeOverride = "MANHWA"),
+        MadaraSource("freakscans",    "Freak Scans",        "https://freakscans.com",       client, contentTypeOverride = "MANHWA"),
+        MadaraSource("hivecomic",     "Hive Scans",         "https://hivescans.com",        client, contentTypeOverride = "MANHWA"),
+        MadaraSource("magicscans",    "Magic Scans",        "https://magicscans.net",       client, contentTypeOverride = "MANHWA"),
+        MadaraSource("mangamotto",    "MangaMotto",         "https://mangamoto.com",        client, contentTypeOverride = "MANHWA"),
+        MadaraSource("mm-scans",      "MM Scans",           "https://mm-scans.org",         client, contentTypeOverride = "MANHWA"),
+        MadaraSource("reaperscanseu", "Reaper Scans EU",    "https://reapercomics.com",     client, contentTypeOverride = "MANHWA"),
+        MadaraSource("suryascans",    "Surya Scans",        "https://suryascans.com",       client, contentTypeOverride = "MANHWA"),
+        MadaraSource("tempestmanga",  "Tempest Manga",      "https://tempestmanga.com",     client, contentTypeOverride = "MANHWA"),
+        MadaraSource("trillerscans",  "Triller Scans",      "https://trillercans.com",      client, contentTypeOverride = "MANHWA"),
+        MadaraSource("xcalibrscans",  "Xcalibr Scans",      "https://xcalibrscans.com",     client, contentTypeOverride = "MANHWA"),
+        // ── Manhua — další ────────────────────────────────────────────────────
+        MadaraSource("manhuabuddy",   "ManhuaBuddy",        "https://manhuabuddy.com",      client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuacat",     "ManhuaCat",          "https://manhuacat.com",        client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuaonline",  "ManhuaOnline",       "https://manhuaonline.co",      client, contentTypeOverride = "MANHUA"),
+        MadaraSource("freemanga",     "FreeManga",          "https://freemanga.me",         client, contentTypeOverride = "MANHUA"),
+        MadaraSource("topmanhua",     "TopManhua",          "https://topmanhua.com",        client, contentTypeOverride = "MANHUA"),
+        // ── Manga — další populární weby ─────────────────────────────────────
+        MadaraSource("mangarosie",    "MangaRosie",         "https://mangarosie.in",        client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangapt",       "MangaPT",            "https://mangapt.com",          client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangatoto",     "MangaToto",          "https://mangatoto.com",        client, contentTypeOverride = "MANGA"),
+        MadaraSource("woopread",      "WoopRead",           "https://woopread.com",         client, contentTypeOverride = "MANGA"),
+        // ── Italské zdroje 🇮🇹 ───────────────────────────────────────────────
+        MadaraSource("mangaworld",    "MangaWorld (IT)",    "https://www.mangaworld.ac",    client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangafuture",   "MangaFuture (IT)",   "https://www.mangafuture.it",   client, contentTypeOverride = "MANGA"),
+        // ── Německé zdroje 🇩🇪 ───────────────────────────────────────────────
+        MadaraSource("mangatube",     "MangaTube (DE)",     "https://www.mangatube.net",    client, contentTypeOverride = "MANGA"),
+        MadaraSource("manhwade",      "ManhwaDE",           "https://manhwa.de",            client, contentTypeOverride = "MANHWA"),
+        // ── Turecké zdroje 🇹🇷 ───────────────────────────────────────────────
+        MadaraSource("mangadenizi",   "MangaDenizi (TR)",   "https://mangadenizi.net",      client, contentTypeOverride = "MANGA"),
+        MadaraSource("okumangas",     "OkuManga (TR)",      "https://okumangas.com",        client, contentTypeOverride = "MANGA"),
         // ── Francouzské zdroje 🇫🇷 ──────────────────────────────────────────
         japscanSource,
         animeSamaSource,

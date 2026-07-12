@@ -13,9 +13,15 @@ import com.haise.jiyu.MainActivity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 const val CHANNEL_ID = "chapter_updates"
 
@@ -25,34 +31,41 @@ class ChapterUpdateWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
+    private val settings: SettingsRepository,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         return try {
             val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
-            val updatedManga = mutableListOf<Pair<String, Pair<String, Int>>>()
+            val semaphore = Semaphore(5)
+            val updatedManga = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Pair<String, Int>>>())
 
-            library.forEach { manga ->
-                try {
-                    val existingIds = repository.getAllChapters(manga.id).map { it.id }.toSet()
-                    val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl)
-                    repository.refreshChapters(manga.id, sManga)
-                    val afterAll = repository.getAllChapters(manga.id)
-                    val newChapters = afterAll.filter { it.id !in existingIds }
-                    val diff = newChapters.size
-                    if (diff > 0) updatedManga.add(manga.title to (manga.id to diff))
-                    if (manga.autoDownload && newChapters.isNotEmpty()) {
-                        newChapters
-                            .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED }
-                            .forEach { ch ->
-                                repository.setDownloadStatus(ch.id, DownloadStatus.QUEUED)
-                                downloadQueue.enqueue(ch, manga.url)
-                            }
+            coroutineScope {
+                library.map { manga ->
+                    async {
+                        semaphore.withPermit {
+                            try {
+                                val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl)
+                                val newChapters = repository.refreshChapters(manga.id, sManga)
+                                if (newChapters.isNotEmpty()) {
+                                    updatedManga.add(manga.title to (manga.id to newChapters.size))
+                                }
+                                if (manga.autoDownload && newChapters.isNotEmpty()) {
+                                    newChapters.forEach { ch ->
+                                        repository.setDownloadStatus(ch.id, DownloadStatus.QUEUED)
+                                        downloadQueue.enqueue(ch, manga.url)
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
                     }
-                } catch (_: Exception) {}
+                }.awaitAll()
             }
 
-            if (updatedManga.isNotEmpty()) notify(updatedManga)
+            if (updatedManga.isNotEmpty()) {
+                notify(updatedManga)
+                settings.addNewChapters(updatedManga.sumOf { it.second.second })
+            }
             Result.success()
         } catch (e: Exception) {
             Result.retry()

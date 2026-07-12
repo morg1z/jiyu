@@ -72,6 +72,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.settings.ThemeOption
+import com.haise.jiyu.ui.reader.TapZoneAction
+import com.haise.jiyu.ui.reader.TapZoneGrid
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -103,6 +105,7 @@ fun SettingsScreen(
     onOpenGoals: () -> Unit = {},
     onOpenCommunity: () -> Unit = {},
     onOpenDuplicates: () -> Unit = {},
+    onOpenTapZones: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val language          by viewModel.targetLanguage.collectAsState()
@@ -111,12 +114,12 @@ fun SettingsScreen(
     val readingMode       by viewModel.readingMode.collectAsState()
     val cacheCount        by viewModel.cacheCount.collectAsState()
     val backupState       by viewModel.backupState.collectAsState()
+    val settingsBackupState by viewModel.settingsBackupState.collectAsState()
     val downloadedCount   by viewModel.downloadedCount.collectAsState()
     val updateInterval    by viewModel.updateIntervalHours.collectAsState()
     val customSources     by viewModel.customSources.collectAsState()
     val tapZonesEnabled    by viewModel.tapZonesEnabled.collectAsState()
-    val tapZoneLeft        by viewModel.tapZoneLeftFraction.collectAsState()
-    val tapZoneRight       by viewModel.tapZoneRightFraction.collectAsState()
+    val tapZoneGrid        by viewModel.tapZoneGrid.collectAsState()
     val webtoonScrollSpeed by viewModel.webtoonScrollSpeed.collectAsState()
     val readerTextScale    by viewModel.readerTextScale.collectAsState()
     val doublePageSpread  by viewModel.doublePageSpread.collectAsState()
@@ -133,8 +136,24 @@ fun SettingsScreen(
     val tachyImportInProgress by viewModel.tachyImportInProgress.collectAsState()
     val malIsLoggedIn by viewModel.malIsLoggedIn.collectAsState()
     val malUsername by viewModel.malUsername.collectAsState()
+    val kitsuIsLoggedIn    by viewModel.kitsuIsLoggedIn.collectAsState()
+    val kitsuUsername      by viewModel.kitsuUsername.collectAsState()
+    val kitsuLoginLoading  by viewModel.kitsuLoginLoading.collectAsState()
+    val kitsuLoginError    by viewModel.kitsuLoginError.collectAsState()
+    val muIsLoggedIn       by viewModel.muIsLoggedIn.collectAsState()
+    val muUsername         by viewModel.muUsername.collectAsState()
+    val muLoginLoading     by viewModel.muLoginLoading.collectAsState()
+    val muLoginError       by viewModel.muLoginError.collectAsState()
     val pageScale by viewModel.pageScale.collectAsState()
-    val autoBackupEnabled by viewModel.autoBackupEnabled.collectAsState()
+    val autoBackupEnabled  by viewModel.autoBackupEnabled.collectAsState()
+    val keepScreenOn       by viewModel.keepScreenOn.collectAsState()
+    val volumeKeysNav      by viewModel.volumeKeysNav.collectAsState()
+    val skipReadChapters   by viewModel.skipReadChapters.collectAsState()
+    val parallelDownloads  by viewModel.parallelDownloads.collectAsState()
+    val saveAsCbz          by viewModel.saveAsCbz.collectAsState()
+    val libraryGridColumns by viewModel.libraryGridColumns.collectAsState()
+    val defaultCategoryId  by viewModel.defaultCategoryId.collectAsState()
+    val allCategories      by viewModel.categories.collectAsState()
 
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -153,11 +172,27 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> uri?.let { viewModel.importTachiyomiBackup(it) } }
 
+    // Export/import launcher — nastavení appky (téma, tap zóny, parallel downloads...)
+    val settingsExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? -> uri?.let { viewModel.exportSettings(it) } }
+    val settingsImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? -> uri?.let { viewModel.importSettings(it) } }
+
     // Snackbar pro výsledek zálohy
     LaunchedEffect(backupState) {
         when (val s = backupState) {
             is BackupUiState.Success -> { snackbarHost.showSnackbar(s.message); viewModel.clearBackupState() }
             is BackupUiState.Error   -> { snackbarHost.showSnackbar("Chyba: ${s.message}"); viewModel.clearBackupState() }
+            else -> Unit
+        }
+    }
+
+    LaunchedEffect(settingsBackupState) {
+        when (val s = settingsBackupState) {
+            is BackupUiState.Success -> { snackbarHost.showSnackbar(s.message); viewModel.clearSettingsBackupState() }
+            is BackupUiState.Error   -> { snackbarHost.showSnackbar("Chyba: ${s.message}"); viewModel.clearSettingsBackupState() }
             else -> Unit
         }
     }
@@ -322,25 +357,22 @@ fun SettingsScreen(
                     }
 
                     if (tapZonesEnabled) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            Text("Levá zóna tapnutí · ${(tapZoneLeft * 100).toInt()} %", color = TextPrimary, fontSize = 14.sp)
-                            Slider(
-                                value = tapZoneLeft,
-                                onValueChange = { viewModel.setTapZoneLeftFraction(it) },
-                                valueRange = 0.1f..0.5f,
-                                modifier = Modifier.semantics { contentDescription = "Velikost levé zóny" },
-                                colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
-                            )
-                        }
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            Text("Pravá zóna tapnutí · ${(tapZoneRight * 100).toInt()} %", color = TextPrimary, fontSize = 14.sp)
-                            Slider(
-                                value = tapZoneRight,
-                                onValueChange = { viewModel.setTapZoneRightFraction(it) },
-                                valueRange = 0.1f..0.5f,
-                                modifier = Modifier.semantics { contentDescription = "Velikost pravé zóny" },
-                                colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
-                            )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenTapZones() }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Konfigurace zón", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(
+                                    buildZoneGridSummary(tapZoneGrid),
+                                    color = TextSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Text("›", color = TextSecondary, fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp))
                         }
                     }
 
@@ -468,6 +500,60 @@ fun SettingsScreen(
                             colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
                         )
                     }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = keepScreenOn, role = Role.Switch, onValueChange = { viewModel.setKeepScreenOn(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Udržet obrazovku zapnutou", color = TextPrimary, fontSize = 14.sp)
+                            Text("Obrazovka nezhasne při čtení", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = keepScreenOn,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = volumeKeysNav, role = Role.Switch, onValueChange = { viewModel.setVolumeKeysNav(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Navigace hlasitostními tlačítky", color = TextPrimary, fontSize = 14.sp)
+                            Text("Tlačítka hl. + / hl. − přepínají stránky", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = volumeKeysNav,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = skipReadChapters, role = Role.Switch, onValueChange = { viewModel.setSkipReadChapters(it) })
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Přeskakovat přečtené kapitoly", color = TextPrimary, fontSize = 14.sp)
+                            Text("Navigace přeskočí kapitoly označené jako přečtené", color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = skipReadChapters,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -529,6 +615,42 @@ fun SettingsScreen(
                         OutlinedButton(
                             onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                             enabled = !isWorking,
+                            modifier = Modifier.weight(1f).padding(start = 6.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
+                        ) {
+                            Text("Importovat")
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Záloha nastavení ───────────────────────────────────────────
+                SettingsSection(title = "Záloha nastavení") {
+                    val isSettingsWorking = settingsBackupState is BackupUiState.Working
+                    Text(
+                        text = "Uloží nastavení appky (téma, tap zóny, čtečka...) do JSON. Přihlašovací tokeny se neexportují.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val date = LocalDate.now().toString()
+                                settingsExportLauncher.launch("jiyu_settings_$date.json")
+                            },
+                            enabled = !isSettingsWorking,
+                            modifier = Modifier.weight(1f).padding(end = 6.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
+                        ) {
+                            if (isSettingsWorking) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp, color = GlowViolet)
+                            Text("Exportovat")
+                        }
+                        OutlinedButton(
+                            onClick = { settingsImportLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                            enabled = !isSettingsWorking,
                             modifier = Modifier.weight(1f).padding(start = 6.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
                         ) {
@@ -916,6 +1038,79 @@ fun SettingsScreen(
                             )
                         }
                     }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(value = saveAsCbz, onValueChange = { viewModel.setSaveAsCbz(it) }, role = Role.Switch)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Exportovat jako CBZ", color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text("Po stažení vytvoří .cbz soubor vedle složky s obrázky", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = saveAsCbz,
+                            onCheckedChange = null,
+                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                        )
+                    }
+
+                    Text(
+                        text = "Paralelní stahování",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                    )
+                    listOf(1 to "1 (postupně)", 2 to "2 naráz", 3 to "3 naráz (výchozí)", 5 to "5 naráz").forEach { (n, label) ->
+                        GlassRadioRow(
+                            label = label,
+                            selected = parallelDownloads == n,
+                            onClick = { viewModel.setParallelDownloads(n) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Knihovna ──────────────────────────────────────────────────
+                SettingsSection(title = "Knihovna") {
+                    Text(
+                        text = "Sloupce v mřížce",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                    )
+                    listOf(2 to "2 sloupce", 3 to "3 sloupce (výchozí)", 4 to "4 sloupce").forEach { (n, label) ->
+                        GlassRadioRow(
+                            label = label,
+                            selected = libraryGridColumns == n,
+                            onClick = { viewModel.setLibraryGridColumns(n) },
+                        )
+                    }
+
+                    if (allCategories.isNotEmpty()) {
+                        Text(
+                            text = "Výchozí kategorie pro nová manga",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                        )
+                        GlassRadioRow(
+                            label = "Žádná (nepřiřazovat)",
+                            selected = defaultCategoryId == null,
+                            onClick = { viewModel.setDefaultCategoryId(null) },
+                        )
+                        allCategories.forEach { cat ->
+                            GlassRadioRow(
+                                label = cat.name,
+                                selected = defaultCategoryId == cat.id,
+                                onClick = { viewModel.setDefaultCategoryId(cat.id) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -1017,6 +1212,126 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
+                Spacer(Modifier.height(12.dp))
+
+                // ── Kitsu ─────────────────────────────────────────────────────
+                SettingsSection(title = "Kitsu") {
+                    if (kitsuIsLoggedIn) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                if (kitsuUsername.isNotBlank()) Text(kitsuUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { viewModel.kitsuLogout() }) {
+                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    } else {
+                        var kitsuEmail by remember { mutableStateOf("") }
+                        var kitsuPass  by remember { mutableStateOf("") }
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Text(
+                                "Přihlas se ke Kitsu pro párování mangy.",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            TextField(
+                                value = kitsuEmail,
+                                onValueChange = { kitsuEmail = it; viewModel.clearKitsuLoginError() },
+                                label = { Text("E-mail") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            )
+                            TextField(
+                                value = kitsuPass,
+                                onValueChange = { kitsuPass = it; viewModel.clearKitsuLoginError() },
+                                label = { Text("Heslo") },
+                                singleLine = true,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            )
+                            if (kitsuLoginError != null) {
+                                Text(kitsuLoginError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.kitsuLogin(kitsuEmail, kitsuPass) },
+                                enabled = !kitsuLoginLoading && kitsuEmail.isNotBlank() && kitsuPass.isNotBlank(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (kitsuLoginLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Text("Přihlásit se ke Kitsu")
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── MangaUpdates ──────────────────────────────────────────────
+                SettingsSection(title = "MangaUpdates") {
+                    if (muIsLoggedIn) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                if (muUsername.isNotBlank()) Text(muUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { viewModel.muLogout() }) {
+                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    } else {
+                        var muUser by remember { mutableStateOf("") }
+                        var muPass by remember { mutableStateOf("") }
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Text(
+                                "Přihlas se k MangaUpdates pro párování mangy.",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            TextField(
+                                value = muUser,
+                                onValueChange = { muUser = it; viewModel.clearMuLoginError() },
+                                label = { Text("Uživatelské jméno") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            )
+                            TextField(
+                                value = muPass,
+                                onValueChange = { muPass = it; viewModel.clearMuLoginError() },
+                                label = { Text("Heslo") },
+                                singleLine = true,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            )
+                            if (muLoginError != null) {
+                                Text(muLoginError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.muLogin(muUser, muPass) },
+                                enabled = !muLoginLoading && muUser.isNotBlank() && muPass.isNotBlank(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (muLoginLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Text("Přihlásit se k MangaUpdates")
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 // ── Komunita & Cíle ───────────────────────────────────────────
                 SettingsSection(title = "Čtení") {
                     OutlinedButton(
@@ -1076,6 +1391,20 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
             .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(16.dp)),
     ) {
         content()
+    }
+}
+
+private fun buildZoneGridSummary(grid: TapZoneGrid): String {
+    fun short(a: TapZoneAction) = when (a) {
+        TapZoneAction.NONE         -> "—"
+        TapZoneAction.SHOW_PANEL   -> "Panel"
+        TapZoneAction.PREV_PAGE    -> "◀"
+        TapZoneAction.NEXT_PAGE    -> "▶"
+        TapZoneAction.PREV_CHAPTER -> "⏮Kap"
+        TapZoneAction.NEXT_CHAPTER -> "Kap⏭"
+    }
+    return (0..2).joinToString("  ") { col ->
+        (0..2).joinToString("/") { row -> short(grid[row, col]) }
     }
 }
 

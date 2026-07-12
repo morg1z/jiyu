@@ -1,5 +1,8 @@
 package com.haise.jiyu.ui.stats
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,13 +23,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +61,7 @@ import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.glassGradient
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
+import java.time.LocalDate
 
 @Composable
 fun ExtendedStatsScreen(
@@ -55,7 +69,26 @@ fun ExtendedStatsScreen(
     viewModel: ExtendedStatsViewModel = hiltViewModel(),
 ) {
     val stats by viewModel.stats.collectAsState()
+    val exportState by viewModel.exportState.collectAsState()
+    var exportMenuExpanded by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
+    val jsonExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? -> uri?.let { viewModel.exportStatsJson(it) } }
+    val csvExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri: Uri? -> uri?.let { viewModel.exportStatsCsv(it) } }
+
+    LaunchedEffect(exportState) {
+        when (val s = exportState) {
+            is StatsExportState.Success -> { snackbarHostState.showSnackbar(s.message); viewModel.clearExportState() }
+            is StatsExportState.Error   -> { snackbarHostState.showSnackbar("Chyba: ${s.message}"); viewModel.clearExportState() }
+            else -> Unit
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -75,8 +108,29 @@ fun ExtendedStatsScreen(
             Text(
                 text = "Statistiky",
                 style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
+            Box {
+                IconButton(onClick = { exportMenuExpanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Exportovat statistiky", tint = TextSecondary)
+                }
+                DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Exportovat jako JSON") },
+                        onClick = {
+                            exportMenuExpanded = false
+                            jsonExportLauncher.launch("jiyu_stats_${LocalDate.now()}.json")
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Exportovat jako CSV") },
+                        onClick = {
+                            exportMenuExpanded = false
+                            csvExportLauncher.launch("jiyu_stats_${LocalDate.now()}.csv")
+                        },
+                    )
+                }
+            }
         }
 
         LazyColumn(
@@ -242,6 +296,11 @@ fun ExtendedStatsScreen(
 
             item { Spacer(Modifier.height(16.dp)) }
         }
+    }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        ) { data -> Snackbar(snackbarData = data) }
     }
 }
 
