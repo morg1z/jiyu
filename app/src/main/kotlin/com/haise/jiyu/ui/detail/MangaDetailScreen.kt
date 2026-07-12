@@ -138,9 +138,6 @@ fun MangaDetailScreen(
     val userRating       by viewModel.userRating.collectAsState()
     val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
-    val aiInsight        by viewModel.aiInsight.collectAsState()
-    val aiInsightLoading by viewModel.aiInsightLoading.collectAsState()
-
     val chapterFilter       by viewModel.chapterFilter.collectAsState()
     val statusFilter        by viewModel.statusFilter.collectAsState()
     val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
@@ -859,37 +856,6 @@ fun MangaDetailScreen(
                     }
                 }
 
-                // ── AI doporučení (#37) ────────────────────────────────────────
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(GlowCyan.copy(alpha = 0.06f))
-                            .border(1.dp, GlowCyan.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(TablerIcons.Wand, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("AI ANALÝZA", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = GlowCyan)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        when {
-                            aiInsight != null -> Text(aiInsight!!, color = TextPrimary, fontSize = 13.sp)
-                            aiInsightLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                JiyuLoadingIndicator(size = 16.dp, strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Analyzuji…", color = TextSecondary, fontSize = 12.sp)
-                            }
-                            else -> TextButton(onClick = { viewModel.loadAiInsight() }, contentPadding = PaddingValues(0.dp)) {
-                                Text("Zobrazit AI analýzu ✨", color = GlowCyan, fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-
                 // ── Tagy (#26) ────────────────────────────────────────────────
                 item {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -1456,7 +1422,6 @@ fun MangaDetailScreen(
                                 onMarkAllOlderRead = { viewModel.markAllOlderAsRead(chapter) },
                                 onMarkAllNewerUnread = { viewModel.markAllNewerAsUnread(chapter) },
                                 onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
-                                onAiSummary = { cb -> viewModel.getChapterSummary(chapter, cb) },
                             )
                         }
                     }
@@ -1470,7 +1435,6 @@ fun MangaDetailScreen(
                             onMarkAllOlderRead = { viewModel.markAllOlderAsRead(chapter) },
                             onMarkAllNewerUnread = { viewModel.markAllNewerAsUnread(chapter) },
                             onToggleRead = { viewModel.markChapterRead(chapter.id, !chapter.read) },
-                            onAiSummary = { cb -> viewModel.getChapterSummary(chapter, cb) },
                         )
                     }
                 }
@@ -1812,34 +1776,9 @@ private fun GlassChapterRow(
     onMarkAllOlderRead: () -> Unit = {},
     onMarkAllNewerUnread: () -> Unit = {},
     onToggleRead: () -> Unit = {},
-    onAiSummary: ((String?) -> Unit) -> Unit = {},
 ) {
     val isRead = chapter.read
     var showMenu by remember { mutableStateOf(false) }
-    var showAiDialog by remember { mutableStateOf(false) }
-    var aiSummaryText by remember { mutableStateOf<String?>(null) }
-    var aiSummaryLoading by remember { mutableStateOf(false) }
-
-    if (showAiDialog) {
-        AlertDialog(
-            onDismissRequest = { showAiDialog = false },
-            title = { Text(chapter.name, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
-            text = {
-                when {
-                    aiSummaryLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Generuji shrnutí…", color = TextSecondary, fontSize = 13.sp)
-                    }
-                    aiSummaryText != null -> Text(aiSummaryText!!, color = TextPrimary, fontSize = 13.sp)
-                    else -> Text("Nepodařilo se získat shrnutí.", color = TextSecondary, fontSize = 13.sp)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAiDialog = false }) { Text("Zavřít") }
-            },
-        )
-    }
 
     Box(
         modifier = Modifier
@@ -1893,16 +1832,6 @@ private fun GlassChapterRow(
             DropdownMenuItem(
                 text = { Text(if (isRead) "Označit jako nepřečtené" else "Označit jako přečtené") },
                 onClick = { onToggleRead(); showMenu = false },
-            )
-            DropdownMenuItem(
-                text = { Text("AI shrnutí ✨") },
-                onClick = {
-                    showMenu = false
-                    showAiDialog = true
-                    aiSummaryLoading = true
-                    aiSummaryText = null
-                    onAiSummary { result -> aiSummaryText = result; aiSummaryLoading = false }
-                },
             )
         }
     }

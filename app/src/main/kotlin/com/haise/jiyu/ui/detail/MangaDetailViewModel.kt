@@ -16,7 +16,6 @@ import com.haise.jiyu.data.tracking.MalManga
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import com.haise.jiyu.data.tracking.MuManga
-import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -54,7 +53,6 @@ class MangaDetailViewModel @Inject constructor(
     private val mangaTagDao: MangaTagDao,
     private val glossaryDao: GlossaryDao,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
-    private val groqRepository: GroqRepository,
     private val aniListRepository: AniListRepository,
     private val malRepository: MalRepository,
     private val kitsuAuthManager: KitsuAuthManager,
@@ -406,13 +404,6 @@ class MangaDetailViewModel @Inject constructor(
         remote.rating?.let { r -> repository.setRating(mangaId, (r * 10).toInt()) }
     }
 
-    // ── AI doporučení (#37) ───────────────────────────────────────────────────
-    private val _aiInsight = MutableStateFlow<String?>(null)
-    val aiInsight: StateFlow<String?> = _aiInsight.asStateFlow()
-
-    private val _aiInsightLoading = MutableStateFlow(false)
-    val aiInsightLoading: StateFlow<Boolean> = _aiInsightLoading.asStateFlow()
-
     // ── Kategorie ─────────────────────────────────────────────────────────────
     val allCategories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -586,32 +577,6 @@ class MangaDetailViewModel @Inject constructor(
         viewModelScope.launch { repository.setRating(mangaId, null) }
     }
 
-    // ── AI doporučení (#37) ───────────────────────────────────────────────────
-    fun loadAiInsight() {
-        if (_aiInsight.value != null || _aiInsightLoading.value) return
-        val m = manga.value ?: return
-        viewModelScope.launch {
-            _aiInsightLoading.value = true
-            _aiInsight.value = groqRepository.getMangaInsight(
-                m.title,
-                m.description,
-                m.genres.split(",").map { it.trim() }.filter { it.isNotBlank() },
-            )
-            _aiInsightLoading.value = false
-        }
-    }
-
-    // ── AI shrnutí kapitoly (#36) ─────────────────────────────────────────────
-    fun getChapterSummary(chapter: ChapterEntity, onResult: (String?) -> Unit) {
-        val m = manga.value ?: return
-        val prevChapter = chapters.value
-            .filter { it.chapterNumber < chapter.chapterNumber }
-            .maxByOrNull { it.chapterNumber }
-        viewModelScope.launch {
-            val summary = groqRepository.getChapterSummary(m.title, chapter.name, prevChapter?.name)
-            onResult(summary)
-        }
-    }
 
     // ── Tagy (#26) ────────────────────────────────────────────────────────────
     fun addTag(tag: String) {

@@ -16,7 +16,6 @@ import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.TranslatedPageDao
-import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
 import dagger.Module
 import dagger.Provides
@@ -114,8 +113,4 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSleepTimerManager(): SleepTimerManager = SleepTimerManager()
-
-    @Provides
-    @Singleton
-    fun provideGroqRepository(client: OkHttpClient): GroqRepository = GroqRepository(client)
 }

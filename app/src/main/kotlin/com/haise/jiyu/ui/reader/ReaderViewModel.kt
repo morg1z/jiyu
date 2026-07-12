@@ -11,7 +11,6 @@ import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
-import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
 import com.haise.jiyu.work.AutoDeleteWorker
 import com.haise.jiyu.data.db.entity.ChapterEntity
@@ -58,7 +57,6 @@ class ReaderViewModel @Inject constructor(
     private val muRepository: MangaUpdatesRepository,
     private val glossaryDao: GlossaryDao,
     private val sleepTimerManager: SleepTimerManager,
-    private val groqRepository: GroqRepository,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -196,38 +194,6 @@ class ReaderViewModel @Inject constructor(
         if (webtoonPositions.size > 50) webtoonPositions.remove(webtoonPositions.keys.first())
     }
 
-    // ── AI shrnutí kapitoly ──────────────────────────────────────────────────
-    private val _chapterSummary = MutableStateFlow<String?>(null)
-    val chapterSummary: StateFlow<String?> = _chapterSummary.asStateFlow()
-
-    private val _summaryLoading = MutableStateFlow(false)
-    val summaryLoading: StateFlow<Boolean> = _summaryLoading.asStateFlow()
-
-    private val summaryCache = mutableMapOf<String, String>()
-    private var lastSummaryRequestMs = 0L
-
-    fun loadChapterSummary() {
-        val chapter = currentChapter ?: return
-        if (_summaryLoading.value) return
-        summaryCache[chapter.id]?.let { cached ->
-            _chapterSummary.value = cached
-            return
-        }
-        if (System.currentTimeMillis() - lastSummaryRequestMs < 10_000L) return
-        lastSummaryRequestMs = System.currentTimeMillis()
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
-        val prevChapter = allChapters.getOrNull(idx + 1) // DESC → starší kapitola
-        viewModelScope.launch {
-            _summaryLoading.value = true
-            _chapterSummary.value = null
-            val mangaTitle = repository.getManga(chapter.mangaId)?.title ?: ""
-            val result = groqRepository.getChapterSummary(mangaTitle, chapter.name, prevChapter?.name)
-            if (result != null) summaryCache[chapter.id] = result
-            _chapterSummary.value = result
-            _summaryLoading.value = false
-        }
-    }
-
     // ── Incognito mode ───────────────────────────────────────────────────────
     private val _incognitoMode = MutableStateFlow(startIncognito)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()
@@ -333,7 +299,7 @@ class ReaderViewModel @Inject constructor(
             return
         }
         if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+            _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
             return
         }
         _novelTranslateMode.value = true
@@ -468,8 +434,6 @@ class ReaderViewModel @Inject constructor(
     private suspend fun loadChapter(id: String) {
         _loading.value = true
         _pages.value = emptyList()
-        _chapterSummary.value = null
-        _summaryLoading.value = false
         _translatedPages.value = emptyMap()
         _translateMode.value = false
         translationJob?.cancel()
@@ -707,7 +671,7 @@ class ReaderViewModel @Inject constructor(
             }
             !_translateMode.value -> {
                 if (!translateRepository.isApiKeyConfigured) {
-                    _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+                    _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
                     return
                 }
                 _translateMode.value = true
@@ -766,7 +730,7 @@ class ReaderViewModel @Inject constructor(
     fun translateAllPages() {
         if (_batchTranslating.value) return
         if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+            _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
             return
         }
         _batchTranslating.value = true
