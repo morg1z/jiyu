@@ -5,7 +5,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.anilist.AniListRepository
+import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
@@ -31,6 +33,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,6 +55,7 @@ class ReaderViewModel @Inject constructor(
     private val malRepository: MalRepository,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
+    private val glossaryDao: GlossaryDao,
     private val sleepTimerManager: SleepTimerManager,
     private val groqRepository: GroqRepository,
 ) : ViewModel() {
@@ -272,6 +277,96 @@ class ReaderViewModel @Inject constructor(
     private val _batchTranslating = MutableStateFlow(false)
     val batchTranslating: StateFlow<Boolean> = _batchTranslating.asStateFlow()
 
+    // ── Překlad light novel (prostý text) ────────────────────────────────────
+    private val _novelTranslateMode = MutableStateFlow(false)
+    val novelTranslateMode: StateFlow<Boolean> = _novelTranslateMode.asStateFlow()
+
+    private val _novelTranslatedText = MutableStateFlow<String?>(null)
+    val novelTranslatedText: StateFlow<String?> = _novelTranslatedText.asStateFlow()
+
+    private val _novelTranslating = MutableStateFlow(false)
+    val novelTranslating: StateFlow<Boolean> = _novelTranslating.asStateFlow()
+
+    private var novelTranslationJob: Job? = null
+
+    // ── Slovník AI překladu (rychlý přístup z čtečky) ────────────────────────
+    private val _currentMangaId = MutableStateFlow<String?>(null)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val glossary: StateFlow<List<GlossaryEntity>> = kotlinx.coroutines.flow.combine(
+        _currentMangaId,
+        _targetLanguage,
+    ) { mangaId, lang -> mangaId to lang }
+        .flatMapLatest { (mangaId, lang) ->
+            if (mangaId == null) flowOf(emptyList())
+            else glossaryDao.observeForManga(mangaId).map { list -> list.filter { it.targetLanguage == lang } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addGlossaryEntry(sourceTerm: String, targetTerm: String) {
+        val source = sourceTerm.trim()
+        val target = targetTerm.trim()
+        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
+        if (source.isBlank() || target.isBlank()) return
+        val lang = _targetLanguage.value
+        viewModelScope.launch {
+            glossaryDao.upsert(
+                GlossaryEntity(
+                    id = "$mangaId::${source.lowercase()}::$lang",
+                    mangaId = mangaId,
+                    sourceTerm = source,
+                    targetTerm = target,
+                    targetLanguage = lang,
+                )
+            )
+        }
+    }
+
+    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
+
+    fun toggleNovelTranslate() {
+        if (_novelTranslateMode.value) {
+            _novelTranslateMode.value = false
+            novelTranslationJob?.cancel()
+            _novelTranslating.value = false
+            return
+        }
+        if (!translateRepository.isApiKeyConfigured) {
+            _translationError.value = "Chybí Groq API klíč - přidej GROQ_API_KEY do local.properties"
+            return
+        }
+        _novelTranslateMode.value = true
+        val chapterId = currentChapter?.id ?: return
+        val text = _novelText.value
+        if (text.isBlank()) return
+
+        novelTranslationJob = viewModelScope.launch {
+            val cached = translateRepository.getCachedNovel(chapterId, _targetLanguage.value, _sourceLanguage.value)
+            if (cached != null) {
+                _novelTranslatedText.value = cached
+                return@launch
+            }
+            _novelTranslating.value = true
+            try {
+                val result = translateRepository.translateNovelChapter(
+                    chapterId = chapterId,
+                    mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return@launch,
+                    text = text,
+                    targetLanguage = _targetLanguage.value,
+                    sourceLanguage = _sourceLanguage.value,
+                )
+                if (result != null) {
+                    _novelTranslatedText.value = result
+                } else {
+                    _translationError.value = "Překlad kapitoly selhal, zkus to znovu"
+                    _novelTranslateMode.value = false
+                }
+            } finally {
+                _novelTranslating.value = false
+            }
+        }
+    }
+
     // ── Sleep timer (#42) ────────────────────────────────────────────────────
     val sleepTimerRemaining: StateFlow<Int?> = sleepTimerManager.remainingSeconds
 
@@ -379,6 +474,11 @@ class ReaderViewModel @Inject constructor(
         translationJob?.cancel()
         translationJob = null
         _translationProgress.value = null
+        _novelTranslateMode.value = false
+        _novelTranslatedText.value = null
+        novelTranslationJob?.cancel()
+        novelTranslationJob = null
+        _novelTranslating.value = false
 
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
@@ -395,6 +495,7 @@ class ReaderViewModel @Inject constructor(
 
         val mangaForDir = repository.getManga(chapter.mangaId)
         currentManga = mangaForDir
+        _currentMangaId.value = mangaForDir?.id
         _mangaDirectionOverride.value = mangaForDir?.readerDirectionOverride
 
         if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
@@ -636,6 +737,7 @@ class ReaderViewModel @Inject constructor(
                         val blocks = translateRepository.translatePage(
                             pageUrl = pages[pageIndex],
                             chapterId = chapterId,
+                            mangaId = currentManga?.id ?: currentChapter?.mangaId ?: "",
                             pageIndex = pageIndex,
                             targetLanguage = lang,
                             sourceLanguage = _sourceLanguage.value,
@@ -685,6 +787,7 @@ class ReaderViewModel @Inject constructor(
                     val blocks = translateRepository.translatePage(
                         pageUrl = pages[pageIndex],
                         chapterId = chapterId,
+                        mangaId = currentManga?.id ?: currentChapter?.mangaId ?: "",
                         pageIndex = pageIndex,
                         targetLanguage = lang,
                         sourceLanguage = _sourceLanguage.value,

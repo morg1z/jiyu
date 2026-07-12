@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -28,13 +30,17 @@ data class RawTextBlock(
 class OcrEngine @Inject constructor(
     private val httpClient: OkHttpClient,
 ) {
-    // Lazy recognizers: Japanese (CJK vertical text support) and Latin (default for all other languages)
+    // Lazy recognizers: CJK jazyky mají vlastní ML Kit model, ostatní spadají na latinkový výchozí
     private val japaneseRecognizer by lazy { TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build()) }
+    private val chineseRecognizer by lazy { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
+    private val koreanRecognizer by lazy { TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build()) }
     private val latinRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
     private fun recognizerFor(language: String) = when (language) {
         "Japanese" -> japaneseRecognizer
-        else       -> latinRecognizer
+        "Chinese", "Chinese (Traditional)" -> chineseRecognizer
+        "Korean" -> koreanRecognizer
+        else -> latinRecognizer
     }
 
     suspend fun recognize(pageUrl: String, language: String = "Japanese"): List<RawTextBlock> = withContext(Dispatchers.IO) {

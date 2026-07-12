@@ -144,6 +144,8 @@ dependencies {
     // OCR – ML Kit Text Recognition (funguje offline, bundled model)
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 
     // Supabase — cloud sync + auth (2.0.3 je poslední verze s Kotlin 1.9.x)
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.0.3")

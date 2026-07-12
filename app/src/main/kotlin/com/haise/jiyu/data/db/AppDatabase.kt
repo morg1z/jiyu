@@ -10,11 +10,13 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
+import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
+import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 
 class Converters {
@@ -36,8 +38,10 @@ class Converters {
         ReadHistoryEntity::class,
         MangaNoteEntity::class,
         MangaTagEntity::class,
+        TranslatedNovelEntity::class,
+        GlossaryEntity::class,
     ],
-    version = 25,
+    version = 27,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -45,11 +49,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mangaDao(): MangaDao
     abstract fun chapterDao(): ChapterDao
     abstract fun translatedPageDao(): TranslatedPageDao
+    abstract fun translatedNovelDao(): TranslatedNovelDao
     abstract fun categoryDao(): CategoryDao
     abstract fun customSourceDao(): CustomSourceDao
     abstract fun readHistoryDao(): ReadHistoryDao
     abstract fun mangaNoteDao(): MangaNoteDao
     abstract fun mangaTagDao(): MangaTagDao
+    abstract fun glossaryDao(): GlossaryDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -237,6 +243,33 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE manga ADD COLUMN readingTimeMs INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `translated_novel` (
+                        `id` TEXT NOT NULL,
+                        `translatedText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )"""
+                )
+            }
+        }
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `glossary_entry` (
+                        `id` TEXT NOT NULL,
+                        `mangaId` TEXT NOT NULL,
+                        `sourceTerm` TEXT NOT NULL,
+                        `targetTerm` TEXT NOT NULL,
+                        `targetLanguage` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_glossary_entry_mangaId_targetLanguage` ON `glossary_entry` (`mangaId`, `targetLanguage`)")
             }
         }
     }

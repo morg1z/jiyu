@@ -73,6 +73,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -171,6 +172,10 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
     val isNovelSource        by viewModel.isNovelSource.collectAsState()
     val novelText            by viewModel.novelText.collectAsState()
+    val novelTranslateMode   by viewModel.novelTranslateMode.collectAsState()
+    val novelTranslatedText  by viewModel.novelTranslatedText.collectAsState()
+    val novelTranslating     by viewModel.novelTranslating.collectAsState()
+    val glossary             by viewModel.glossary.collectAsState()
     val pageScale            by viewModel.pageScale.collectAsState()
     val jumpToPage           by viewModel.jumpToPage.collectAsState()
     val allChapters          by viewModel.allChaptersFlow.collectAsState()
@@ -267,6 +272,17 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 hasNext = hasNextChapter,
                 onPrev = { viewModel.navigatePrev() },
                 onNext = { viewModel.navigateNext() },
+                translateMode = novelTranslateMode,
+                translatedText = novelTranslatedText,
+                translating = novelTranslating,
+                onToggleTranslate = { viewModel.toggleNovelTranslate() },
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
+                onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
+                glossary = glossary,
+                onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
+                onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
             )
             pages.isEmpty() -> Text("Kapitolu se nepodařilo načíst.", color = Color.White)
             else -> ReaderContent(
@@ -335,6 +351,9 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 volumeKeysNav = volumeKeysNav,
                 readerOrientation = readerOrientation,
                 onSetReaderOrientation = { viewModel.setReaderOrientation(it) },
+                glossary = glossary,
+                onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
+                onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
             )
         }
 
@@ -407,11 +426,24 @@ private fun NovelContent(
     hasNext: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    translateMode: Boolean = false,
+    translatedText: String? = null,
+    translating: Boolean = false,
+    onToggleTranslate: () -> Unit = {},
+    sourceLanguage: String = "Auto",
+    targetLanguage: String = "Czech",
+    onSourceLanguageChange: (String) -> Unit = {},
+    onTargetLanguageChange: (String) -> Unit = {},
+    glossary: List<com.haise.jiyu.data.db.entity.GlossaryEntity> = emptyList(),
+    onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
+    onRemoveGlossaryEntry: (com.haise.jiyu.data.db.entity.GlossaryEntity) -> Unit = {},
 ) {
     var fontSize by remember { mutableStateOf(16f) }
     var lineSpacing by remember { mutableStateOf(1.6f) }
     var bgColorIndex by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    var showLangSettings by remember { mutableStateOf(false) }
+    var showGlossarySheet by remember { mutableStateOf(false) }
 
     val bgOptions = listOf(
         Color(0xFF0A0A14) to Color(0xFFE8E8E8),
@@ -420,7 +452,8 @@ private fun NovelContent(
         Color.White to Color.Black,
     )
     val (bgColor, textColor) = bgOptions[bgColorIndex.coerceIn(0, bgOptions.lastIndex)]
-    val paragraphs = remember(text) { text.split("\n").filter { it.isNotBlank() } }
+    val displayText = if (translateMode && translatedText != null) translatedText else text
+    val paragraphs = remember(displayText) { displayText.split("\n").filter { it.isNotBlank() } }
 
     Column(
         modifier = Modifier
@@ -430,12 +463,89 @@ private fun NovelContent(
         androidx.compose.material3.TopAppBar(
             title = { Text(chapterTitle, color = Color(0xFFE8E8E8), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp) },
             actions = {
+                IconButton(onClick = { showLangSettings = !showLangSettings }) {
+                    if (translating) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color(0xFF8B5CF6))
+                    } else {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Filled.Translate,
+                            "Překlad kapitoly",
+                            tint = if (translateMode) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
+                        )
+                    }
+                }
                 IconButton(onClick = { showSettings = !showSettings }) {
                     Icon(androidx.compose.material.icons.Icons.Filled.BrightnessHigh, "Nastavení", tint = Color(0xFFB0BEC5))
                 }
             },
             colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0D0D1A)),
         )
+
+        AnimatedVisibility(visible = showLangSettings, enter = slideInVertically(), exit = slideOutVertically()) {
+            androidx.compose.material3.Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = Color(0xFF1A1B35)),
+                shape = RoundedCornerShape(0.dp),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        var showSourceMenu by remember { mutableStateOf(false) }
+                        var showTargetMenu by remember { mutableStateOf(false) }
+                        Box {
+                            Text(
+                                sourceLanguage,
+                                color = Color(0xFF4FC3F7),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .clickable { showSourceMenu = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                            DropdownMenu(expanded = showSourceMenu, onDismissRequest = { showSourceMenu = false }, modifier = Modifier.background(Color(0xFF1A2340))) {
+                                com.haise.jiyu.source.LanguageMap.displayNames.forEach { lang ->
+                                    DropdownMenuItem(text = { Text(lang, color = Color.White, fontSize = 13.sp) }, onClick = { onSourceLanguageChange(lang); showSourceMenu = false })
+                                }
+                            }
+                        }
+                        Text(" → ", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                        Box {
+                            Text(
+                                targetLanguage,
+                                color = Color(0xFF8B5CF6),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .clickable { showTargetMenu = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                            DropdownMenu(expanded = showTargetMenu, onDismissRequest = { showTargetMenu = false }, modifier = Modifier.background(Color(0xFF1A2340))) {
+                                com.haise.jiyu.source.LanguageMap.displayNames.filter { it != "Auto" }.forEach { lang ->
+                                    DropdownMenuItem(text = { Text(lang, color = Color.White, fontSize = 13.sp) }, onClick = { onTargetLanguageChange(lang); showTargetMenu = false })
+                                }
+                            }
+                        }
+                        TextButton(onClick = { showGlossarySheet = true }) {
+                            Text("Slovník", color = Color(0xFF8B5CF6))
+                        }
+                        TextButton(onClick = { onToggleTranslate(); showLangSettings = false }) {
+                            Text(if (translateMode) "Originál" else "Přeložit", color = Color(0xFF34D1BF))
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showGlossarySheet) {
+            GlossaryBottomSheet(
+                glossary = glossary,
+                targetLanguage = targetLanguage,
+                onAdd = onAddGlossaryEntry,
+                onRemove = onRemoveGlossaryEntry,
+                onDismiss = { showGlossarySheet = false },
+            )
+        }
 
         AnimatedVisibility(visible = showSettings, enter = slideInVertically(), exit = slideOutVertically()) {
             androidx.compose.material3.Card(
@@ -567,8 +677,12 @@ private fun ReaderContent(
     volumeKeysNav: Boolean = true,
     readerOrientation: String = "free",
     onSetReaderOrientation: (String) -> Unit = {},
+    glossary: List<com.haise.jiyu.data.db.entity.GlossaryEntity> = emptyList(),
+    onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
+    onRemoveGlossaryEntry: (com.haise.jiyu.data.db.entity.GlossaryEntity) -> Unit = {},
 ) {
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
+    var showGlossarySheet by remember { mutableStateOf(false) }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) { delay(3_000L); controlsVisible = false }
     }
@@ -1005,6 +1119,17 @@ private fun ReaderContent(
                                 }
                             }
                         }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Slovník",
+                            color = Color(0xFF8B5CF6),
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.White.copy(alpha = 0.1f))
+                                .clickable { showGlossarySheet = true }
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
                     }
 
                     // Page scrubber
@@ -1145,6 +1270,103 @@ private fun ReaderContent(
                                 Text("${(progress.done * 100f / progress.total).toInt()} %", color = Color(0xFF4FC3F7), style = MaterialTheme.typography.labelMedium)
                             }
                             LinearProgressIndicator(progress = { progress.done.toFloat() / progress.total }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), color = Color(0xFF4FC3F7), trackColor = Color.White.copy(alpha = 0.2f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showGlossarySheet) {
+        GlossaryBottomSheet(
+            glossary = glossary,
+            targetLanguage = targetLanguage,
+            onAdd = onAddGlossaryEntry,
+            onRemove = onRemoveGlossaryEntry,
+            onDismiss = { showGlossarySheet = false },
+        )
+    }
+}
+
+// ── Slovník AI překladu - rychlý přístup přímo z čtečky ─────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GlossaryBottomSheet(
+    glossary: List<com.haise.jiyu.data.db.entity.GlossaryEntity>,
+    targetLanguage: String,
+    onAdd: (String, String) -> Unit,
+    onRemove: (com.haise.jiyu.data.db.entity.GlossaryEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var sourceText by remember { mutableStateOf("") }
+    var targetText by remember { mutableStateOf("") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF111B35),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Slovník překladu", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(
+                "Jména, techniky a přezdívky se přeloží vždy stejně napříč všemi kapitolami.",
+                color = Color(0xFFB0BEC5),
+                fontSize = 12.sp,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                TextField(
+                    value = sourceText,
+                    onValueChange = { sourceText = it },
+                    placeholder = { Text("Originál", color = Color(0xFFB0BEC5), fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color.White.copy(alpha = 0.06f), unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                    ),
+                )
+                Text("→", color = Color(0xFFB0BEC5))
+                TextField(
+                    value = targetText,
+                    onValueChange = { targetText = it },
+                    placeholder = { Text("Překlad", color = Color(0xFFB0BEC5), fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color.White.copy(alpha = 0.06f), unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                    ),
+                )
+            }
+            TextButton(onClick = {
+                if (sourceText.isNotBlank() && targetText.isNotBlank()) {
+                    onAdd(sourceText, targetText)
+                    sourceText = ""
+                    targetText = ""
+                }
+            }) { Text("Přidat ($targetLanguage)", color = Color(0xFF8B5CF6)) }
+
+            if (glossary.isEmpty()) {
+                Text("Zatím žádné pojmy ve slovníku.", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+            } else {
+                glossary.forEach { entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${entry.sourceTerm} → ${entry.targetTerm}", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onRemove(entry) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
                         }
                     }
                 }

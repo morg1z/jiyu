@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.haise.jiyu.anilist.AniListRepository
+import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
+import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.tracking.KitsuAuthManager
 import com.haise.jiyu.data.tracking.KitsuManga
 import com.haise.jiyu.data.tracking.KitsuRepository
@@ -48,6 +50,8 @@ class MangaDetailViewModel @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val mangaNoteDao: MangaNoteDao,
     private val mangaTagDao: MangaTagDao,
+    private val glossaryDao: GlossaryDao,
+    private val settings: com.haise.jiyu.settings.SettingsRepository,
     private val groqRepository: GroqRepository,
     private val aniListRepository: AniListRepository,
     private val malRepository: MalRepository,
@@ -155,6 +159,32 @@ class MangaDetailViewModel @Inject constructor(
     // ── Tagy (#26) ────────────────────────────────────────────────────────────
     val mangaTags: StateFlow<List<MangaTagEntity>> = mangaTagDao.observeForManga(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Slovník AI překladu (konzistentní jména/techniky napříč kapitolami) ────
+    val glossary: StateFlow<List<GlossaryEntity>> = glossaryDao.observeForManga(mangaId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val defaultTargetLanguage: StateFlow<String> = settings.targetLanguage
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
+
+    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, targetLanguage: String) {
+        val source = sourceTerm.trim()
+        val target = targetTerm.trim()
+        if (source.isBlank() || target.isBlank()) return
+        viewModelScope.launch {
+            glossaryDao.upsert(
+                GlossaryEntity(
+                    id = "$mangaId::${source.lowercase()}::$targetLanguage",
+                    mangaId = mangaId,
+                    sourceTerm = source,
+                    targetTerm = target,
+                    targetLanguage = targetLanguage,
+                )
+            )
+        }
+    }
+
+    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
 
     // ── Čtecí status ──────────────────────────────────────────────────────────
     val readingStatus: StateFlow<String?> = manga.map { it?.readingStatus }

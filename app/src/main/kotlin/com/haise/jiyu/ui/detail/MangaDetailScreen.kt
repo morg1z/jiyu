@@ -148,6 +148,8 @@ fun MangaDetailScreen(
     val autoDownload     by viewModel.autoDownload.collectAsState()
     val mangaNote        by viewModel.mangaNote.collectAsState()
     val mangaTags        by viewModel.mangaTags.collectAsState()
+    val glossary         by viewModel.glossary.collectAsState()
+    val defaultTargetLanguage by viewModel.defaultTargetLanguage.collectAsState()
     val userRating       by viewModel.userRating.collectAsState()
     val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
@@ -190,6 +192,9 @@ fun MangaDetailScreen(
     var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
     var addTagText by remember { mutableStateOf("") }
     var showAddTagField by remember { mutableStateOf(false) }
+    var showAddGlossaryField by remember { mutableStateOf(false) }
+    var glossarySourceText by remember { mutableStateOf("") }
+    var glossaryTargetText by remember { mutableStateOf("") }
 
     // Koordinace pull-to-refresh se stavem ViewModel
     LaunchedEffect(pullToRefreshState.isRefreshing) {
@@ -900,6 +905,106 @@ fun MangaDetailScreen(
                             }
                         } else {
                             Text("Žádné tagy", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                        }
+                    }
+                }
+
+                // ── Slovník AI překladu ─────────────────────────────────────────
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "SLOVNÍK PŘEKLADU", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Filled.Add, contentDescription = "Přidat pojem", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Text(
+                            "Jména, techniky a přezdívky se budou vždy překládat takhle, napříč všemi kapitolami.",
+                            color = TextSecondary.copy(alpha = 0.6f),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                        if (showAddGlossaryField) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    BasicTextField(
+                                        value = glossarySourceText,
+                                        onValueChange = { glossarySourceText = it },
+                                        singleLine = true,
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
+                                        decorationBox = { inner ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.White.copy(alpha = 0.06f))
+                                                    .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            ) {
+                                                if (glossarySourceText.isEmpty()) Text("Originál (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
+                                                inner()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text("→", color = TextSecondary, fontSize = 13.sp)
+                                    BasicTextField(
+                                        value = glossaryTargetText,
+                                        onValueChange = { glossaryTargetText = it },
+                                        singleLine = true,
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
+                                        decorationBox = { inner ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.White.copy(alpha = 0.06f))
+                                                    .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            ) {
+                                                if (glossaryTargetText.isEmpty()) Text("Překlad (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
+                                                inner()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                Row(modifier = Modifier.padding(top = 4.dp)) {
+                                    TextButton(onClick = {
+                                        viewModel.addGlossaryEntry(glossarySourceText, glossaryTargetText, defaultTargetLanguage)
+                                        glossarySourceText = ""
+                                        glossaryTargetText = ""
+                                        showAddGlossaryField = false
+                                    }) { Text("Přidat do slovníku ($defaultTargetLanguage)", color = GlowCyan, fontSize = 12.sp) }
+                                }
+                            }
+                        }
+                        if (glossary.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                glossary.forEach { entry ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.04f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "${entry.sourceTerm} → ${entry.targetTerm}",
+                                            color = TextPrimary,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
+                                        IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(13.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (!showAddGlossaryField) {
+                            Text("Žádné pojmy ve slovníku", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
                         }
                     }
                 }

@@ -9,10 +9,12 @@ import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.CustomSourceDao
+import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.groq.GroqRepository
 import com.haise.jiyu.util.SleepTimerManager
@@ -88,6 +90,8 @@ object AppModule {
                 AppDatabase.MIGRATION_22_23,
                 AppDatabase.MIGRATION_23_24,
                 AppDatabase.MIGRATION_24_25,
+                AppDatabase.MIGRATION_25_26,
+                AppDatabase.MIGRATION_26_27,
             )
             .build()
 
@@ -99,6 +103,8 @@ object AppModule {
     @Provides fun provideMangaDao(db: AppDatabase): MangaDao = db.mangaDao()
     @Provides fun provideChapterDao(db: AppDatabase): ChapterDao = db.chapterDao()
     @Provides fun provideTranslatedPageDao(db: AppDatabase): TranslatedPageDao = db.translatedPageDao()
+    @Provides fun provideTranslatedNovelDao(db: AppDatabase): TranslatedNovelDao = db.translatedNovelDao()
+    @Provides fun provideGlossaryDao(db: AppDatabase): GlossaryDao = db.glossaryDao()
     @Provides fun provideCategoryDao(db: AppDatabase): CategoryDao = db.categoryDao()
     @Provides fun provideCustomSourceDao(db: AppDatabase): CustomSourceDao = db.customSourceDao()
     @Provides fun provideReadHistoryDao(db: AppDatabase): ReadHistoryDao = db.readHistoryDao()

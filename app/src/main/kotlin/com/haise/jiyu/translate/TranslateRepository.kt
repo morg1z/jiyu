@@ -1,6 +1,10 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.data.db.GlossaryDao
+import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.TranslatedPageDao
+import com.haise.jiyu.data.db.entity.GlossaryEntity
+import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,8 +16,13 @@ class TranslateRepository @Inject constructor(
     private val ocrEngine: OcrEngine,
     private val groqClient: GroqTranslateClient,
     private val dao: TranslatedPageDao,
+    private val novelDao: TranslatedNovelDao,
+    private val glossaryDao: GlossaryDao,
 ) {
     val isApiKeyConfigured: Boolean get() = groqClient.isConfigured
+
+    private suspend fun glossaryFor(mangaId: String, targetLanguage: String): Map<String, String> =
+        glossaryDao.getForMangaAndLanguage(mangaId, targetLanguage).associate { it.sourceTerm to it.targetTerm }
 
     /**
      * Vrátí přeložené bloky pro jednu stránku.
@@ -23,6 +32,7 @@ class TranslateRepository @Inject constructor(
     suspend fun translatePage(
         pageUrl: String,
         chapterId: String,
+        mangaId: String,
         pageIndex: Int,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
@@ -36,6 +46,7 @@ class TranslateRepository @Inject constructor(
             texts = rawBlocks.map { it.text },
             targetLanguage = targetLanguage,
             sourceLanguage = sourceLanguage,
+            glossary = glossaryFor(mangaId, targetLanguage),
         )
         if (translations.isEmpty()) return emptyList()
 
@@ -65,6 +76,68 @@ class TranslateRepository @Inject constructor(
 
     private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String, sourceLanguage: String) =
         "$chapterId::$pageIndex::$sourceLanguage::$targetLanguage"
+
+    companion object {
+        /** Maximální počet znaků originálu na jedno API volání - drží výstup pod limitem max_tokens. */
+        private const val NOVEL_CHUNK_CHAR_LIMIT = 2500
+    }
+
+    // ── Light novel překlad (prostý text, ne obrázek) ────────────────────────
+
+    /**
+     * Přeloží celou kapitolu light novel (odstavce oddělené \n). Rozdělí dlouhý text
+     * do více dávek, aby výstup nepřekročil limit tokenů jednoho API volání.
+     * @return přeložený text (odstavce spojené \n) nebo null při selhání
+     */
+    suspend fun translateNovelChapter(
+        chapterId: String,
+        mangaId: String,
+        text: String,
+        targetLanguage: String = "Czech",
+        sourceLanguage: String = "Auto",
+    ): String? {
+        getCachedNovel(chapterId, targetLanguage, sourceLanguage)?.let { return it }
+        if (!groqClient.isConfigured) return null
+
+        val paragraphs = text.split("\n").filter { it.isNotBlank() }
+        if (paragraphs.isEmpty()) return null
+
+        val glossary = glossaryFor(mangaId, targetLanguage)
+        val chunks = chunkParagraphs(paragraphs)
+        val translatedParagraphs = mutableListOf<String>()
+        for (chunk in chunks) {
+            val translated = groqClient.translateNovelBatch(chunk, targetLanguage, sourceLanguage, glossary)
+            if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
+            translatedParagraphs += translated
+        }
+
+        val result = translatedParagraphs.joinToString("\n")
+        novelDao.upsert(TranslatedNovelEntity(id = novelCacheId(chapterId, sourceLanguage, targetLanguage), translatedText = result))
+        return result
+    }
+
+    suspend fun getCachedNovel(chapterId: String, targetLanguage: String, sourceLanguage: String = "Auto"): String? =
+        novelDao.getById(novelCacheId(chapterId, sourceLanguage, targetLanguage))?.translatedText
+
+    private fun novelCacheId(chapterId: String, sourceLanguage: String, targetLanguage: String) =
+        "$chapterId::$sourceLanguage::$targetLanguage"
+
+    private fun chunkParagraphs(paragraphs: List<String>): List<List<String>> {
+        val chunks = mutableListOf<List<String>>()
+        var current = mutableListOf<String>()
+        var currentLen = 0
+        for (p in paragraphs) {
+            if (current.isNotEmpty() && currentLen + p.length > NOVEL_CHUNK_CHAR_LIMIT) {
+                chunks += current
+                current = mutableListOf()
+                currentLen = 0
+            }
+            current += p
+            currentLen += p.length
+        }
+        if (current.isNotEmpty()) chunks += current
+        return chunks
+    }
 
     // ── JSON (de)serialization ───────────────────────────────────────────────
 
