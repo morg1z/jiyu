@@ -125,8 +125,8 @@ dependencies {
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20240303")
 
-    // Material icons extended (Download, ArrowDownward, Translate, atd.)
-    implementation("androidx.compose.material:material-icons-extended")
+    // Vlastní ikonová sada (Tabler Icons) - náhrada za generické Material ikony
+    implementation("br.com.devsrsouza.compose.icons:tabler-icons:1.1.1")
 
     // Obrázky
     implementation("io.coil-kt:coil-compose:2.6.0")

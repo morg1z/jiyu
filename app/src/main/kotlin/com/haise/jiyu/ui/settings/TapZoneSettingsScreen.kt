@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.settings
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -22,10 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -122,7 +122,7 @@ fun TapZoneSettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
                     "Tapové zóny",
@@ -132,7 +132,7 @@ fun TapZoneSettingsScreen(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { viewModel.setTapZoneGrid(TapZoneGrid()) }) {
-                    Icon(Icons.Filled.Refresh, "Výchozí nastavení", tint = TextSecondary)
+                    Icon(TablerIcons.Refresh, "Výchozí nastavení", tint = TextSecondary)
                 }
             }
 
@@ -348,7 +348,7 @@ fun TapZoneSettingsScreen(
                             Text(action.description(), color = TextSecondary, fontSize = 12.sp)
                         }
                         if (selected) {
-                            Icon(Icons.Filled.Check, null, tint = action.color(), modifier = Modifier.size(20.dp))
+                            Icon(TablerIcons.Check, null, tint = action.color(), modifier = Modifier.size(20.dp))
                         }
                     }
                 }

@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.browse
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -35,7 +42,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -73,7 +79,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.material.icons.filled.MenuBook
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
@@ -82,9 +87,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -168,7 +170,7 @@ fun BrowseScreen(
                 )
                 IconButton(onClick = { showFilterSheet = true }) {
                     Icon(
-                        imageVector = Icons.Default.FilterList,
+                        imageVector = TablerIcons.Filter,
                         contentDescription = "Filtry",
                         tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
                     )
@@ -191,7 +193,7 @@ fun BrowseScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(10.dp))
                     Text("Hledat ve všech zdrojích…", color = TextSecondary, fontSize = 15.sp)
                 }
@@ -361,7 +363,7 @@ fun BrowseScreen(
             // Loading — grid je prázdný
             loading && results.isEmpty() -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Violet)
+                    JiyuLoadingIndicator()
                 }
             }
             // Chyba sítě
@@ -422,7 +424,7 @@ fun BrowseScreen(
                     if (hasMore || loading) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Violet, strokeWidth = 2.dp)
+                                JiyuLoadingIndicator(size = 24.dp, strokeWidth = 2.dp)
                             }
                         }
                     }
@@ -601,7 +603,7 @@ private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Filled.MenuBook,
+                        TablerIcons.Book,
                         contentDescription = null,
                         tint = TextSecondary.copy(alpha = 0.3f),
                         modifier = Modifier.size(40.dp),

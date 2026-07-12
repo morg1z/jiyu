@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.downloads
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,16 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -94,7 +88,7 @@ fun DownloadManagerScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
             }
             Text(
                 text = "Stažené kapitoly",
@@ -121,14 +115,14 @@ fun DownloadManagerScreen(
             if (hasQueued || isPaused) {
                 IconButton(onClick = { if (isPaused) viewModel.resumeAll() else viewModel.pauseAll() }) {
                     Icon(
-                        if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                        if (isPaused) TablerIcons.PlayerPlay else TablerIcons.PlayerPause,
                         contentDescription = if (isPaused) "Obnovit stahování" else "Pozastavit stahování",
                         tint = Violet,
                     )
                 }
             }
             TextButton(onClick = { showDeleteReadConfirm = true }) {
-                Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Icon(TablerIcons.Trash, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Smazat přečtené", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
             }
@@ -156,7 +150,7 @@ fun DownloadManagerScreen(
                     modifier = Modifier.padding(horizontal = 40.dp),
                 ) {
                     Icon(
-                        Icons.Filled.DownloadDone,
+                        TablerIcons.CloudDownload,
                         contentDescription = null,
                         tint = GlowCyan.copy(alpha = 0.4f),
                         modifier = Modifier.size(64.dp),
@@ -259,15 +253,15 @@ private fun DownloadGroupCard(
             }
             if (queued > 0 || downloading > 0) {
                 IconButton(onClick = onCancelManga, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Zrušit stahování", tint = Violet, modifier = Modifier.size(20.dp))
+                    Icon(TablerIcons.X, contentDescription = "Zrušit stahování", tint = Violet, modifier = Modifier.size(20.dp))
                 }
             } else if (downloaded > 0) {
                 IconButton(onClick = { showConfirm = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Smazat vše", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    Icon(TablerIcons.Trash, contentDescription = "Smazat vše", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
             Icon(
-                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                imageVector = if (expanded) TablerIcons.ChevronUp else TablerIcons.ChevronDown,
                 contentDescription = if (expanded) "Sbalit seznam kapitol" else "Rozbalit seznam kapitol",
                 tint = TextSecondary,
                 modifier = Modifier.size(20.dp),
@@ -350,25 +344,25 @@ private fun ChapterDownloadRow(
                 DownloadStatus.DOWNLOADED -> {
                     Text("${chapter.pageCount}str.", color = TextSecondary, fontSize = 11.sp)
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Smazat", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                        Icon(TablerIcons.Trash, contentDescription = "Smazat", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.DOWNLOADING -> {
                     Text("Stahuje se…", color = Violet, fontSize = 11.sp)
                     IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = Violet, modifier = Modifier.size(16.dp))
+                        Icon(TablerIcons.X, contentDescription = "Zrušit", tint = Violet, modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.QUEUED -> {
                     Text("Ve frontě", color = TextSecondary, fontSize = 11.sp)
                     IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                        Icon(TablerIcons.X, contentDescription = "Zrušit", tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.ERROR -> {
                     Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.ErrorOutline, contentDescription = "Stahování selhalo, klepnutím odstranit", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Icon(TablerIcons.AlertCircle, contentDescription = "Stahování selhalo, klepnutím odstranit", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.NOT_DOWNLOADED -> Unit

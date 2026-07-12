@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.detail
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,35 +38,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Note
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import kotlin.math.roundToInt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -276,7 +261,7 @@ fun MangaDetailScreen(
                             IconButton(onClick = {
                                 manga?.let { m -> onOpenQr(m.id, m.title) }
                             }) {
-                                Icon(Icons.Filled.QrCode2, contentDescription = "QR kód", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+                                Icon(TablerIcons.Qrcode, contentDescription = "QR kód", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
                             }
                             IconButton(onClick = {
                                 manga?.let { m ->
@@ -287,11 +272,11 @@ fun MangaDetailScreen(
                                     context.startActivity(Intent.createChooser(i, "Sdílet"))
                                 }
                             }) {
-                                Icon(Icons.Filled.Share, contentDescription = "Sdílet", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
+                                Icon(TablerIcons.Share, contentDescription = "Sdílet", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
                             }
                             IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
                                 Icon(
-                                    imageVector = if (inLibrary) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                                    imageVector = if (inLibrary) TablerIcons.Bookmark else TablerIcons.Bookmark,
                                     contentDescription = if (inLibrary) "Odebrat z knihovny" else "V knihovně",
                                     tint = if (inLibrary) GlowViolet else Color.White.copy(alpha = 0.6f),
                                     modifier = Modifier.size(26.dp),
@@ -499,7 +484,7 @@ fun MangaDetailScreen(
                                         .padding(horizontal = 14.dp, vertical = 6.dp),
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (isSelected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = chipColor, modifier = Modifier.size(13.dp).padding(end = 4.dp))
+                                        if (isSelected) Icon(TablerIcons.CircleCheck, contentDescription = null, tint = chipColor, modifier = Modifier.size(13.dp).padding(end = 4.dp))
                                         Text(label, color = if (isSelected) chipColor else TextSecondary, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
                                     }
                                 }
@@ -620,7 +605,7 @@ fun MangaDetailScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Filled.Close,
+                                        TablerIcons.X,
                                         contentDescription = "Smazat hodnocení",
                                         tint = TextSecondary.copy(alpha = 0.6f),
                                         modifier = Modifier.size(16.dp),
@@ -666,10 +651,10 @@ fun MangaDetailScreen(
                                         showMalSheet = true
                                     }) { Text("Změnit", color = malBlue, fontSize = 12.sp) }
                                     IconButton(onClick = { viewModel.syncFromMal() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z MAL", tint = malBlue, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MAL", tint = malBlue, modifier = Modifier.size(16.dp))
                                     }
                                     IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -734,7 +719,7 @@ fun MangaDetailScreen(
                                         showAniListSheet = true
                                     }) { Text("Změnit", color = aniListColor, fontSize = 12.sp) }
                                     IconButton(onClick = { viewModel.unlinkAniList() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -792,10 +777,10 @@ fun MangaDetailScreen(
                                         showKitsuSheet = true
                                     }) { Text("Změnit", color = kitsuColor, fontSize = 12.sp) }
                                     IconButton(onClick = { viewModel.syncFromKitsu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z Kitsu", tint = kitsuColor, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z Kitsu", tint = kitsuColor, modifier = Modifier.size(16.dp))
                                     }
                                     IconButton(onClick = { viewModel.unlinkKitsu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -852,10 +837,10 @@ fun MangaDetailScreen(
                                         showMuSheet = true
                                     }) { Text("Změnit", color = muColor, fontSize = 12.sp) }
                                     IconButton(onClick = { viewModel.syncFromMu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Sync, contentDescription = "Stáhnout status z MangaUpdates", tint = muColor, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MangaUpdates", tint = muColor, modifier = Modifier.size(16.dp))
                                     }
                                     IconButton(onClick = { viewModel.unlinkMu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -886,7 +871,7 @@ fun MangaDetailScreen(
                             .padding(14.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.Wand, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("AI ANALÝZA", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = GlowCyan)
                         }
@@ -894,7 +879,7 @@ fun MangaDetailScreen(
                         when {
                             aiInsight != null -> Text(aiInsight!!, color = TextPrimary, fontSize = 13.sp)
                             aiInsightLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = GlowCyan)
+                                JiyuLoadingIndicator(size = 16.dp, strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Analyzuji…", color = TextSecondary, fontSize = 12.sp)
                             }
@@ -911,7 +896,7 @@ fun MangaDetailScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = "TAGY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
                             IconButton(onClick = { showAddTagField = !showAddTagField }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Filled.Add, contentDescription = "Přidat tag", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                Icon(TablerIcons.Plus, contentDescription = "Přidat tag", tint = TextSecondary, modifier = Modifier.size(16.dp))
                             }
                         }
                         if (showAddTagField) {
@@ -959,7 +944,7 @@ fun MangaDetailScreen(
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(tagEntity.tag, color = GlowCyan, fontSize = 11.sp)
-                                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
+                                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
                                         }
                                     }
                                 }
@@ -976,7 +961,7 @@ fun MangaDetailScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(text = "SLOVNÍK PŘEKLADU", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
                             IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Filled.Add, contentDescription = "Přidat pojem", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                Icon(TablerIcons.Plus, contentDescription = "Přidat pojem", tint = TextSecondary, modifier = Modifier.size(16.dp))
                             }
                         }
                         Text(
@@ -1059,7 +1044,7 @@ fun MangaDetailScreen(
                                         )
                                         Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
                                         IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(13.dp))
+                                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(13.dp))
                                         }
                                     }
                                 }
@@ -1123,7 +1108,7 @@ fun MangaDetailScreen(
                                     .padding(horizontal = 18.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                                Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
                                 Column(modifier = Modifier.padding(start = 12.dp)) {
                                     Text(text = if (hasHistory) "Pokračovat ve čtení" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Text(
@@ -1140,7 +1125,7 @@ fun MangaDetailScreen(
                                     onClick = { showReadMenu = true },
                                     modifier = Modifier.padding(horizontal = 4.dp),
                                 ) {
-                                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Možnosti čtení", tint = Color.White)
+                                    Icon(TablerIcons.ChevronDown, contentDescription = "Možnosti čtení", tint = Color.White)
                                 }
                                 DropdownMenu(
                                     expanded = showReadMenu,
@@ -1148,12 +1133,12 @@ fun MangaDetailScreen(
                                 ) {
                                     DropdownMenuItem(
                                         text = { Text("Číst normálně") },
-                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                        leadingIcon = { Icon(TablerIcons.PlayerPlay, contentDescription = null) },
                                         onClick = { showReadMenu = false; onOpenChapter(chapter.id) },
                                     )
                                     DropdownMenuItem(
                                         text = { Text("Číst anonymně") },
-                                        leadingIcon = { Icon(Icons.Filled.VisibilityOff, contentDescription = null) },
+                                        leadingIcon = { Icon(TablerIcons.EyeOff, contentDescription = null) },
                                         onClick = { showReadMenu = false; onOpenChapterIncognito(chapter.id) },
                                     )
                                 }
@@ -1218,7 +1203,7 @@ fun MangaDetailScreen(
 
                         // Mark all read
                         IconButton(onClick = { viewModel.markAllRead() }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Filled.DoneAll, contentDescription = "Označit vše přečtené", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(TablerIcons.Checks, contentDescription = "Označit vše přečtené", tint = TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // First unread jump (#33)
@@ -1227,7 +1212,7 @@ fun MangaDetailScreen(
                                 onClick = { firstUnread?.let { onOpenChapter(it.id) } },
                                 modifier = Modifier.size(32.dp),
                             ) {
-                                Icon(Icons.Filled.SkipNext, contentDescription = "Přejít na první nepřečtenou", tint = GlowCyan, modifier = Modifier.size(18.dp))
+                                Icon(TablerIcons.PlayerSkipForward, contentDescription = "Přejít na první nepřečtenou", tint = GlowCyan, modifier = Modifier.size(18.dp))
                             }
                         }
 
@@ -1236,7 +1221,7 @@ fun MangaDetailScreen(
                             onClick = { chapterGridView = !chapterGridView },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(if (chapterGridView) Icons.AutoMirrored.Filled.List else Icons.Filled.GridView, contentDescription = "Přepnout zobrazení", tint = if (chapterGridView) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(if (chapterGridView) TablerIcons.List else TablerIcons.LayoutGrid, contentDescription = "Přepnout zobrazení", tint = if (chapterGridView) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Volume grouping toggle
@@ -1244,7 +1229,7 @@ fun MangaDetailScreen(
                             onClick = { groupByVolume = !groupByVolume },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Seskupit po volumech", tint = if (groupByVolume) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(TablerIcons.List, contentDescription = "Seskupit po volumech", tint = if (groupByVolume) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Chapter search toggle
@@ -1255,7 +1240,7 @@ fun MangaDetailScreen(
                             },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = "Hledat kapitolu", tint = if (chapterSearchActive) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(TablerIcons.Search, contentDescription = "Hledat kapitolu", tint = if (chapterSearchActive) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Bulk download dropdown
@@ -1268,7 +1253,7 @@ fun MangaDetailScreen(
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Filled.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(14.dp))
+                                Icon(TablerIcons.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(14.dp))
                                 Text(text = "Stáhnout", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                             }
                             DropdownMenu(expanded = showBulkMenu, onDismissRequest = { showBulkMenu = false }) {
@@ -1307,7 +1292,7 @@ fun MangaDetailScreen(
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Seřadit", tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
+                            Icon(TablerIcons.ArrowsSort, contentDescription = "Seřadit", tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
                             Text(text = if (sortAscending) "Nejstarší" else "Nejnovější", color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                         }
                     }
@@ -1327,7 +1312,7 @@ fun MangaDetailScreen(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                             BasicTextField(
                                 value = chapterFilter,
                                 onValueChange = { viewModel.setChapterFilter(it) },
@@ -1343,7 +1328,7 @@ fun MangaDetailScreen(
                             )
                             if (chapterFilter.isNotEmpty()) {
                                 IconButton(onClick = { viewModel.setChapterFilter("") }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(14.dp))
+                                    Icon(TablerIcons.X, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -1531,11 +1516,11 @@ fun MangaDetailScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchAniList(aniListSearchQuery) }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = aniListSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = aniListSheetColor)
                     }
                 }
                 if (aniListSearchLoading) {
-                    CircularProgressIndicator(color = aniListSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         aniListSearchResults.forEach { am ->
@@ -1597,11 +1582,11 @@ fun MangaDetailScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchKitsu(kitsuSearchQuery) }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = kitsuSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = kitsuSheetColor)
                     }
                 }
                 if (kitsuSearchLoading) {
-                    CircularProgressIndicator(color = kitsuSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         kitsuSearchResults.forEach { km ->
@@ -1666,11 +1651,11 @@ fun MangaDetailScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchMu(muSearchQuery) }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = muSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = muSheetColor)
                     }
                 }
                 if (muSearchLoading) {
-                    CircularProgressIndicator(color = muSheetColor, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         muSearchResults.forEach { mu ->
@@ -1744,12 +1729,11 @@ fun MangaDetailScreen(
                             ),
                         )
                         IconButton(onClick = { viewModel.searchMal(malSearchQuery) }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Hledat", tint = Color(0xFF2E51A2))
+                            Icon(TablerIcons.Search, contentDescription = "Hledat", tint = Color(0xFF2E51A2))
                         }
                     }
                     if (malSearchLoading) {
-                        CircularProgressIndicator(
-                            color = Color(0xFF2E51A2),
+                        JiyuLoadingIndicator(
                             modifier = Modifier.align(Alignment.CenterHorizontally),
                         )
                     } else {
@@ -1811,7 +1795,7 @@ private fun CategoryToggleChip(category: CategoryEntity, selected: Boolean, onCl
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(13.dp).padding(end = 4.dp))
+            if (selected) Icon(TablerIcons.CircleCheck, contentDescription = null, tint = color, modifier = Modifier.size(13.dp).padding(end = 4.dp))
             Text(text = category.name, color = if (selected) color else TextSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
         }
     }
@@ -1843,7 +1827,7 @@ private fun GlassChapterRow(
             text = {
                 when {
                     aiSummaryLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = GlowCyan)
+                        JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text("Generuji shrnutí…", color = TextSecondary, fontSize = 13.sp)
                     }
@@ -1886,11 +1870,11 @@ private fun GlassChapterRow(
                 }
             }
             when (chapter.downloadStatus) {
-                DownloadStatus.DOWNLOADED  -> Icon(Icons.Filled.CheckCircle, contentDescription = "Staženo", tint = Cyan, modifier = Modifier.size(18.dp))
+                DownloadStatus.DOWNLOADED  -> Icon(TablerIcons.CircleCheck, contentDescription = "Staženo", tint = Cyan, modifier = Modifier.size(18.dp))
                 DownloadStatus.DOWNLOADING -> Text("↓", color = Violet, fontSize = 16.sp)
                 DownloadStatus.QUEUED      -> Text("⏳", fontSize = 14.sp)
-                DownloadStatus.ERROR       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Download, contentDescription = "Zkusit znovu", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
-                else                       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(18.dp)) }
+                DownloadStatus.ERROR       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = "Zkusit znovu", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+                else                       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(18.dp)) }
             }
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {

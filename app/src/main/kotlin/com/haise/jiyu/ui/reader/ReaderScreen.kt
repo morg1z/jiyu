@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import android.app.Activity
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
@@ -36,24 +43,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.BrightnessHigh
-import androidx.compose.material.icons.filled.BrightnessLow
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.ViewDay
-import androidx.compose.material.icons.filled.WifiOff
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.AlertDialog
@@ -63,7 +52,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -264,7 +252,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         contentAlignment = Alignment.Center,
     ) {
         when {
-            loading      -> CircularProgressIndicator(color = Color(0xFF8B5CF6))
+            loading      -> JiyuLoadingIndicator()
             isNovelSource -> NovelContent(
                 text = novelText,
                 chapterTitle = chapterTitle,
@@ -465,17 +453,17 @@ private fun NovelContent(
             actions = {
                 IconButton(onClick = { showLangSettings = !showLangSettings }) {
                     if (translating) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color(0xFF8B5CF6))
+                        JiyuLoadingIndicator(size = 20.dp, strokeWidth = 2.dp)
                     } else {
                         Icon(
-                            androidx.compose.material.icons.Icons.Filled.Translate,
+                            TablerIcons.Language,
                             "Překlad kapitoly",
                             tint = if (translateMode) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
                         )
                     }
                 }
                 IconButton(onClick = { showSettings = !showSettings }) {
-                    Icon(androidx.compose.material.icons.Icons.Filled.BrightnessHigh, "Nastavení", tint = Color(0xFFB0BEC5))
+                    Icon(TablerIcons.Sun, "Nastavení", tint = Color(0xFFB0BEC5))
                 }
             },
             colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0D0D1A)),
@@ -815,7 +803,7 @@ private fun ReaderContent(
                             enabled = hasPrevChapter,
                         ) {
                             Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
+                                TablerIcons.ArrowBack,
                                 contentDescription = "Předchozí kapitola",
                                 tint = if (hasPrevChapter) Color.White else Color.White.copy(alpha = 0.25f),
                             )
@@ -838,7 +826,7 @@ private fun ReaderContent(
                                 )
                                 if (isOfflineChapter) {
                                     Icon(
-                                        Icons.Filled.WifiOff,
+                                        TablerIcons.WifiOff,
                                         contentDescription = "Offline",
                                         tint = Color(0xFF4FC3F7),
                                         modifier = Modifier.size(13.dp).padding(start = 4.dp),
@@ -869,7 +857,7 @@ private fun ReaderContent(
                         // Panel mode toggle (#38)
                         IconButton(onClick = onTogglePanelMode) {
                             Icon(
-                                Icons.Filled.ViewDay,
+                                TablerIcons.LayoutRows,
                                 contentDescription = "Panel po panelu",
                                 tint = if (panelMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
@@ -879,7 +867,7 @@ private fun ReaderContent(
                         // Sleep timer (#42)
                         IconButton(onClick = onSleepTimerClick) {
                             Icon(
-                                Icons.Filled.Bedtime,
+                                TablerIcons.Moon,
                                 contentDescription = "Časovač spánku",
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
@@ -891,7 +879,7 @@ private fun ReaderContent(
                             var showChapterSheet by remember { mutableStateOf(false) }
                             IconButton(onClick = { showChapterSheet = true }) {
                                 Icon(
-                                    Icons.Filled.FormatListBulleted,
+                                    TablerIcons.ListCheck,
                                     contentDescription = "Vybrat kapitolu",
                                     tint = Color.White.copy(alpha = 0.7f),
                                     modifier = Modifier.size(20.dp),
@@ -935,7 +923,7 @@ private fun ReaderContent(
                                                 }
                                                 if (chapter.read) {
                                                     Icon(
-                                                        Icons.Filled.Check,
+                                                        TablerIcons.Check,
                                                         contentDescription = null,
                                                         tint = Color(0xFF8B5CF6).copy(alpha = 0.6f),
                                                         modifier = Modifier.size(16.dp),
@@ -952,7 +940,7 @@ private fun ReaderContent(
                         // Incognito mode
                         IconButton(onClick = onToggleIncognito) {
                             Icon(
-                                if (incognitoMode) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                if (incognitoMode) TablerIcons.EyeOff else TablerIcons.Eye,
                                 contentDescription = if (incognitoMode) "Vypnout inkognito" else "Inkognito",
                                 tint = if (incognitoMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier.size(20.dp),
@@ -963,7 +951,7 @@ private fun ReaderContent(
                         val isTranslating = translationProgress != null
                         IconButton(onClick = onToggleTranslate) {
                             Icon(
-                                Icons.Filled.Translate,
+                                TablerIcons.Language,
                                 contentDescription = when {
                                     isTranslating -> "Zastavit překlad"
                                     translateMode -> "Skrýt překlad"
@@ -984,7 +972,7 @@ private fun ReaderContent(
                             if (chapterSummary == null && !summaryLoading) onLoadSummary()
                         }) {
                             Icon(
-                                Icons.Filled.AutoAwesome,
+                                TablerIcons.Wand,
                                 contentDescription = "AI shrnutí kapitoly",
                                 tint = if (chapterSummary != null) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
@@ -1002,7 +990,7 @@ private fun ReaderContent(
                                     Spacer(Modifier.height(12.dp))
                                     when {
                                         summaryLoading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color(0xFFCE93D8), strokeWidth = 2.dp)
+                                            JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
                                             Spacer(Modifier.width(12.dp))
                                             Text("Generuji shrnutí…", color = Color(0xFFB0BEC5), fontSize = 13.sp)
                                         }
@@ -1015,7 +1003,7 @@ private fun ReaderContent(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCE93D8).copy(alpha = 0.6f)),
                                             ) {
-                                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
+                                                Icon(TablerIcons.Wand, contentDescription = null, tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
                                                 Spacer(Modifier.width(8.dp))
                                                 Text("Generovat shrnutí", color = Color(0xFFCE93D8))
                                             }
@@ -1032,7 +1020,7 @@ private fun ReaderContent(
                             enabled = hasNextChapter,
                         ) {
                             Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
+                                TablerIcons.ArrowRight,
                                 contentDescription = "Další kapitola",
                                 tint = if (hasNextChapter) Color.White else Color.White.copy(alpha = 0.25f),
                             )
@@ -1171,7 +1159,7 @@ private fun ReaderContent(
 
                     // Slider jasu
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.BrightnessLow, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                        Icon(TablerIcons.Moon, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                         Slider(
                             value = if (brightness < 0f) 0.5f else brightness,
                             onValueChange = { brightness = it },
@@ -1186,7 +1174,7 @@ private fun ReaderContent(
                                 inactiveTrackColor = Color.White.copy(alpha = 0.2f),
                             ),
                         )
-                        Icon(Icons.Filled.BrightnessHigh, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(18.dp))
+                        Icon(TablerIcons.Sun, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(18.dp))
                     }
 
                     // Orientace + volume klávesy
@@ -1240,7 +1228,7 @@ private fun ReaderContent(
                             Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Překlad všech… ${progress.done}/${progress.total}", color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                                 IconButton(onClick = onCancelBatch, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Zrušit", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
+                                    Icon(TablerIcons.X, contentDescription = "Zrušit", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
                                 }
                             }
                             LinearProgressIndicator(
@@ -1256,7 +1244,7 @@ private fun ReaderContent(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
                         ) {
-                            Icon(Icons.Filled.Translate, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(16.dp).padding(end = 4.dp))
+                            Icon(TablerIcons.Language, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(16.dp).padding(end = 4.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Přeložit vše", color = Color(0xFF4FC3F7), fontSize = 13.sp)
                         }
@@ -1366,7 +1354,7 @@ private fun GlossaryBottomSheet(
                     ) {
                         Text("${entry.sourceTerm} → ${entry.targetTerm}", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
                         IconButton(onClick = { onRemove(entry) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
+                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -1456,7 +1444,7 @@ private fun MangaReader(
                     modifier = Modifier.fillMaxWidth(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
                 ) {
-                    Icon(Icons.Filled.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
+                    Icon(TablerIcons.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Sdílet odkaz", color = Color(0xFF4FC3F7))
                 }
@@ -1470,7 +1458,7 @@ private fun MangaReader(
                     modifier = Modifier.fillMaxWidth(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
                 ) {
-                    Icon(Icons.Filled.Save, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
+                    Icon(TablerIcons.DeviceFloppy, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Uložit do galerie", color = Color(0xFF8B5CF6))
                 }
@@ -1891,7 +1879,7 @@ private fun RetryableAsyncImage(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(32.dp))
+                    Icon(TablerIcons.AlertCircle, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(32.dp))
                     Spacer(Modifier.height(8.dp))
                     Text("Stránka se nenačetla", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))

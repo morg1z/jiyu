@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.settings
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,12 +34,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -219,7 +221,7 @@ fun SettingsScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                    Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
                 }
                 Text(
                     text = "Nastavení",
@@ -659,7 +661,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f).padding(end = 6.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
                         ) {
-                            if (isWorking) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp, color = GlowViolet)
+                            if (isWorking) JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                             Text("Exportovat")
                         }
                         OutlinedButton(
@@ -695,7 +697,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f).padding(end = 6.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
                         ) {
-                            if (isSettingsWorking) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp, color = GlowViolet)
+                            if (isSettingsWorking) JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                             Text("Exportovat")
                         }
                         OutlinedButton(
@@ -727,7 +729,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
                     ) {
                         if (tachyImportInProgress) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = GlowViolet)
+                            JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), size = 16.dp, strokeWidth = 2.dp)
                         }
                         Text(if (tachyImportInProgress) "Importuji..." else "Vybrat zálohu Mihon (.json)")
                     }
@@ -802,7 +804,7 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f).padding(start = 6.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         ) {
-                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                            Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                             Text("Smazat vše")
                         }
                     }
@@ -879,7 +881,7 @@ fun SettingsScreen(
                                 Text(source.baseUrl, color = TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                             IconButton(onClick = { viewModel.deleteCustomSource(source) }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Smazat", tint = MaterialTheme.colorScheme.error)
+                                Icon(TablerIcons.Trash, contentDescription = "Smazat", tint = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -889,7 +891,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Icon(TablerIcons.Plus, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Přidat zdroj")
                     }
 
@@ -989,7 +991,7 @@ fun SettingsScreen(
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
                                     ) {
                                         if (testState == SourceTestState.Testing) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 8.dp), strokeWidth = 2.dp, color = Cyan)
+                                            JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), size = 16.dp, strokeWidth = 2.dp)
                                         }
                                         Text("Otestovat připojení")
                                     }
@@ -1217,7 +1219,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Vymazat cache")
                     }
                 }
@@ -1249,7 +1251,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Vymazat cache obrázků")
                     }
                 }
@@ -1354,7 +1356,7 @@ fun SettingsScreen(
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                if (kitsuLoginLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                if (kitsuLoginLoading) JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
                                 else Text("Přihlásit se ke Kitsu")
                             }
                         }
@@ -1413,7 +1415,7 @@ fun SettingsScreen(
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                if (muLoginLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                if (muLoginLoading) JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
                                 else Text("Přihlásit se k MangaUpdates")
                             }
                         }
@@ -1506,7 +1508,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
-                        if (updateCheckLoading) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(16.dp), strokeWidth = 2.dp, color = Violet)
+                        if (updateCheckLoading) JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), size = 16.dp, strokeWidth = 2.dp)
                         Text("Zkontrolovat aktualizace")
                     }
                 }

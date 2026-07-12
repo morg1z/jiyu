@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.library
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,26 +52,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.ViewList
-import androidx.compose.material.icons.filled.ViewModule
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -118,7 +105,6 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.settings.ReadingStats
 import com.haise.jiyu.ui.settings.SettingsViewModel
-import androidx.compose.material3.CircularProgressIndicator
 import com.haise.jiyu.ui.theme.CyanLight
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
@@ -224,7 +210,7 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { viewModel.clearSelection() }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Zrušit výběr", tint = TextSecondary)
+                        Icon(TablerIcons.X, contentDescription = "Zrušit výběr", tint = TextSecondary)
                     }
                     Text(
                         text = "${selectedIds.size} vybráno",
@@ -234,7 +220,7 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { viewModel.selectAll() }) {
-                        Icon(Icons.Filled.SelectAll, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
+                        Icon(TablerIcons.Checks, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Vše", color = GlowViolet, fontSize = 14.sp)
                     }
@@ -261,14 +247,14 @@ fun LibraryScreen(
                         else viewModel.toggleGridMode()
                     }) {
                         Icon(
-                            imageVector = if (gridMode) Icons.Filled.ViewList else Icons.Filled.ViewModule,
+                            imageVector = if (gridMode) TablerIcons.LayoutList else TablerIcons.LayoutGrid,
                             contentDescription = if (gridMode) "Přepnout na seznam" else "Přepnout na mřížku",
                             tint = TextSecondary,
                         )
                     }
                     Box {
                         IconButton(onClick = { sortMenuExpanded = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Řadit", tint = TextSecondary)
+                            Icon(TablerIcons.ArrowsSort, contentDescription = "Řadit", tint = TextSecondary)
                         }
                         SortMenu(
                             expanded = sortMenuExpanded,
@@ -280,12 +266,12 @@ fun LibraryScreen(
                     }
                     Box {
                         IconButton(onClick = { headerMenuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Další možnosti", tint = TextSecondary)
+                            Icon(TablerIcons.DotsVertical, contentDescription = "Další možnosti", tint = TextSecondary)
                         }
                         DropdownMenu(expanded = headerMenuExpanded, onDismissRequest = { headerMenuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Otevřít CBZ/ZIP") },
-                                leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+                                leadingIcon = { Icon(TablerIcons.Folder, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
                                     filePickerLauncher.launch(arrayOf("application/zip", "application/x-cbz", "application/octet-stream", "*/*"))
@@ -293,7 +279,7 @@ fun LibraryScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Označit knihovnu jako přečtenou") },
-                                leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                                leadingIcon = { Icon(TablerIcons.Checks, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
                                     showMarkAllReadDialog = true
@@ -301,7 +287,7 @@ fun LibraryScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Statistiky") },
-                                leadingIcon = { Icon(Icons.Filled.AutoStories, contentDescription = null) },
+                                leadingIcon = { Icon(TablerIcons.Book, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
                                     showStatsDialog = true
@@ -323,7 +309,7 @@ fun LibraryScreen(
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                    Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
@@ -341,7 +327,7 @@ fun LibraryScreen(
                     )
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(15.dp))
+                            Icon(TablerIcons.X, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
                 }
@@ -366,13 +352,13 @@ fun LibraryScreen(
                                 .padding(horizontal = 12.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Spravovat kategorie", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.Plus, contentDescription = "Spravovat kategorie", tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             } else {
                 TextButton(onClick = { showManageDialog = true }, modifier = Modifier.padding(horizontal = 12.dp)) {
-                    Icon(Icons.Filled.Add, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
+                    Icon(TablerIcons.Plus, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Přidat kategorii", color = GlowViolet, fontSize = 13.sp)
                 }
@@ -520,7 +506,7 @@ fun LibraryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF8B5CF6))
+                    com.haise.jiyu.ui.components.JiyuLoadingIndicator()
                     androidx.compose.material3.Text("Importuji soubor…", color = Color.White, fontSize = 14.sp)
                 }
             }
@@ -644,7 +630,7 @@ private fun LibraryEmptyState(hasSearch: Boolean, onOpenBrowse: () -> Unit) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Filled.MenuBook,
+                        TablerIcons.Book,
                         contentDescription = null,
                         tint = GlowViolet.copy(alpha = 0.6f),
                         modifier = Modifier.size(56.dp),
@@ -716,12 +702,12 @@ private fun BulkActionBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BulkAction(icon = Icons.Filled.Download, label = "Stáhnout", onClick = onDownload)
-            BulkAction(icon = Icons.Filled.DoneAll, label = "Přečteno", onClick = onMarkRead)
+            BulkAction(icon = TablerIcons.Download, label = "Stáhnout", onClick = onDownload)
+            BulkAction(icon = TablerIcons.Checks, label = "Přečteno", onClick = onMarkRead)
             if (hasCategories) {
-                BulkAction(icon = Icons.Filled.Folder, label = "Kategorie", onClick = onAddToCategory)
+                BulkAction(icon = TablerIcons.Folder, label = "Kategorie", onClick = onAddToCategory)
             }
-            BulkAction(icon = Icons.Filled.Delete, label = "Odebrat", tint = Color(0xFFFF6B6B), onClick = onDelete)
+            BulkAction(icon = TablerIcons.Trash, label = "Odebrat", tint = Color(0xFFFF6B6B), onClick = onDelete)
         }
     }
 }
@@ -780,7 +766,7 @@ private fun LibraryListRow(
             }
         }
         if (hasDownloads) {
-            Icon(Icons.Filled.DownloadDone, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(14.dp))
+            Icon(TablerIcons.CloudDownload, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(14.dp))
         }
         if (unreadCount > 0) {
             Box(
@@ -791,7 +777,7 @@ private fun LibraryListRow(
             }
         }
         if (isSelected) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
+            Icon(TablerIcons.CircleCheck, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -819,7 +805,7 @@ private fun SortMenu(
                 leadingIcon = {
                     if (selected) {
                         Icon(
-                            if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                            if (ascending) TablerIcons.ArrowUp else TablerIcons.ArrowDown,
                             contentDescription = if (ascending) "Vzestupně" else "Sestupně",
                             tint = GlowViolet,
                             modifier = Modifier.size(18.dp),
@@ -928,7 +914,7 @@ private fun AnimeMangaCard(
                     .size(22.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = "Vybráno", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(TablerIcons.CircleCheck, contentDescription = "Vybráno", tint = Color.White, modifier = Modifier.size(16.dp))
             }
         }
         // Unread badge — top-right (hide when selected)
@@ -966,7 +952,7 @@ private fun AnimeMangaCard(
                     .background(GlowCyan.copy(alpha = 0.85f), RoundedCornerShape(50))
                     .padding(3.dp),
             ) {
-                Icon(Icons.Filled.DownloadDone, contentDescription = "Staženo offline", tint = Color.White, modifier = Modifier.size(10.dp))
+                Icon(TablerIcons.CloudDownload, contentDescription = "Staženo offline", tint = Color.White, modifier = Modifier.size(10.dp))
             }
         }
     }
@@ -1066,7 +1052,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
                         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
                         Text(text = cat.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
                         IconButton(onClick = { viewModel.deleteCategory(cat) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.X, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

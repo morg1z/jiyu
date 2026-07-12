@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.history
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +55,6 @@ import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material.icons.filled.AutoStories
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -98,7 +96,7 @@ fun HistoryScreen(
             )
             if (groups.isNotEmpty() || searchQuery.isNotBlank()) {
                 IconButton(onClick = { viewModel.clearAll() }) {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = "Smazat vše", tint = TextSecondary)
+                    Icon(TablerIcons.Trash, contentDescription = "Smazat vše", tint = TextSecondary)
                 }
             }
         }
@@ -113,7 +111,7 @@ fun HistoryScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             BasicTextField(
                 value = searchQuery,
@@ -129,7 +127,7 @@ fun HistoryScreen(
             )
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                    Icon(TablerIcons.X, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -141,7 +139,7 @@ fun HistoryScreen(
                     modifier = Modifier.padding(horizontal = 40.dp),
                 ) {
                     Icon(
-                        Icons.Filled.AutoStories,
+                        TablerIcons.Book,
                         contentDescription = null,
                         tint = GlowViolet.copy(alpha = 0.4f),
                         modifier = Modifier.size(64.dp),
@@ -220,7 +218,7 @@ private fun HistoryEntryRow(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
-                    Icons.Default.Delete,
+                    TablerIcons.Trash,
                     contentDescription = "Smazat",
                     tint = Color.White,
                     modifier = Modifier.padding(end = 20.dp),

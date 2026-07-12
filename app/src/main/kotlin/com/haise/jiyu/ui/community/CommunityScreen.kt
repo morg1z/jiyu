@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.community
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,10 +26,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -71,7 +74,7 @@ fun CommunityScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
                     "Community Manga",
@@ -81,14 +84,14 @@ fun CommunityScreen(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { viewModel.load() }) {
-                    Icon(Icons.Filled.Refresh, null, tint = TextSecondary)
+                    Icon(TablerIcons.Refresh, null, tint = TextSecondary)
                 }
             }
 
             when {
                 loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Violet)
+                        JiyuLoadingIndicator()
                     }
                 }
                 error != null -> {

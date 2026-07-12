@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.account
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import android.annotation.SuppressLint
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -27,19 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -137,7 +133,7 @@ fun AccountScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                    Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
                 }
                 Text(
                     text = "Účet",
@@ -218,7 +214,7 @@ private fun AniListSection(
                 )
                 if (isConnected) {
                     Spacer(Modifier.size(8.dp))
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
+                    Icon(TablerIcons.CircleCheck, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
                 }
             }
             Text(
@@ -231,7 +227,7 @@ private fun AniListSection(
             HorizontalDivider(color = GlowViolet.copy(alpha = 0.1f))
             if (isConnected) {
                 TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Filled.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                    Icon(TablerIcons.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                     Text("  Odpojit AniList", color = TextSecondary, fontSize = 13.sp)
                 }
             } else if (!hasClientId) {
@@ -276,7 +272,7 @@ private fun SignedOutContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(
-            imageVector = Icons.Filled.AccountCircle,
+            imageVector = TablerIcons.User,
             contentDescription = null,
             tint = Violet.copy(alpha = 0.5f),
             modifier = Modifier.size(80.dp),
@@ -306,7 +302,7 @@ private fun SignedOutContent(
         Spacer(Modifier.height(4.dp))
 
         if (isLoading) {
-            CircularProgressIndicator(color = Violet, modifier = Modifier.size(48.dp))
+            JiyuLoadingIndicator(size = 48.dp)
         } else when (selectedTab) {
             0 -> {
                 Button(
@@ -327,7 +323,7 @@ private fun SignedOutContent(
                         value = email,
                         onValueChange = { email = it.trim() },
                         label = { Text("Email") },
-                        leadingIcon = { Icon(Icons.Filled.Email, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(TablerIcons.Mail, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                         keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
@@ -347,7 +343,7 @@ private fun SignedOutContent(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text("Heslo") },
-                        leadingIcon = { Icon(Icons.Filled.Lock, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(TablerIcons.Lock, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
                         singleLine = true,
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -358,7 +354,7 @@ private fun SignedOutContent(
                         trailingIcon = {
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                 Icon(
-                                    if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    if (passwordVisible) TablerIcons.EyeOff else TablerIcons.Eye,
                                     contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp),
                                 )
                             }
@@ -434,7 +430,7 @@ private fun SignedInContent(
             )
         } else {
             Icon(
-                Icons.Filled.AccountCircle,
+                TablerIcons.User,
                 contentDescription = "Profilový obrázek",
                 tint = Violet,
                 modifier = Modifier.size(80.dp),
@@ -456,7 +452,7 @@ private fun SignedInContent(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CloudSync, contentDescription = null, tint = Cyan, modifier = Modifier.size(22.dp))
+                    Icon(TablerIcons.CloudUpload, contentDescription = null, tint = Cyan, modifier = Modifier.size(22.dp))
                     Text(
                         "  Cloud Synchronizace",
                         color = TextPrimary,
@@ -478,10 +474,10 @@ private fun SignedInContent(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (isSyncing) {
-                        CircularProgressIndicator(color = Cyan, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
                         Text("  Synchronizuji...", color = Cyan)
                     } else {
-                        Icon(Icons.Filled.CloudSync, contentDescription = null, tint = Cyan, modifier = Modifier.size(18.dp))
+                        Icon(TablerIcons.CloudUpload, contentDescription = null, tint = Cyan, modifier = Modifier.size(18.dp))
                         Text("  Synchronizovat nyní", color = Cyan, fontWeight = FontWeight.SemiBold)
                     }
                 }
@@ -490,7 +486,7 @@ private fun SignedInContent(
 
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(TablerIcons.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
             Text("  Odhlásit se", color = TextSecondary)
         }
     }

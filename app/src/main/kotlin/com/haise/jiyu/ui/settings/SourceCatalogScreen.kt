@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.settings
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -25,17 +32,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -100,7 +98,7 @@ fun SourceCatalogScreen(
             if (selectedTab == 1) {
                 ExtendedFloatingActionButton(
                     onClick = { showAddSheet = true },
-                    icon = { Icon(Icons.Filled.Add, null) },
+                    icon = { Icon(TablerIcons.Plus, null) },
                     text = { Text("Přidat zdroj") },
                     containerColor = Violet,
                     contentColor = Color.White,
@@ -124,7 +122,7 @@ fun SourceCatalogScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                    Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
                 }
                 Text(
                     text = "Zdroje",
@@ -282,7 +280,7 @@ private fun CustomSourceCard(
             Text(source.baseUrl, color = Cyan.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+            Icon(TablerIcons.Trash, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
         }
     }
 }
@@ -314,13 +312,13 @@ private fun CatalogSourceCard(
         }
 
         if (installed) {
-            Icon(Icons.Filled.Check, contentDescription = "Nainstalováno", tint = Color(0xFF66BB6A))
+            Icon(TablerIcons.Check, contentDescription = "Nainstalováno", tint = Color(0xFF66BB6A))
         } else {
             OutlinedButton(
                 onClick = onInstall,
                 modifier = Modifier.padding(start = 8.dp),
             ) {
-                Icon(Icons.Filled.Download, null, modifier = Modifier.padding(end = 4.dp), tint = Violet)
+                Icon(TablerIcons.Download, null, modifier = Modifier.padding(end = 4.dp), tint = Violet)
                 Text("Přidat", color = Violet, fontSize = 13.sp)
             }
         }
@@ -455,7 +453,7 @@ private fun AddCustomSourceForm(
                 modifier = Modifier.weight(1f),
             )
             Icon(
-                imageVector = if (advancedExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                imageVector = if (advancedExpanded) TablerIcons.ChevronUp else TablerIcons.ChevronDown,
                 contentDescription = null,
                 tint = TextSecondary,
                 modifier = Modifier.size(18.dp),
@@ -492,7 +490,7 @@ private fun AddCustomSourceForm(
         // Test result feedback
         when (val state = testState) {
             is SourceTestState.Testing -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Violet, strokeWidth = 2.dp)
+                JiyuLoadingIndicator(size = 16.dp, strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
                 Text("Testuji připojení...", color = TextSecondary, fontSize = 13.sp)
             }

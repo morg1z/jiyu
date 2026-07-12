@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.goals
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -71,7 +72,7 @@ fun ReadingGoalsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
                     "Cíle čtení",
@@ -99,7 +100,7 @@ fun ReadingGoalsScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Filled.LocalFireDepartment,
+                            TablerIcons.Flame,
                             contentDescription = null,
                             tint = Color(0xFFFF6B35),
                             modifier = Modifier.size(48.dp),

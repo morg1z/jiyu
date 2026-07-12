@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.search
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,14 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -98,7 +98,7 @@ fun GlobalSearchScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
             }
             Text(
                 text = "Globální vyhledávání",
@@ -112,7 +112,7 @@ fun GlobalSearchScreen(
                     else viewModel.saveSearch(inputText.trim())
                 }) {
                     Icon(
-                        if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        if (isSaved) TablerIcons.Bookmark else TablerIcons.Bookmark,
                         contentDescription = if (isSaved) "Odebrat ze záložek" else "Uložit vyhledávání",
                         tint = if (isSaved) Violet else TextSecondary,
                     )
@@ -130,7 +130,7 @@ fun GlobalSearchScreen(
                 viewModel.search(inputText)
                 focusManager.clearFocus()
             }),
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary) },
+            leadingIcon = { Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary) },
             textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = NightBlue,
@@ -177,12 +177,12 @@ fun GlobalSearchScreen(
                                     .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
+                                Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(saved, color = TextPrimary, fontSize = 13.sp)
                                 Spacer(Modifier.width(4.dp))
                                 IconButton(onClick = { viewModel.removeSavedSearch(saved) }, modifier = Modifier.size(20.dp)) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(12.dp))
+                                    Icon(TablerIcons.X, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(12.dp))
                                 }
                             }
                         }
@@ -220,7 +220,7 @@ fun GlobalSearchScreen(
                             )
                             when {
                                 sourceResult.loading ->
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = GlowViolet)
+                                    JiyuLoadingIndicator(size = 14.dp, strokeWidth = 2.dp)
                                 sourceResult.error != null ->
                                     Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
                                 else ->

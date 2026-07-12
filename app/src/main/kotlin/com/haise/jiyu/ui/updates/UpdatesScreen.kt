@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.updates
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -24,9 +28,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -136,7 +137,7 @@ fun UpdatesScreen(
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { showOnlyUnread = !showOnlyUnread }) {
                     Icon(
-                        Icons.Filled.FilterList,
+                        TablerIcons.Filter,
                         contentDescription = if (showOnlyUnread) "Zobrazit vše" else "Jen nepřečtené",
                         tint = if (showOnlyUnread) Violet else TextSecondary,
                     )
@@ -144,7 +145,7 @@ fun UpdatesScreen(
                 if (unreadCount > 0) {
                     IconButton(onClick = { viewModel.markAllRead() }) {
                         Icon(
-                            Icons.Filled.DoneAll,
+                            TablerIcons.Checks,
                             contentDescription = "Označit vše jako přečtené",
                             tint = Violet,
                         )

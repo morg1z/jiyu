@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.onboarding
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,12 +31,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -191,7 +189,7 @@ fun OnboardingScreen(
 @Composable
 private fun LanguageStep(selectedLang: String, onSelect: (String) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        StepIcon(Icons.Filled.Language)
+        StepIcon(TablerIcons.Language)
         Spacer(Modifier.height(16.dp))
         Text(
             text = stringResource(R.string.onb_welcome_title),
@@ -231,7 +229,7 @@ private fun ReadingStep(
     onModeSelect: (String) -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        StepIcon(Icons.Filled.MenuBook)
+        StepIcon(TablerIcons.Book)
         Spacer(Modifier.height(16.dp))
         Text(
             text = stringResource(R.string.onb_reading_title),
@@ -275,7 +273,7 @@ private fun StorageStep(
     onClearFolder: () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        StepIcon(Icons.Filled.FolderOpen)
+        StepIcon(TablerIcons.Folder)
         Spacer(Modifier.height(16.dp))
         Text(
             text = stringResource(R.string.onb_storage_title),
@@ -314,7 +312,7 @@ private fun StorageStep(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Filled.FolderOpen, contentDescription = null,
+            Icon(TablerIcons.Folder, contentDescription = null,
                 tint = if (folderUri != null) Violet else TextSecondary, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -333,7 +331,7 @@ private fun StorageStep(
                 }
             }
             if (folderUri != null) {
-                Icon(Icons.Filled.Check, contentDescription = null, tint = Violet, modifier = Modifier.size(18.dp))
+                Icon(TablerIcons.Check, contentDescription = null, tint = Violet, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -349,7 +347,7 @@ private fun DoneStep() {
                 .background(Brush.radialGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.6f))), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.AutoStories, contentDescription = null,
+            Icon(TablerIcons.Book, contentDescription = null,
                 tint = Color.White, modifier = Modifier.size(44.dp))
         }
         Spacer(Modifier.height(24.dp))
@@ -433,7 +431,7 @@ private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
                     .background(Violet, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Check, contentDescription = null,
+                Icon(TablerIcons.Check, contentDescription = null,
                     tint = Color.White, modifier = Modifier.size(13.dp))
             }
         }

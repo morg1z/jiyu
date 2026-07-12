@@ -1,20 +1,13 @@
 package com.haise.jiyu.ui.navigation
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Book
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.NewReleases
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -49,11 +42,11 @@ private data class NavTab(
 )
 
 private val TABS = listOf(
-    NavTab(Routes.LIBRARY,  "Knihovna",    Icons.Filled.Book,        Icons.Outlined.Book),
-    NavTab(Routes.UPDATES,  "Aktualizace", Icons.Filled.NewReleases, Icons.Outlined.NewReleases),
-    NavTab(Routes.BROWSE,   "Procházet",   Icons.Filled.Search,      Icons.Outlined.Search),
-    NavTab(Routes.HISTORY,  "Historie",    Icons.Filled.History,     Icons.Outlined.History),
-    NavTab(Routes.SETTINGS, "Nastavení",   Icons.Filled.Settings,    Icons.Outlined.Settings),
+    NavTab(Routes.LIBRARY,  "Knihovna",    TablerIcons.Book,        TablerIcons.Book),
+    NavTab(Routes.UPDATES,  "Aktualizace", TablerIcons.BellRinging, TablerIcons.BellRinging),
+    NavTab(Routes.BROWSE,   "Procházet",   TablerIcons.Search,      TablerIcons.Search),
+    NavTab(Routes.HISTORY,  "Historie",    TablerIcons.History,     TablerIcons.History),
+    NavTab(Routes.SETTINGS, "Nastavení",   TablerIcons.Settings,    TablerIcons.Settings),
 )
 
 @Composable

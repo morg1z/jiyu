@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.qr
 
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -15,9 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -72,7 +73,7 @@ fun MangaQrScreen(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
                     text = "QR kód",
@@ -131,7 +132,7 @@ fun MangaQrScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Icon(Icons.Filled.Share, null, tint = Color.White)
+                    Icon(TablerIcons.Share, null, tint = Color.White)
                     Spacer(Modifier.size(8.dp))
                     Text("Sdílet QR", color = Color.White)
                 }

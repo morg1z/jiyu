@@ -1,5 +1,12 @@
 package com.haise.jiyu.ui.duplicates
 
+import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+
+
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
+
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,11 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,7 +79,7 @@ fun DuplicateDetectorScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -91,13 +93,13 @@ fun DuplicateDetectorScreen(
                 )
             }
             IconButton(onClick = { viewModel.scan() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Znovu prohledat", tint = TextSecondary)
+                Icon(TablerIcons.Refresh, contentDescription = "Znovu prohledat", tint = TextSecondary)
             }
         }
 
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = GlowViolet)
+                JiyuLoadingIndicator()
             }
         } else if (groups.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -203,7 +205,7 @@ private fun DuplicateMangaRow(
         }
         IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
             Icon(
-                Icons.Filled.Close,
+                TablerIcons.X,
                 contentDescription = "Odebrat z knihovny",
                 tint = GlowCyan.copy(alpha = 0.7f),
                 modifier = Modifier.size(16.dp),
