@@ -36,11 +36,24 @@ class BrowseViewModel @Inject constructor(
         _allSources, _contentTypeFilter, _languageFilter,
     ) { all, type, lang ->
         all.filter { src ->
-            (type == "ALL" || src.contentType == type) &&
+            matchesContentType(src.contentType, type) &&
             (lang == "ALL" || src.language == lang)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setContentTypeFilter(type: String) { _contentTypeFilter.value = type }
     fun setLanguageFilter(lang: String) { _languageFilter.value = lang }
+
+    private fun matchesContentType(sourceType: String, filter: String): Boolean = when (filter) {
+        "ALL" -> true
+        // "Manga" tag v UI zahrnuje manga/manhwa/manhua dohromady - jde jen o
+        // region asijského komiksu, uzivatele je zajima spis "je to asijske"
+        // vs. "je to western komiks/novela", ne presny puvod.
+        MANGA_GROUP -> sourceType == "MANGA" || sourceType == "MANHWA" || sourceType == "MANHUA"
+        else -> sourceType == filter
+    }
+
+    companion object {
+        const val MANGA_GROUP = "MANGA_GROUP"
+    }
 }

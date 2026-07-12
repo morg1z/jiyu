@@ -117,9 +117,7 @@ fun BrowseScreen(
         // ── Typový filtr - kompaktní řádek chipů ─────────────────────────────
         val contentTypes = listOf(
             "ALL" to "Vše",
-            "MANGA" to "Manga",
-            "MANHWA" to "Manhwa",
-            "MANHUA" to "Manhua",
+            BrowseViewModel.MANGA_GROUP to "Manga",
             "NOVEL" to "Novely",
             "COMIC" to "Komiksy",
         )
