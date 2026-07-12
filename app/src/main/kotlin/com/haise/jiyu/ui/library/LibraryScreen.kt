@@ -109,6 +109,7 @@ import com.haise.jiyu.ui.theme.CyanLight
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
+import com.haise.jiyu.ui.theme.CardBorder
 import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -622,18 +623,16 @@ private fun LibraryEmptyState(hasSearch: Boolean, onOpenBrowse: () -> Unit) {
             } else {
                 Box(
                     modifier = Modifier
-                        .size(120.dp)
-                        .background(
-                            Brush.radialGradient(listOf(GlowViolet.copy(alpha = 0.2f), Color.Transparent)),
-                            CircleShape,
-                        ),
+                        .size(96.dp)
+                        .background(NightBlue, CircleShape)
+                        .border(1.dp, CardBorder, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         TablerIcons.Book,
                         contentDescription = null,
-                        tint = GlowViolet.copy(alpha = 0.6f),
-                        modifier = Modifier.size(56.dp),
+                        tint = TextSecondary,
+                        modifier = Modifier.size(44.dp),
                     )
                 }
                 Spacer(Modifier.height(24.dp))

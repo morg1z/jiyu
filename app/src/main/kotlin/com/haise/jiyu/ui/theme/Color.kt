@@ -2,28 +2,42 @@ package com.haise.jiyu.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── Jiyu Anime Palette ───────────────────────────────────────────────────────
+// ── Jiyu Dark Theme ──────────────────────────────────────────────────────────
+// Klidná tmavá paleta s jednou promyšlenou akcentní barvou. Žádné soupeřící
+// duotone gradienty ani dekorativní "glow" efekty - jen jedna barva, použitá
+// s rozvahou.
 
-val DeepSpace    = Color(0xFF07090F)   // main background
-val Midnight     = Color(0xFF0C1322)   // surface
-val NightBlue    = Color(0xFF111B35)   // card / elevated surface
-val NavyGlass    = Color(0xFF19274A)   // glass card fill
+val DeepSpace  = Color(0xFF0B0D12)   // hlavní pozadí
+val Midnight   = Color(0xFF14161C)   // surface
+val NightBlue  = Color(0xFF181B23)   // karta / zvýšený povrch
+val CardBorder = Color(0xFF262A35)   // jemný 1px okraj karet
 
-val VioletLight  = Color(0xFFC4B5FD)
-val Violet       = Color(0xFF8B5CF6)
-val VioletDark   = Color(0xFF6D28D9)
-val VioletDeep   = Color(0xFF3B0764)
+val AccentLight = Color(0xFFAB99F5)
+val Accent      = Color(0xFF7C5CFC)   // jediná akcentní barva appky
+val AccentDark  = Color(0xFF5B3FD1)
 
-val CyanLight    = Color(0xFF67E8F9)
-val Cyan         = Color(0xFF22D3EE)
-val CyanDark     = Color(0xFF0891B2)
+val TextPrimary   = Color(0xFFEDEFF4)
+val TextSecondary = Color(0xFF9096A8)
+val TextMuted     = Color(0xFF565C6D)
 
-val PinkLight    = Color(0xFFF9A8D4)
-val Pink         = Color(0xFFEC4899)
+// Sémantické stavy (stav kategorie/downloadu apod. - nese informaci, není dekorace)
+val Success = Color(0xFF34D399)
+val Warning = Color(0xFFF59E0B)
+val Danger  = Color(0xFFEF4444)
 
-val TextPrimary   = Color(0xFFE8EDF8)
-val TextSecondary = Color(0xFF94A3B8)
-val TextMuted     = Color(0xFF4A5568)
-
-val GlowViolet   = Color(0xFF8B5CF6)
-val GlowCyan     = Color(0xFF22D3EE)
+// ── Zpětně kompatibilní aliasy ───────────────────────────────────────────────
+// Zbytek appky dosud odkazuje na tato jména (Violet/Cyan/GlowViolet/...).
+// Sjednocením na jednu skutečnou barvu (Accent) mizí duotone gradienty a
+// "rainbow" okraje napříč celou appkou bez nutnosti přepisovat každý soubor.
+val Violet      = Accent
+val VioletLight = AccentLight
+val VioletDark  = AccentDark
+val VioletDeep  = Color(0xFF3B2A6B)
+val Cyan        = Accent
+val CyanLight   = AccentLight
+val CyanDark    = AccentDark
+val GlowViolet  = Accent
+val GlowCyan    = Accent
+val NavyGlass   = NightBlue
+val Pink        = Color(0xFFEC4899)
+val PinkLight   = Color(0xFFF9A8D4)

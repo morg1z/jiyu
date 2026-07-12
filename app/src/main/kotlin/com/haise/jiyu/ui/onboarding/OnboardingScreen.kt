@@ -62,6 +62,7 @@ import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
+import com.haise.jiyu.ui.theme.Accent
 import com.haise.jiyu.ui.theme.Violet
 
 @Composable
@@ -94,16 +95,6 @@ fun OnboardingScreen(
             .systemBarsPadding(),
         contentAlignment = Alignment.Center,
     ) {
-        // Gradient blob pozadí
-        Box(
-            modifier = Modifier
-                .size(400.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.radialGradient(listOf(GlowViolet.copy(alpha = 0.18f), Color.Transparent))
-                )
-        )
-
         Column(
             modifier = Modifier
                 .widthIn(max = 480.dp)
@@ -344,7 +335,7 @@ private fun DoneStep() {
         Box(
             modifier = Modifier
                 .size(80.dp)
-                .background(Brush.radialGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.6f))), CircleShape),
+                .background(Accent, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(TablerIcons.Book, contentDescription = null,
