@@ -146,10 +146,12 @@ class TranslateRepository @Inject constructor(
             arr.put(JSONObject().apply {
                 put("orig", b.originalText)
                 put("trans", b.translatedText)
-                put("l", b.leftF)
-                put("t", b.topF)
-                put("r", b.rightF)
-                put("b", b.bottomF)
+                // put(String, float) na Android org.json.JSONObject neexistuje (jen desktopová
+                // verze knihovny) -> NoSuchMethodError za běhu. Double overload existuje vždy.
+                put("l", b.leftF.toDouble())
+                put("t", b.topF.toDouble())
+                put("r", b.rightF.toDouble())
+                put("b", b.bottomF.toDouble())
             })
         }
     }.toString()
