@@ -40,6 +40,14 @@ class OnboardingViewModel @Inject constructor(
 
     val totalSteps = 4
 
+    init {
+        // Výchozí jazyk (cs) je v UI hned zaškrtnutý, ale dokud uživatel aktivně
+        // neťukne na řádek jazyka, AppCompatDelegate se nikdy nenastaví - zbytek
+        // onboardingu i appky pak běží v systémovém locale (typicky EN), zatímco
+        // checkbox tvrdí, že je vybraná čeština. Aplikuj výchozí hodnotu hned.
+        setLanguage(_selectedLanguage.value)
+    }
+
     fun setLanguage(tag: String) {
         _selectedLanguage.value = tag
         AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))

@@ -127,15 +127,21 @@ class LibraryViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            if (repository.getAllCategories().isEmpty()) {
+            // Kontrola prázdnosti a insert běží atomicky v jedné DB transakci (viz
+            // CategoryDao.seedDefaultsIfEmpty) - kdyby se LibraryViewModel vytvořil
+            // dvakrát rychle po sobě (např. při navigaci mezi taby), oddělené
+            // getAllCategories()+createCategory() volání by mezi kontrolou a insertem
+            // nechalo prostor pro souběžný běh druhé instance a vzniku duplicitních
+            // výchozích kategorií.
+            repository.seedDefaultCategoriesIfEmpty(
                 listOf(
                     CategoryEntity(id = UUID.randomUUID().toString(), name = "Čtu",           colorHex = "#8B5CF6"),
                     CategoryEntity(id = UUID.randomUUID().toString(), name = "Dokončené",     colorHex = "#10B981"),
                     CategoryEntity(id = UUID.randomUUID().toString(), name = "Plánuji číst", colorHex = "#22D3EE"),
                     CategoryEntity(id = UUID.randomUUID().toString(), name = "Pozastaveno",  colorHex = "#F59E0B"),
                     CategoryEntity(id = UUID.randomUUID().toString(), name = "Odloženo",     colorHex = "#EF4444"),
-                ).forEach { repository.createCategory(it) }
-            }
+                ),
+            )
         }
     }
 

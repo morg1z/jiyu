@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
@@ -41,6 +42,17 @@ interface CategoryDao {
 
     @Query("SELECT * FROM category ORDER BY name ASC")
     suspend fun getAllOnce(): List<CategoryEntity>
+
+    /**
+     * Atomicky zkontroluje prázdnost a vloží výchozí kategorie v jedné transakci — Room
+     * serializuje write transakce na jednom writeru, takže dvě souběžná volání (např. při
+     * dvojím vytvoření LibraryViewModel) se nemůžou obě "vejít" mezi kontrolu a insert
+     * druhé instance a vytvořit duplicity, jako to hrozilo u odděleného getAllOnce()+upsert.
+     */
+    @Transaction
+    suspend fun seedDefaultsIfEmpty(defaults: List<CategoryEntity>) {
+        if (getAllOnce().isEmpty()) upsertAll(defaults)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(categories: List<CategoryEntity>)

@@ -1206,7 +1206,15 @@ fun MangaDetailScreen(
                     }
 
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "KAPITOLY", style = MaterialTheme.typography.labelSmall, color = Violet, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                        Text(
+                            text = "KAPITOLY",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Violet,
+                            letterSpacing = 2.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
 
                         // Mark all read
                         IconButton(onClick = { viewModel.markAllRead() }, modifier = Modifier.size(32.dp)) {
