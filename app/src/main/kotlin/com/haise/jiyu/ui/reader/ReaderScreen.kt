@@ -1824,8 +1824,11 @@ private fun WebtoonPage(
                                 x = (size.width * block.leftF).toInt().toDp(),
                                 y = (size.height * block.topF).toInt().toDp(),
                             )
-                            .width((size.width * (block.rightF - block.leftF)).toInt().toDp())
-                            .height((size.height * (block.bottomF - block.topF)).toInt().toDp())
+                            // .coerceAtLeast(0.dp) - viz TranslationOverlay níže: záporná šířka/výška
+                            // z neobvyklého OCR boxu by jinak spadla na IllegalArgumentException
+                            // přímo v Compose layout fázi (mimo dosah try/catch kolem překladu).
+                            .width((size.width * (block.rightF - block.leftF)).toInt().toDp().coerceAtLeast(0.dp))
+                            .height((size.height * (block.bottomF - block.topF)).toInt().toDp().coerceAtLeast(0.dp))
                             .background(Color.Black.copy(alpha = 0.82f))
                             .padding(2.dp),
                         contentAlignment = Alignment.Center,
@@ -1896,10 +1899,14 @@ private fun RetryableAsyncImage(
 
 @Composable
 private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, textScale: Float = 1f) {
+    // OCR bounding box je v zásadě vždy leftF<=rightF/topF<=bottomF, ale nejde o zaručený
+    // invariant (různé OCR modely, rotace/mirror snímků atd.) - záporná šířka/výška předaná
+    // do Modifier.width()/height() spadne na IllegalArgumentException přímo v Compose layout
+    // fázi, mimo dosah jakéhokoliv try/catch kolem překladu, a appka tvrdě spadne.
     val left = maxWidth  * block.leftF
     val top  = maxHeight * block.topF
-    val w    = maxWidth  * (block.rightF  - block.leftF)
-    val h    = maxHeight * (block.bottomF - block.topF)
+    val w    = (maxWidth  * (block.rightF  - block.leftF)).coerceAtLeast(0.dp)
+    val h    = (maxHeight * (block.bottomF - block.topF)).coerceAtLeast(0.dp)
 
     Box(
         modifier = Modifier
