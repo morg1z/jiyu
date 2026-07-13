@@ -303,21 +303,21 @@ fun SourceBrowseScreen(
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
                     Text(
                         text = manga.title,
-                        style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                        style = TextStyle(color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = source?.name.orEmpty(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary,
+                        color = Color(0xFFB0BEC5),
                         modifier = Modifier.padding(top = 4.dp),
                     )
                     if (!manga.description.isNullOrBlank()) {
                         Text(
                             text = manga.description.orEmpty(),
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
+                            color = Color(0xFFB0BEC5),
                             maxLines = 4,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 12.dp),
@@ -363,19 +363,19 @@ private fun DuplicateWarningDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.source_browse_dup_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.source_browse_dup_title), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 Text(
                     stringResource(R.string.source_browse_dup_desc, pending.manga.title),
-                    color = TextSecondary,
+                    color = Color(0xFFB0BEC5),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 pending.matches.forEach { match ->
                     Text(
                         stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
-                        color = TextPrimary,
+                        color = Color.White,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
@@ -393,7 +393,7 @@ private fun DuplicateWarningDialog(
             TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) }
         },
     )
 }
@@ -513,19 +513,20 @@ private fun BrowseFilterSheet(
         ) {
             Text(
                 stringResource(R.string.source_browse_filters),
-                style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
+                style = TextStyle(color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            Text(stringResource(R.string.source_browse_status_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_status_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 statuses.forEach { (value, label) ->
                     val selected = selectedStatus == value
                     androidx.compose.material3.FilterChip(
                         selected = selected,
                         onClick = { selectedStatus = value },
-                        label = { Text(label, fontSize = 12.sp) },
+                        label = { Text(label, fontSize = 12.sp, color = if (selected) Violet else Color(0xFFB0BEC5)) },
                         colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                            containerColor = Color.Transparent,
                             selectedContainerColor = Violet.copy(alpha = 0.3f),
                             selectedLabelColor = Violet,
                         ),
@@ -534,30 +535,30 @@ private fun BrowseFilterSheet(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.source_browse_year_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_year_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             OutlinedTextField(
                 value = yearText,
                 onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) yearText = it },
-                placeholder = { Text(stringResource(R.string.source_browse_year_placeholder), color = TextSecondary) },
+                placeholder = { Text(stringResource(R.string.source_browse_year_placeholder), color = Color(0xFFB0BEC5)) },
                 singleLine = true,
                 modifier = Modifier.width(140.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Violet,
-                    unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
+                    unfocusedBorderColor = Color(0xFFB0BEC5).copy(alpha = 0.3f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
                     cursorColor = Violet,
                 ),
             )
 
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.source_browse_sort_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_sort_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             Box {
                 OutlinedButton(
                     onClick = { sortDropdownExpanded = true },
                     border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
                 ) {
-                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = TextPrimary)
+                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = Color.White)
                 }
                 DropdownMenu(
                     expanded = sortDropdownExpanded,
@@ -580,9 +581,9 @@ private fun BrowseFilterSheet(
                 OutlinedButton(
                     onClick = { onApply(MangaFilter()) },
                     modifier = Modifier.weight(1f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.4f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB0BEC5).copy(alpha = 0.4f)),
                 ) {
-                    Text(stringResource(R.string.source_browse_reset), color = TextSecondary)
+                    Text(stringResource(R.string.source_browse_reset), color = Color(0xFFB0BEC5))
                 }
                 Button(
                     onClick = {

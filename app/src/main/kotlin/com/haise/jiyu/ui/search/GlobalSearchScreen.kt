@@ -276,19 +276,19 @@ private fun GlobalSearchDuplicateDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.source_browse_dup_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.source_browse_dup_title), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 Text(
                     stringResource(R.string.source_browse_dup_desc, pending.manga.title),
-                    color = TextSecondary,
+                    color = Color(0xFFB0BEC5),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 pending.matches.forEach { match ->
                     Text(
                         stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
-                        color = TextPrimary,
+                        color = Color.White,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
@@ -306,7 +306,7 @@ private fun GlobalSearchDuplicateDialog(
             TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) }
         },
     )
 }

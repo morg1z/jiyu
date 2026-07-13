@@ -247,14 +247,14 @@ fun DownloadsSettingsScreen(
                         AlertDialog(
                             onDismissRequest = { showDeleteConfirm = false },
                             containerColor = Color(0xFF111B35),
-                            title = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
-                            text = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_text, downloadedCount), color = TextSecondary) },
+                            title = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_title), color = Color.White, fontWeight = FontWeight.Bold) },
+                            text = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_text, downloadedCount), color = Color(0xFFB0BEC5)) },
                             confirmButton = {
                                 TextButton(onClick = { viewModel.deleteAllDownloads(); showDeleteConfirm = false }) {
                                     Text(stringResource(com.haise.jiyu.R.string.common_delete), color = MaterialTheme.colorScheme.error)
                                 }
                             },
-                            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(com.haise.jiyu.R.string.common_cancel), color = TextSecondary) } },
+                            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(com.haise.jiyu.R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
                         )
                     }
                 }

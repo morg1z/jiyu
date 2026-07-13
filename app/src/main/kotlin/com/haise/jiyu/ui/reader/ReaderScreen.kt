@@ -807,6 +807,7 @@ private fun ReaderContent(
                         IconButton(
                             onClick = onNavigatePrev,
                             enabled = hasPrevChapter,
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 TablerIcons.ArrowBack,
@@ -817,7 +818,7 @@ private fun ReaderContent(
 
                         // Název + stránka
                         Column(
-                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                            modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -861,7 +862,7 @@ private fun ReaderContent(
                         }
 
                         // Panel mode toggle (#38)
-                        IconButton(onClick = onTogglePanelMode) {
+                        IconButton(onClick = onTogglePanelMode, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 TablerIcons.LayoutRows,
                                 contentDescription = stringResource(R.string.reader_panel_mode_desc),
@@ -871,7 +872,7 @@ private fun ReaderContent(
                         }
 
                         // Sleep timer (#42)
-                        IconButton(onClick = onSleepTimerClick) {
+                        IconButton(onClick = onSleepTimerClick, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 TablerIcons.Moon,
                                 contentDescription = stringResource(R.string.reader_sleep_timer_title),
@@ -883,7 +884,7 @@ private fun ReaderContent(
                         // Chapter picker
                         if (allChapters.isNotEmpty()) {
                             var showChapterSheet by remember { mutableStateOf(false) }
-                            IconButton(onClick = { showChapterSheet = true }) {
+                            IconButton(onClick = { showChapterSheet = true }, modifier = Modifier.size(40.dp)) {
                                 Icon(
                                     TablerIcons.ListCheck,
                                     contentDescription = stringResource(R.string.reader_pick_chapter_desc),
@@ -944,7 +945,7 @@ private fun ReaderContent(
                         }
 
                         // Incognito mode
-                        IconButton(onClick = onToggleIncognito) {
+                        IconButton(onClick = onToggleIncognito, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 if (incognitoMode) TablerIcons.EyeOff else TablerIcons.Eye,
                                 contentDescription = stringResource(if (incognitoMode) R.string.reader_incognito_off_desc else R.string.reader_incognito_on_desc),
@@ -955,7 +956,7 @@ private fun ReaderContent(
 
                         // Překlad
                         val isTranslating = translationProgress != null
-                        IconButton(onClick = onToggleTranslate) {
+                        IconButton(onClick = onToggleTranslate, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 TablerIcons.Language,
                                 contentDescription = stringResource(when {
@@ -975,6 +976,7 @@ private fun ReaderContent(
                         IconButton(
                             onClick = onNavigateNext,
                             enabled = hasNextChapter,
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 TablerIcons.ArrowRight,

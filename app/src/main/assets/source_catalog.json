@@ -53,7 +53,7 @@
     "name": "Luminous Scans",
     "baseUrl": "https://lscomic.com",
     "language": "en",
-    "description": "Fantasy & action manhwa",
+    "description": "Fantasy a akční manhwa",
     "nsfw": false
   },
   {
@@ -69,7 +69,7 @@
     "name": "Night Scans",
     "baseUrl": "https://nightscans.net",
     "language": "en",
-    "description": "Manhwa & manga scanlations",
+    "description": "Manhwa a manga scanlation překlady",
     "nsfw": false
   },
   {
@@ -93,7 +93,7 @@
     "name": "Rizz Comics",
     "baseUrl": "https://rizzcomic.com",
     "language": "en",
-    "description": "Manhwa & manga reader",
+    "description": "Manhwa a manga čtečka",
     "nsfw": false
   },
   {
@@ -101,7 +101,7 @@
     "name": "Hive Comics",
     "baseUrl": "https://hivecomic.com",
     "language": "en",
-    "description": "Manhwa scanlation hub",
+    "description": "Manhwa scanlation komunita",
     "nsfw": false
   },
   {
@@ -109,7 +109,7 @@
     "name": "Coffee Manga",
     "baseUrl": "https://coffeemanga.io",
     "language": "en",
-    "description": "Manga & manhwa reader",
+    "description": "Manga a manhwa čtečka",
     "nsfw": false
   },
   {
@@ -125,7 +125,7 @@
     "name": "Dragon Tea",
     "baseUrl": "https://dragontea.ink",
     "language": "en",
-    "description": "Fantasy manhwa scanlations",
+    "description": "Fantasy manhwa překlady",
     "nsfw": false
   },
   {
@@ -309,7 +309,7 @@
     "name": "Manga347",
     "baseUrl": "https://manga347.com",
     "language": "en",
-    "description": "Action & fantasy manga",
+    "description": "Akční a fantasy manga",
     "nsfw": false
   },
   {
@@ -341,7 +341,7 @@
     "name": "MangaOwl",
     "baseUrl": "https://mangaowl.io",
     "language": "en",
-    "description": "Free online manga reader",
+    "description": "Manga čtečka zdarma online",
     "nsfw": false
   },
   {
@@ -365,7 +365,7 @@
     "name": "MangaClash",
     "baseUrl": "https://mangaclash.com",
     "language": "en",
-    "description": "Free manga online reader",
+    "description": "Manga čtečka zdarma online",
     "nsfw": false
   },
   {
@@ -373,7 +373,7 @@
     "name": "MangaGreat",
     "baseUrl": "https://mangagreat.com",
     "language": "en",
-    "description": "Manga & manhwa reader",
+    "description": "Manga a manhwa čtečka",
     "nsfw": false
   },
   {
@@ -389,7 +389,7 @@
     "name": "MangaPuma",
     "baseUrl": "https://mangapuma.com",
     "language": "en",
-    "description": "Action & fantasy manga",
+    "description": "Akční a fantasy manga",
     "nsfw": false
   },
   {
@@ -405,7 +405,7 @@
     "name": "KunManga",
     "baseUrl": "https://kunmanga.com",
     "language": "en",
-    "description": "Manga & manhwa reader",
+    "description": "Manga a manhwa čtečka",
     "nsfw": false
   },
   {
@@ -429,7 +429,7 @@
     "name": "VyvyManga",
     "baseUrl": "https://vyvymanga.net",
     "language": "en",
-    "description": "Free manga & manhwa reader",
+    "description": "Manga a manhwa čtečka zdarma",
     "nsfw": false
   },
   {
@@ -437,7 +437,7 @@
     "name": "Weeb Central",
     "baseUrl": "https://weebcentral.com",
     "language": "en",
-    "description": "Manga & manhwa reader",
+    "description": "Manga a manhwa čtečka",
     "nsfw": false
   },
   {
@@ -453,7 +453,7 @@
     "name": "MoonQuill",
     "baseUrl": "https://moonquill.com",
     "language": "en",
-    "description": "Manhwa & manga reader",
+    "description": "Manhwa a manga čtečka",
     "nsfw": false
   },
   {
@@ -469,7 +469,7 @@
     "name": "ManhwaTop",
     "baseUrl": "https://manhwatop.com",
     "language": "en",
-    "description": "Top manhwa & manga",
+    "description": "Top manhwa a manga",
     "nsfw": false
   },
   {
@@ -509,7 +509,7 @@
     "name": "ORMtl",
     "baseUrl": "https://ormtl.com",
     "language": "en",
-    "description": "Manhwa machine translations",
+    "description": "Manhwa strojové překlady",
     "nsfw": false
   },
   {
@@ -517,7 +517,7 @@
     "name": "ManhwaHood",
     "baseUrl": "https://manhwahood.com",
     "language": "en",
-    "description": "Manhwa & manga reader",
+    "description": "Manhwa a manga čtečka",
     "nsfw": false
   },
   {
@@ -541,7 +541,7 @@
     "name": "Manhwa18",
     "baseUrl": "https://manhwa18.net",
     "language": "en",
-    "description": "Adult manhwa — 18+",
+    "description": "Manhwa pro dospělé — 18+",
     "nsfw": true
   },
   {
@@ -549,7 +549,7 @@
     "name": "Manhwa18.org",
     "baseUrl": "https://manhwa18.org",
     "language": "en",
-    "description": "Adult manhwa — 18+",
+    "description": "Manhwa pro dospělé — 18+",
     "nsfw": true
   },
   {
@@ -557,7 +557,7 @@
     "name": "Manga18fx",
     "baseUrl": "https://manga18fx.com",
     "language": "en",
-    "description": "Adult manga — 18+",
+    "description": "Manga pro dospělé — 18+",
     "nsfw": true
   },
 
@@ -1065,7 +1065,7 @@
     "name": "MangaFreak",
     "baseUrl": "https://mangafreak.net",
     "language": "en",
-    "description": "Free manga online",
+    "description": "Manga zdarma online",
     "nsfw": false
   },
   {
@@ -1073,7 +1073,7 @@
     "name": "ReadMng",
     "baseUrl": "https://www.readmng.com",
     "language": "en",
-    "description": "Read manga online free",
+    "description": "Čtěte mangu zdarma online",
     "nsfw": false
   },
   {
@@ -1081,7 +1081,7 @@
     "name": "MangaFox",
     "baseUrl": "https://mangafox.fun",
     "language": "en",
-    "description": "Manga online reader",
+    "description": "Online manga čtečka",
     "nsfw": false
   },
   {
@@ -1089,7 +1089,7 @@
     "name": "Malphas",
     "baseUrl": "https://malphas.io",
     "language": "en",
-    "description": "Manhwa & manga scanlations",
+    "description": "Manhwa a manga scanlation překlady",
     "nsfw": false
   },
   {
@@ -1129,7 +1129,7 @@
     "name": "Hentai20",
     "baseUrl": "https://hentai20.com",
     "language": "en",
-    "description": "Adult manga — 18+",
+    "description": "Manga pro dospělé — 18+",
     "nsfw": true
   },
   {
@@ -1145,7 +1145,7 @@
     "name": "Schale Network",
     "baseUrl": "https://schale.network",
     "language": "en",
-    "description": "Manhwa & manga scanlation skupina",
+    "description": "Manhwa a manga scanlation skupina",
     "nsfw": false
   },
   {

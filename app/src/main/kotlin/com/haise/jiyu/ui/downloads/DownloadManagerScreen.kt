@@ -134,14 +134,14 @@ fun DownloadManagerScreen(
             AlertDialog(
                 onDismissRequest = { showDeleteReadConfirm = false },
                 containerColor = Color(0xFF111B35),
-                title = { Text(stringResource(R.string.downloads_manager_delete_read_confirm_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
-                text = { Text(stringResource(R.string.downloads_manager_delete_read_confirm_body), color = TextSecondary) },
+                title = { Text(stringResource(R.string.downloads_manager_delete_read_confirm_title), color = Color.White, fontWeight = FontWeight.Bold) },
+                text = { Text(stringResource(R.string.downloads_manager_delete_read_confirm_body), color = Color(0xFFB0BEC5)) },
                 confirmButton = {
                     TextButton(onClick = { viewModel.deleteReadChapters(); showDeleteReadConfirm = false }) {
                         Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 },
-                dismissButton = { TextButton(onClick = { showDeleteReadConfirm = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
+                dismissButton = { TextButton(onClick = { showDeleteReadConfirm = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
             )
         }
 
@@ -291,14 +291,14 @@ private fun DownloadGroupCard(
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             containerColor = Color(0xFF111B35),
-            title = { Text(stringResource(R.string.downloads_manager_delete_group_confirm_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text(stringResource(R.string.downloads_manager_delete_group_confirm_body, downloaded, group.manga.title), color = TextSecondary) },
+            title = { Text(stringResource(R.string.downloads_manager_delete_group_confirm_title), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.downloads_manager_delete_group_confirm_body, downloaded, group.manga.title), color = Color(0xFFB0BEC5)) },
             confirmButton = {
                 TextButton(onClick = { onDeleteManga(); showConfirm = false }) {
                     Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
+            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
         )
     }
 }

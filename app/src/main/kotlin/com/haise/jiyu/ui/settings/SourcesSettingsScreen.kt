@@ -24,10 +24,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -151,30 +152,41 @@ fun SourcesSettingsScreen(
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { showAddDialog = false },
                             containerColor = Color(0xFF111B35),
-                            title = { Text(stringResource(R.string.settings_sources_add_dialog_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            title = { Text(stringResource(R.string.settings_sources_add_dialog_title), color = Color.White, fontWeight = FontWeight.Bold) },
                             text = {
+                                val dialogFieldColors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Violet,
+                                    unfocusedBorderColor = GlowViolet.copy(alpha = 0.3f),
+                                    focusedLabelColor = Violet,
+                                    unfocusedLabelColor = Color(0xFFB0BEC5),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    cursorColor = Violet,
+                                )
                                 Column(
                                     modifier = Modifier
                                         .heightIn(max = 420.dp)
                                         .verticalScroll(rememberScrollState()),
                                 ) {
-                                    TextField(
+                                    OutlinedTextField(
                                         value = name,
                                         onValueChange = { name = it },
                                         label = { Text(stringResource(R.string.settings_sources_field_name)) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
+                                        colors = dialogFieldColors,
                                     )
                                     Spacer(Modifier.height(8.dp))
-                                    TextField(
+                                    OutlinedTextField(
                                         value = url,
                                         onValueChange = { url = it },
                                         label = { Text(stringResource(R.string.settings_sources_field_url)) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
+                                        colors = dialogFieldColors,
                                     )
                                     Spacer(Modifier.height(8.dp))
-                                    Text(stringResource(R.string.settings_sources_content_type_label), color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
+                                    Text(stringResource(R.string.settings_sources_content_type_label), color = Color(0xFFB0BEC5), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         listOf(
                                             "MANGA" to stringResource(R.string.settings_sources_type_manga),
@@ -186,12 +198,12 @@ fun SourcesSettingsScreen(
                                             val sel = selectedContentType == type
                                             Box(
                                                 modifier = Modifier
-                                                    .border(1.dp, if (sel) GlowViolet else TextSecondary.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                                    .border(1.dp, if (sel) GlowViolet else Color(0xFFB0BEC5).copy(alpha = 0.3f), RoundedCornerShape(6.dp))
                                                     .background(if (sel) Violet.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(6.dp))
                                                     .clickable { selectedContentType = type }
                                                     .padding(horizontal = 8.dp, vertical = 5.dp),
                                             ) {
-                                                Text(label, color = if (sel) Color.White else TextSecondary, fontSize = 12.sp)
+                                                Text(label, color = if (sel) Color.White else Color(0xFFB0BEC5), fontSize = 12.sp)
                                             }
                                         }
                                     }
@@ -205,7 +217,7 @@ fun SourcesSettingsScreen(
                                     if (showAdvanced) {
                                         Text(
                                             text = stringResource(R.string.settings_sources_advanced_description),
-                                            color = TextSecondary,
+                                            color = Color(0xFFB0BEC5),
                                             style = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.padding(bottom = 8.dp),
                                         )
@@ -276,7 +288,7 @@ fun SourcesSettingsScreen(
                                     },
                                 ) { Text(stringResource(R.string.common_add), color = GlowViolet) }
                             },
-                            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
+                            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
                         )
                     }
                 }

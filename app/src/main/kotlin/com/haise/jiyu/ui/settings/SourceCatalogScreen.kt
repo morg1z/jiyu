@@ -367,9 +367,9 @@ private fun AddCustomSourceForm(
         focusedBorderColor = Violet,
         unfocusedBorderColor = GlowViolet.copy(alpha = 0.3f),
         focusedLabelColor = Violet,
-        unfocusedLabelColor = TextSecondary,
-        focusedTextColor = TextPrimary,
-        unfocusedTextColor = TextPrimary,
+        unfocusedLabelColor = Color(0xFFB0BEC5),
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
         cursorColor = Violet,
     )
 
@@ -382,11 +382,11 @@ private fun AddCustomSourceForm(
     ) {
         Text(
             stringResource(R.string.settings_source_catalog_form_title),
-            color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
         )
         Text(
             stringResource(R.string.settings_source_catalog_form_desc),
-            color = TextSecondary, fontSize = 13.sp,
+            color = Color(0xFFB0BEC5), fontSize = 13.sp,
         )
 
         Spacer(Modifier.height(4.dp))
@@ -454,13 +454,13 @@ private fun AddCustomSourceForm(
         ) {
             Text(
                 stringResource(R.string.settings_source_catalog_advanced_toggle),
-                color = TextSecondary, fontSize = 13.sp,
+                color = Color(0xFFB0BEC5), fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
             Icon(
                 imageVector = if (advancedExpanded) TablerIcons.ChevronUp else TablerIcons.ChevronDown,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = Color(0xFFB0BEC5),
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -469,7 +469,7 @@ private fun AddCustomSourceForm(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     stringResource(R.string.settings_source_catalog_advanced_hint),
-                    color = TextSecondary.copy(alpha = 0.7f), fontSize = 11.sp,
+                    color = Color(0xFFB0BEC5).copy(alpha = 0.7f), fontSize = 11.sp,
                 )
                 listOf(
                     Triple(stringResource(R.string.settings_source_catalog_field_list_item), listItem) { v: String -> listItem = v },
@@ -486,7 +486,7 @@ private fun AddCustomSourceForm(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors,
-                        placeholder = { Text(stringResource(R.string.settings_source_catalog_field_placeholder_default), color = TextSecondary.copy(alpha = 0.4f), fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.settings_source_catalog_field_placeholder_default), color = Color(0xFFB0BEC5).copy(alpha = 0.4f), fontSize = 12.sp) },
                     )
                 }
             }
@@ -497,7 +497,7 @@ private fun AddCustomSourceForm(
             is SourceTestState.Testing -> Row(verticalAlignment = Alignment.CenterVertically) {
                 JiyuLoadingIndicator(size = 16.dp, strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.settings_source_catalog_testing), color = TextSecondary, fontSize = 13.sp)
+                Text(stringResource(R.string.settings_source_catalog_testing), color = Color(0xFFB0BEC5), fontSize = 13.sp)
             }
             is SourceTestState.Success -> Text(
                 stringResource(R.string.settings_source_catalog_test_success, state.count),

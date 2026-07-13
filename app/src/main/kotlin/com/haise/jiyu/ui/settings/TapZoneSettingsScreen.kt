@@ -304,14 +304,14 @@ fun TapZoneSettingsScreen(
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
                 Text(
                     stringResource(R.string.settings_tapzone_zone_title, rowName, colName),
-                    color = TextPrimary,
+                    color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
                 Text(
                     stringResource(R.string.settings_tapzone_pick_action_desc),
-                    color = TextSecondary,
+                    color = Color(0xFFB0BEC5),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 16.dp),
                 )
@@ -353,11 +353,11 @@ fun TapZoneSettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 action.label().replace("\n", " "),
-                                color = if (selected) TextPrimary else TextSecondary,
+                                color = if (selected) Color.White else Color(0xFFB0BEC5),
                                 fontSize = 14.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             )
-                            Text(action.description(), color = TextSecondary, fontSize = 12.sp)
+                            Text(action.description(), color = Color(0xFFB0BEC5), fontSize = 12.sp)
                         }
                         if (selected) {
                             Icon(TablerIcons.Check, null, tint = action.color(), modifier = Modifier.size(20.dp))

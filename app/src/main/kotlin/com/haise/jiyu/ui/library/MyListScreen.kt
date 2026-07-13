@@ -580,14 +580,14 @@ fun MyListScreen(
         AlertDialog(
             onDismissRequest = { showMarkAllReadDialog = false },
             containerColor = Color(0xFF111B35),
-            title = { Text(stringResource(R.string.mylist_mark_all_read_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text(stringResource(R.string.mylist_mark_all_read_body, library.size), color = TextSecondary) },
+            title = { Text(stringResource(R.string.mylist_mark_all_read_title), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.mylist_mark_all_read_body, library.size), color = Color(0xFFB0BEC5)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.markEntireLibraryAsRead(); showMarkAllReadDialog = false }) {
                     Text(stringResource(R.string.mylist_mark_all), color = GlowViolet)
                 }
             },
-            dismissButton = { TextButton(onClick = { showMarkAllReadDialog = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
+            dismissButton = { TextButton(onClick = { showMarkAllReadDialog = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
         )
     }
 
@@ -970,7 +970,7 @@ private fun BulkCategoryDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.mylist_add_n_to_category, count), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_add_n_to_category, count), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 categories.forEach { cat ->
@@ -987,12 +987,12 @@ private fun BulkCategoryDialog(
                     ) {
                         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
                         Spacer(Modifier.width(12.dp))
-                        Text(cat.name, color = TextPrimary, fontSize = 15.sp)
+                        Text(cat.name, color = Color.White, fontSize = 15.sp)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
     )
 }
 
@@ -1003,7 +1003,7 @@ private fun CategoryAssignDialog(manga: MangaEntity, allCategories: List<Categor
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(text = manga.title, color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = { Text(text = manga.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
                 allCategories.forEach { cat ->
@@ -1028,7 +1028,7 @@ private fun CategoryAssignDialog(manga: MangaEntity, allCategories: List<Categor
                             },
                             colors = CheckboxDefaults.colors(checkedColor = color),
                         )
-                        Text(cat.name, color = if (selected) color else TextSecondary, modifier = Modifier.padding(start = 4.dp))
+                        Text(cat.name, color = if (selected) color else Color(0xFFB0BEC5), modifier = Modifier.padding(start = 4.dp))
                     }
                 }
             }
@@ -1045,16 +1045,16 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.mylist_categories_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_categories_title), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 categories.forEach { cat ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         val color = remember(cat.colorHex) { try { Color(android.graphics.Color.parseColor(cat.colorHex)) } catch (_: Exception) { Color(0xFF8B5CF6) } }
                         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
-                        Text(text = cat.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+                        Text(text = cat.name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
                         IconButton(onClick = { viewModel.deleteCategory(cat) }, modifier = Modifier.size(32.dp)) {
-                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_delete), tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFB0BEC5), modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -1062,13 +1062,13 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    placeholder = { Text(stringResource(R.string.mylist_new_category_name), color = TextSecondary, fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.mylist_new_category_name), color = Color(0xFFB0BEC5), fontSize = 13.sp) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
                         if (newName.isNotBlank()) { viewModel.createCategory(newName, viewModel.nextColor(categories)); newName = ""; focusManager.clearFocus() }
                     }),
-                    textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = GlowViolet, unfocusedBorderColor = GlowViolet.copy(alpha = 0.3f), cursorColor = CyanLight),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1080,7 +1080,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
                 onDismiss()
             }) { Text(stringResource(R.string.common_done), color = GlowViolet) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = TextSecondary) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = Color(0xFFB0BEC5)) } },
     )
 }
 
@@ -1097,7 +1097,7 @@ private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit, onOpenExtend
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.mylist_reading_stats_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_reading_stats_title), color = Color.White, fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 StatRow(stringResource(R.string.mylist_chapters_read), "${stats.chaptersRead}")
@@ -1115,7 +1115,7 @@ private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit, onOpenExtend
 @Composable
 private fun StatRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        Text(value, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Color(0xFFB0BEC5), fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }

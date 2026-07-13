@@ -16,10 +16,12 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -61,12 +63,20 @@ internal fun SettingsSubScreenHeader(title: String, onBack: () -> Unit) {
 
 @Composable
 internal fun SelectorField(label: String, value: String, onValueChange: (String) -> Unit) {
+    // Použito jen uvnitř dialogu s napevno tmavým pozadím (SourcesSettingsScreen) - proto pevné světlé barvy.
     TextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label, fontSize = 12.sp) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        colors = TextFieldDefaults.colors(
+            focusedLabelColor = Violet,
+            unfocusedLabelColor = Color(0xFFB0BEC5),
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            cursorColor = Violet,
+        ),
     )
 }
 
