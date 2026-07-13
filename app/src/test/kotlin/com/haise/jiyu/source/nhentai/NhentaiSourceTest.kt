@@ -12,29 +12,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * nhentai v1 API (/api/galleries/..., /api/gallery/{id}) je vyrazena, pouziva
+ * se v2 (/api/v2/...) - viz komentar v NhentaiSource.kt. Listing endpointy
+ * vraci jen ploche pole (english_title/thumbnail, zadne tag objekty), detail
+ * endpoint vraci bohatou strukturu (title objekt, plne tagy, "pages" pole
+ * s hotovou cestou k souboru vcetne pripony).
+ */
 class NhentaiSourceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var source: NhentaiSource
 
-    private val galleryJson = """
+    private val listItemJson = """
+        {"id": 999, "media_id": "12345", "english_title": "Test Gallery", "japanese_title": "テスト", "thumbnail": "galleries/12345/thumb.webp", "num_pages": 2}
+    """.trimIndent()
+
+    private val popularJson = "[ $listItemJson ]"
+    private val searchJson = """{ "result": [ $listItemJson ] }"""
+
+    private val galleryDetailJson = """
         {
           "id": 999,
           "media_id": "12345",
           "num_pages": 2,
           "title": {"english": "Test Gallery", "pretty": "Test", "japanese": "テスト"},
-          "images": {
-            "cover": {"t": "j"},
-            "pages": [{"t": "j"}, {"t": "p"}]
-          },
+          "cover": {"path": "galleries/12345/cover.webp.webp"},
+          "pages": [
+            {"number": 1, "path": "galleries/12345/1.webp"},
+            {"number": 2, "path": "galleries/12345/2.webp"}
+          ],
           "tags": [
             {"type": "artist", "name": "Some Artist"},
             {"type": "tag", "name": "comedy"}
           ]
         }
     """.trimIndent()
-
-    private val searchJson = """{ "result": [ $galleryJson ] }"""
 
     @Before
     fun setUp() {
@@ -43,9 +56,9 @@ class NhentaiSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/api/galleries/all") -> MockResponse().setBody(searchJson)
-                    path.startsWith("/api/galleries/search") -> MockResponse().setBody(searchJson)
-                    path.startsWith("/api/gallery/") -> MockResponse().setBody(galleryJson)
+                    path.startsWith("/api/v2/galleries/popular") -> MockResponse().setBody(popularJson)
+                    path.startsWith("/api/v2/search") -> MockResponse().setBody(searchJson)
+                    path.startsWith("/api/v2/galleries/999") -> MockResponse().setBody(galleryDetailJson)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -60,25 +73,34 @@ class NhentaiSourceTest {
     }
 
     @Test
-    fun `getPopular parses title, cover and artist from tags`() = runTest {
+    fun `getPopular parses title and cover from flat list item`() = runTest {
         val result = source.getPopular(1)
 
         assertEquals(1, result.size)
         assertEquals("Test Gallery", result[0].title)
-        assertEquals("Some Artist", result[0].author)
-        assertTrue(result[0].coverUrl!!.contains("12345/cover.j"))
-        assertEquals(listOf("Some Artist", "comedy"), result[0].genres)
+        assertEquals("/gallery/999", result[0].url)
+        assertTrue(result[0].coverUrl!!.endsWith("12345/thumb.webp"))
     }
 
     @Test
-    fun `getPageList builds one URL per page with correct extension`() = runTest {
+    fun `getMangaDetails resolves artist, genres and description from full tag objects`() = runTest {
+        val manga = source.getPopular(1).first()
+        val details = source.getMangaDetails(manga)
+
+        assertEquals("Some Artist", details.author)
+        assertEquals(listOf("comedy"), details.genres)
+        assertTrue(details.description!!.contains("Pages: 2"))
+    }
+
+    @Test
+    fun `getPageList builds one URL per page directly from path field`() = runTest {
         val manga = source.getPopular(1).first()
         val chapter = source.getChapterList(manga).first()
         val pages = source.getPageList(chapter)
 
         assertEquals(2, pages.size)
-        assertTrue(pages[0].url.endsWith("/12345/1.jpg"))
-        assertTrue(pages[1].url.endsWith("/12345/2.png"))
+        assertTrue(pages[0].url.endsWith("/galleries/12345/1.webp"))
+        assertTrue(pages[1].url.endsWith("/galleries/12345/2.webp"))
     }
 
     @Test
