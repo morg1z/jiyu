@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -118,7 +119,7 @@ fun MangaDetailScreen(
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
-    var showBulkMenu by remember { mutableStateOf(false) }
+    var showChapterOverflowMenu by remember { mutableStateOf(false) }
     var showDownloadNDialog by remember { mutableStateOf(false) }
     var chapterSearchActive by remember { mutableStateOf(false) }
     var chapterGridView by remember { mutableStateOf(false) }
@@ -469,37 +470,6 @@ fun MangaDetailScreen(
                             modifier = Modifier.weight(1f),
                         )
 
-                        // Mark all read
-                        IconButton(onClick = { viewModel.markAllRead() }, modifier = Modifier.size(32.dp)) {
-                            Icon(TablerIcons.Checks, contentDescription = "Označit vše přečtené", tint = TextSecondary, modifier = Modifier.size(18.dp))
-                        }
-
-                        // First unread jump (#33)
-                        if (firstUnread != null) {
-                            IconButton(
-                                onClick = { firstUnread?.let { onOpenChapter(it.id) } },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(TablerIcons.PlayerSkipForward, contentDescription = "Přejít na první nepřečtenou", tint = GlowCyan, modifier = Modifier.size(18.dp))
-                            }
-                        }
-
-                        // Grid/List toggle (#34)
-                        IconButton(
-                            onClick = { chapterGridView = !chapterGridView },
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Icon(if (chapterGridView) TablerIcons.List else TablerIcons.LayoutGrid, contentDescription = "Přepnout zobrazení", tint = if (chapterGridView) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
-                        }
-
-                        // Volume grouping toggle
-                        IconButton(
-                            onClick = { groupByVolume = !groupByVolume },
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Icon(TablerIcons.List, contentDescription = "Seskupit po volumech", tint = if (groupByVolume) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
-                        }
-
                         // Chapter search toggle
                         IconButton(
                             onClick = {
@@ -511,23 +481,63 @@ fun MangaDetailScreen(
                             Icon(TablerIcons.Search, contentDescription = "Hledat kapitolu", tint = if (chapterSearchActive) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
-                        // Bulk download dropdown
+                        // Sort toggle
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(GlowViolet.copy(alpha = if (sortAscending) 0.18f else 0.08f))
+                                .pointerInput(Unit) { detectTapGestures(onTap = { viewModel.toggleSort() }) }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(TablerIcons.ArrowsSort, contentDescription = "Seřadit", tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
+                            Text(text = if (sortAscending) "Nejstarší" else "Nejnovější", color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                        }
+
+                        // Přetečené menu — méně používané akce nad kapitolami
                         Box {
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(GlowCyan.copy(alpha = 0.08f))
-                                    .pointerInput(Unit) { detectTapGestures(onTap = { showBulkMenu = true }) }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(TablerIcons.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(14.dp))
-                                Text(text = "Stáhnout", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                            IconButton(onClick = { showChapterOverflowMenu = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(TablerIcons.DotsVertical, contentDescription = "Další možnosti", tint = TextSecondary, modifier = Modifier.size(18.dp))
                             }
-                            DropdownMenu(expanded = showBulkMenu, onDismissRequest = { showBulkMenu = false }) {
-                                DropdownMenuItem(text = { Text("Stáhnout vše") }, onClick = { viewModel.downloadAll(); showBulkMenu = false })
-                                DropdownMenuItem(text = { Text("Stáhnout nepřečtené") }, onClick = { viewModel.downloadUnread(); showBulkMenu = false })
-                                DropdownMenuItem(text = { Text("Stáhnout prvních N…") }, onClick = { showDownloadNDialog = true; showBulkMenu = false })
+                            DropdownMenu(expanded = showChapterOverflowMenu, onDismissRequest = { showChapterOverflowMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Označit vše přečtené") },
+                                    leadingIcon = { Icon(TablerIcons.Checks, contentDescription = null) },
+                                    onClick = { viewModel.markAllRead(); showChapterOverflowMenu = false },
+                                )
+                                if (firstUnread != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Přejít na první nepřečtenou") },
+                                        leadingIcon = { Icon(TablerIcons.PlayerSkipForward, contentDescription = null) },
+                                        onClick = { showChapterOverflowMenu = false; firstUnread?.let { onOpenChapter(it.id) } },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(if (chapterGridView) "Zobrazit jako seznam" else "Zobrazit jako mřížku") },
+                                    leadingIcon = { Icon(if (chapterGridView) TablerIcons.List else TablerIcons.LayoutGrid, contentDescription = null) },
+                                    onClick = { chapterGridView = !chapterGridView; showChapterOverflowMenu = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (groupByVolume) "Zrušit seskupení podle volume" else "Seskupit podle volume") },
+                                    leadingIcon = { Icon(TablerIcons.List, contentDescription = null, tint = if (groupByVolume) GlowCyan else TextSecondary) },
+                                    onClick = { groupByVolume = !groupByVolume; showChapterOverflowMenu = false },
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Stáhnout vše") },
+                                    leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
+                                    onClick = { viewModel.downloadAll(); showChapterOverflowMenu = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Stáhnout nepřečtené") },
+                                    leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
+                                    onClick = { viewModel.downloadUnread(); showChapterOverflowMenu = false },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Stáhnout prvních N…") },
+                                    leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
+                                    onClick = { showDownloadNDialog = true; showChapterOverflowMenu = false },
+                                )
                             }
                             if (showDownloadNDialog) {
                                 androidx.compose.material3.AlertDialog(
@@ -548,20 +558,6 @@ fun MangaDetailScreen(
                                     },
                                 )
                             }
-                        }
-
-                        // Sort toggle
-                        Row(
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(GlowViolet.copy(alpha = if (sortAscending) 0.18f else 0.08f))
-                                .pointerInput(Unit) { detectTapGestures(onTap = { viewModel.toggleSort() }) }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(TablerIcons.ArrowsSort, contentDescription = "Seřadit", tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
-                            Text(text = if (sortAscending) "Nejstarší" else "Nejnovější", color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                         }
                     }
                     } // konec Column wrapperu
