@@ -44,8 +44,8 @@ class ComicKSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/v1.0/search") -> MockResponse().setBody(searchArrayJson)
-                    path == "/manga/test-series" -> MockResponse().setBody(mangaDetailJson)
-                    path.startsWith("/manga/abcd/chapters") -> MockResponse().setBody(chaptersJson)
+                    path == "/comic/test-series" -> MockResponse().setBody(mangaDetailJson)
+                    path.startsWith("/comic/abcd/chapters") -> MockResponse().setBody(chaptersJson)
                     path.startsWith("/chapter/ch1") -> MockResponse().setBody(pagesJson)
                     else -> MockResponse().setResponseCode(404)
                 }

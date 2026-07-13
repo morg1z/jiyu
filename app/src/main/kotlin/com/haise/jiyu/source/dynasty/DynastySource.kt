@@ -32,23 +32,31 @@ class DynastySource @Inject constructor(
         return client.newCall(req).execute().use { it.body?.string() ?: "" }
     }
 
+    // series.json vraci strankovane vysledky, zabalene do "tags" pole objektu
+    // s jedinym klicem "#" (ne skutecne razeni podle pismene) - viz odpoved
+    // {"tags":[{"#":[{"name":...,"permalink":...}, ...]}, ...],"current_page":1,"total_pages":17}.
+    // Cover uz v listingu neni, doplni se az v getMangaDetails.
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val json = get("$base/series.json")
-            val arr = org.json.JSONArray(json)
-            val pageSize = 24
-            val start = (page - 1) * pageSize
-            (start until minOf(start + pageSize, arr.length())).map { i ->
-                val obj = arr.getJSONObject(i)
-                val slug = obj.optString("permalink", "")
-                SManga(
-                    sourceId = id,
-                    url = "/series/$slug",
-                    title = obj.optString("name", slug),
-                    coverUrl = obj.optString("cover").takeIf { it.isNotBlank() }
-                        ?.let { if (it.startsWith("http")) it else "$base$it" },
-                )
+            val json = JSONObject(get("$base/series.json?page=$page"))
+            val groups = json.optJSONArray("tags") ?: return@withContext emptyList()
+            val items = mutableListOf<SManga>()
+            for (g in 0 until groups.length()) {
+                val arr = groups.getJSONObject(g).optJSONArray("#") ?: continue
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val slug = obj.optString("permalink", "")
+                    items.add(
+                        SManga(
+                            sourceId = id,
+                            url = "/series/$slug",
+                            title = obj.optString("name", slug),
+                            coverUrl = null,
+                        )
+                    )
+                }
             }
+            items
         } catch (_: Exception) { emptyList() }
     }
 

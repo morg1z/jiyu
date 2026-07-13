@@ -36,10 +36,10 @@ class WebtoonSource @Inject constructor(
 
     private fun parseCardList(html: String): List<SManga> {
         val doc = Jsoup.parse(html)
-        return doc.select(".card_lst li, .challenge_lst li, .daily_lst li").mapNotNull { li ->
+        return doc.select(".webtoon_list li, .card_lst li, .challenge_lst li, .daily_lst li").mapNotNull { li ->
             val link = li.selectFirst("a[href*='webtoons.com']") ?: li.selectFirst("a") ?: return@mapNotNull null
             val href = link.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val title = li.selectFirst(".subj, .info .subj, .cont .subj")?.text()?.trim()
+            val title = li.selectFirst("strong.title, .subj, .info .subj, .cont .subj")?.text()?.trim()
                 ?: return@mapNotNull null
             val cover = li.selectFirst("img")?.let {
                 it.attr("data-url").takeIf { s -> s.isNotBlank() }
@@ -51,8 +51,11 @@ class WebtoonSource @Inject constructor(
         }
     }
 
+    // /en/genre/list uz vraci chybovou stranku - aktualni katalog je pod /en/originals
+    // (jednostrankovy vypis vsech Originals, ne strankovany "top 100" seznam).
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseCardList(get("$base/en/genre/list?genreTab=ALL&sortOrder=READ_COUNT&page=$page")) }
+        if (page > 1) return@withContext emptyList()
+        try { parseCardList(get("$base/en/originals")) }
         catch (_: Exception) { emptyList() }
     }
 

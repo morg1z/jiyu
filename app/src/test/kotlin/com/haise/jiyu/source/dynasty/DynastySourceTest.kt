@@ -18,7 +18,7 @@ class DynastySourceTest {
     private lateinit var source: DynastySource
 
     private val seriesJson = """
-        [ {"permalink": "yuru-yuri", "name": "Yuru Yuri", "cover": "/system/series/1/cover.jpg"} ]
+        {"tags": [ {"#": [ {"permalink": "yuru-yuri", "name": "Yuru Yuri"} ]} ], "current_page": 1, "total_pages": 1}
     """.trimIndent()
 
     private val detailHtml = """
@@ -52,7 +52,7 @@ class DynastySourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path == "/series.json" -> MockResponse().setBody(seriesJson)
+                    path.startsWith("/series.json") -> MockResponse().setBody(seriesJson)
                     path == "/series/yuru-yuri" -> MockResponse().setBody(detailHtml.plus(chapterListHtml))
                     path == "/chapters/yuru-yuri-ch1" -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)
@@ -69,12 +69,11 @@ class DynastySourceTest {
     }
 
     @Test
-    fun `getPopular parses series slug, name and cover from series-json`() = runTest {
+    fun `getPopular parses series slug and name from paginated series-json`() = runTest {
         val result = source.getPopular(1)
         assertEquals(1, result.size)
         assertEquals("Yuru Yuri", result[0].title)
         assertEquals("/series/yuru-yuri", result[0].url)
-        assertTrue(result[0].coverUrl!!.endsWith("/system/series/1/cover.jpg"))
     }
 
     @Test

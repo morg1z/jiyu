@@ -53,7 +53,7 @@ class WebtoonSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/en/genre/list") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/en/originals") -> MockResponse().setBody(listHtml)
                     path.startsWith("/en/action/test-toon/list") -> MockResponse().setBody(detailHtml.plus(chapterListHtml))
                     path.startsWith("/en/action/test-toon/ep1/viewer") -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)

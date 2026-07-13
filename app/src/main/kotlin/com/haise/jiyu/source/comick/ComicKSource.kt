@@ -19,7 +19,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Zdroj napojený na veřejné REST API ComicK (https://api.comick.fun).
+ * Zdroj napojený na veřejné REST API ComicK (https://api.comick.dev - dřívější
+ * api.comick.fun je mrtvá doména, endpoint pro detail/kapitoly je teď pod
+ * "/comic/" místo "/manga/").
  *
  * ComicK poskytuje veřejné API bez nutnosti klíče a explicitně povoluje
  * jeho využití třetími stranami. Pokrývá přes 100 000 titulů (manga,
@@ -38,7 +40,7 @@ class ComicKSource @Inject constructor(
     override val id   = "comick"
     override val name = "ComicK"
 
-    private val apiBase   = "https://api.comick.fun"
+    private val apiBase   = "https://api.comick.dev"
     private val coverBase = "https://meo.comick.pictures"
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
@@ -69,7 +71,7 @@ class ComicKSource @Inject constructor(
     override suspend fun getMangaDetails(manga: SManga): SManga =
         withContext(Dispatchers.IO) {
             val slug = manga.url.substringAfterLast("/")
-            val json = getObject("$apiBase/manga/$slug")
+            val json = getObject("$apiBase/comic/$slug")
             val comic = json.getJSONObject("comic")
 
             val desc = comic.optString("desc").ifBlank { null }
@@ -112,7 +114,7 @@ class ComicKSource @Inject constructor(
         withContext(Dispatchers.IO) {
             // Krok 1: získat hid z detailu mangy
             val slug = manga.url.substringAfterLast("/")
-            val detailJson = getObject("$apiBase/manga/$slug")
+            val detailJson = getObject("$apiBase/comic/$slug")
             val hid = detailJson.getJSONObject("comic").getString("hid")
 
             // Krok 2: stránkovat přes všechny kapitoly
@@ -122,7 +124,7 @@ class ComicKSource @Inject constructor(
 
             val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
             while (true) {
-                val url = "$apiBase/manga/$hid/chapters?lang=$langCode&page=$page&limit=$pageSize"
+                val url = "$apiBase/comic/$hid/chapters?lang=$langCode&page=$page&limit=$pageSize"
                 val json = getObject(url)
                 val arr = json.optJSONArray("chapters") ?: break
 
@@ -198,7 +200,7 @@ class ComicKSource @Inject constructor(
 
             SManga(
                 sourceId = id,
-                url      = "$apiBase/manga/$slug",
+                url      = "$apiBase/comic/$slug",
                 title    = title,
                 coverUrl = coverUrl,
             )

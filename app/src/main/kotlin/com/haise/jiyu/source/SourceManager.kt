@@ -19,10 +19,8 @@ import com.haise.jiyu.source.rawkuma.RawKumaSource
 import com.haise.jiyu.source.comic.ComicBookPlusSource
 import com.haise.jiyu.source.comic.GetComicsSource
 import com.haise.jiyu.source.comic.ReadFreeComicsOnlineSource
-import com.haise.jiyu.source.mangalife.MangaLifeSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.freewebnovel.FreeWebNovelSource
-import com.haise.jiyu.source.mangasee.MangaSeeSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
@@ -70,8 +68,6 @@ class SourceManager @Inject constructor(
     batoToSource: BatoToSource,
     webtoonSource: WebtoonSource,
     dynastySource: DynastySource,
-    mangaSeeSource: MangaSeeSource,
-    mangaLifeSource: MangaLifeSource,
     mangaParkSource: MangaParkSource,
     mangaReaderSource: MangaReaderSource,
     novelFullSource: NovelFullSource,
@@ -115,8 +111,6 @@ class SourceManager @Inject constructor(
         batoToSource,
         webtoonSource,
         dynastySource,
-        mangaSeeSource,
-        mangaLifeSource,
         mangaParkSource,
         mangaReaderSource,
         novelFullSource,
