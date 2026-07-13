@@ -16,6 +16,8 @@ import com.haise.jiyu.settings.ThemeOption
 
 var DeepSpace  by mutableStateOf(Color(0xFF0B0D12))   // hlavní pozadí
     private set
+var ScreenGradientTop by mutableStateOf(Color(0xFF0D0F16))   // vršek screenGradient - musí se přepočítat s tématem, jinak zůstává tmavý i ve světlém režimu
+    private set
 var Midnight   by mutableStateOf(Color(0xFF14161C))   // surface
     private set
 var NightBlue  by mutableStateOf(Color(0xFF181B23))   // karta / zvýšený povrch
@@ -47,6 +49,7 @@ fun applyPaletteMode(mode: String) {
     when (mode) {
         ThemeOption.LIGHT -> {
             DeepSpace = Color(0xFFFAFAFC)
+            ScreenGradientTop = Color(0xFFEFEFF5)
             Midnight = Color(0xFFFFFFFF)
             NightBlue = Color(0xFFF1F1F6)
             CardBorder = Color(0xFFE3E3EA)
@@ -59,6 +62,7 @@ fun applyPaletteMode(mode: String) {
         }
         ThemeOption.TRUE_BLACK -> {
             DeepSpace = Color(0xFF000000)
+            ScreenGradientTop = Color(0xFF000000)
             Midnight = Color(0xFF000000)
             NightBlue = Color(0xFF0D0D0F)
             CardBorder = Color(0xFF221F2B)
@@ -71,6 +75,7 @@ fun applyPaletteMode(mode: String) {
         }
         else -> { // DARK (klasické) - výchozí
             DeepSpace = Color(0xFF0B0D12)
+            ScreenGradientTop = Color(0xFF0D0F16)
             Midnight = Color(0xFF14161C)
             NightBlue = Color(0xFF181B23)
             CardBorder = Color(0xFF262A35)

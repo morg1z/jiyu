@@ -17,7 +17,7 @@ val titleGradient get() = Brush.linearGradient(colors = listOf(TextPrimary, Text
 /** Gradient pozadí pro celou obrazovku - jemný, téměř neznatelný přechod */
 val screenGradient get() = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFF0D0F16),
+        ScreenGradientTop,
         DeepSpace,
     ),
 )
