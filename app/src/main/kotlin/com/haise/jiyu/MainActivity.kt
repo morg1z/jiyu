@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
-import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.settings.ThemeOption
 import com.haise.jiyu.ui.navigation.MainScreen
@@ -35,7 +34,6 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var settings: SettingsRepository
-    @Inject lateinit var aniListRepository: AniListRepository
 
     private val _pendingDeepLink = MutableStateFlow<Intent?>(null)
 
@@ -47,17 +45,8 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val uri: Uri = intent.data ?: return
-        if (uri.scheme == "jiyu") {
-            when (uri.host) {
-                "anilist" -> {
-                    val fragment = uri.fragment ?: return
-                    val token = fragment.split("&")
-                        .find { it.startsWith("access_token=") }
-                        ?.removePrefix("access_token=") ?: return
-                    lifecycleScope.launch { aniListRepository.handleCallback(token) }
-                }
-                else -> _pendingDeepLink.value = intent
-            }
+        if (uri.scheme == "jiyu" && uri.host != "anilist") {
+            _pendingDeepLink.value = intent
         }
     }
 
