@@ -13,9 +13,8 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Overuje sdileny ComicSiteSource engine pres konfiguraci shodnou s ReadComicOnlineSource
- * (viz comic/ComicSources.kt) - vsechny konkretni comic zdroje sdileji tuhle logiku,
- * lisi se jen v selektorech/base URL.
+ * Overuje sdileny ComicSiteSource engine (viz comic/ComicSources.kt) - vsechny
+ * konkretni comic zdroje sdileji tuhle logiku, lisi se jen v selektorech/base URL.
  */
 class ComicSiteSourceTest {
 

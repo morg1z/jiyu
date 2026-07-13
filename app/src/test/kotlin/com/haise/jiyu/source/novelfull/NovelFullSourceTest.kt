@@ -54,7 +54,7 @@ class NovelFullSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/most-popular-novel") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/most-popular") -> MockResponse().setBody(listHtml)
                     path == "/test-novel" -> MockResponse().setBody(detailHtml)
                     path == "/test-novel?page=1" -> MockResponse().setBody(chapterListHtml)
                     path == "/test-novel/chapter-1" -> MockResponse().setBody(pagesHtml)

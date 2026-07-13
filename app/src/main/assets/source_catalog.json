@@ -1221,27 +1221,11 @@
     "nsfw": false
   },
   {
-    "id": "boxnovel",
-    "name": "BoxNovel",
-    "baseUrl": "https://boxnovel.com",
-    "language": "en",
-    "description": "Light novel reader — textový formát (Light Novel reader fáze)",
-    "nsfw": false
-  },
-  {
     "id": "novelfull",
     "name": "NovelFull",
     "baseUrl": "https://novelfull.com",
     "language": "en",
     "description": "Light novel & web novel — textový formát",
-    "nsfw": false
-  },
-  {
-    "id": "lightnovelworld",
-    "name": "LightNovelWorld",
-    "baseUrl": "https://lightnovelworld.com",
-    "language": "en",
-    "description": "Light novel reader — textový formát",
     "nsfw": false
   },
   {

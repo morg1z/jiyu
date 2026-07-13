@@ -6,31 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Konfiguracni sanity test pro vsech 14 konkretnich comic zdroju (comic/ComicSources.kt).
- * Sdileny parsovaci engine (ComicSiteSource) uz je dukladne testovany v ComicSiteSourceTest
- * pres konfiguraci shodnou s ReadComicOnlineSource - tady jen overujeme, ze kazda podtrida
- * ma smysluplnou/unikatni konfiguraci (chytlo by napr. zapomenuty duplicitni "id" nebo
- * prazdnou "base" URL pri copy-paste chybe).
+ * Konfiguracni sanity test pro comic zdroje postavene na sdilenem
+ * ComicSiteSource enginu (comic/ComicSources.kt, ReadFreeComicsOnlineSource.kt).
+ * Sdileny parsovaci engine uz je dukladne testovany v ComicSiteSourceTest -
+ * tady jen overujeme, ze kazda podtrida ma smysluplnou/unikatni konfiguraci.
+ * ComicBookPlusSource neni ComicSiteSource podtrida (vlastni parsovani pro
+ * atypickou strukturu webu), proto tu neni.
  */
 class ComicSourcesConfigTest {
 
     private val client = OkHttpClient()
 
     private val sources: List<ComicSiteSource> = listOf(
-        ReadComicOnlineSource(client),
-        ReadAllComicsSource(client),
-        ViewComicSource(client),
-        XoxoComicsSource(client),
-        ZipComicSource(client),
-        ComicPunchSource(client),
-        ComicBookPlusSource(client),
         GetComicsSource(client),
-        GoComicsSource(client),
-        GlobalComixSource(client),
-        ComicKingdomSource(client),
-        ComicExtraSource(client),
-        ReadComicsOnline2Source(client),
-        SuperHeroComicsSource(client),
+        ReadFreeComicsOnlineSource(client),
     )
 
     @Test

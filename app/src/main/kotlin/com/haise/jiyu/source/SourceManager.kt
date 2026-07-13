@@ -8,29 +8,20 @@ import com.haise.jiyu.source.hitomi.HitomiSource
 import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangapark.MangaParkSource
 import com.haise.jiyu.source.mangareader.MangaReaderSource
-import com.haise.jiyu.source.boxnovel.BoxNovelSource
 import com.haise.jiyu.source.evilmanga.EvilMangaSource
 import com.haise.jiyu.source.mangaboomers.MangaBoomersSource
 import com.haise.jiyu.source.mangago.MangagoSource
-import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
 import com.haise.jiyu.source.asurascans.AsuraScansSource
 import com.haise.jiyu.source.flamecomics.FlameComicsSource
 import com.haise.jiyu.source.reaperscans.ReaperScansSource
 import com.haise.jiyu.source.mangalek.MangaLekSource
 import com.haise.jiyu.source.rawkuma.RawKumaSource
-import com.haise.jiyu.source.comic.ReadComicOnlineSource
-import com.haise.jiyu.source.comic.ReadAllComicsSource
-import com.haise.jiyu.source.comic.ViewComicSource
-import com.haise.jiyu.source.comic.XoxoComicsSource
-import com.haise.jiyu.source.comic.ZipComicSource
-import com.haise.jiyu.source.comic.ComicPunchSource
 import com.haise.jiyu.source.comic.ComicBookPlusSource
 import com.haise.jiyu.source.comic.GetComicsSource
-import com.haise.jiyu.source.comic.GoComicsSource
-import com.haise.jiyu.source.comic.GlobalComixSource
-import com.haise.jiyu.source.comic.ComicKingdomSource
+import com.haise.jiyu.source.comic.ReadFreeComicsOnlineSource
 import com.haise.jiyu.source.mangalife.MangaLifeSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
+import com.haise.jiyu.source.freewebnovel.FreeWebNovelSource
 import com.haise.jiyu.source.mangasee.MangaSeeSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraSelectors
@@ -42,11 +33,7 @@ import com.haise.jiyu.source.manganato.MangaNatoSource
 import com.haise.jiyu.source.royalroad.RoyalRoadSource
 import com.haise.jiyu.source.scribblehub.ScribbleHubSource
 import com.haise.jiyu.source.mangahub.MangaHubSource
-import com.haise.jiyu.source.lightnovelpub.LightNovelPubSource
 import com.haise.jiyu.source.mangafreak.MangaFreakSource
-import com.haise.jiyu.source.comic.ComicExtraSource
-import com.haise.jiyu.source.comic.ReadComicsOnline2Source
-import com.haise.jiyu.source.comic.SuperHeroComicsSource
 import com.haise.jiyu.source.i18n.JapscanSource
 import com.haise.jiyu.source.i18n.AnimeSamaSource
 import com.haise.jiyu.source.i18n.ScanVFSource
@@ -87,9 +74,8 @@ class SourceManager @Inject constructor(
     mangaLifeSource: MangaLifeSource,
     mangaParkSource: MangaParkSource,
     mangaReaderSource: MangaReaderSource,
-    boxNovelSource: BoxNovelSource,
     novelFullSource: NovelFullSource,
-    lightNovelWorldSource: LightNovelWorldSource,
+    freeWebNovelSource: FreeWebNovelSource,
     evilMangaSource: EvilMangaSource,
     mangaBoomersSource: MangaBoomersSource,
     mangagoSource: MangagoSource,
@@ -98,26 +84,14 @@ class SourceManager @Inject constructor(
     reaperScansSource: ReaperScansSource,
     mangaLekSource: MangaLekSource,
     rawKumaSource: RawKumaSource,
-    readComicOnlineSource: ReadComicOnlineSource,
-    readAllComicsSource: ReadAllComicsSource,
-    viewComicSource: ViewComicSource,
-    xoxoComicsSource: XoxoComicsSource,
-    zipComicSource: ZipComicSource,
-    comicPunchSource: ComicPunchSource,
     comicBookPlusSource: ComicBookPlusSource,
     getComicsSource: GetComicsSource,
-    goComicsSource: GoComicsSource,
-    globalComixSource: GlobalComixSource,
-    comicKingdomSource: ComicKingdomSource,
+    readFreeComicsOnlineSource: ReadFreeComicsOnlineSource,
     mangaNatoSource: MangaNatoSource,
     royalRoadSource: RoyalRoadSource,
     scribbleHubSource: ScribbleHubSource,
     mangaHubSource: MangaHubSource,
-    lightNovelPubSource: LightNovelPubSource,
     mangaFreakSource: MangaFreakSource,
-    comicExtraSource: ComicExtraSource,
-    readComicsOnline2Source: ReadComicsOnline2Source,
-    superHeroComicsSource: SuperHeroComicsSource,
     japscanSource: JapscanSource,
     animeSamaSource: AnimeSamaSource,
     scanVFSource: ScanVFSource,
@@ -145,9 +119,8 @@ class SourceManager @Inject constructor(
         mangaLifeSource,
         mangaParkSource,
         mangaReaderSource,
-        boxNovelSource,
         novelFullSource,
-        lightNovelWorldSource,
+        freeWebNovelSource,
         evilMangaSource,
         mangaBoomersSource,
         mangagoSource,
@@ -156,26 +129,14 @@ class SourceManager @Inject constructor(
         reaperScansSource,
         mangaLekSource,
         rawKumaSource,
-        readComicOnlineSource,
-        readAllComicsSource,
-        viewComicSource,
-        xoxoComicsSource,
-        zipComicSource,
-        comicPunchSource,
         comicBookPlusSource,
         getComicsSource,
-        goComicsSource,
-        globalComixSource,
-        comicKingdomSource,
+        readFreeComicsOnlineSource,
         mangaNatoSource,
         royalRoadSource,
         scribbleHubSource,
         mangaHubSource,
-        lightNovelPubSource,
         mangaFreakSource,
-        comicExtraSource,
-        readComicsOnline2Source,
-        superHeroComicsSource,
         // ── Manhua (čínské komiksy) ──────────────────────────────────────────
         MadaraSource("manhuafast",    "ManhuaFast",         "https://manhuafast.com",       client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuaplus",    "Manhuaplus",         "https://manhuaplus.com",       client, contentTypeOverride = "MANHUA"),

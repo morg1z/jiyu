@@ -12,8 +12,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * GetComicsSource prepisuje getChapterList/getPageList (zdroj je jen odkaz na
- * stazeni CBR/PDF, ne strankovany reader) - proto ma vlastni test mimo
+ * GetComicsSource prepisuje getPopular/getMangaDetails/getChapterList/getPageList
+ * (obalky se nacitaji pres `data-background-image` na <article>, ne vnoreny <img>,
+ * a detail/cover/popis se cte z og: meta tagu) - proto ma vlastni test mimo
  * sdileny ComicSiteSourceTest engine test.
  */
 class GetComicsSourceTest {
@@ -28,9 +29,10 @@ class GetComicsSourceTest {
     """.trimIndent()
 
     private val detailHtml = """
-        <html><body>
-        <img class="wp-post-image" src="https://cdn.example.com/test-full.jpg" />
-        <div class="post-content"><p>A description.</p></div>
+        <html><head>
+        <meta property="og:description" content="A description.">
+        <meta property="og:image" content="https://cdn.example.com/test-full.jpg">
+        </head><body>
         </body></html>
     """.trimIndent()
 

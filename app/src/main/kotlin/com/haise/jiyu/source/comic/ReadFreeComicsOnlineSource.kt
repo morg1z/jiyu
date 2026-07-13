@@ -11,46 +11,43 @@ import org.jsoup.Jsoup
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// ── GetComics (download site — links to CBR/PDF) ─────────────────────────────
+/**
+ * ReadFreeComicsOnline - americké superhrdinské komiksy (Marvel/DC), jednotlivá
+ * čísla jako WordPress příspěvky. Homepage/kategorie používají "ultp" block grid,
+ * fulltextové hledání jede přes standardní WP šablonu (article.post) - proto
+ * combinovaný comicLinkSelector/comicCoverSelector pro obě varianty.
+ */
 @Singleton
-class GetComicsSource @Inject constructor(client: OkHttpClient) : ComicSiteSource(
-    id = "getcomics",
-    name = "GetComics",
-    base = "https://getcomics.org",
+class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : ComicSiteSource(
+    id = "readfreecomicsonline",
+    name = "ReadFreeComicsOnline",
+    base = "https://readfreecomicsonline.com",
     client = client,
 ) {
     override val popularPath = "/"
-    override val comicItemSelector = "article"
-    override val comicLinkSelector = "h1.post-title a, h2.post-title a"
-    override val comicCoverSelector = "img.wp-post-image"
+    override val comicItemSelector = "div.ultp-block-item, article.ultp-block-item"
+    override val comicLinkSelector = "h3.ultp-block-title a, h2.entry-title a"
+    override val comicCoverSelector = "img.wp-post-image, img"
     override val searchPath = "/?s="
-    override val searchResultSelector = "article"
+    override val searchResultSelector = "article.post"
     override val descriptionSelector = "meta[property=og:description]"
+    override val paginatedPopular = true
+    override val popularPageParam = "page/"
 
-    // Obálky se na GetComics načítají líně přes `data-background-image` na
-    // <article> samotném, ne přes vnořený <img> - proto vlastní getPopular/search.
-    private fun parseArticles(doc: org.jsoup.nodes.Document): List<SManga> =
-        doc.select(comicItemSelector).mapNotNull { el ->
+    override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val url = if (page > 1) "$base/page/$page/" else base
+        Jsoup.parse(get(url)).select(comicItemSelector).mapNotNull { el ->
             val linkEl = el.selectFirst(comicLinkSelector) ?: return@mapNotNull null
             val href = linkEl.attr("href").ifBlank { return@mapNotNull null }
+            val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
                 url = href.removePrefix(base),
                 title = linkEl.text().trim(),
-                coverUrl = el.attr("data-background-image").ifBlank {
-                    el.selectFirst("img")?.attr("src")
-                },
+                coverUrl = cover?.attr("src")?.ifBlank { cover.attr("data-src") },
                 contentType = "COMIC",
             )
         }
-
-    override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val url = if (page > 1) "$base/page/$page/" else base
-        parseArticles(Jsoup.parse(get(url)))
-    }
-
-    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        parseArticles(Jsoup.parse(get("$base/?s=${query.replace(" ", "+")}")))
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -61,13 +58,14 @@ class GetComicsSource @Inject constructor(client: OkHttpClient) : ComicSiteSourc
         )
     }
 
+    // Jednotlivá čísla, ne seriálové kapitoly - celý komiks = jedna "kapitola".
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         listOf(
             SChapter(
                 sourceId = id,
                 mangaUrl = manga.url,
                 url = manga.url,
-                name = "Download",
+                name = "Read",
                 chapterNumber = 1f,
                 dateUpload = 0L,
             )
@@ -76,7 +74,9 @@ class GetComicsSource @Inject constructor(client: OkHttpClient) : ComicSiteSourc
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         val doc = Jsoup.parse(get("$base${chapter.url}"))
-        val coverUrl = doc.selectFirst("meta[property=og:image]")?.attr("content") ?: ""
-        if (coverUrl.isBlank()) emptyList() else listOf(Page(0, coverUrl))
+        doc.select("div.entry-content img").mapIndexed { i, img ->
+            val url = img.attr("src").ifBlank { img.attr("data-src") }
+            Page(i, url)
+        }.filter { it.url.isNotBlank() }
     }
 }
