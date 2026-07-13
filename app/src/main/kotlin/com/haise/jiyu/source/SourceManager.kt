@@ -32,6 +32,9 @@ import com.haise.jiyu.source.royalroad.RoyalRoadSource
 import com.haise.jiyu.source.scribblehub.ScribbleHubSource
 import com.haise.jiyu.source.mangahub.MangaHubSource
 import com.haise.jiyu.source.mangafreak.MangaFreakSource
+import com.haise.jiyu.source.weebcentral.WeebCentralSource
+import com.haise.jiyu.source.vortexscans.VortexScansSource
+import com.haise.jiyu.source.mangak.MangaKSource
 import com.haise.jiyu.source.i18n.JapscanSource
 import com.haise.jiyu.source.i18n.AnimeSamaSource
 import com.haise.jiyu.source.i18n.ScanVFSource
@@ -88,6 +91,9 @@ class SourceManager @Inject constructor(
     scribbleHubSource: ScribbleHubSource,
     mangaHubSource: MangaHubSource,
     mangaFreakSource: MangaFreakSource,
+    weebCentralSource: WeebCentralSource,
+    vortexScansSource: VortexScansSource,
+    mangaKSource: MangaKSource,
     japscanSource: JapscanSource,
     animeSamaSource: AnimeSamaSource,
     scanVFSource: ScanVFSource,
@@ -131,6 +137,9 @@ class SourceManager @Inject constructor(
         scribbleHubSource,
         mangaHubSource,
         mangaFreakSource,
+        weebCentralSource,
+        vortexScansSource,
+        mangaKSource,
         // ── Manhua (čínské komiksy) ──────────────────────────────────────────
         MadaraSource("manhuafast",    "ManhuaFast",         "https://manhuafast.com",       client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuaplus",    "Manhuaplus",         "https://manhuaplus.com",       client, contentTypeOverride = "MANHUA"),
@@ -193,6 +202,17 @@ class SourceManager @Inject constructor(
         MadaraSource("mangapt",       "MangaPT",            "https://mangapt.com",          client, contentTypeOverride = "MANGA"),
         MadaraSource("mangatoto",     "MangaToto",          "https://mangatoto.com",        client, contentTypeOverride = "MANGA"),
         MadaraSource("woopread",      "WoopRead",           "https://woopread.com",         client, contentTypeOverride = "MANGA"),
+        MadaraSource(
+            "aquareader", "Aqua Manga", "https://aquareader.org", client,
+            selectors = MadaraSelectors(
+                listItem = "article.aqua-archive-card",
+                titleLink = "h3.aqua-archive-card__title a",
+                description = "div.aqua-series-synopsis",
+                status = "span.aqua-series-meta__status",
+                chapterList = "a.aqua-ch-item",
+            ),
+            contentTypeOverride = "MANGA",
+        ),
         // ── Italské zdroje 🇮🇹 ───────────────────────────────────────────────
         MadaraSource("mangaworld",    "MangaWorld (IT)",    "https://www.mangaworld.ac",    client, contentTypeOverride = "MANGA"),
         MadaraSource("mangafuture",   "MangaFuture (IT)",   "https://www.mangafuture.it",   client, contentTypeOverride = "MANGA"),

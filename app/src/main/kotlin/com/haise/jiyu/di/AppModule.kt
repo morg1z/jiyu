@@ -49,6 +49,30 @@ private class RetryInterceptor(private val maxRetries: Int = 3) : Interceptor {
     }
 }
 
+/**
+ * Některé CDN vyžadují konkrétní Referer, jinak vrací 403 (hotlink protection) -
+ * projevuje se jako "obrázek se nikdy nenačte" pro obálky/thumbnaily, protože
+ * Coil sdílí tenhle stejný OkHttpClient. Referer se nastaví jen když ho
+ * request ještě nemá (aby to nerozbilo zdroje, které si ho nastavují samy).
+ */
+private val hotlinkReferers = mapOf(
+    "rx.resmk.org" to "https://mangak.io/",
+    "webtoon-phinf.pstatic.net" to "https://www.webtoons.com/",
+)
+
+private class HotlinkRefererInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val referer = hotlinkReferers[request.url.host]
+        val finalRequest = if (referer != null && request.header("Referer") == null) {
+            request.newBuilder().header("Referer", referer).build()
+        } else {
+            request
+        }
+        return chain.proceed(finalRequest)
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -59,6 +83,7 @@ object AppModule {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(RetryInterceptor(maxRetries = 3))
+        .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)
         .build()
 

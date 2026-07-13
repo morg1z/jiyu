@@ -109,6 +109,11 @@ class MadaraSource(
         withContext(Dispatchers.IO) {
             // Madara u vetsiny webu nacita seznam kapitol pres AJAX endpoint,
             // protoze na hlavni strance mangy je jen limitovany vypis.
+            // Nektere (obvykle upravene) motivy vraci na ajax endpoint HTTP 200
+            // s nesouvisejicim fragmentem (napr. jiny widget) misto kapitol -
+            // takovy "uspesny" ale prazdny vysledek se proto zahodi a pouzije
+            // se rovnou hlavni stranka mangy, kde uz je chapterList casto
+            // kompletni server-rendered (jen skryty pres CSS/"Show more").
             val ajaxDoc = try {
                 val request = Request.Builder()
                     .url("${manga.url.trimEnd('/')}/ajax/chapters/")
@@ -121,14 +126,16 @@ class MadaraSource(
                 null
             }
 
-            val doc = ajaxDoc ?: fetchDocument(manga.url)
+            val doc = ajaxDoc?.takeIf { it.select(selectors.chapterList).isNotEmpty() } ?: fetchDocument(manga.url)
             val rows = doc.select(selectors.chapterList)
 
             rows.mapNotNull { row -> chapterFromRow(row, manga.url) }
         }
 
     private fun chapterFromRow(row: Element, mangaUrl: String): SChapter? {
-        val link = row.selectFirst("a") ?: return null
+        // U nekterych motivu je radek kapitoly primo <a> (ne obal s vnorenym
+        // odkazem) - selectFirst hleda jen potomky, takze sebe sama nenajde.
+        val link = row.takeIf { it.tagName() == "a" && it.hasAttr("href") } ?: row.selectFirst("a") ?: return null
         val url = link.absUrl("href").ifBlank { return null }
         val name = link.text().trim().ifBlank { return null }
         val chapterNumber = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
