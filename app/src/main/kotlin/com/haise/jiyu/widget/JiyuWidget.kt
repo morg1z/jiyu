@@ -28,6 +28,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.haise.jiyu.MainActivity
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.AppDatabase
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -57,13 +58,16 @@ class JiyuWidget : GlanceAppWidget() {
             } catch (_: Exception) { emptyList() }
         }
 
+        val libraryLabel = context.getString(R.string.widget_library_label)
+        val emptyLabel = context.getString(R.string.widget_empty_library)
+
         provideContent {
-            WidgetContent(titles = recentTitles)
+            WidgetContent(titles = recentTitles, libraryLabel = libraryLabel, emptyLabel = emptyLabel)
         }
     }
 
     @androidx.compose.runtime.Composable
-    private fun WidgetContent(titles: List<String>) {
+    private fun WidgetContent(titles: List<String>, libraryLabel: String, emptyLabel: String) {
         val bgColor = ColorProvider(Color(0xFF0D0D1A))
         val textColor = ColorProvider(Color(0xFFE2E8F0))
         val accentColor = ColorProvider(Color(0xFF8B5CF6))
@@ -86,14 +90,14 @@ class JiyuWidget : GlanceAppWidget() {
                 )
                 Spacer(GlanceModifier.width(6.dp))
                 Text(
-                    text = "Knihovna",
+                    text = libraryLabel,
                     style = TextStyle(color = secondaryColor, fontSize = 11.sp),
                 )
             }
             Spacer(GlanceModifier.height(6.dp))
             if (titles.isEmpty()) {
                 Text(
-                    text = "Žádné manga v knihovně",
+                    text = emptyLabel,
                     style = TextStyle(color = secondaryColor, fontSize = 12.sp),
                 )
             } else {

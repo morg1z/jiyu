@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.data.backup.TachiyomiBackupImporter
 import com.haise.jiyu.data.backup.TachiyomiImportResult
 import com.haise.jiyu.BuildConfig
@@ -211,8 +212,8 @@ class SettingsViewModel @Inject constructor(
     fun exportBackup(uri: Uri) = viewModelScope.launch {
         _backupState.value = BackupUiState.Working
         backupManager.exportToUri(uri)
-            .onSuccess { _backupState.value = BackupUiState.Success("Záloha exportována") }
-            .onFailure { _backupState.value = BackupUiState.Error(it.message ?: "Chyba exportu") }
+            .onSuccess { _backupState.value = BackupUiState.Success(context.getString(R.string.settings_backup_export_success)) }
+            .onFailure { _backupState.value = BackupUiState.Error(it.message ?: context.getString(R.string.settings_backup_generic_export_error)) }
     }
 
     fun importBackup(uri: Uri) = viewModelScope.launch {
@@ -220,10 +221,10 @@ class SettingsViewModel @Inject constructor(
         backupManager.importFromUri(uri)
             .onSuccess { stats ->
                 _backupState.value = BackupUiState.Success(
-                    "Obnoveno: ${stats.mangaCount} manga, ${stats.chapterCount} kapitol"
+                    context.getString(R.string.settings_backup_import_success, stats.mangaCount, stats.chapterCount)
                 )
             }
-            .onFailure { _backupState.value = BackupUiState.Error(it.message ?: "Chyba importu") }
+            .onFailure { _backupState.value = BackupUiState.Error(it.message ?: context.getString(R.string.settings_backup_generic_import_error)) }
     }
 
     fun clearBackupState() { _backupState.value = BackupUiState.Idle }
@@ -235,15 +236,15 @@ class SettingsViewModel @Inject constructor(
     fun exportSettings(uri: Uri) = viewModelScope.launch {
         _settingsBackupState.value = BackupUiState.Working
         settingsBackupManager.exportToUri(uri)
-            .onSuccess { _settingsBackupState.value = BackupUiState.Success("Nastavení exportováno") }
-            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: "Chyba exportu") }
+            .onSuccess { _settingsBackupState.value = BackupUiState.Success(context.getString(R.string.settings_backup_settings_export_success)) }
+            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: context.getString(R.string.settings_backup_generic_export_error)) }
     }
 
     fun importSettings(uri: Uri) = viewModelScope.launch {
         _settingsBackupState.value = BackupUiState.Working
         settingsBackupManager.importFromUri(uri)
-            .onSuccess { count -> _settingsBackupState.value = BackupUiState.Success("Obnoveno $count nastavení") }
-            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: "Chyba importu") }
+            .onSuccess { count -> _settingsBackupState.value = BackupUiState.Success(context.getString(R.string.settings_backup_settings_import_success, count)) }
+            .onFailure { _settingsBackupState.value = BackupUiState.Error(it.message ?: context.getString(R.string.settings_backup_generic_import_error)) }
     }
 
     fun clearSettingsBackupState() { _settingsBackupState.value = BackupUiState.Idle }
@@ -326,7 +327,7 @@ class SettingsViewModel @Inject constructor(
             _sourceTestState.value = if (results.isNotEmpty()) {
                 SourceTestState.Success(results.size)
             } else {
-                SourceTestState.Failure("Nenalezeny žádné položky - zkontroluj adresu nebo selektory")
+                SourceTestState.Failure(context.getString(R.string.settings_source_catalog_test_no_items))
             }
         } catch (e: Exception) {
             _sourceTestState.value = SourceTestState.Failure(e.toFriendlyMessage())
@@ -364,7 +365,7 @@ class SettingsViewModel @Inject constructor(
             val userId = kitsuRepository.fetchUserId()
             if (userId != null) kitsuAuthManager.saveUserId(userId)
         } else {
-            _kitsuLoginError.value = "Přihlášení k Kitsu selhalo — zkontroluj e-mail a heslo"
+            _kitsuLoginError.value = context.getString(R.string.settings_services_kitsu_login_failed)
         }
         _kitsuLoginLoading.value = false
     }
@@ -389,7 +390,7 @@ class SettingsViewModel @Inject constructor(
         _muLoginLoading.value = true
         _muLoginError.value = null
         val ok = muRepository.login(username, password)
-        if (!ok) _muLoginError.value = "Přihlášení k MangaUpdates selhalo"
+        if (!ok) _muLoginError.value = context.getString(R.string.settings_services_mu_login_failed)
         _muLoginLoading.value = false
     }
 
@@ -604,7 +605,7 @@ class SettingsViewModel @Inject constructor(
         if (!updateInstaller.canInstallPackages(context)) {
             android.widget.Toast.makeText(
                 context,
-                "Povol prosím instalaci z Jiyu a zkus stažení znovu",
+                context.getString(R.string.settings_about_grant_install_permission),
                 android.widget.Toast.LENGTH_LONG,
             ).show()
             updateInstaller.requestInstallPermission(context)
@@ -613,7 +614,7 @@ class SettingsViewModel @Inject constructor(
         updateInstaller.downloadUpdate(context, apkUrl, _updateInfo.value?.version ?: appVersion)
         android.widget.Toast.makeText(
             context,
-            "Stahování zahájeno - sleduj lištu oznámení",
+            context.getString(R.string.settings_about_download_started),
             android.widget.Toast.LENGTH_SHORT,
         ).show()
     }

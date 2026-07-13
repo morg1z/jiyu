@@ -48,11 +48,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -81,10 +83,11 @@ fun ExtendedStatsScreen(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri: Uri? -> uri?.let { viewModel.exportStatsCsv(it) } }
 
+    val exportErrorTemplate = stringResource(R.string.stats_export_error)
     LaunchedEffect(exportState) {
         when (val s = exportState) {
             is StatsExportState.Success -> { snackbarHostState.showSnackbar(s.message); viewModel.clearExportState() }
-            is StatsExportState.Error   -> { snackbarHostState.showSnackbar("Chyba: ${s.message}"); viewModel.clearExportState() }
+            is StatsExportState.Error   -> { snackbarHostState.showSnackbar(exportErrorTemplate.format(s.message)); viewModel.clearExportState() }
             else -> Unit
         }
     }
@@ -104,27 +107,27 @@ fun ExtendedStatsScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
             }
             Text(
-                text = "Statistiky",
+                text = stringResource(R.string.stats_title),
                 style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
             Box {
                 IconButton(onClick = { exportMenuExpanded = true }) {
-                    Icon(TablerIcons.DotsVertical, contentDescription = "Exportovat statistiky", tint = TextSecondary)
+                    Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.stats_export_desc), tint = TextSecondary)
                 }
                 DropdownMenu(expanded = exportMenuExpanded, onDismissRequest = { exportMenuExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("Exportovat jako JSON") },
+                        text = { Text(stringResource(R.string.stats_export_json)) },
                         onClick = {
                             exportMenuExpanded = false
                             jsonExportLauncher.launch("jiyu_stats_${LocalDate.now()}.json")
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("Exportovat jako CSV") },
+                        text = { Text(stringResource(R.string.stats_export_csv)) },
                         onClick = {
                             exportMenuExpanded = false
                             csvExportLauncher.launch("jiyu_stats_${LocalDate.now()}.csv")
@@ -145,15 +148,15 @@ fun ExtendedStatsScreen(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    StatCard(label = "Kapitoly", value = "${stats.chaptersRead}", modifier = Modifier.weight(1f))
-                    StatCard(label = "Stránky", value = "${stats.pagesRead}", modifier = Modifier.weight(1f))
-                    StatCard(label = "Čas čtení", value = formatTime(stats.readingTimeMs), modifier = Modifier.weight(1f))
-                    StatCard(label = "Série dnů", value = "${stats.readingStreak}🔥", modifier = Modifier.weight(1f))
+                    StatCard(label = stringResource(R.string.stats_chapters_label), value = "${stats.chaptersRead}", modifier = Modifier.weight(1f))
+                    StatCard(label = stringResource(R.string.stats_pages_label), value = "${stats.pagesRead}", modifier = Modifier.weight(1f))
+                    StatCard(label = stringResource(R.string.stats_reading_time_label), value = formatTime(stats.readingTimeMs), modifier = Modifier.weight(1f))
+                    StatCard(label = stringResource(R.string.stats_streak_label), value = "${stats.readingStreak}🔥", modifier = Modifier.weight(1f))
                 }
             }
 
             item {
-                SectionHeader(title = "KAPITOLY ZA 30 DNÍ", modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader(title = stringResource(R.string.stats_chapters_30days_title), modifier = Modifier.padding(horizontal = 16.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -165,7 +168,7 @@ fun ExtendedStatsScreen(
                 ) {
                     if (stats.dailyCounts.all { it.second == 0 }) {
                         Text(
-                            "Za posledních 30 dní žádné čtení",
+                            stringResource(R.string.stats_no_reading_30days),
                             color = TextSecondary,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(vertical = 20.dp),
@@ -200,7 +203,7 @@ fun ExtendedStatsScreen(
 
             if (stats.topGenres.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "OBLÍBENÉ ŽÁNRY", modifier = Modifier.padding(horizontal = 16.dp))
+                    SectionHeader(title = stringResource(R.string.stats_top_genres_title), modifier = Modifier.padding(horizontal = 16.dp))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -226,7 +229,7 @@ fun ExtendedStatsScreen(
 
             if (stats.topAuthors.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "OBLÍBENÍ AUTOŘI", modifier = Modifier.padding(horizontal = 16.dp))
+                    SectionHeader(title = stringResource(R.string.stats_top_authors_title), modifier = Modifier.padding(horizontal = 16.dp))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -252,14 +255,14 @@ fun ExtendedStatsScreen(
 
             if (stats.totalInLibrary > 0 && stats.statusBreakdown.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "STAV ČTENÍ", modifier = Modifier.padding(horizontal = 16.dp))
+                    SectionHeader(title = stringResource(R.string.stats_reading_status_title), modifier = Modifier.padding(horizontal = 16.dp))
                     val statusLabels = mapOf(
-                        "READING"      to "Čtu",
-                        "COMPLETED"    to "Dokončeno",
-                        "ON_HOLD"      to "Pozastaveno",
-                        "DROPPED"      to "Opuštěno",
-                        "PLAN_TO_READ" to "Plánuji",
-                        "UNSET"        to "Bez statusu",
+                        "READING"      to stringResource(R.string.stats_status_reading),
+                        "COMPLETED"    to stringResource(R.string.stats_status_completed),
+                        "ON_HOLD"      to stringResource(R.string.stats_status_on_hold),
+                        "DROPPED"      to stringResource(R.string.stats_status_dropped),
+                        "PLAN_TO_READ" to stringResource(R.string.stats_status_plan_to_read),
+                        "UNSET"        to stringResource(R.string.stats_status_unset),
                     )
                     val statusColors = mapOf(
                         "READING"      to GlowCyan,

@@ -234,7 +234,7 @@ private fun ReadingStep(
         )
         Spacer(Modifier.height(28.dp))
 
-        Text("Směr čtení", color = TextSecondary, fontSize = 12.sp,
+        Text(stringResource(R.string.onb_reading_direction_label), color = TextSecondary, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 6.dp))
         listOf(
             ReadingDirection.LTR  to stringResource(R.string.onb_reading_opt_ltr),
@@ -244,7 +244,7 @@ private fun ReadingStep(
             Spacer(Modifier.height(8.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Text("Režim čtení", color = TextSecondary, fontSize = 12.sp,
+        Text(stringResource(R.string.onb_reading_mode_label), color = TextSecondary, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 6.dp))
         ChoiceRow(
             label = stringResource(R.string.onb_reading_opt_webtoon),

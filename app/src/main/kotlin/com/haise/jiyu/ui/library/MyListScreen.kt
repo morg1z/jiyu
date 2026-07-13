@@ -97,10 +97,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.settings.ReadingStats
@@ -155,6 +157,7 @@ fun MyListScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope    = rememberCoroutineScope()
+    val errorPrefix = stringResource(R.string.mylist_error_prefix)
 
     LaunchedEffect(refreshError) {
         val msg = refreshError ?: return@LaunchedEffect
@@ -164,7 +167,7 @@ fun MyListScreen(
     LaunchedEffect(localImportState) {
         when (val s = localImportState) {
             is LocalImportState.Done  -> { onOpenChapter(s.chapterId); viewModel.clearLocalImportState() }
-            is LocalImportState.Error -> { snackbarHostState.showSnackbar("Chyba: ${s.message}"); viewModel.clearLocalImportState() }
+            is LocalImportState.Error -> { snackbarHostState.showSnackbar(errorPrefix + s.message); viewModel.clearLocalImportState() }
             else -> {}
         }
     }
@@ -211,10 +214,10 @@ fun MyListScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = { viewModel.clearSelection() }) {
-                        Icon(TablerIcons.X, contentDescription = "Zrušit výběr", tint = TextSecondary)
+                        Icon(TablerIcons.X, contentDescription = stringResource(R.string.mylist_clear_selection), tint = TextSecondary)
                     }
                     Text(
-                        text = "${selectedIds.size} vybráno",
+                        text = stringResource(R.string.mylist_selected_count, selectedIds.size),
                         color = TextPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
@@ -223,15 +226,15 @@ fun MyListScreen(
                     TextButton(onClick = { viewModel.selectAll() }) {
                         Icon(TablerIcons.Checks, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Vše", color = GlowViolet, fontSize = 14.sp)
+                        Text(stringResource(R.string.common_all), color = GlowViolet, fontSize = 14.sp)
                     }
                 }
             } else {
                 // Title row
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(text = "Můj seznam", style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold), maxLines = 1)
-                        Text(text = "${library.size} titulů", style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
+                        Text(text = stringResource(R.string.mylist_title), style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold), maxLines = 1)
+                        Text(text = stringResource(R.string.mylist_title_count, library.size), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
                     }
                     if (gridMode) {
                         androidx.compose.material3.TextButton(
@@ -249,13 +252,13 @@ fun MyListScreen(
                     }) {
                         Icon(
                             imageVector = if (gridMode) TablerIcons.LayoutList else TablerIcons.LayoutGrid,
-                            contentDescription = if (gridMode) "Přepnout na seznam" else "Přepnout na mřížku",
+                            contentDescription = if (gridMode) stringResource(R.string.mylist_switch_to_list) else stringResource(R.string.mylist_switch_to_grid),
                             tint = TextSecondary,
                         )
                     }
                     Box {
                         IconButton(onClick = { sortMenuExpanded = true }) {
-                            Icon(TablerIcons.ArrowsSort, contentDescription = "Řadit", tint = TextSecondary)
+                            Icon(TablerIcons.ArrowsSort, contentDescription = stringResource(R.string.mylist_sort), tint = TextSecondary)
                         }
                         SortMenu(
                             expanded = sortMenuExpanded,
@@ -267,11 +270,11 @@ fun MyListScreen(
                     }
                     Box {
                         IconButton(onClick = { headerMenuExpanded = true }) {
-                            Icon(TablerIcons.DotsVertical, contentDescription = "Další možnosti", tint = TextSecondary)
+                            Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary)
                         }
                         DropdownMenu(expanded = headerMenuExpanded, onDismissRequest = { headerMenuExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("Otevřít CBZ/ZIP") },
+                                text = { Text(stringResource(R.string.mylist_open_cbz)) },
                                 leadingIcon = { Icon(TablerIcons.Folder, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
@@ -279,7 +282,7 @@ fun MyListScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Označit knihovnu jako přečtenou") },
+                                text = { Text(stringResource(R.string.mylist_mark_library_read)) },
                                 leadingIcon = { Icon(TablerIcons.Checks, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
@@ -287,7 +290,7 @@ fun MyListScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Statistiky") },
+                                text = { Text(stringResource(R.string.stats_title)) },
                                 leadingIcon = { Icon(TablerIcons.Book, contentDescription = null) },
                                 onClick = {
                                     headerMenuExpanded = false
@@ -320,7 +323,7 @@ fun MyListScreen(
                         keyboardActions = KeyboardActions(onSearch = {}),
                         decorationBox = { inner ->
                             Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                if (searchQuery.isEmpty()) Text("Hledat v knihovně…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                                if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
                                 inner()
                             }
                         },
@@ -328,7 +331,7 @@ fun MyListScreen(
                     )
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
-                            Icon(TablerIcons.X, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(15.dp))
+                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
                 }
@@ -339,7 +342,7 @@ fun MyListScreen(
         if (!selectionMode) {
             if (categories.isNotEmpty()) {
                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    item { CategoryChip(label = "Vše", colorHex = "#8B5CF6", selected = selectedCategoryId == null, onClick = { viewModel.selectCategory(null) }) }
+                    item { CategoryChip(label = stringResource(R.string.common_all), colorHex = "#8B5CF6", selected = selectedCategoryId == null, onClick = { viewModel.selectCategory(null) }) }
                     items(categories, key = { it.id }) { cat ->
                         CategoryChip(label = cat.name, colorHex = cat.colorHex, selected = selectedCategoryId == cat.id, onClick = { viewModel.selectCategory(cat.id) })
                     }
@@ -353,7 +356,7 @@ fun MyListScreen(
                                 .padding(horizontal = 12.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(TablerIcons.Plus, contentDescription = "Spravovat kategorie", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.mylist_manage_categories), tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -361,14 +364,19 @@ fun MyListScreen(
                 TextButton(onClick = { showManageDialog = true }, modifier = Modifier.padding(horizontal = 12.dp)) {
                     Icon(TablerIcons.Plus, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Přidat kategorii", color = GlowViolet, fontSize = 13.sp)
+                    Text(stringResource(R.string.mylist_add_category), color = GlowViolet, fontSize = 13.sp)
                 }
             }
         }
 
         // ── Content type filter ──────────────────────────────────────────────
         if (!selectionMode) {
-            val types = listOf("ALL" to "Vše", "MANGA" to "Manga", "MANHWA" to "Manhwa", "MANHUA" to "Manhua")
+            val types = listOf(
+                "ALL" to stringResource(R.string.common_all),
+                "MANGA" to stringResource(R.string.browse_filter_manga),
+                "MANHWA" to stringResource(R.string.mylist_content_manhwa),
+                "MANHUA" to stringResource(R.string.mylist_content_manhua),
+            )
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -383,12 +391,12 @@ fun MyListScreen(
         // ── Reading status filter ────────────────────────────────────────────
         if (!selectionMode) {
             val readingStatuses = listOf(
-                "ALL" to "Vše",
-                "READING" to "Čtu",
-                "COMPLETED" to "Dokončeno",
-                "ON_HOLD" to "Pozastaveno",
-                "DROPPED" to "Opuštěno",
-                "PLAN_TO_READ" to "Plánuji",
+                "ALL" to stringResource(R.string.common_all),
+                "READING" to stringResource(R.string.detail_reading_status_reading),
+                "COMPLETED" to stringResource(R.string.detail_status_completed),
+                "ON_HOLD" to stringResource(R.string.detail_reading_status_on_hold),
+                "DROPPED" to stringResource(R.string.detail_reading_status_dropped),
+                "PLAN_TO_READ" to stringResource(R.string.stats_status_plan_to_read),
             )
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -441,22 +449,22 @@ fun MyListScreen(
                                 DropdownMenu(expanded = dropdownExpanded, onDismissRequest = { dropdownExpanded = false }) {
                                     manga.lastReadChapterId?.let { chapterId ->
                                         DropdownMenuItem(
-                                            text = { Text("Pokračovat ve čtení") },
+                                            text = { Text(stringResource(R.string.action_continue_reading)) },
                                             onClick = { onOpenChapter(chapterId); dropdownExpanded = false },
                                         )
                                     }
                                     DropdownMenuItem(
-                                        text = { Text("Stáhnout vše") },
+                                        text = { Text(stringResource(R.string.detail_download_all)) },
                                         onClick = { viewModel.downloadAllChapters(manga.id); dropdownExpanded = false },
                                     )
                                     if (categories.isNotEmpty()) {
                                         DropdownMenuItem(
-                                            text = { Text("Přidat do kategorie") },
+                                            text = { Text(stringResource(R.string.mylist_add_to_category)) },
                                             onClick = { contextMenuManga = manga; showCategoryAssignDialog = true; dropdownExpanded = false },
                                         )
                                     }
                                     DropdownMenuItem(
-                                        text = { Text("Odebrat z knihovny", color = MaterialTheme.colorScheme.error) },
+                                        text = { Text(stringResource(R.string.mylist_remove_from_library), color = MaterialTheme.colorScheme.error) },
                                         onClick = { viewModel.removeFromLibrary(manga.id); dropdownExpanded = false },
                                     )
                                 }
@@ -503,7 +511,7 @@ fun MyListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     com.haise.jiyu.ui.components.JiyuLoadingIndicator()
-                    androidx.compose.material3.Text("Importuji soubor…", color = Color.White, fontSize = 14.sp)
+                    androidx.compose.material3.Text(stringResource(R.string.mylist_importing_file), color = Color.White, fontSize = 14.sp)
                 }
             }
         }
@@ -542,7 +550,7 @@ fun MyListScreen(
                     .pointerInput(Unit) { detectTapGestures(onTap = { onOpenBrowse() }) }
                     .padding(horizontal = 20.dp, vertical = 14.dp),
             ) {
-                Text("+ Přidat", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(stringResource(R.string.mylist_add_fab), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         }
     }
@@ -572,14 +580,14 @@ fun MyListScreen(
         AlertDialog(
             onDismissRequest = { showMarkAllReadDialog = false },
             containerColor = Color(0xFF111B35),
-            title = { Text("Označit celou knihovnu jako přečtenou?", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text("Všechny kapitoly u všech ${library.size} mang v knihovně budou označeny jako přečtené. Tuto akci nelze hromadně vrátit.", color = TextSecondary) },
+            title = { Text(stringResource(R.string.mylist_mark_all_read_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.mylist_mark_all_read_body, library.size), color = TextSecondary) },
             confirmButton = {
                 TextButton(onClick = { viewModel.markEntireLibraryAsRead(); showMarkAllReadDialog = false }) {
-                    Text("Označit vše", color = GlowViolet)
+                    Text(stringResource(R.string.mylist_mark_all), color = GlowViolet)
                 }
             },
-            dismissButton = { TextButton(onClick = { showMarkAllReadDialog = false }) { Text("Zrušit", color = TextSecondary) } },
+            dismissButton = { TextButton(onClick = { showMarkAllReadDialog = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
         )
     }
 
@@ -602,14 +610,14 @@ private fun LibraryEmptyState(hasSearch: Boolean, onOpenBrowse: () -> Unit) {
             if (hasSearch) {
                 Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(52.dp).padding(bottom = 16.dp))
                 Text(
-                    "Nic nenalezeno",
+                    stringResource(R.string.library_nothing_found),
                     style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "Zkus jiný výraz nebo vyhledej autora / žánr",
+                    stringResource(R.string.mylist_try_different_term_or_search),
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
@@ -632,14 +640,14 @@ private fun LibraryEmptyState(hasSearch: Boolean, onOpenBrowse: () -> Unit) {
                 }
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    "Žádné tituly neodpovídají filtru",
+                    stringResource(R.string.mylist_no_titles_match_filter),
                     style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    "Přidej mangu z Procházet, nebo změň filtr",
+                    stringResource(R.string.mylist_add_from_browse_or_change_filter),
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
@@ -657,7 +665,7 @@ private fun LibraryEmptyState(hasSearch: Boolean, onOpenBrowse: () -> Unit) {
                         .padding(horizontal = 28.dp, vertical = 14.dp),
                 ) {
                     Text(
-                        "Procházet mangy",
+                        stringResource(R.string.library_browse_manga_button),
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
@@ -696,12 +704,12 @@ private fun BulkActionBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BulkAction(icon = TablerIcons.Download, label = "Stáhnout", onClick = onDownload)
-            BulkAction(icon = TablerIcons.Checks, label = "Přečteno", onClick = onMarkRead)
+            BulkAction(icon = TablerIcons.Download, label = stringResource(R.string.common_download), onClick = onDownload)
+            BulkAction(icon = TablerIcons.Checks, label = stringResource(R.string.mylist_bulk_read), onClick = onMarkRead)
             if (hasCategories) {
-                BulkAction(icon = TablerIcons.Folder, label = "Kategorie", onClick = onAddToCategory)
+                BulkAction(icon = TablerIcons.Folder, label = stringResource(R.string.mylist_bulk_category), onClick = onAddToCategory)
             }
-            BulkAction(icon = TablerIcons.Trash, label = "Odebrat", tint = Color(0xFFFF6B6B), onClick = onDelete)
+            BulkAction(icon = TablerIcons.Trash, label = stringResource(R.string.common_remove), tint = Color(0xFFFF6B6B), onClick = onDelete)
         }
     }
 }
@@ -785,11 +793,11 @@ private fun SortMenu(
     onDismiss: () -> Unit,
 ) {
     val options = listOf(
-        LibrarySortOption.TITLE        to "Název",
-        LibrarySortOption.LAST_UPDATED to "Naposledy aktualizováno",
-        LibrarySortOption.UNREAD_COUNT to "Nepřečtené",
-        LibrarySortOption.DATE_ADDED   to "Datum přidání",
-        LibrarySortOption.RANDOM       to "Náhodně",
+        LibrarySortOption.TITLE        to stringResource(R.string.source_browse_sort_title),
+        LibrarySortOption.LAST_UPDATED to stringResource(R.string.mylist_sort_last_updated),
+        LibrarySortOption.UNREAD_COUNT to stringResource(R.string.detail_filter_unread),
+        LibrarySortOption.DATE_ADDED   to stringResource(R.string.mylist_sort_date_added),
+        LibrarySortOption.RANDOM       to stringResource(R.string.mylist_sort_random),
     )
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         options.forEach { (option, label) ->
@@ -800,7 +808,7 @@ private fun SortMenu(
                     if (selected) {
                         Icon(
                             if (ascending) TablerIcons.ArrowUp else TablerIcons.ArrowDown,
-                            contentDescription = if (ascending) "Vzestupně" else "Sestupně",
+                            contentDescription = if (ascending) stringResource(R.string.mylist_ascending) else stringResource(R.string.mylist_descending),
                             tint = GlowViolet,
                             modifier = Modifier.size(18.dp),
                         )
@@ -895,7 +903,7 @@ private fun AnimeMangaCard(
             Text(text = manga.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp)
             if (totalCount > 0) {
                 val readCount = totalCount - unreadCount
-                Text(text = "$readCount / $totalCount", color = Color.White.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 11.sp)
+                Text(text = stringResource(R.string.mylist_read_total_count, readCount, totalCount), color = Color.White.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 11.sp)
             }
         }
         // Selection checkmark — top-left when selected
@@ -908,7 +916,7 @@ private fun AnimeMangaCard(
                     .size(22.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(TablerIcons.CircleCheck, contentDescription = "Vybráno", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(TablerIcons.CircleCheck, contentDescription = stringResource(R.string.mylist_selected_desc), tint = Color.White, modifier = Modifier.size(16.dp))
             }
         }
         // Unread badge — top-right (hide when selected)
@@ -946,7 +954,7 @@ private fun AnimeMangaCard(
                     .background(GlowCyan.copy(alpha = 0.85f), RoundedCornerShape(50))
                     .padding(3.dp),
             ) {
-                Icon(TablerIcons.CloudDownload, contentDescription = "Staženo offline", tint = Color.White, modifier = Modifier.size(10.dp))
+                Icon(TablerIcons.CloudDownload, contentDescription = stringResource(R.string.mylist_downloaded_offline), tint = Color.White, modifier = Modifier.size(10.dp))
             }
         }
     }
@@ -962,7 +970,7 @@ private fun BulkCategoryDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text("Přidat $count mang do kategorie", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_add_n_to_category, count), color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 categories.forEach { cat ->
@@ -984,7 +992,7 @@ private fun BulkCategoryDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Zrušit", color = TextSecondary) } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
     )
 }
 
@@ -1025,7 +1033,7 @@ private fun CategoryAssignDialog(manga: MangaEntity, allCategories: List<Categor
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Hotovo", color = GlowViolet) } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_done), color = GlowViolet) } },
     )
 }
 
@@ -1037,7 +1045,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text("Kategorie", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_categories_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 categories.forEach { cat ->
@@ -1046,7 +1054,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
                         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
                         Text(text = cat.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
                         IconButton(onClick = { viewModel.deleteCategory(cat) }, modifier = Modifier.size(32.dp)) {
-                            Icon(TablerIcons.X, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_delete), tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -1054,7 +1062,7 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    placeholder = { Text("Název nové kategorie", color = TextSecondary, fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.mylist_new_category_name), color = TextSecondary, fontSize = 13.sp) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
@@ -1070,9 +1078,9 @@ private fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel: 
             TextButton(onClick = {
                 if (newName.isNotBlank()) { viewModel.createCategory(newName, viewModel.nextColor(categories)); newName = "" }
                 onDismiss()
-            }) { Text("Hotovo", color = GlowViolet) }
+            }) { Text(stringResource(R.string.common_done), color = GlowViolet) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Zavřít", color = TextSecondary) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = TextSecondary) } },
     )
 }
 
@@ -1082,25 +1090,25 @@ private fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit, onOpenExtend
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
     val timeLabel = when {
-        hours > 0   -> "$hours h $minutes min"
-        minutes > 0 -> "$minutes min"
-        else        -> "méně než minutu"
+        hours > 0   -> stringResource(R.string.mylist_time_hours_minutes, hours, minutes)
+        minutes > 0 -> stringResource(R.string.mylist_time_minutes, minutes)
+        else        -> stringResource(R.string.mylist_time_less_than_minute)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text("Statistiky čtení", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.mylist_reading_stats_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                StatRow("Přečtené kapitoly", "${stats.chaptersRead}")
+                StatRow(stringResource(R.string.mylist_chapters_read), "${stats.chaptersRead}")
                 HorizontalDivider(color = GlowViolet.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 6.dp))
-                StatRow("Přečtené stránky", "${stats.pagesRead}")
+                StatRow(stringResource(R.string.mylist_pages_read), "${stats.pagesRead}")
                 HorizontalDivider(color = GlowViolet.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 6.dp))
-                StatRow("Čas čtení", timeLabel)
+                StatRow(stringResource(R.string.stats_reading_time_label), timeLabel)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Zavřít", color = GlowViolet) } },
-        dismissButton = { TextButton(onClick = onOpenExtended) { Text("Detailní →", color = GlowViolet) } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = GlowViolet) } },
+        dismissButton = { TextButton(onClick = onOpenExtended) { Text(stringResource(R.string.mylist_detailed_stats), color = GlowViolet) } },
     )
 }
 

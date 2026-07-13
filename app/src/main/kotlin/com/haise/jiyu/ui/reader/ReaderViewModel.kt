@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.ReadHistoryDao
@@ -299,7 +300,7 @@ class ReaderViewModel @Inject constructor(
             return
         }
         if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
+            _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
             return
         }
         _novelTranslateMode.value = true
@@ -325,7 +326,7 @@ class ReaderViewModel @Inject constructor(
                 if (result != null) {
                     _novelTranslatedText.value = result
                 } else {
-                    _translationError.value = "Překlad kapitoly selhal, zkus to znovu"
+                    _translationError.value = context.getString(R.string.reader_error_translation_failed)
                     _novelTranslateMode.value = false
                 }
             } finally {
@@ -671,7 +672,7 @@ class ReaderViewModel @Inject constructor(
             }
             !_translateMode.value -> {
                 if (!translateRepository.isApiKeyConfigured) {
-                    _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
+                    _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
                     return
                 }
                 _translateMode.value = true
@@ -730,7 +731,7 @@ class ReaderViewModel @Inject constructor(
     fun translateAllPages() {
         if (_batchTranslating.value) return
         if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = "Chybí SUPABASE_URL v local.properties - překlad nemá kam volat"
+            _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
             return
         }
         _batchTranslating.value = true

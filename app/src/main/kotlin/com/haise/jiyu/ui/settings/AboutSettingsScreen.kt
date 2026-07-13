@@ -23,10 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
@@ -51,7 +53,7 @@ fun AboutSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "O aplikaci", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_about_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -59,9 +61,9 @@ fun AboutSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "O aplikaci") {
+                SettingsSection(title = stringResource(R.string.settings_about_title)) {
                     Text(
-                        text = "Verze ${viewModel.appVersion}",
+                        text = stringResource(R.string.settings_about_version, viewModel.appVersion),
                         color = TextPrimary,
                         fontSize = 14.sp,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -70,7 +72,7 @@ fun AboutSettingsScreen(
                     if (updateInfo != null) {
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Text(
-                                "Nová verze ${updateInfo!!.version} je k dispozici",
+                                stringResource(R.string.settings_about_new_version_available, updateInfo!!.version),
                                 color = GlowViolet,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                                 fontSize = 13.sp,
@@ -91,7 +93,7 @@ fun AboutSettingsScreen(
                                 onClick = { viewModel.downloadUpdate() },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = GlowViolet),
-                            ) { Text("Stáhnout a nainstalovat") }
+                            ) { Text(stringResource(R.string.settings_about_download_install)) }
                         }
                         OutlinedButton(
                             onClick = {
@@ -101,10 +103,10 @@ fun AboutSettingsScreen(
                             },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
-                        ) { Text("Otevřít stránku vydání") }
+                        ) { Text(stringResource(R.string.settings_about_open_release_page)) }
                     } else if (updateCheckedNone) {
                         Text(
-                            "Máš nejnovější verzi",
+                            stringResource(R.string.settings_about_up_to_date),
                             color = TextSecondary,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -118,7 +120,7 @@ fun AboutSettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
                         if (updateCheckLoading) JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), size = 16.dp, strokeWidth = 2.dp)
-                        Text("Zkontrolovat aktualizace")
+                        Text(stringResource(R.string.settings_about_check_updates))
                     }
                 }
 

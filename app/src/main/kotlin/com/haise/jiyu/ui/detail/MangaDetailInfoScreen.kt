@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
@@ -94,7 +96,7 @@ private fun DetailSubScreenHeader(title: String, onBack: () -> Unit) {
             .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {
         IconButton(onClick = onBack) {
-            Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+            Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
         }
         Text(
             text = title,
@@ -166,7 +168,7 @@ fun MangaDetailInfoScreen(
                 .padding(innerPadding),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                DetailSubScreenHeader(title = manga?.title ?: "Detaily", onBack = onBack)
+                DetailSubScreenHeader(title = manga?.title ?: stringResource(R.string.detail_info_title_fallback), onBack = onBack)
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -178,29 +180,29 @@ fun MangaDetailInfoScreen(
                         val m = manga
                         if (m != null && (m.author != null || m.year != null || m.genres.isNotBlank())) {
                             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                Text("INFO", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
+                                Text(stringResource(R.string.detail_info_section_info), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
                                 if (m.author != null) {
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                        Text("Autor:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                        Text(stringResource(R.string.detail_info_author_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
                                         Text(m.author, color = TextPrimary, fontSize = 13.sp)
                                     }
                                 }
                                 if (m.artist != null && m.artist != m.author) {
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                        Text("Kreslíř:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                        Text(stringResource(R.string.detail_info_artist_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
                                         Text(m.artist, color = TextPrimary, fontSize = 13.sp)
                                     }
                                 }
                                 if (m.year != null) {
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                        Text("Rok:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
+                                        Text(stringResource(R.string.detail_info_year_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
                                         Text(m.year.toString(), color = TextPrimary, fontSize = 13.sp)
                                     }
                                 }
                                 if (m.genres.isNotBlank()) {
                                     val genreList = m.genres.split(",").filter { it.isNotBlank() }
                                     if (genreList.isNotEmpty()) {
-                                        Text("Žánry:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp, top = 2.dp))
+                                        Text(stringResource(R.string.detail_info_genres_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp, top = 2.dp))
                                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             genreList.forEach { genre ->
                                                 Box(
@@ -225,18 +227,20 @@ fun MangaDetailInfoScreen(
                         var dirDropdownExpanded by remember { mutableStateOf(false) }
                         val currentDir = manga?.readerDirectionOverride
                         val dirLabel = when (currentDir) {
-                            "LTR"     -> "LTR (Vlevo → Vpravo)"
-                            "RTL"     -> "RTL (Vpravo → Vlevo)"
-                            "WEBTOON" -> "Webtoon (Scroll)"
-                            else      -> "Výchozí (z nastavení)"
+                            "LTR"     -> stringResource(R.string.detail_info_dir_ltr)
+                            "RTL"     -> stringResource(R.string.detail_info_dir_rtl)
+                            "WEBTOON" -> stringResource(R.string.detail_info_dir_webtoon)
+                            else      -> stringResource(R.string.detail_info_dir_default)
                         }
+                        val dirDefaultShort = stringResource(R.string.detail_info_dir_default_short)
+                        val dirWebtoonShort = stringResource(R.string.detail_info_dir_webtoon_short)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Směr čtení:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(100.dp))
+                            Text(stringResource(R.string.detail_info_reader_direction_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(100.dp))
                             Box {
                                 Text(
                                     text = dirLabel,
@@ -249,7 +253,7 @@ fun MangaDetailInfoScreen(
                                         .padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                                 DropdownMenu(expanded = dirDropdownExpanded, onDismissRequest = { dirDropdownExpanded = false }) {
-                                    listOf(null to "Výchozí", "LTR" to "LTR", "RTL" to "RTL", "WEBTOON" to "Webtoon").forEach { (value, label) ->
+                                    listOf(null to dirDefaultShort, "LTR" to "LTR", "RTL" to "RTL", "WEBTOON" to dirWebtoonShort).forEach { (value, label) ->
                                         DropdownMenuItem(
                                             text = { Text(label) },
                                             onClick = { viewModel.setReaderDirection(value); dirDropdownExpanded = false },
@@ -264,7 +268,7 @@ fun MangaDetailInfoScreen(
                     if (allCategories.isNotEmpty()) {
                         item {
                             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                                Text(text = "KATEGORIE", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
+                                Text(text = stringResource(R.string.detail_info_section_categories), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     allCategories.forEach { cat ->
                                         CategoryToggleChip(category = cat, selected = cat.id in categoryIds, onClick = { viewModel.toggleCategory(cat.id) })
@@ -279,7 +283,7 @@ fun MangaDetailInfoScreen(
                         item {
                             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                                 Text(
-                                    text = "PODOBNÉ",
+                                    text = stringResource(R.string.detail_info_section_related),
                                     style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
                                     color = Violet,
                                     modifier = Modifier.padding(bottom = 10.dp),
@@ -308,7 +312,7 @@ fun MangaDetailInfoScreen(
                                 .padding(horizontal = 16.dp, vertical = 4.dp),
                         ) {
                             Text(
-                                text = "HODNOCENÍ",
+                                text = stringResource(R.string.detail_info_section_rating),
                                 style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
                                 color = Violet,
                                 modifier = Modifier.padding(bottom = 12.dp),
@@ -335,7 +339,7 @@ fun MangaDetailInfoScreen(
                                         lineHeight = 36.sp,
                                     )
                                     Text(
-                                        text = "/ 10",
+                                        text = stringResource(R.string.detail_info_rating_out_of_10),
                                         fontSize = 12.sp,
                                         color = TextSecondary,
                                     )
@@ -370,7 +374,7 @@ fun MangaDetailInfoScreen(
                                     ) {
                                         Icon(
                                             TablerIcons.X,
-                                            contentDescription = "Smazat hodnocení",
+                                            contentDescription = stringResource(R.string.detail_info_clear_rating),
                                             tint = TextSecondary.copy(alpha = 0.6f),
                                             modifier = Modifier.size(16.dp),
                                         )
@@ -383,7 +387,7 @@ fun MangaDetailInfoScreen(
                     // ── Sledování (MAL/AniList/Kitsu/MangaUpdates sjednoceno) ──
                     item {
                         Text(
-                            text = "SLEDOVÁNÍ",
+                            text = stringResource(R.string.detail_info_section_tracking),
                             style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
                             color = Violet,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).padding(top = 4.dp),
@@ -413,9 +417,9 @@ fun MangaDetailInfoScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column {
-                                        Text("MAL ID: $malId", color = TextPrimary, fontSize = 14.sp)
+                                        Text(stringResource(R.string.detail_info_mal_id, malId!!), color = TextPrimary, fontSize = 14.sp)
                                         if (malScore != null) {
-                                            Text("Skóre: ${String.format("%.2f", malScore)}", color = TextSecondary, fontSize = 12.sp)
+                                            Text(stringResource(R.string.detail_info_score, String.format("%.2f", malScore)), color = TextSecondary, fontSize = 12.sp)
                                         }
                                     }
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -423,12 +427,12 @@ fun MangaDetailInfoScreen(
                                             malSearchQuery = manga?.title ?: ""
                                             viewModel.searchMal(malSearchQuery)
                                             showMalSheet = true
-                                        }) { Text("Změnit", color = malBlue, fontSize = 12.sp) }
+                                        }) { Text(stringResource(R.string.common_change), color = malBlue, fontSize = 12.sp) }
                                         IconButton(onClick = { viewModel.syncFromMal() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MAL", tint = malBlue, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_mal), tint = malBlue, modifier = Modifier.size(16.dp))
                                         }
                                         IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -443,11 +447,11 @@ fun MangaDetailInfoScreen(
                                     border = BorderStroke(1.dp, malBlue.copy(alpha = 0.4f)),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = malBlue),
                                 ) {
-                                    Text("Propojit s MyAnimeList")
+                                    Text(stringResource(R.string.detail_info_link_mal))
                                 }
                                 if (!viewModel.malHasClientId) {
                                     Text(
-                                        "Pro vyhledávání nastav MAL_CLIENT_ID v local.properties (myanimelist.net/apiconfig)",
+                                        stringResource(R.string.detail_info_mal_no_client_id),
                                         color = TextSecondary.copy(alpha = 0.6f),
                                         fontSize = 11.sp,
                                         modifier = Modifier.padding(top = 4.dp),
@@ -469,7 +473,7 @@ fun MangaDetailInfoScreen(
                             )
                             if (!aniListIsLoggedIn) {
                                 Text(
-                                    "Přihlas se k AniListu v Účtu pro párování.",
+                                    stringResource(R.string.detail_info_anilist_login_hint),
                                     color = TextSecondary.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                 )
@@ -485,15 +489,15 @@ fun MangaDetailInfoScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("AniList ID: $aniListId", color = TextPrimary, fontSize = 14.sp)
+                                    Text(stringResource(R.string.detail_info_anilist_id, aniListId!!), color = TextPrimary, fontSize = 14.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         TextButton(onClick = {
                                             aniListSearchQuery = manga?.title ?: ""
                                             viewModel.searchAniList(aniListSearchQuery)
                                             showAniListSheet = true
-                                        }) { Text("Změnit", color = aniListColor, fontSize = 12.sp) }
+                                        }) { Text(stringResource(R.string.common_change), color = aniListColor, fontSize = 12.sp) }
                                         IconButton(onClick = { viewModel.unlinkAniList() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -507,7 +511,7 @@ fun MangaDetailInfoScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     border = BorderStroke(1.dp, aniListColor.copy(alpha = 0.4f)),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = aniListColor),
-                                ) { Text("Propojit s AniList") }
+                                ) { Text(stringResource(R.string.detail_info_link_anilist)) }
                             }
                         }
                     }
@@ -524,7 +528,7 @@ fun MangaDetailInfoScreen(
                             )
                             if (!kitsuIsLoggedIn) {
                                 Text(
-                                    "Přihlas se ke Kitsu v Nastavení pro párování.",
+                                    stringResource(R.string.detail_info_kitsu_login_hint),
                                     color = TextSecondary.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                 )
@@ -541,20 +545,20 @@ fun MangaDetailInfoScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column {
-                                        Text("Kitsu ID: $kitsuId", color = TextPrimary, fontSize = 14.sp)
-                                        if (kitsuScore != null) Text("Skóre: ${String.format("%.2f", kitsuScore)}", color = TextSecondary, fontSize = 12.sp)
+                                        Text(stringResource(R.string.detail_info_kitsu_id, kitsuId!!), color = TextPrimary, fontSize = 14.sp)
+                                        if (kitsuScore != null) Text(stringResource(R.string.detail_info_score, String.format("%.2f", kitsuScore)), color = TextSecondary, fontSize = 12.sp)
                                     }
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         TextButton(onClick = {
                                             kitsuSearchQuery = manga?.title ?: ""
                                             viewModel.searchKitsu(kitsuSearchQuery)
                                             showKitsuSheet = true
-                                        }) { Text("Změnit", color = kitsuColor, fontSize = 12.sp) }
+                                        }) { Text(stringResource(R.string.common_change), color = kitsuColor, fontSize = 12.sp) }
                                         IconButton(onClick = { viewModel.syncFromKitsu() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z Kitsu", tint = kitsuColor, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_kitsu), tint = kitsuColor, modifier = Modifier.size(16.dp))
                                         }
                                         IconButton(onClick = { viewModel.unlinkKitsu() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -568,7 +572,7 @@ fun MangaDetailInfoScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     border = BorderStroke(1.dp, kitsuColor.copy(alpha = 0.4f)),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = kitsuColor),
-                                ) { Text("Propojit s Kitsu") }
+                                ) { Text(stringResource(R.string.detail_info_link_kitsu)) }
                             }
                         }
                     }
@@ -585,7 +589,7 @@ fun MangaDetailInfoScreen(
                             )
                             if (!muIsLoggedIn) {
                                 Text(
-                                    "Přihlas se k MangaUpdates v Nastavení pro párování.",
+                                    stringResource(R.string.detail_info_mu_login_hint),
                                     color = TextSecondary.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                 )
@@ -602,19 +606,19 @@ fun MangaDetailInfoScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column {
-                                        Text("MU Series ID: $muId", color = TextPrimary, fontSize = 14.sp)
+                                        Text(stringResource(R.string.detail_info_mu_id, muId!!), color = TextPrimary, fontSize = 14.sp)
                                     }
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         TextButton(onClick = {
                                             muSearchQuery = manga?.title ?: ""
                                             viewModel.searchMu(muSearchQuery)
                                             showMuSheet = true
-                                        }) { Text("Změnit", color = muColor, fontSize = 12.sp) }
+                                        }) { Text(stringResource(R.string.common_change), color = muColor, fontSize = 12.sp) }
                                         IconButton(onClick = { viewModel.syncFromMu() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MangaUpdates", tint = muColor, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_mu), tint = muColor, modifier = Modifier.size(16.dp))
                                         }
                                         IconButton(onClick = { viewModel.unlinkMu() }, modifier = Modifier.size(32.dp)) {
-                                            Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -628,7 +632,7 @@ fun MangaDetailInfoScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     border = BorderStroke(1.dp, muColor.copy(alpha = 0.4f)),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = muColor),
-                                ) { Text("Propojit s MangaUpdates") }
+                                ) { Text(stringResource(R.string.detail_info_link_mu)) }
                             }
                         }
                     }
@@ -637,9 +641,9 @@ fun MangaDetailInfoScreen(
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "TAGY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
+                                Text(text = stringResource(R.string.detail_info_section_tags), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
                                 IconButton(onClick = { showAddTagField = !showAddTagField }, modifier = Modifier.size(28.dp)) {
-                                    Icon(TablerIcons.Plus, contentDescription = "Přidat tag", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.detail_info_add_tag), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 }
                             }
                             if (showAddTagField) {
@@ -658,7 +662,7 @@ fun MangaDetailInfoScreen(
                                                     .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                                             ) {
-                                                if (addTagText.isEmpty()) Text("Nový tag…", color = TextSecondary, fontSize = 13.sp)
+                                                if (addTagText.isEmpty()) Text(stringResource(R.string.detail_info_new_tag_placeholder), color = TextSecondary, fontSize = 13.sp)
                                                 inner()
                                             }
                                         },
@@ -668,7 +672,7 @@ fun MangaDetailInfoScreen(
                                         viewModel.addTag(addTagText)
                                         addTagText = ""
                                         showAddTagField = false
-                                    }) { Text("OK", color = GlowCyan) }
+                                    }) { Text(stringResource(R.string.common_ok), color = GlowCyan) }
                                 }
                             }
                             if (mangaTags.isNotEmpty()) {
@@ -687,13 +691,13 @@ fun MangaDetailInfoScreen(
                                         ) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(tagEntity.tag, color = GlowCyan, fontSize = 11.sp)
-                                                Icon(TablerIcons.X, contentDescription = "Odebrat", tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
+                                                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
                                             }
                                         }
                                     }
                                 }
                             } else {
-                                Text("Žádné tagy", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                                Text(stringResource(R.string.detail_info_no_tags), color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
                             }
                         }
                     }
@@ -702,13 +706,13 @@ fun MangaDetailInfoScreen(
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = "SLOVNÍK PŘEKLADU", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
+                                Text(text = stringResource(R.string.detail_info_section_glossary), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
                                 IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }, modifier = Modifier.size(28.dp)) {
-                                    Icon(TablerIcons.Plus, contentDescription = "Přidat pojem", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                    Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.detail_info_add_glossary_entry), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 }
                             }
                             Text(
-                                "Jména, techniky a přezdívky se budou vždy překládat takhle, napříč všemi kapitolami.",
+                                stringResource(R.string.detail_info_glossary_hint),
                                 color = TextSecondary.copy(alpha = 0.6f),
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(bottom = 6.dp),
@@ -729,7 +733,7 @@ fun MangaDetailInfoScreen(
                                                         .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                                 ) {
-                                                    if (glossarySourceText.isEmpty()) Text("Originál (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
+                                                    if (glossarySourceText.isEmpty()) Text(stringResource(R.string.detail_info_glossary_source_placeholder), color = TextSecondary, fontSize = 12.sp)
                                                     inner()
                                                 }
                                             },
@@ -749,7 +753,7 @@ fun MangaDetailInfoScreen(
                                                         .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                                 ) {
-                                                    if (glossaryTargetText.isEmpty()) Text("Překlad (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
+                                                    if (glossaryTargetText.isEmpty()) Text(stringResource(R.string.detail_info_glossary_target_placeholder), color = TextSecondary, fontSize = 12.sp)
                                                     inner()
                                                 }
                                             },
@@ -762,7 +766,7 @@ fun MangaDetailInfoScreen(
                                             glossarySourceText = ""
                                             glossaryTargetText = ""
                                             showAddGlossaryField = false
-                                        }) { Text("Přidat do slovníku ($defaultTargetLanguage)", color = GlowCyan, fontSize = 12.sp) }
+                                        }) { Text(stringResource(R.string.detail_info_add_to_glossary, defaultTargetLanguage), color = GlowCyan, fontSize = 12.sp) }
                                     }
                                 }
                             }
@@ -787,13 +791,13 @@ fun MangaDetailInfoScreen(
                                             )
                                             Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
                                             IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
-                                                Icon(TablerIcons.X, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(13.dp))
+                                                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(13.dp))
                                             }
                                         }
                                     }
                                 }
                             } else if (!showAddGlossaryField) {
-                                Text("Žádné pojmy ve slovníku", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
+                                Text(stringResource(R.string.detail_info_no_glossary), color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
                             }
                         }
                     }
@@ -801,7 +805,7 @@ fun MangaDetailInfoScreen(
                     // ── Poznámky ──────────────────────────────────────────────
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text(text = "POZNÁMKY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
+                            Text(text = stringResource(R.string.detail_info_section_notes), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
                             BasicTextField(
                                 value = noteText,
                                 onValueChange = { noteText = it },
@@ -815,7 +819,7 @@ fun MangaDetailInfoScreen(
                                             .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
                                             .padding(12.dp),
                                     ) {
-                                        if (noteText.isEmpty()) Text("Přidej poznámku k tomuto mangu…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
+                                        if (noteText.isEmpty()) Text(stringResource(R.string.detail_info_note_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
                                         inner()
                                     }
                                 },
@@ -825,7 +829,7 @@ fun MangaDetailInfoScreen(
                                 TextButton(
                                     onClick = { viewModel.saveNote(noteText) },
                                     modifier = Modifier.align(Alignment.End),
-                                ) { Text("Uložit", color = GlowViolet) }
+                                ) { Text(stringResource(R.string.common_save), color = GlowViolet) }
                             }
                         }
                     }
@@ -833,7 +837,7 @@ fun MangaDetailInfoScreen(
                     // ── Stahování ─────────────────────────────────────────────
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text(text = "STAHOVÁNÍ", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
+                            Text(text = stringResource(R.string.detail_info_section_downloads), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
 
                             Row(
                                 modifier = Modifier
@@ -846,7 +850,7 @@ fun MangaDetailInfoScreen(
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Auto-stahování nových kapitol", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                Text(stringResource(R.string.detail_info_auto_download), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
                                 Switch(
                                     checked = autoDownload,
                                     onCheckedChange = { viewModel.toggleAutoDownload() },
@@ -864,7 +868,7 @@ fun MangaDetailInfoScreen(
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Vyloučit z automatických aktualizací", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                Text(stringResource(R.string.detail_info_exclude_updates), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
                                 Switch(
                                     checked = excludeFromUpdates,
                                     onCheckedChange = { viewModel.toggleExcludeFromUpdates() },
@@ -890,7 +894,7 @@ fun MangaDetailInfoScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Hledat na AniListu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.detail_info_search_anilist_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -899,7 +903,7 @@ fun MangaDetailInfoScreen(
                     OutlinedTextField(
                         value = aniListSearchQuery,
                         onValueChange = { aniListSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        placeholder = { Text(stringResource(R.string.detail_info_manga_title_placeholder), color = TextSecondary) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -910,7 +914,7 @@ fun MangaDetailInfoScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchAniList(aniListSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = aniListSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = stringResource(R.string.common_search), tint = aniListSheetColor)
                     }
                 }
                 if (aniListSearchLoading) {
@@ -937,7 +941,7 @@ fun MangaDetailInfoScreen(
                                 Text(am.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
                         }
-                        if (aniListSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                        if (aniListSearchResults.isEmpty()) Text(stringResource(R.string.detail_info_no_search_results), color = TextSecondary, fontSize = 13.sp)
                     }
                 }
             }
@@ -956,7 +960,7 @@ fun MangaDetailInfoScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Hledat na Kitsu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.detail_info_search_kitsu_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -965,7 +969,7 @@ fun MangaDetailInfoScreen(
                     OutlinedTextField(
                         value = kitsuSearchQuery,
                         onValueChange = { kitsuSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        placeholder = { Text(stringResource(R.string.detail_info_manga_title_placeholder), color = TextSecondary) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -976,7 +980,7 @@ fun MangaDetailInfoScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchKitsu(kitsuSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = kitsuSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = stringResource(R.string.common_search), tint = kitsuSheetColor)
                     }
                 }
                 if (kitsuSearchLoading) {
@@ -1006,7 +1010,7 @@ fun MangaDetailInfoScreen(
                                 }
                             }
                         }
-                        if (kitsuSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                        if (kitsuSearchResults.isEmpty()) Text(stringResource(R.string.detail_info_no_search_results), color = TextSecondary, fontSize = 13.sp)
                     }
                 }
             }
@@ -1025,7 +1029,7 @@ fun MangaDetailInfoScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Hledat na MangaUpdates", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.detail_info_search_mu_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1034,7 +1038,7 @@ fun MangaDetailInfoScreen(
                     OutlinedTextField(
                         value = muSearchQuery,
                         onValueChange = { muSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
+                        placeholder = { Text(stringResource(R.string.detail_info_manga_title_placeholder), color = TextSecondary) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -1045,7 +1049,7 @@ fun MangaDetailInfoScreen(
                         ),
                     )
                     IconButton(onClick = { viewModel.searchMu(muSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = muSheetColor)
+                        Icon(TablerIcons.Search, contentDescription = stringResource(R.string.common_search), tint = muSheetColor)
                     }
                 }
                 if (muSearchLoading) {
@@ -1071,11 +1075,11 @@ fun MangaDetailInfoScreen(
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(mu.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    if (mu.year != null) Text("Rok: ${mu.year}", color = TextSecondary, fontSize = 12.sp)
+                                    if (mu.year != null) Text(stringResource(R.string.detail_info_search_result_year, mu.year!!), color = TextSecondary, fontSize = 12.sp)
                                 }
                             }
                         }
-                        if (muSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                        if (muSearchResults.isEmpty()) Text(stringResource(R.string.detail_info_no_search_results), color = TextSecondary, fontSize = 13.sp)
                     }
                 }
             }
@@ -1096,10 +1100,10 @@ fun MangaDetailInfoScreen(
                     .padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Hledat na MyAnimeList", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.detail_info_search_mal_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 if (!viewModel.malHasClientId) {
                     Text(
-                        "MAL_CLIENT_ID není nastaven. Zaregistruj appku na myanimelist.net/apiconfig a vlož CLIENT ID do local.properties.",
+                        stringResource(R.string.detail_info_mal_no_client_id),
                         color = Color(0xFFF59E0B),
                         fontSize = 13.sp,
                     )
@@ -1112,7 +1116,7 @@ fun MangaDetailInfoScreen(
                         OutlinedTextField(
                             value = malSearchQuery,
                             onValueChange = { malSearchQuery = it },
-                            placeholder = { Text("Název mangy...", color = TextSecondary) },
+                            placeholder = { Text(stringResource(R.string.detail_info_manga_title_placeholder), color = TextSecondary) },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -1123,7 +1127,7 @@ fun MangaDetailInfoScreen(
                             ),
                         )
                         IconButton(onClick = { viewModel.searchMal(malSearchQuery) }) {
-                            Icon(TablerIcons.Search, contentDescription = "Hledat", tint = Color(0xFF2E51A2))
+                            Icon(TablerIcons.Search, contentDescription = stringResource(R.string.common_search), tint = Color(0xFF2E51A2))
                         }
                     }
                     if (malSearchLoading) {
@@ -1162,7 +1166,7 @@ fun MangaDetailInfoScreen(
                                 }
                             }
                             if (malSearchResults.isEmpty()) {
-                                Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
+                                Text(stringResource(R.string.detail_info_no_search_results), color = TextSecondary, fontSize = 13.sp)
                             }
                         }
                     }

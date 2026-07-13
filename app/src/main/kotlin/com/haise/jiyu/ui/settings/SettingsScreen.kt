@@ -22,10 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -64,16 +66,16 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
 ) {
     val categories = listOf(
-        SettingsCategory("Vzhled", "Jazyk, Téma, Knihovna", TablerIcons.Palette, onOpenAppearance),
-        SettingsCategory("Zdroje mang", "Katalog zdrojů, Vlastní CSS, Madara zdroje", TablerIcons.Stack, onOpenSources),
-        SettingsCategory("Nastavení čtečky", "Směr čtení, Režim čtení, Téma čtečky", TablerIcons.Book, onOpenReaderSettings),
-        SettingsCategory("Uložiště a síť", "Cache překladů, Cache obrázků", TablerIcons.Database, onOpenStorage),
-        SettingsCategory("Stažené", "Složka stahování, Wi-Fi, Správa", TablerIcons.Download, onOpenDownloadsSettings),
-        SettingsCategory("Zkontrolovat nové kapitoly", "Interval, Notifikace", TablerIcons.Refresh, onOpenUpdateCheck),
-        SettingsCategory("Služby", "Cloud sync, MyAnimeList, Kitsu, MangaUpdates", TablerIcons.Puzzle, onOpenServices),
-        SettingsCategory("Zálohovat a obnovit", "Záloha knihovny, Záloha nastavení, Import Mihon", TablerIcons.History, onOpenBackup),
-        SettingsCategory("Čtení", "Cíle čtení, Community listy, Duplikát detektor", TablerIcons.Target, onOpenReading),
-        SettingsCategory("O aplikaci", "Verze, Aktualizace", TablerIcons.InfoCircle, onOpenAbout),
+        SettingsCategory(stringResource(R.string.settings_main_appearance_title), stringResource(R.string.settings_main_appearance_subtitle), TablerIcons.Palette, onOpenAppearance),
+        SettingsCategory(stringResource(R.string.settings_main_sources_title), stringResource(R.string.settings_main_sources_subtitle), TablerIcons.Stack, onOpenSources),
+        SettingsCategory(stringResource(R.string.settings_main_reader_title), stringResource(R.string.settings_main_reader_subtitle), TablerIcons.Book, onOpenReaderSettings),
+        SettingsCategory(stringResource(R.string.settings_main_storage_title), stringResource(R.string.settings_main_storage_subtitle), TablerIcons.Database, onOpenStorage),
+        SettingsCategory(stringResource(R.string.settings_main_downloads_title), stringResource(R.string.settings_main_downloads_subtitle), TablerIcons.Download, onOpenDownloadsSettings),
+        SettingsCategory(stringResource(R.string.settings_main_update_check_title), stringResource(R.string.settings_main_update_check_subtitle), TablerIcons.Refresh, onOpenUpdateCheck),
+        SettingsCategory(stringResource(R.string.settings_main_services_title), stringResource(R.string.settings_main_services_subtitle), TablerIcons.Puzzle, onOpenServices),
+        SettingsCategory(stringResource(R.string.settings_main_backup_title), stringResource(R.string.settings_main_backup_subtitle), TablerIcons.History, onOpenBackup),
+        SettingsCategory(stringResource(R.string.settings_main_reading_title), stringResource(R.string.settings_main_reading_subtitle), TablerIcons.Target, onOpenReading),
+        SettingsCategory(stringResource(R.string.settings_main_about_title), stringResource(R.string.settings_main_about_subtitle), TablerIcons.InfoCircle, onOpenAbout),
     )
 
     Scaffold(containerColor = Color.Transparent) { innerPadding ->
@@ -83,7 +85,7 @@ fun SettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Nastavení", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_title), onBack = onBack)
 
             Column(
                 modifier = Modifier

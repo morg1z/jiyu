@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.auth.AuthRepository
 import com.haise.jiyu.auth.JiyuUser
@@ -113,10 +114,10 @@ class AccountViewModel @Inject constructor(
                     _authState.value = AuthUiState.Success
                     syncNow()
                 } else {
-                    _authState.value = AuthUiState.Error("Nepodporovaný typ přihlášení")
+                    _authState.value = AuthUiState.Error(appContext.getString(R.string.account_error_unsupported_credential))
                 }
             } catch (e: Exception) {
-                _authState.value = AuthUiState.Error(e.message ?: "Chyba přihlášení")
+                _authState.value = AuthUiState.Error(e.message ?: appContext.getString(R.string.account_error_login_generic))
             }
         }
     }
@@ -134,9 +135,9 @@ class AccountViewModel @Inject constructor(
             try {
                 syncRepository.pushToCloud()
                 syncRepository.pullFromCloud()
-                _syncState.value = SyncState.Done("Synchronizace dokončena")
+                _syncState.value = SyncState.Done(appContext.getString(R.string.account_sync_done))
             } catch (e: Exception) {
-                _syncState.value = SyncState.Error(e.message ?: "Chyba synchronizace")
+                _syncState.value = SyncState.Error(e.message ?: appContext.getString(R.string.account_error_sync_generic))
             }
         }
     }
@@ -150,7 +151,7 @@ class AccountViewModel @Inject constructor(
                 scheduleBackgroundSync()
                 syncNow()
             } catch (e: Exception) {
-                _authState.value = AuthUiState.Error(e.message ?: "Chyba přihlášení")
+                _authState.value = AuthUiState.Error(e.message ?: appContext.getString(R.string.account_error_login_generic))
             }
         }
     }
@@ -162,7 +163,7 @@ class AccountViewModel @Inject constructor(
                 authRepository.signUpWithEmail(email, password)
                 _authState.value = AuthUiState.Success
             } catch (e: Exception) {
-                _authState.value = AuthUiState.Error(e.message ?: "Chyba registrace")
+                _authState.value = AuthUiState.Error(e.message ?: appContext.getString(R.string.account_error_signup_generic))
             }
         }
     }
@@ -173,7 +174,7 @@ class AccountViewModel @Inject constructor(
                 authRepository.resetPassword(email)
                 _authState.value = AuthUiState.Done
             } catch (e: Exception) {
-                _authState.value = AuthUiState.Error("Email pro reset odeslán (pokud účet existuje)")
+                _authState.value = AuthUiState.Error(appContext.getString(R.string.account_password_reset_email_sent))
             }
         }
     }

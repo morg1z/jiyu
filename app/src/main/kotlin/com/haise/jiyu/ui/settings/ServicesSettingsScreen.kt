@@ -31,10 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -65,7 +67,7 @@ fun ServicesSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Služby", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_services_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -73,13 +75,13 @@ fun ServicesSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Účet") {
+                SettingsSection(title = stringResource(R.string.settings_services_account_section)) {
                     OutlinedButton(
                         onClick = onOpenAccount,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
-                        Text("Přihlášení & Cloud sync")
+                        Text(stringResource(R.string.settings_services_account_button))
                     }
                 }
 
@@ -94,16 +96,16 @@ fun ServicesSettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_services_logged_in), color = Cyan, fontWeight = FontWeight.Medium)
                                 if (malUsername.isNotBlank()) Text(malUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                             }
                             TextButton(onClick = { viewModel.malLogout() }) {
-                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.settings_services_logout), color = MaterialTheme.colorScheme.error)
                             }
                         }
                     } else {
                         Text(
-                            "Přihlas se přes MAL OAuth pro synchronizaci sledování.",
+                            stringResource(R.string.settings_services_mal_login_desc),
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -118,11 +120,11 @@ fun ServicesSettingsScreen(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            Text("Přihlásit se přes MyAnimeList")
+                            Text(stringResource(R.string.settings_services_mal_login_button))
                         }
                     }
                     Text(
-                        "MAL Client ID: přidej do local.properties jako MAL_CLIENT_ID=xxx",
+                        stringResource(R.string.settings_services_mal_client_id_hint),
                         color = TextSecondary,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
@@ -140,11 +142,11 @@ fun ServicesSettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_services_logged_in), color = Cyan, fontWeight = FontWeight.Medium)
                                 if (kitsuUsername.isNotBlank()) Text(kitsuUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                             }
                             TextButton(onClick = { viewModel.kitsuLogout() }) {
-                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.settings_services_logout), color = MaterialTheme.colorScheme.error)
                             }
                         }
                     } else {
@@ -152,7 +154,7 @@ fun ServicesSettingsScreen(
                         var kitsuPass  by remember { mutableStateOf("") }
                         Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                             Text(
-                                "Přihlas se ke Kitsu pro párování mangy.",
+                                stringResource(R.string.settings_services_kitsu_login_desc),
                                 color = TextSecondary,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(bottom = 6.dp),
@@ -160,14 +162,14 @@ fun ServicesSettingsScreen(
                             TextField(
                                 value = kitsuEmail,
                                 onValueChange = { kitsuEmail = it; viewModel.clearKitsuLoginError() },
-                                label = { Text("E-mail") },
+                                label = { Text(stringResource(R.string.settings_services_email_label)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                             )
                             TextField(
                                 value = kitsuPass,
                                 onValueChange = { kitsuPass = it; viewModel.clearKitsuLoginError() },
-                                label = { Text("Heslo") },
+                                label = { Text(stringResource(R.string.settings_services_password_label)) },
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
@@ -182,7 +184,7 @@ fun ServicesSettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 if (kitsuLoginLoading) JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                else Text("Přihlásit se ke Kitsu")
+                                else Text(stringResource(R.string.settings_services_kitsu_login_button))
                             }
                         }
                     }
@@ -199,11 +201,11 @@ fun ServicesSettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text("Přihlášen", color = Cyan, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_services_logged_in), color = Cyan, fontWeight = FontWeight.Medium)
                                 if (muUsername.isNotBlank()) Text(muUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                             }
                             TextButton(onClick = { viewModel.muLogout() }) {
-                                Text("Odhlásit", color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.settings_services_logout), color = MaterialTheme.colorScheme.error)
                             }
                         }
                     } else {
@@ -211,7 +213,7 @@ fun ServicesSettingsScreen(
                         var muPass by remember { mutableStateOf("") }
                         Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                             Text(
-                                "Přihlas se k MangaUpdates pro párování mangy.",
+                                stringResource(R.string.settings_services_mu_login_desc),
                                 color = TextSecondary,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(bottom = 6.dp),
@@ -219,14 +221,14 @@ fun ServicesSettingsScreen(
                             TextField(
                                 value = muUser,
                                 onValueChange = { muUser = it; viewModel.clearMuLoginError() },
-                                label = { Text("Uživatelské jméno") },
+                                label = { Text(stringResource(R.string.settings_services_username_label)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                             )
                             TextField(
                                 value = muPass,
                                 onValueChange = { muPass = it; viewModel.clearMuLoginError() },
-                                label = { Text("Heslo") },
+                                label = { Text(stringResource(R.string.settings_services_password_label)) },
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
@@ -241,7 +243,7 @@ fun ServicesSettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 if (muLoginLoading) JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                else Text("Přihlásit se k MangaUpdates")
+                                else Text(stringResource(R.string.settings_services_mu_login_button))
                             }
                         }
                     }

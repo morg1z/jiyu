@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.CATEGORY_COLORS
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -230,7 +231,8 @@ class LibraryViewModel @Inject constructor(
                 }
             }
             if (errors.isNotEmpty()) {
-                _refreshError.value = "Nepodařilo se aktualizovat: ${errors.take(3).joinToString()}${if (errors.size > 3) " a další" else ""}"
+                val suffix = if (errors.size > 3) context.getString(R.string.library_refresh_error_and_more) else ""
+                _refreshError.value = context.getString(R.string.library_refresh_error, errors.take(3).joinToString(), suffix)
             }
             _isRefreshing.value = false
         }

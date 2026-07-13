@@ -38,10 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -69,7 +71,7 @@ fun SourcesSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Zdroje mang", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_main_sources_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -77,31 +79,31 @@ fun SourcesSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Zdroje") {
+                SettingsSection(title = stringResource(R.string.settings_sources_section_title)) {
                     OutlinedButton(
                         onClick = onOpenSourceCatalog,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
                     ) {
-                        Text("Katalog zdrojů (${viewModel.getCatalog().size})")
+                        Text(stringResource(R.string.settings_sources_catalog_button, viewModel.getCatalog().size))
                     }
                     OutlinedButton(
                         onClick = onOpenCustomCss,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
                     ) {
-                        Text("Vlastní CSS pro web zdroje")
+                        Text(stringResource(R.string.settings_sources_custom_css_button))
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
 
                 // ── Vlastní zdroje (Madara) ───────────────────────────────────
-                SettingsSection(title = "Vlastní zdroje (Madara)") {
+                SettingsSection(title = stringResource(R.string.settings_sources_madara_section_title)) {
                     var showAddDialog by remember { mutableStateOf(false) }
 
                     Text(
-                        text = "Generický zdroj pro weby postavené na Madara šabloně. Zadej název a adresu webu - appka proti ní zkusí parsovat standardní Madara markup.",
+                        text = stringResource(R.string.settings_sources_madara_description),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -117,7 +119,7 @@ fun SourcesSettingsScreen(
                                 Text(source.baseUrl, color = TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                             IconButton(onClick = { viewModel.deleteCustomSource(source) }) {
-                                Icon(TablerIcons.Trash, contentDescription = "Smazat", tint = MaterialTheme.colorScheme.error)
+                                Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.common_delete), tint = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -128,7 +130,7 @@ fun SourcesSettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
                     ) {
                         Icon(TablerIcons.Plus, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Přidat zdroj")
+                        Text(stringResource(R.string.settings_sources_add_button))
                     }
 
                     if (showAddDialog) {
@@ -149,7 +151,7 @@ fun SourcesSettingsScreen(
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { showAddDialog = false },
                             containerColor = Color(0xFF111B35),
-                            title = { Text("Přidat Madara zdroj", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            title = { Text(stringResource(R.string.settings_sources_add_dialog_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
                             text = {
                                 Column(
                                     modifier = Modifier
@@ -159,7 +161,7 @@ fun SourcesSettingsScreen(
                                     TextField(
                                         value = name,
                                         onValueChange = { name = it },
-                                        label = { Text("Název") },
+                                        label = { Text(stringResource(R.string.settings_sources_field_name)) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -167,14 +169,20 @@ fun SourcesSettingsScreen(
                                     TextField(
                                         value = url,
                                         onValueChange = { url = it },
-                                        label = { Text("Adresa webu (https://…)") },
+                                        label = { Text(stringResource(R.string.settings_sources_field_url)) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                     Spacer(Modifier.height(8.dp))
-                                    Text("Typ obsahu", color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
+                                    Text(stringResource(R.string.settings_sources_content_type_label), color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        listOf("MANGA" to "Manga", "MANHWA" to "Manhwa", "MANHUA" to "Manhua", "NOVEL" to "Novely", "COMIC" to "Komiksy").forEach { (type, label) ->
+                                        listOf(
+                                            "MANGA" to stringResource(R.string.settings_sources_type_manga),
+                                            "MANHWA" to stringResource(R.string.settings_sources_type_manhwa),
+                                            "MANHUA" to stringResource(R.string.settings_sources_type_manhua),
+                                            "NOVEL" to stringResource(R.string.settings_sources_type_novel),
+                                            "COMIC" to stringResource(R.string.settings_sources_type_comic),
+                                        ).forEach { (type, label) ->
                                             val sel = selectedContentType == type
                                             Box(
                                                 modifier = Modifier
@@ -190,23 +198,23 @@ fun SourcesSettingsScreen(
                                     Spacer(Modifier.height(8.dp))
                                     TextButton(onClick = { showAdvanced = !showAdvanced }) {
                                         Text(
-                                            if (showAdvanced) "Skrýt pokročilé selektory" else "Pokročilé selektory (volitelné)",
+                                            if (showAdvanced) stringResource(R.string.settings_sources_advanced_hide) else stringResource(R.string.settings_sources_advanced_show),
                                             color = Cyan,
                                         )
                                     }
                                     if (showAdvanced) {
                                         Text(
-                                            text = "Vyplň jen pokud výchozí Madara selektory na tomto webu nesedí (téma bylo upravené). Prázdné pole = použije se výchozí.",
+                                            text = stringResource(R.string.settings_sources_advanced_description),
                                             color = TextSecondary,
                                             style = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.padding(bottom = 8.dp),
                                         )
-                                        SelectorField("Seznam položek (list)", listItemSel) { listItemSel = it }
-                                        SelectorField("Odkaz s názvem (title link)", titleLinkSel) { titleLinkSel = it }
-                                        SelectorField("Popis (description)", descriptionSel) { descriptionSel = it }
-                                        SelectorField("Stav vydávání (status)", statusSel) { statusSel = it }
-                                        SelectorField("Seznam kapitol (chapter list)", chapterListSel) { chapterListSel = it }
-                                        SelectorField("Obrázky stránky (page image)", pageImageSel) { pageImageSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_list), listItemSel) { listItemSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_title_link), titleLinkSel) { titleLinkSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_description), descriptionSel) { descriptionSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_status), statusSel) { statusSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_chapter_list), chapterListSel) { chapterListSel = it }
+                                        SelectorField(stringResource(R.string.settings_sources_selector_page_image), pageImageSel) { pageImageSel = it }
                                     }
 
                                     Spacer(Modifier.height(8.dp))
@@ -229,17 +237,17 @@ fun SourcesSettingsScreen(
                                         if (testState == SourceTestState.Testing) {
                                             JiyuLoadingIndicator(modifier = Modifier.padding(end = 8.dp), size = 16.dp, strokeWidth = 2.dp)
                                         }
-                                        Text("Otestovat připojení")
+                                        Text(stringResource(R.string.settings_sources_test_connection))
                                     }
                                     when (val s = testState) {
                                         is SourceTestState.Success -> Text(
-                                            "✓ Nalezeno ${s.count} položek",
+                                            stringResource(R.string.settings_sources_test_success, s.count),
                                             color = Color(0xFF81C784),
                                             style = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.padding(top = 6.dp),
                                         )
                                         is SourceTestState.Failure -> Text(
-                                            "✗ ${s.message}",
+                                            stringResource(R.string.settings_sources_test_failure, s.message),
                                             color = MaterialTheme.colorScheme.error,
                                             style = MaterialTheme.typography.bodySmall,
                                             modifier = Modifier.padding(top = 6.dp),
@@ -266,9 +274,9 @@ fun SourcesSettingsScreen(
                                             showAddDialog = false
                                         }
                                     },
-                                ) { Text("Přidat", color = GlowViolet) }
+                                ) { Text(stringResource(R.string.common_add), color = GlowViolet) }
                             },
-                            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Zrušit", color = TextSecondary) } },
+                            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text(stringResource(R.string.common_cancel), color = TextSecondary) } },
                         )
                     }
                 }

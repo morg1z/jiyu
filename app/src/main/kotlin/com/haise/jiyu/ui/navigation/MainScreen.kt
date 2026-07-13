@@ -24,11 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -41,13 +43,14 @@ private data class NavTab(
     val iconUnselected: ImageVector,
 )
 
-private val TABS = listOf(
-    NavTab(Routes.LIBRARY,  "Knihovna",    TablerIcons.Book,        TablerIcons.Book),
-    NavTab(Routes.MY_LIST,  "Seznam",      TablerIcons.ListCheck,   TablerIcons.ListCheck),
-    NavTab(Routes.UPDATES,  "Novinky",     TablerIcons.BellRinging, TablerIcons.BellRinging),
-    NavTab(Routes.BROWSE,   "Procházet",   TablerIcons.Search,      TablerIcons.Search),
-    NavTab(Routes.HISTORY,  "Historie",    TablerIcons.History,     TablerIcons.History),
-    NavTab(Routes.SETTINGS, "Nastavení",   TablerIcons.Settings,    TablerIcons.Settings),
+@Composable
+private fun rememberNavTabs(): List<NavTab> = listOf(
+    NavTab(Routes.LIBRARY,  stringResource(R.string.main_screen_tab_library),  TablerIcons.Book,        TablerIcons.Book),
+    NavTab(Routes.MY_LIST,  stringResource(R.string.main_screen_tab_list),     TablerIcons.ListCheck,   TablerIcons.ListCheck),
+    NavTab(Routes.UPDATES,  stringResource(R.string.main_screen_tab_updates), TablerIcons.BellRinging, TablerIcons.BellRinging),
+    NavTab(Routes.BROWSE,   stringResource(R.string.main_screen_tab_browse),  TablerIcons.Search,      TablerIcons.Search),
+    NavTab(Routes.HISTORY,  stringResource(R.string.main_screen_tab_history), TablerIcons.History,     TablerIcons.History),
+    NavTab(Routes.SETTINGS, stringResource(R.string.settings_title),          TablerIcons.Settings,    TablerIcons.Settings),
 )
 
 @Composable
@@ -57,6 +60,7 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
 ) {
     val newChaptersCount by viewModel.newChaptersCount.collectAsState()
+    val tabs = rememberNavTabs()
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDest = navBackStack?.destination
     val currentRoute = currentDest?.route
@@ -82,7 +86,7 @@ fun MainScreen(
                     containerColor = NightBlue.copy(alpha = 0.95f),
                     tonalElevation = 0.dp,
                 ) {
-                    TABS.forEach { tab ->
+                    tabs.forEach { tab ->
                         val selected = currentDest?.hierarchy?.any { it.route == tab.route } == true
                         NavigationBarItem(
                             selected = selected,

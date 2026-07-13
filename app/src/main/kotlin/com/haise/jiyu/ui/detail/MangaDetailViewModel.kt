@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaNoteDao
@@ -451,7 +452,7 @@ class MangaDetailViewModel @Inject constructor(
     fun refreshChapters() {
         val current = manga.value ?: return
         if (!networkMonitor.isOnline) {
-            _errorMessage.value = "Nejsi připojen k internetu"
+            _errorMessage.value = appContext.getString(R.string.detail_error_no_internet)
             return
         }
         viewModelScope.launch {
@@ -461,7 +462,7 @@ class MangaDetailViewModel @Inject constructor(
                 val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status)
                 repository.refreshChapters(mangaId, sManga)
             } catch (e: Exception) {
-                _errorMessage.value = "Aktualizace selhala: ${e.toFriendlyMessage()}"
+                _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
             } finally {
                 _isRefreshing.value = false
             }

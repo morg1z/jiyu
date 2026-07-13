@@ -19,7 +19,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
 
@@ -37,7 +39,7 @@ fun ReadingSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Čtení", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_reading_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -45,27 +47,27 @@ fun ReadingSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Čtení") {
+                SettingsSection(title = stringResource(R.string.settings_reading_title)) {
                     OutlinedButton(
                         onClick = onOpenGoals,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
-                        Text("Cíle čtení & Série dnů")
+                        Text(stringResource(R.string.settings_reading_goals_button))
                     }
                     OutlinedButton(
                         onClick = onOpenCommunity,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
-                        Text("Community manga listy")
+                        Text(stringResource(R.string.settings_reading_community_button))
                     }
                     OutlinedButton(
                         onClick = onOpenDuplicates,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
                     ) {
-                        Text("Duplikát detektor")
+                        Text(stringResource(R.string.settings_reading_duplicates_button))
                     }
                 }
 

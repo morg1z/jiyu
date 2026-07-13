@@ -39,12 +39,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -79,21 +81,21 @@ fun DuplicateDetectorScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Duplikáty",
+                    text = stringResource(R.string.duplicates_title),
                     style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                 )
                 Text(
-                    text = "${groups.size} skupin nalezeno",
+                    text = stringResource(R.string.duplicates_groups_found, groups.size),
                     color = TextSecondary,
                     fontSize = 12.sp,
                 )
             }
             IconButton(onClick = { viewModel.scan() }) {
-                Icon(TablerIcons.Refresh, contentDescription = "Znovu prohledat", tint = TextSecondary)
+                Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.duplicates_rescan), tint = TextSecondary)
             }
         }
 
@@ -104,9 +106,9 @@ fun DuplicateDetectorScreen(
         } else if (groups.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Žádné duplikáty nenalezeny", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.duplicates_empty_title), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
-                    Text("Všechna manga v knihovně mají unikátní názvy.", color = TextSecondary, fontSize = 13.sp)
+                    Text(stringResource(R.string.duplicates_empty_subtitle), color = TextSecondary, fontSize = 13.sp)
                 }
             }
         } else {
@@ -206,7 +208,7 @@ private fun DuplicateMangaRow(
         IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
             Icon(
                 TablerIcons.X,
-                contentDescription = "Odebrat z knihovny",
+                contentDescription = stringResource(R.string.duplicates_remove_from_library),
                 tint = GlowCyan.copy(alpha = 0.7f),
                 modifier = Modifier.size(16.dp),
             )

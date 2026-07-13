@@ -1,13 +1,16 @@
 package com.haise.jiyu.ui.updates
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.UpdateItem
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +24,7 @@ class UpdatesViewModel @Inject constructor(
     private val chapterDao: ChapterDao,
     private val repository: MangaRepository,
     private val settings: SettingsRepository,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     init {
@@ -53,7 +57,8 @@ class UpdatesViewModel @Inject constructor(
                 }
             }
             if (errors.isNotEmpty()) {
-                _refreshError.value = "Nepodařilo se: ${errors.take(3).joinToString()}${if (errors.size > 3) " a další" else ""}"
+                val suffix = if (errors.size > 3) appContext.getString(R.string.library_refresh_error_and_more) else ""
+                _refreshError.value = appContext.getString(R.string.updates_refresh_error, errors.take(3).joinToString(), suffix)
             }
             _isRefreshing.value = false
         }

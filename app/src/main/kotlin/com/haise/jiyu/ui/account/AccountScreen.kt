@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -74,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.auth.JiyuUser
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -96,16 +98,18 @@ fun AccountScreen(
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
     var showAniListWebView by remember { mutableStateOf(false) }
+    val errorPrefix = stringResource(R.string.account_error_prefix)
+    val passwordResetSentText = stringResource(R.string.account_password_reset_sent)
 
     LaunchedEffect(authState) {
         when (val s = authState) {
             is AuthUiState.Error -> {
-                snackbarHost.showSnackbar("Chyba: ${s.message}")
+                snackbarHost.showSnackbar(errorPrefix.format(s.message))
                 viewModel.clearAuthState()
             }
             is AuthUiState.Success -> viewModel.clearAuthState()
             is AuthUiState.Done -> {
-                snackbarHost.showSnackbar("Email pro reset hesla odeslán")
+                snackbarHost.showSnackbar(passwordResetSentText)
                 viewModel.clearAuthState()
             }
             else -> Unit
@@ -115,7 +119,7 @@ fun AccountScreen(
     LaunchedEffect(syncState) {
         when (val s = syncState) {
             is SyncState.Done -> { snackbarHost.showSnackbar(s.message); viewModel.clearSyncState() }
-            is SyncState.Error -> { snackbarHost.showSnackbar("Chyba: ${s.message}"); viewModel.clearSyncState() }
+            is SyncState.Error -> { snackbarHost.showSnackbar(errorPrefix.format(s.message)); viewModel.clearSyncState() }
             else -> Unit
         }
     }
@@ -133,10 +137,10 @@ fun AccountScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                    Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
                 }
                 Text(
-                    text = "Účet",
+                    text = stringResource(R.string.account_title),
                     style = TextStyle(
                         brush = titleGradient,
                         fontSize = 22.sp,
@@ -207,7 +211,7 @@ private fun AniListSection(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "AniList Tracking",
+                    stringResource(R.string.account_anilist_tracking_title),
                     color = TextPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
@@ -218,8 +222,8 @@ private fun AniListSection(
                 }
             }
             Text(
-                if (isConnected) "Připojeno — progress kapitol se automaticky synchronizuje."
-                else "Připoj svůj AniList účet a progress se bude automaticky aktualizovat při čtení.",
+                if (isConnected) stringResource(R.string.account_anilist_connected_desc)
+                else stringResource(R.string.account_anilist_disconnected_desc),
                 color = TextSecondary,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -228,11 +232,11 @@ private fun AniListSection(
             if (isConnected) {
                 TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
                     Icon(TablerIcons.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    Text("  Odpojit AniList", color = TextSecondary, fontSize = 13.sp)
+                    Text("  " + stringResource(R.string.account_anilist_disconnect), color = TextSecondary, fontSize = 13.sp)
                 }
             } else if (!hasClientId) {
                 Text(
-                    "AniList Client ID není nastaven. Zaregistruj appku na anilist.co/settings/developer (redirect URI: jiyu://anilist/callback) a vlož Client ID do local.properties jako ANILIST_CLIENT_ID=xxx",
+                    stringResource(R.string.account_anilist_missing_client_id),
                     color = Color(0xFFF59E0B),
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
@@ -244,7 +248,7 @@ private fun AniListSection(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Připojit AniList", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.account_anilist_connect), color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -278,11 +282,11 @@ private fun SignedOutContent(
             modifier = Modifier.size(80.dp),
         )
         Text(
-            "Jiyu Cloud",
+            stringResource(R.string.account_cloud_title),
             style = TextStyle(brush = titleGradient, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold),
         )
         Text(
-            "Synchronizuj svou knihovnu napříč zařízeními.",
+            stringResource(R.string.account_sync_subtitle),
             color = TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(8.dp))
@@ -296,7 +300,7 @@ private fun SignedOutContent(
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
                 text = { Text("Google", fontSize = 13.sp) })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                text = { Text("Email", fontSize = 13.sp) })
+                text = { Text(stringResource(R.string.account_email), fontSize = 13.sp) })
         }
 
         Spacer(Modifier.height(4.dp))
@@ -311,7 +315,7 @@ private fun SignedOutContent(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(0.82f).height(52.dp),
                 ) {
-                    Text("Přihlásit se přes Google", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.account_signin_google), color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }
             1 -> {
@@ -322,7 +326,7 @@ private fun SignedOutContent(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it.trim() },
-                        label = { Text("Email") },
+                        label = { Text(stringResource(R.string.account_email)) },
                         leadingIcon = { Icon(TablerIcons.Mail, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -342,7 +346,7 @@ private fun SignedOutContent(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Heslo") },
+                        label = { Text(stringResource(R.string.account_password)) },
                         leadingIcon = { Icon(TablerIcons.Lock, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
                         singleLine = true,
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -381,7 +385,7 @@ private fun SignedOutContent(
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                     ) {
                         Text(
-                            if (isSignUp) "Zaregistrovat se" else "Přihlásit se",
+                            if (isSignUp) stringResource(R.string.account_signup_button) else stringResource(R.string.account_signin_button),
                             color = Color.White, fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -391,7 +395,7 @@ private fun SignedOutContent(
                     ) {
                         TextButton(onClick = { isSignUp = !isSignUp }, contentPadding = PaddingValues(0.dp)) {
                             Text(
-                                if (isSignUp) "Již mám účet" else "Nový účet",
+                                if (isSignUp) stringResource(R.string.account_have_account) else stringResource(R.string.account_new_account),
                                 color = Cyan, fontSize = 12.sp,
                             )
                         }
@@ -400,7 +404,7 @@ private fun SignedOutContent(
                                 onClick = { if (email.isNotBlank()) onResetPassword(email) },
                                 contentPadding = PaddingValues(0.dp),
                             ) {
-                                Text("Zapomenuté heslo", color = TextSecondary, fontSize = 12.sp)
+                                Text(stringResource(R.string.account_forgot_password), color = TextSecondary, fontSize = 12.sp)
                             }
                         }
                     }
@@ -425,18 +429,18 @@ private fun SignedInContent(
         if (user.avatarUrl != null) {
             AsyncImage(
                 model = user.avatarUrl,
-                contentDescription = "Profilový obrázek ${user.displayName}",
+                contentDescription = stringResource(R.string.account_avatar_desc_named, user.displayName ?: ""),
                 modifier = Modifier.size(80.dp).clip(CircleShape),
             )
         } else {
             Icon(
                 TablerIcons.User,
-                contentDescription = "Profilový obrázek",
+                contentDescription = stringResource(R.string.account_avatar_desc),
                 tint = Violet,
                 modifier = Modifier.size(80.dp),
             )
         }
-        Text(user.displayName ?: "Uživatel", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(user.displayName ?: stringResource(R.string.account_default_username), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         if (user.email != null) {
             Text(user.email, color = TextSecondary, fontSize = 13.sp)
         }
@@ -454,14 +458,14 @@ private fun SignedInContent(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(TablerIcons.CloudUpload, contentDescription = null, tint = Cyan, modifier = Modifier.size(22.dp))
                     Text(
-                        "  Cloud Synchronizace",
+                        "  " + stringResource(R.string.account_cloud_sync_title),
                         color = TextPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                     )
                 }
                 Text(
-                    "Nahraj stav knihovny a přečtených kapitol do cloudu.",
+                    stringResource(R.string.account_cloud_sync_desc),
                     color = TextSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -475,10 +479,10 @@ private fun SignedInContent(
                 ) {
                     if (isSyncing) {
                         JiyuLoadingIndicator(size = 18.dp, strokeWidth = 2.dp)
-                        Text("  Synchronizuji...", color = Cyan)
+                        Text("  " + stringResource(R.string.account_syncing), color = Cyan)
                     } else {
                         Icon(TablerIcons.CloudUpload, contentDescription = null, tint = Cyan, modifier = Modifier.size(18.dp))
-                        Text("  Synchronizovat nyní", color = Cyan, fontWeight = FontWeight.SemiBold)
+                        Text("  " + stringResource(R.string.account_sync_now), color = Cyan, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -487,7 +491,7 @@ private fun SignedInContent(
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
             Icon(TablerIcons.Logout, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-            Text("  Odhlásit se", color = TextSecondary)
+            Text("  " + stringResource(R.string.account_sign_out), color = TextSecondary)
         }
     }
 }

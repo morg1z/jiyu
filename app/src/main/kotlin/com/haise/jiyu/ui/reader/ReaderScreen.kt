@@ -97,6 +97,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
@@ -111,6 +112,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
+import com.haise.jiyu.R
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.delay
@@ -181,12 +183,17 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
     if (showSleepTimerDialog) {
         AlertDialog(
             onDismissRequest = { showSleepTimerDialog = false },
-            title = { Text("Časovač spánku", color = Color.White) },
+            title = { Text(stringResource(R.string.reader_sleep_timer_title), color = Color.White) },
             text = {
                 Column {
-                    Text("Zavřít čtečku po:", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                    Text(stringResource(R.string.reader_sleep_timer_close_after), color = Color(0xFFB0BEC5), fontSize = 13.sp)
                     Spacer(Modifier.height(12.dp))
-                    listOf(15 to "15 minut", 30 to "30 minut", 45 to "45 minut", 60 to "1 hodina").forEach { (min, label) ->
+                    listOf(
+                        15 to stringResource(R.string.reader_sleep_timer_15min),
+                        30 to stringResource(R.string.reader_sleep_timer_30min),
+                        45 to stringResource(R.string.reader_sleep_timer_45min),
+                        60 to stringResource(R.string.reader_sleep_timer_1h),
+                    ).forEach { (min, label) ->
                         TextButton(onClick = {
                             viewModel.startSleepTimer(min) { activity.finish() }
                             showSleepTimerDialog = false
@@ -194,12 +201,12 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                     }
                     if (viewModel.sleepTimerRemaining.value != null) {
                         TextButton(onClick = { viewModel.cancelSleepTimer(); showSleepTimerDialog = false }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Zrušit časovač", color = Color(0xFFEF9A9A))
+                            Text(stringResource(R.string.reader_sleep_timer_cancel), color = Color(0xFFEF9A9A))
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showSleepTimerDialog = false }) { Text("Zavřít", color = Color(0xFFB0BEC5)) } },
+            confirmButton = { TextButton(onClick = { showSleepTimerDialog = false }) { Text(stringResource(R.string.common_close), color = Color(0xFFB0BEC5)) } },
             containerColor = Color(0xFF1A1B35),
         )
     }
@@ -244,6 +251,8 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
         else    -> Color.Black
     }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val shareChooserTitle = stringResource(R.string.reader_share_page_chooser)
+    val incognitoBadgeText = stringResource(R.string.reader_incognito_badge)
 
     Box(
         modifier = Modifier.fillMaxSize().background(bgColor),
@@ -270,7 +279,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                 onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
             )
-            pages.isEmpty() -> Text("Kapitolu se nepodařilo načíst.", color = Color.White)
+            pages.isEmpty() -> Text(stringResource(R.string.reader_chapter_load_failed), color = Color.White)
             else -> ReaderContent(
                 pages = pages,
                 initialPage = initialPage,
@@ -310,7 +319,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, pageUrl)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Sdílet stránku"))
+                    context.startActivity(Intent.createChooser(intent, shareChooserTitle))
                 },
                 onSleepTimerClick = { showSleepTimerDialog = true },
                 panelMode = panelMode,
@@ -352,7 +361,7 @@ fun ReaderScreen(viewModel: ReaderViewModel = hiltViewModel()) {
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
                 Text(
-                    "INKOGNITO",
+                    incognitoBadgeText,
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
@@ -452,13 +461,13 @@ private fun NovelContent(
                     } else {
                         Icon(
                             TablerIcons.Language,
-                            "Překlad kapitoly",
+                            stringResource(R.string.reader_translate_chapter_desc),
                             tint = if (translateMode) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
                         )
                     }
                 }
                 IconButton(onClick = { showSettings = !showSettings }) {
-                    Icon(TablerIcons.Sun, "Nastavení", tint = Color(0xFFB0BEC5))
+                    Icon(TablerIcons.Sun, stringResource(R.string.settings_title), tint = Color(0xFFB0BEC5))
                 }
             },
             colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0D0D1A)),
@@ -510,10 +519,10 @@ private fun NovelContent(
                             }
                         }
                         TextButton(onClick = { showGlossarySheet = true }) {
-                            Text("Slovník", color = Color(0xFF8B5CF6))
+                            Text(stringResource(R.string.reader_glossary_button), color = Color(0xFF8B5CF6))
                         }
                         TextButton(onClick = { onToggleTranslate(); showLangSettings = false }) {
-                            Text(if (translateMode) "Originál" else "Přeložit", color = Color(0xFF34D1BF))
+                            Text(stringResource(if (translateMode) R.string.reader_original_toggle else R.string.reader_translate_toggle), color = Color(0xFF34D1BF))
                         }
                     }
                 }
@@ -538,24 +547,29 @@ private fun NovelContent(
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text("Velikost: ${fontSize.toInt()}sp", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                        Text(stringResource(R.string.reader_font_size_label, fontSize.toInt()), color = Color(0xFFB0BEC5), fontSize = 13.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             IconButton(onClick = { if (fontSize > 10f) fontSize -= 1f }, modifier = Modifier.size(36.dp)) {
-                                Text("A-", color = Color(0xFFE8E8E8), fontSize = 13.sp)
+                                Text(stringResource(R.string.reader_font_decrease), color = Color(0xFFE8E8E8), fontSize = 13.sp)
                             }
                             IconButton(onClick = { if (fontSize < 30f) fontSize += 1f }, modifier = Modifier.size(36.dp)) {
-                                Text("A+", color = Color(0xFFE8E8E8), fontSize = 17.sp)
+                                Text(stringResource(R.string.reader_font_increase), color = Color(0xFFE8E8E8), fontSize = 17.sp)
                             }
                         }
                     }
-                    Text("Řádkování: ${String.format("%.1f", lineSpacing)}x", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                    Text(stringResource(R.string.reader_line_spacing_label, String.format("%.1f", lineSpacing)), color = Color(0xFFB0BEC5), fontSize = 13.sp)
                     Slider(
                         value = lineSpacing, onValueChange = { lineSpacing = it },
                         valueRange = 1.0f..2.5f,
                         colors = SliderDefaults.colors(thumbColor = Color(0xFF8B5CF6), activeTrackColor = Color(0xFF8B5CF6)),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("🌙 Tmavé", "🟤 Sépiové", "📄 Papír", "☀️ Bílé").forEachIndexed { i, label ->
+                        listOf(
+                            stringResource(R.string.reader_theme_dark),
+                            stringResource(R.string.reader_theme_sepia),
+                            stringResource(R.string.reader_theme_paper),
+                            stringResource(R.string.reader_theme_white),
+                        ).forEachIndexed { i, label ->
                             TextButton(
                                 onClick = { bgColorIndex = i },
                                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
@@ -587,10 +601,10 @@ private fun NovelContent(
                     Arrangement.SpaceBetween,
                 ) {
                     if (hasPrev) {
-                        TextButton(onClick = onPrev) { Text("← Předchozí", color = Color(0xFF34D1BF)) }
+                        TextButton(onClick = onPrev) { Text(stringResource(R.string.reader_prev_novel), color = Color(0xFF34D1BF)) }
                     } else { Spacer(Modifier) }
                     if (hasNext) {
-                        TextButton(onClick = onNext) { Text("Další →", color = Color(0xFF34D1BF)) }
+                        TextButton(onClick = onNext) { Text(stringResource(R.string.reader_next_novel), color = Color(0xFF34D1BF)) }
                     }
                 }
             }
@@ -796,7 +810,7 @@ private fun ReaderContent(
                         ) {
                             Icon(
                                 TablerIcons.ArrowBack,
-                                contentDescription = "Předchozí kapitola",
+                                contentDescription = stringResource(R.string.reader_prev_chapter_desc),
                                 tint = if (hasPrevChapter) Color.White else Color.White.copy(alpha = 0.25f),
                             )
                         }
@@ -819,7 +833,7 @@ private fun ReaderContent(
                                 if (isOfflineChapter) {
                                     Icon(
                                         TablerIcons.WifiOff,
-                                        contentDescription = "Offline",
+                                        contentDescription = stringResource(R.string.reader_offline_desc),
                                         tint = Color(0xFF4FC3F7),
                                         modifier = Modifier.size(13.dp).padding(start = 4.dp),
                                     )
@@ -850,7 +864,7 @@ private fun ReaderContent(
                         IconButton(onClick = onTogglePanelMode) {
                             Icon(
                                 TablerIcons.LayoutRows,
-                                contentDescription = "Panel po panelu",
+                                contentDescription = stringResource(R.string.reader_panel_mode_desc),
                                 tint = if (panelMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
                             )
@@ -860,7 +874,7 @@ private fun ReaderContent(
                         IconButton(onClick = onSleepTimerClick) {
                             Icon(
                                 TablerIcons.Moon,
-                                contentDescription = "Časovač spánku",
+                                contentDescription = stringResource(R.string.reader_sleep_timer_title),
                                 tint = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.size(20.dp),
                             )
@@ -872,7 +886,7 @@ private fun ReaderContent(
                             IconButton(onClick = { showChapterSheet = true }) {
                                 Icon(
                                     TablerIcons.ListCheck,
-                                    contentDescription = "Vybrat kapitolu",
+                                    contentDescription = stringResource(R.string.reader_pick_chapter_desc),
                                     tint = Color.White.copy(alpha = 0.7f),
                                     modifier = Modifier.size(20.dp),
                                 )
@@ -885,7 +899,7 @@ private fun ReaderContent(
                                     containerColor = Color(0xFF111B35),
                                 ) {
                                     Text(
-                                        text = "Kapitoly (${allChapters.size})",
+                                        text = stringResource(R.string.reader_chapters_sheet_title, allChapters.size),
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp,
@@ -933,7 +947,7 @@ private fun ReaderContent(
                         IconButton(onClick = onToggleIncognito) {
                             Icon(
                                 if (incognitoMode) TablerIcons.EyeOff else TablerIcons.Eye,
-                                contentDescription = if (incognitoMode) "Vypnout inkognito" else "Inkognito",
+                                contentDescription = stringResource(if (incognitoMode) R.string.reader_incognito_off_desc else R.string.reader_incognito_on_desc),
                                 tint = if (incognitoMode) Color(0xFFCE93D8) else Color.White.copy(alpha = 0.5f),
                                 modifier = Modifier.size(20.dp),
                             )
@@ -944,11 +958,11 @@ private fun ReaderContent(
                         IconButton(onClick = onToggleTranslate) {
                             Icon(
                                 TablerIcons.Language,
-                                contentDescription = when {
-                                    isTranslating -> "Zastavit překlad"
-                                    translateMode -> "Skrýt překlad"
-                                    else          -> "Přeložit kapitolu"
-                                },
+                                contentDescription = stringResource(when {
+                                    isTranslating -> R.string.reader_stop_translation_desc
+                                    translateMode -> R.string.reader_hide_translation_desc
+                                    else          -> R.string.reader_translate_chapter_action_desc
+                                }),
                                 tint = when {
                                     isTranslating -> Color(0xFFFFB74D)
                                     translateMode -> Color(0xFF4FC3F7)
@@ -964,7 +978,7 @@ private fun ReaderContent(
                         ) {
                             Icon(
                                 TablerIcons.ArrowRight,
-                                contentDescription = "Další kapitola",
+                                contentDescription = stringResource(R.string.reader_next_chapter_desc),
                                 tint = if (hasNextChapter) Color.White else Color.White.copy(alpha = 0.25f),
                             )
                         }
@@ -997,7 +1011,7 @@ private fun ReaderContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                     ) {
-                        Text("Překlad:", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                        Text(stringResource(R.string.reader_translation_label), color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                         Spacer(Modifier.width(6.dp))
                         Box {
                             Text(
@@ -1052,7 +1066,7 @@ private fun ReaderContent(
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "Slovník",
+                            stringResource(R.string.reader_glossary_button),
                             color = Color(0xFF8B5CF6),
                             fontSize = 12.sp,
                             modifier = Modifier
@@ -1126,9 +1140,13 @@ private fun ReaderContent(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Orientace:", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+                        Text(stringResource(R.string.reader_orientation_label), color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
                         Spacer(Modifier.width(4.dp))
-                        listOf("free" to "Auto", "portrait" to "↕ Portrét", "landscape" to "↔ Krajina").forEach { (value, label) ->
+                        listOf(
+                            "free" to stringResource(R.string.reader_orientation_auto),
+                            "portrait" to stringResource(R.string.reader_orientation_portrait),
+                            "landscape" to stringResource(R.string.reader_orientation_landscape),
+                        ).forEach { (value, label) ->
                             TextButton(
                                 onClick = { onSetReaderOrientation(value) },
                                 modifier = Modifier.height(28.dp),
@@ -1148,7 +1166,7 @@ private fun ReaderContent(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Překlad", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                                Text(stringResource(R.string.reader_translation_word), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                                 Spacer(Modifier.width(8.dp))
                                 Switch(
                                     checked = !showOriginal,
@@ -1161,7 +1179,7 @@ private fun ReaderContent(
                                     ),
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                Text("Originál", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                                Text(stringResource(R.string.reader_original_toggle), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                             }
                         }
                     }
@@ -1169,9 +1187,9 @@ private fun ReaderContent(
                     if (batchTranslating) {
                         batchProgress?.let { progress ->
                             Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Překlad všech… ${progress.done}/${progress.total}", color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                Text(stringResource(R.string.reader_translate_all_progress, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                                 IconButton(onClick = onCancelBatch, modifier = Modifier.size(28.dp)) {
-                                    Icon(TablerIcons.X, contentDescription = "Zrušit", tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
+                                    Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
                                 }
                             }
                             LinearProgressIndicator(
@@ -1189,7 +1207,7 @@ private fun ReaderContent(
                         ) {
                             Icon(TablerIcons.Language, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(16.dp).padding(end = 4.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Přeložit vše", color = Color(0xFF4FC3F7), fontSize = 13.sp)
+                            Text(stringResource(R.string.reader_translate_all_button), color = Color(0xFF4FC3F7), fontSize = 13.sp)
                         }
                     }
 
@@ -1197,7 +1215,7 @@ private fun ReaderContent(
                     if (translationProgress != null) {
                         translationProgress.let { progress ->
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Překládám… ${progress.done}/${progress.total}", color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                                Text(stringResource(R.string.reader_translating_progress, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                                 Text("${(progress.done * 100f / progress.total).toInt()} %", color = Color(0xFF4FC3F7), style = MaterialTheme.typography.labelMedium)
                             }
                             LinearProgressIndicator(progress = { progress.done.toFloat() / progress.total }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), color = Color(0xFF4FC3F7), trackColor = Color.White.copy(alpha = 0.2f))
@@ -1244,9 +1262,9 @@ private fun GlossaryBottomSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Slovník překladu", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(stringResource(R.string.reader_glossary_title), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text(
-                "Jména, techniky a přezdívky se přeloží vždy stejně napříč všemi kapitolami.",
+                stringResource(R.string.reader_glossary_desc),
                 color = Color(0xFFB0BEC5),
                 fontSize = 12.sp,
             )
@@ -1254,7 +1272,7 @@ private fun GlossaryBottomSheet(
                 TextField(
                     value = sourceText,
                     onValueChange = { sourceText = it },
-                    placeholder = { Text("Originál", color = Color(0xFFB0BEC5), fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.reader_original_toggle), color = Color(0xFFB0BEC5), fontSize = 13.sp) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     colors = androidx.compose.material3.TextFieldDefaults.colors(
@@ -1266,7 +1284,7 @@ private fun GlossaryBottomSheet(
                 TextField(
                     value = targetText,
                     onValueChange = { targetText = it },
-                    placeholder = { Text("Překlad", color = Color(0xFFB0BEC5), fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.reader_glossary_translation_placeholder), color = Color(0xFFB0BEC5), fontSize = 13.sp) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     colors = androidx.compose.material3.TextFieldDefaults.colors(
@@ -1281,10 +1299,10 @@ private fun GlossaryBottomSheet(
                     sourceText = ""
                     targetText = ""
                 }
-            }) { Text("Přidat ($targetLanguage)", color = Color(0xFF8B5CF6)) }
+            }) { Text(stringResource(R.string.reader_glossary_add_button, targetLanguage), color = Color(0xFF8B5CF6)) }
 
             if (glossary.isEmpty()) {
-                Text("Zatím žádné pojmy ve slovníku.", color = Color(0xFFB0BEC5), fontSize = 13.sp)
+                Text(stringResource(R.string.reader_glossary_empty), color = Color(0xFFB0BEC5), fontSize = 13.sp)
             } else {
                 glossary.forEach { entry ->
                     Row(
@@ -1297,7 +1315,7 @@ private fun GlossaryBottomSheet(
                     ) {
                         Text("${entry.sourceTerm} → ${entry.targetTerm}", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
                         IconButton(onClick = { onRemove(entry) }, modifier = Modifier.size(24.dp)) {
-                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
+                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -1381,7 +1399,7 @@ private fun MangaReader(
             containerColor = Color(0xFF111B35),
         ) {
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Text("Sdílet stránku", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 16.dp))
+                Text(stringResource(R.string.reader_share_page_chooser), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 16.dp))
                 OutlinedButton(
                     onClick = { onSharePage(sharePageUrl); showShareSheet = false },
                     modifier = Modifier.fillMaxWidth(),
@@ -1389,7 +1407,7 @@ private fun MangaReader(
                 ) {
                     Icon(TablerIcons.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Sdílet odkaz", color = Color(0xFF4FC3F7))
+                    Text(stringResource(R.string.reader_share_link), color = Color(0xFF4FC3F7))
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
@@ -1403,7 +1421,7 @@ private fun MangaReader(
                 ) {
                     Icon(TablerIcons.DeviceFloppy, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Uložit do galerie", color = Color(0xFF8B5CF6))
+                    Text(stringResource(R.string.reader_save_to_gallery), color = Color(0xFF8B5CF6))
                 }
                 Spacer(Modifier.height(32.dp))
             }
@@ -1558,7 +1576,7 @@ private fun MangaReader(
                 if (indices.size == 1) {
                     RetryableAsyncImage(
                         url = pages[indices[0]],
-                        contentDescription = "Stránka ${indices[0] + 1}",
+                        contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
                         contentScale = resolvedContentScale,
                         cropBorders = cropBorders,
                         modifier = Modifier
@@ -1589,7 +1607,7 @@ private fun MangaReader(
                             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
                                 RetryableAsyncImage(
                                     url = pages[idx],
-                                    contentDescription = "Stránka ${idx + 1}",
+                                    contentDescription = stringResource(R.string.reader_page_content_desc, idx + 1),
                                     contentScale = resolvedContentScale,
                                     modifier = Modifier.fillMaxSize(),
                                 )
@@ -1750,7 +1768,7 @@ private fun WebtoonPage(
     Box(modifier = Modifier.fillMaxWidth()) {
         RetryableAsyncImage(
             url = pageUrl,
-            contentDescription = "Stránka ${pageIndex + 1}",
+            contentDescription = stringResource(R.string.reader_page_content_desc, pageIndex + 1),
             contentScale = ContentScale.FillWidth,
             cropBorders = cropBorders,
             modifier = Modifier.fillMaxWidth(),
@@ -1827,10 +1845,10 @@ private fun RetryableAsyncImage(
                 ) {
                     Icon(TablerIcons.AlertCircle, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(32.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text("Stránka se nenačetla", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                    Text(stringResource(R.string.reader_page_load_failed), color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { isError = false; retryTrigger++ }) {
-                        Text("Zkusit znovu")
+                        Text(stringResource(R.string.common_retry))
                     }
                 }
             }

@@ -35,12 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -67,13 +69,13 @@ fun CustomCssScreen(
                 IconButton(onClick = onBack) {
                     Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
-                Text("Vlastní CSS", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(stringResource(R.string.settings_css_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
 
             Spacer(Modifier.height(8.dp))
 
             Text(
-                "CSS se injektuje do stránek webových zdrojů. Použij pro skrytí reklam nebo úpravu vzhledu.",
+                stringResource(R.string.settings_css_desc),
                 color = TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 8.dp),
@@ -95,7 +97,7 @@ fun CustomCssScreen(
                 ),
                 placeholder = {
                     Text(
-                        "/* Příklad: */\n.ad-banner { display: none !important; }",
+                        stringResource(R.string.settings_css_placeholder),
                         color = TextSecondary.copy(alpha = 0.5f),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp,
@@ -116,7 +118,7 @@ fun CustomCssScreen(
                     onClick = { draft = "" },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Reset", color = TextSecondary)
+                    Text(stringResource(R.string.settings_css_reset), color = TextSecondary)
                 }
                 Spacer(Modifier.weight(0.1f))
                 Button(
@@ -125,7 +127,7 @@ fun CustomCssScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Uložit", color = Color.White)
+                    Text(stringResource(R.string.common_save), color = Color.White)
                 }
             }
         }

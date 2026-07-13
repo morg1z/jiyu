@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,7 @@ import androidx.core.content.FileProvider
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextPrimary
@@ -76,7 +78,7 @@ fun MangaQrScreen(
                     Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
-                    text = "QR kód",
+                    text = stringResource(R.string.qr_title),
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -107,7 +109,7 @@ fun MangaQrScreen(
                 ) {
                     Image(
                         bitmap = qrBitmap.asImageBitmap(),
-                        contentDescription = "QR kód pro $mangaTitle",
+                        contentDescription = stringResource(R.string.qr_content_description, mangaTitle),
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
                     )
@@ -134,7 +136,7 @@ fun MangaQrScreen(
                 ) {
                     Icon(TablerIcons.Share, null, tint = Color.White)
                     Spacer(Modifier.size(8.dp))
-                    Text("Sdílet QR", color = Color.White)
+                    Text(stringResource(R.string.qr_share_button), color = Color.White)
                 }
             }
         }
@@ -166,6 +168,6 @@ private fun shareQr(context: android.content.Context, bitmap: Bitmap, title: Str
             putExtra(Intent.EXTRA_TEXT, title)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Sdílet QR"))
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.qr_share_button)))
     } catch (_: Exception) {}
 }

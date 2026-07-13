@@ -59,12 +59,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.source.catalog.CatalogSource
 import com.haise.jiyu.ui.theme.Cyan
@@ -99,7 +101,7 @@ fun SourceCatalogScreen(
                 ExtendedFloatingActionButton(
                     onClick = { showAddSheet = true },
                     icon = { Icon(TablerIcons.Plus, null) },
-                    text = { Text("Přidat zdroj") },
+                    text = { Text(stringResource(R.string.settings_source_catalog_add_source_fab)) },
                     containerColor = Violet,
                     contentColor = Color.White,
                     modifier = Modifier.navigationBarsPadding(),
@@ -122,10 +124,10 @@ fun SourceCatalogScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                    Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
                 }
                 Text(
-                    text = "Zdroje",
+                    text = stringResource(R.string.settings_source_catalog_title),
                     style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                     modifier = Modifier.padding(start = 4.dp),
                 )
@@ -140,7 +142,10 @@ fun SourceCatalogScreen(
                     .background(Color.White.copy(alpha = 0.06f))
                     .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
             ) {
-                listOf("Katalog", "Moje zdroje").forEachIndexed { index, label ->
+                listOf(
+                    stringResource(R.string.settings_source_catalog_tab_catalog),
+                    stringResource(R.string.settings_source_catalog_tab_mine),
+                ).forEachIndexed { index, label ->
                     val active = selectedTab == index
                     Box(
                         modifier = Modifier
@@ -210,7 +215,7 @@ private fun CatalogTab(
     val customSources by viewModel.customSources.collectAsState()
 
     Text(
-        text = "Přednastavené Madara zdroje — jedním klepnutím přidat.",
+        text = stringResource(R.string.settings_source_catalog_catalog_desc),
         color = TextSecondary,
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -218,7 +223,7 @@ private fun CatalogTab(
     Spacer(Modifier.height(4.dp))
 
     if (catalog.isEmpty()) {
-        Text("Katalog je prázdný.", color = TextSecondary, modifier = Modifier.padding(horizontal = 20.dp))
+        Text(stringResource(R.string.settings_source_catalog_empty_catalog), color = TextSecondary, modifier = Modifier.padding(horizontal = 20.dp))
     } else {
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             items(catalog, key = { it.id }) { source ->
@@ -245,9 +250,9 @@ private fun MySourcesTab(
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Zatím žádné vlastní zdroje", color = TextSecondary, fontSize = 15.sp)
+                Text(stringResource(R.string.settings_source_catalog_empty_mine_title), color = TextSecondary, fontSize = 15.sp)
                 Spacer(Modifier.height(4.dp))
-                Text("Klepni na + a přidej libovolný Madara web.", color = TextSecondary.copy(alpha = 0.6f), fontSize = 12.sp)
+                Text(stringResource(R.string.settings_source_catalog_empty_mine_desc), color = TextSecondary.copy(alpha = 0.6f), fontSize = 12.sp)
             }
         }
     } else {
@@ -312,14 +317,14 @@ private fun CatalogSourceCard(
         }
 
         if (installed) {
-            Icon(TablerIcons.Check, contentDescription = "Nainstalováno", tint = Color(0xFF66BB6A))
+            Icon(TablerIcons.Check, contentDescription = stringResource(R.string.settings_source_catalog_installed), tint = Color(0xFF66BB6A))
         } else {
             OutlinedButton(
                 onClick = onInstall,
                 modifier = Modifier.padding(start = 8.dp),
             ) {
                 Icon(TablerIcons.Download, null, modifier = Modifier.padding(end = 4.dp), tint = Violet)
-                Text("Přidat", color = Violet, fontSize = 13.sp)
+                Text(stringResource(R.string.common_add), color = Violet, fontSize = 13.sp)
             }
         }
     }
@@ -376,11 +381,11 @@ private fun AddCustomSourceForm(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            "Přidat vlastní Madara zdroj",
+            stringResource(R.string.settings_source_catalog_form_title),
             color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold,
         )
         Text(
-            "Funguje s libovolným webem postaveným na WordPress Madara tématu.",
+            stringResource(R.string.settings_source_catalog_form_desc),
             color = TextSecondary, fontSize = 13.sp,
         )
 
@@ -389,7 +394,7 @@ private fun AddCustomSourceForm(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Název zdroje *") },
+            label = { Text(stringResource(R.string.settings_source_catalog_name_label)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             colors = fieldColors,
@@ -398,14 +403,14 @@ private fun AddCustomSourceForm(
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
-            label = { Text("URL webu * (https://...)") },
+            label = { Text(stringResource(R.string.settings_source_catalog_url_label)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth(),
             colors = fieldColors,
             isError = url.isNotBlank() && !url.startsWith("http"),
             supportingText = if (url.isNotBlank() && !url.startsWith("http")) {
-                { Text("URL musí začínat https://", color = MaterialTheme.colorScheme.error) }
+                { Text(stringResource(R.string.settings_source_catalog_url_error), color = MaterialTheme.colorScheme.error) }
             } else null,
         )
 
@@ -418,7 +423,7 @@ private fun AddCustomSourceForm(
                 value = contentType,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Typ obsahu") },
+                label = { Text(stringResource(R.string.settings_source_catalog_content_type_label)) },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = ctDropdownOpen) },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                 colors = fieldColors,
@@ -448,7 +453,7 @@ private fun AddCustomSourceForm(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Vlastní CSS selektory (nepovinné)",
+                stringResource(R.string.settings_source_catalog_advanced_toggle),
                 color = TextSecondary, fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
@@ -463,16 +468,16 @@ private fun AddCustomSourceForm(
         AnimatedVisibility(visible = advancedExpanded, enter = expandVertically(), exit = shrinkVertically()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Prázdné pole = použije se výchozí Madara selektor.",
+                    stringResource(R.string.settings_source_catalog_advanced_hint),
                     color = TextSecondary.copy(alpha = 0.7f), fontSize = 11.sp,
                 )
                 listOf(
-                    Triple("Položka v seznamu", listItem) { v: String -> listItem = v },
-                    Triple("Odkaz s názvem", titleLink) { v: String -> titleLink = v },
-                    Triple("Popis", description) { v: String -> description = v },
-                    Triple("Status", status) { v: String -> status = v },
-                    Triple("Seznam kapitol", chapterList) { v: String -> chapterList = v },
-                    Triple("Obrázek stránky", pageImage) { v: String -> pageImage = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_list_item), listItem) { v: String -> listItem = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_title_link), titleLink) { v: String -> titleLink = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_description), description) { v: String -> description = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_status), status) { v: String -> status = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_chapter_list), chapterList) { v: String -> chapterList = v },
+                    Triple(stringResource(R.string.settings_source_catalog_field_page_image), pageImage) { v: String -> pageImage = v },
                 ).forEach { (label, value, setter) ->
                     OutlinedTextField(
                         value = value,
@@ -481,7 +486,7 @@ private fun AddCustomSourceForm(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors,
-                        placeholder = { Text("výchozí", color = TextSecondary.copy(alpha = 0.4f), fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.settings_source_catalog_field_placeholder_default), color = TextSecondary.copy(alpha = 0.4f), fontSize = 12.sp) },
                     )
                 }
             }
@@ -492,14 +497,14 @@ private fun AddCustomSourceForm(
             is SourceTestState.Testing -> Row(verticalAlignment = Alignment.CenterVertically) {
                 JiyuLoadingIndicator(size = 16.dp, strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text("Testuji připojení...", color = TextSecondary, fontSize = 13.sp)
+                Text(stringResource(R.string.settings_source_catalog_testing), color = TextSecondary, fontSize = 13.sp)
             }
             is SourceTestState.Success -> Text(
-                "✓ Připojení OK — nalezeno ${state.count} položek",
+                stringResource(R.string.settings_source_catalog_test_success, state.count),
                 color = Color(0xFF66BB6A), fontSize = 13.sp,
             )
             is SourceTestState.Failure -> Text(
-                "✗ ${state.message}",
+                stringResource(R.string.settings_source_catalog_test_failure, state.message),
                 color = MaterialTheme.colorScheme.error, fontSize = 13.sp,
             )
             else -> {}
@@ -512,7 +517,7 @@ private fun AddCustomSourceForm(
                 enabled = canSave && testState !is SourceTestState.Testing,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Otestovat", color = Violet)
+                Text(stringResource(R.string.settings_source_catalog_test_button), color = Violet)
             }
             Button(
                 onClick = { onSave(name, url, contentType, advSelectors) },
@@ -520,7 +525,7 @@ private fun AddCustomSourceForm(
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Violet),
             ) {
-                Text("Uložit")
+                Text(stringResource(R.string.common_save))
             }
         }
     }

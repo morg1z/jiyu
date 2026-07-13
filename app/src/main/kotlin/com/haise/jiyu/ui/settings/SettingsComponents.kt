@@ -20,11 +20,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.reader.TapZoneAction
 import com.haise.jiyu.ui.reader.TapZoneGrid
 import com.haise.jiyu.ui.theme.TextPrimary
@@ -47,7 +49,7 @@ internal fun SettingsSubScreenHeader(title: String, onBack: () -> Unit) {
             .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {
         IconButton(onClick = onBack) {
-            Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+            Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
         }
         Text(
             text = title,

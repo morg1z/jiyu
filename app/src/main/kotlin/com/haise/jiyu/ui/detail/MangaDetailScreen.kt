@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.ui.theme.Cyan
@@ -171,32 +173,33 @@ fun MangaDetailScreen(
                             .padding(horizontal = 4.dp, vertical = 4.dp),
                     ) {
                         IconButton(onClick = onBack) {
-                            Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                            Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
                         }
                         Spacer(modifier = Modifier.weight(1f))
                         IconButton(onClick = onOpenDetails) {
-                            Icon(TablerIcons.InfoCircle, contentDescription = "Detaily", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                            Icon(TablerIcons.InfoCircle, contentDescription = stringResource(R.string.detail_open_details), tint = TextSecondary, modifier = Modifier.size(22.dp))
                         }
                         IconButton(onClick = {
                             manga?.let { m -> onOpenQr(m.id, m.title) }
                         }) {
-                            Icon(TablerIcons.Qrcode, contentDescription = "QR kód", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                            Icon(TablerIcons.Qrcode, contentDescription = stringResource(R.string.detail_qr_code), tint = TextSecondary, modifier = Modifier.size(22.dp))
                         }
+                        val shareLabel = stringResource(R.string.common_share)
                         IconButton(onClick = {
                             manga?.let { m ->
                                 val i = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
                                     putExtra(Intent.EXTRA_TEXT, "${m.title}\n${m.url}")
                                 }
-                                context.startActivity(Intent.createChooser(i, "Sdílet"))
+                                context.startActivity(Intent.createChooser(i, shareLabel))
                             }
                         }) {
-                            Icon(TablerIcons.Share, contentDescription = "Sdílet", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                            Icon(TablerIcons.Share, contentDescription = shareLabel, tint = TextSecondary, modifier = Modifier.size(22.dp))
                         }
                         IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
                             Icon(
                                 imageVector = TablerIcons.Bookmark,
-                                contentDescription = if (inLibrary) "Odebrat z knihovny" else "V knihovně",
+                                contentDescription = if (inLibrary) stringResource(R.string.detail_remove_from_library) else stringResource(R.string.detail_in_library),
                                 tint = if (inLibrary) GlowViolet else TextSecondary,
                                 modifier = Modifier.size(22.dp),
                             )
@@ -254,10 +257,10 @@ fun MangaDetailScreen(
                             }
                             manga?.status?.let { status ->
                                 val (label, statusColor) = when (status.lowercase()) {
-                                    "ongoing"   -> "Vychází"   to Color(0xFF4CAF50)
-                                    "completed" -> "Dokončeno" to Color(0xFF4FC3F7)
-                                    "hiatus"    -> "Pauza"     to Color(0xFFFFB74D)
-                                    "cancelled" -> "Zrušeno"   to Color(0xFFEF5350)
+                                    "ongoing"   -> stringResource(R.string.detail_status_ongoing)   to Color(0xFF4CAF50)
+                                    "completed" -> stringResource(R.string.detail_status_completed) to Color(0xFF4FC3F7)
+                                    "hiatus"    -> stringResource(R.string.detail_status_hiatus)     to Color(0xFFFFB74D)
+                                    "cancelled" -> stringResource(R.string.detail_status_cancelled)  to Color(0xFFEF5350)
                                     else        -> status      to TextSecondary
                                 }
                                 Box(
@@ -294,7 +297,7 @@ fun MangaDetailScreen(
                             Spacer(modifier = Modifier.weight(1f))
                             val readCount = chapters.count { it.read }
                             val totalCount = chapters.size
-                            Text(text = "$totalCount kapitol", color = TextSecondary, fontSize = 11.sp)
+                            Text(text = stringResource(R.string.detail_chapter_count, totalCount), color = TextSecondary, fontSize = 11.sp)
                             if (totalCount > 0) {
                                 val progress = readCount.toFloat() / totalCount
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -314,7 +317,7 @@ fun MangaDetailScreen(
                             }
                             if (readingTimeMs > 0) {
                                 Text(
-                                    text = "Čas čtení: ${formatReadingTime(readingTimeMs)}",
+                                    text = stringResource(R.string.detail_reading_time, formatReadingTime(readingTimeMs)),
                                     color = TextSecondary.copy(alpha = 0.6f),
                                     fontSize = 10.sp,
                                     modifier = Modifier.padding(top = 2.dp),
@@ -346,7 +349,7 @@ fun MangaDetailScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = if (descriptionExpanded) "Méně" else "Zobrazit více",
+                                    text = if (descriptionExpanded) stringResource(R.string.detail_show_less) else stringResource(R.string.detail_show_more),
                                     color = GlowCyan,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -360,11 +363,11 @@ fun MangaDetailScreen(
                 // ── Akční řádek: Pokračovat + čtecí status ──────────────────────
                 item {
                     val statusOptions = listOf(
-                        "READING"      to "Čtu",
-                        "COMPLETED"    to "Dokončeno",
-                        "ON_HOLD"      to "Pozastaveno",
-                        "DROPPED"      to "Opuštěno",
-                        "PLAN_TO_READ" to "Plánuji číst",
+                        "READING"      to stringResource(R.string.detail_reading_status_reading),
+                        "COMPLETED"    to stringResource(R.string.detail_status_completed),
+                        "ON_HOLD"      to stringResource(R.string.detail_reading_status_on_hold),
+                        "DROPPED"      to stringResource(R.string.detail_reading_status_dropped),
+                        "PLAN_TO_READ" to stringResource(R.string.detail_reading_status_plan),
                     )
                     val statusColors = mapOf(
                         "READING"      to Color(0xFF4CAF50),
@@ -373,7 +376,7 @@ fun MangaDetailScreen(
                         "DROPPED"      to Color(0xFFEF5350),
                         "PLAN_TO_READ" to Color(0xFF9C27B0),
                     )
-                    val statusLabel = statusOptions.firstOrNull { it.first == readingStatus }?.second ?: "Status"
+                    val statusLabel = statusOptions.firstOrNull { it.first == readingStatus }?.second ?: stringResource(R.string.detail_status_placeholder)
                     val statusColor = statusColors[readingStatus] ?: TextSecondary
 
                     Row(
@@ -400,7 +403,7 @@ fun MangaDetailScreen(
                                 ) {
                                     Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                                     Column(modifier = Modifier.padding(start = 10.dp)) {
-                                        Text(text = if (hasHistory) "Pokračovat" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(text = if (hasHistory) stringResource(R.string.detail_continue_short) else stringResource(R.string.action_start_reading), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         Text(
                                             text = if (hasHistory) "${chapter.name} · str. ${chapter.lastPageRead + 1}" else chapter.name,
                                             color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -410,16 +413,16 @@ fun MangaDetailScreen(
                                 Box(modifier = Modifier.width(1.dp).height(36.dp).background(Color.White.copy(alpha = 0.25f)))
                                 Box {
                                     IconButton(onClick = { showReadMenu = true }, modifier = Modifier.padding(horizontal = 2.dp)) {
-                                        Icon(TablerIcons.ChevronDown, contentDescription = "Možnosti čtení", tint = Color.White)
+                                        Icon(TablerIcons.ChevronDown, contentDescription = stringResource(R.string.detail_read_options), tint = Color.White)
                                     }
                                     DropdownMenu(expanded = showReadMenu, onDismissRequest = { showReadMenu = false }) {
                                         DropdownMenuItem(
-                                            text = { Text("Číst normálně") },
+                                            text = { Text(stringResource(R.string.action_read_normal)) },
                                             leadingIcon = { Icon(TablerIcons.PlayerPlay, contentDescription = null) },
                                             onClick = { showReadMenu = false; onOpenChapter(chapter.id) },
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Číst anonymně") },
+                                            text = { Text(stringResource(R.string.action_read_incognito)) },
                                             leadingIcon = { Icon(TablerIcons.EyeOff, contentDescription = null) },
                                             onClick = { showReadMenu = false; onOpenChapterIncognito(chapter.id) },
                                         )
@@ -461,7 +464,7 @@ fun MangaDetailScreen(
                     Column(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "KAPITOLY",
+                            text = stringResource(R.string.detail_chapters_header),
                             style = MaterialTheme.typography.labelSmall,
                             color = Violet,
                             letterSpacing = 2.sp,
@@ -478,7 +481,7 @@ fun MangaDetailScreen(
                             },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(TablerIcons.Search, contentDescription = "Hledat kapitolu", tint = if (chapterSearchActive) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
+                            Icon(TablerIcons.Search, contentDescription = stringResource(R.string.detail_search_chapter), tint = if (chapterSearchActive) GlowCyan else TextSecondary, modifier = Modifier.size(18.dp))
                         }
 
                         // Sort toggle
@@ -490,51 +493,51 @@ fun MangaDetailScreen(
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(TablerIcons.ArrowsSort, contentDescription = "Seřadit", tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
-                            Text(text = if (sortAscending) "Nejstarší" else "Nejnovější", color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                            Icon(TablerIcons.ArrowsSort, contentDescription = stringResource(R.string.detail_sort), tint = if (sortAscending) GlowViolet else TextSecondary, modifier = Modifier.size(14.dp))
+                            Text(text = if (sortAscending) stringResource(R.string.detail_sort_oldest) else stringResource(R.string.detail_sort_newest), color = if (sortAscending) GlowViolet else TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                         }
 
                         // Přetečené menu — méně používané akce nad kapitolami
                         Box {
                             IconButton(onClick = { showChapterOverflowMenu = true }, modifier = Modifier.size(32.dp)) {
-                                Icon(TablerIcons.DotsVertical, contentDescription = "Další možnosti", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                                Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary, modifier = Modifier.size(18.dp))
                             }
                             DropdownMenu(expanded = showChapterOverflowMenu, onDismissRequest = { showChapterOverflowMenu = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Označit vše přečtené") },
+                                    text = { Text(stringResource(R.string.detail_mark_all_read)) },
                                     leadingIcon = { Icon(TablerIcons.Checks, contentDescription = null) },
                                     onClick = { viewModel.markAllRead(); showChapterOverflowMenu = false },
                                 )
                                 if (firstUnread != null) {
                                     DropdownMenuItem(
-                                        text = { Text("Přejít na první nepřečtenou") },
+                                        text = { Text(stringResource(R.string.detail_jump_first_unread)) },
                                         leadingIcon = { Icon(TablerIcons.PlayerSkipForward, contentDescription = null) },
                                         onClick = { showChapterOverflowMenu = false; firstUnread?.let { onOpenChapter(it.id) } },
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text(if (chapterGridView) "Zobrazit jako seznam" else "Zobrazit jako mřížku") },
+                                    text = { Text(if (chapterGridView) stringResource(R.string.detail_view_as_list) else stringResource(R.string.detail_view_as_grid)) },
                                     leadingIcon = { Icon(if (chapterGridView) TablerIcons.List else TablerIcons.LayoutGrid, contentDescription = null) },
                                     onClick = { chapterGridView = !chapterGridView; showChapterOverflowMenu = false },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text(if (groupByVolume) "Zrušit seskupení podle volume" else "Seskupit podle volume") },
+                                    text = { Text(if (groupByVolume) stringResource(R.string.detail_ungroup_volume) else stringResource(R.string.detail_group_volume)) },
                                     leadingIcon = { Icon(TablerIcons.List, contentDescription = null, tint = if (groupByVolume) GlowCyan else TextSecondary) },
                                     onClick = { groupByVolume = !groupByVolume; showChapterOverflowMenu = false },
                                 )
                                 HorizontalDivider()
                                 DropdownMenuItem(
-                                    text = { Text("Stáhnout vše") },
+                                    text = { Text(stringResource(R.string.detail_download_all)) },
                                     leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
                                     onClick = { viewModel.downloadAll(); showChapterOverflowMenu = false },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Stáhnout nepřečtené") },
+                                    text = { Text(stringResource(R.string.detail_download_unread)) },
                                     leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
                                     onClick = { viewModel.downloadUnread(); showChapterOverflowMenu = false },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Stáhnout prvních N…") },
+                                    text = { Text(stringResource(R.string.detail_download_first_n)) },
                                     leadingIcon = { Icon(TablerIcons.Download, contentDescription = null) },
                                     onClick = { showDownloadNDialog = true; showChapterOverflowMenu = false },
                                 )
@@ -542,19 +545,19 @@ fun MangaDetailScreen(
                             if (showDownloadNDialog) {
                                 androidx.compose.material3.AlertDialog(
                                     onDismissRequest = { showDownloadNDialog = false },
-                                    title = { Text("Stáhnout prvních N nepřečtených") },
+                                    title = { Text(stringResource(R.string.detail_download_first_n_title)) },
                                     text = {
                                         androidx.compose.foundation.layout.Column {
-                                            listOf(5 to "5 kapitol", 10 to "10 kapitol", 25 to "25 kapitol", 50 to "50 kapitol").forEach { (n, label) ->
+                                            listOf(5, 10, 25, 50).forEach { n ->
                                                 androidx.compose.material3.TextButton(
                                                     onClick = { viewModel.downloadFirstN(n); showDownloadNDialog = false },
                                                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                                                ) { Text(label) }
+                                                ) { Text(stringResource(R.string.detail_n_chapters, n)) }
                                             }
                                         }
                                     },
                                     confirmButton = {
-                                        androidx.compose.material3.TextButton(onClick = { showDownloadNDialog = false }) { Text("Zrušit") }
+                                        androidx.compose.material3.TextButton(onClick = { showDownloadNDialog = false }) { Text(stringResource(R.string.common_cancel)) }
                                     },
                                 )
                             }
@@ -584,7 +587,7 @@ fun MangaDetailScreen(
                                 textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
                                 decorationBox = { inner ->
                                     Box(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                                        if (chapterFilter.isEmpty()) Text("Hledat kapitolu…", color = TextSecondary, fontSize = 14.sp)
+                                        if (chapterFilter.isEmpty()) Text(stringResource(R.string.detail_search_chapter_placeholder), color = TextSecondary, fontSize = 14.sp)
                                         inner()
                                     }
                                 },
@@ -592,7 +595,7 @@ fun MangaDetailScreen(
                             )
                             if (chapterFilter.isNotEmpty()) {
                                 IconButton(onClick = { viewModel.setChapterFilter("") }, modifier = Modifier.size(24.dp)) {
-                                    Icon(TablerIcons.X, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(14.dp))
+                                    Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -601,11 +604,16 @@ fun MangaDetailScreen(
 
                 // ── Status filter chips ───────────────────────────────────────
                 item {
+                    val filters = listOf(
+                        "ALL" to stringResource(R.string.common_all),
+                        "UNREAD" to stringResource(R.string.detail_filter_unread),
+                        "READ" to stringResource(R.string.detail_filter_read),
+                        "DOWNLOADED" to stringResource(R.string.detail_filter_downloaded),
+                    )
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        val filters = listOf("ALL" to "Vše", "UNREAD" to "Nepřečtené", "READ" to "Přečtené", "DOWNLOADED" to "Stažené")
                         items(filters) { (key, label) ->
                             val isSelected = statusFilter == key
                             Box(
@@ -638,7 +646,7 @@ fun MangaDetailScreen(
                                         .clickable { viewModel.setScanlator(null) }
                                         .padding(horizontal = 12.dp, vertical = 5.dp),
                                 ) {
-                                    Text("Všechny skupiny", color = if (selectedScanlator == null) Cyan else TextSecondary, fontSize = 10.sp)
+                                    Text(stringResource(R.string.detail_all_groups), color = if (selectedScanlator == null) Cyan else TextSecondary, fontSize = 10.sp)
                                 }
                             }
                             items(availableScanlators) { group ->
@@ -704,7 +712,7 @@ fun MangaDetailScreen(
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
                                 Text(
-                                    if (volume == "?") "Bez volumu" else "Volume $volume",
+                                    if (volume == "?") stringResource(R.string.detail_no_volume) else stringResource(R.string.detail_volume_label, volume),
                                     color = Violet,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,
@@ -791,28 +799,28 @@ internal fun GlassChapterRow(
                 }
             }
             when (chapter.downloadStatus) {
-                DownloadStatus.DOWNLOADED  -> Icon(TablerIcons.CircleCheck, contentDescription = "Staženo", tint = Cyan, modifier = Modifier.size(18.dp))
+                DownloadStatus.DOWNLOADED  -> Icon(TablerIcons.CircleCheck, contentDescription = stringResource(R.string.detail_chapter_downloaded), tint = Cyan, modifier = Modifier.size(18.dp))
                 DownloadStatus.DOWNLOADING -> Text("↓", color = Violet, fontSize = 16.sp)
                 DownloadStatus.QUEUED      -> Text("⏳", fontSize = 14.sp)
-                DownloadStatus.ERROR       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = "Zkusit znovu", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
-                else                       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = "Stáhnout", tint = TextSecondary, modifier = Modifier.size(18.dp)) }
+                DownloadStatus.ERROR       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_retry), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+                else                       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_download), tint = TextSecondary, modifier = Modifier.size(18.dp)) }
             }
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
-                text = { Text("Označit toto i vše starší přečtené") },
+                text = { Text(stringResource(R.string.detail_mark_read_up_to)) },
                 onClick = { onMarkReadUpTo(); showMenu = false },
             )
             DropdownMenuItem(
-                text = { Text("Označit vše starší jako přečtené") },
+                text = { Text(stringResource(R.string.detail_mark_all_older_read)) },
                 onClick = { onMarkAllOlderRead(); showMenu = false },
             )
             DropdownMenuItem(
-                text = { Text("Označit vše novější jako nepřečtené") },
+                text = { Text(stringResource(R.string.detail_mark_all_newer_unread)) },
                 onClick = { onMarkAllNewerUnread(); showMenu = false },
             )
             DropdownMenuItem(
-                text = { Text(if (isRead) "Označit jako nepřečtené" else "Označit jako přečtené") },
+                text = { Text(if (isRead) stringResource(R.string.detail_mark_as_unread) else stringResource(R.string.detail_mark_as_read)) },
                 onClick = { onToggleRead(); showMenu = false },
             )
         }

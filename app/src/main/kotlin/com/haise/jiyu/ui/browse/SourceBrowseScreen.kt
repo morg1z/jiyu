@@ -72,6 +72,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -79,6 +80,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
@@ -133,7 +135,7 @@ fun SourceBrowseScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
             }
             Text(
                 text = source?.name ?: "",
@@ -145,7 +147,7 @@ fun SourceBrowseScreen(
             IconButton(onClick = { showFilterSheet = true }) {
                 Icon(
                     imageVector = TablerIcons.Filter,
-                    contentDescription = "Filtry",
+                    contentDescription = stringResource(R.string.source_browse_filters),
                     tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
                 )
             }
@@ -155,7 +157,7 @@ fun SourceBrowseScreen(
         TextField(
             value = query,
             onValueChange = { query = it; viewModel.search(it) },
-            placeholder = { Text("Hledat v ${source?.name.orEmpty()}…", color = TextSecondary) },
+            placeholder = { Text(stringResource(R.string.source_browse_search_placeholder, source?.name.orEmpty()), color = TextSecondary) },
             singleLine = true,
             leadingIcon = { Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -180,7 +182,7 @@ fun SourceBrowseScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                listOf(false to "Populární", true to "Nejnovější").forEach { (isLatest, label) ->
+                listOf(false to stringResource(R.string.source_browse_popular), true to stringResource(R.string.source_browse_latest)).forEach { (isLatest, label) ->
                     val selected = showLatest == isLatest
                     Button(
                         onClick = { if (!selected) viewModel.setShowLatest(isLatest) },
@@ -213,7 +215,7 @@ fun SourceBrowseScreen(
                     ) {
                         Text("( ⚠ )", fontSize = 40.sp, color = GlowViolet.copy(alpha = 0.5f))
                         Text(
-                            text = "Načtení selhalo",
+                            text = stringResource(R.string.source_browse_load_failed),
                             style = MaterialTheme.typography.titleMedium,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 12.dp),
@@ -225,7 +227,7 @@ fun SourceBrowseScreen(
                             modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
                         )
                         OutlinedButton(onClick = { viewModel.retry() }) {
-                            Text("Zkusit znovu", color = Violet)
+                            Text(stringResource(R.string.common_retry), color = Violet)
                         }
                     }
                 }
@@ -235,7 +237,7 @@ fun SourceBrowseScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("( ˘•ω•˘ )", fontSize = 36.sp, color = GlowViolet.copy(alpha = 0.5f))
                         Text(
-                            text = "Žádné výsledky",
+                            text = stringResource(R.string.source_browse_no_results),
                             style = MaterialTheme.typography.titleMedium,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 12.dp),
@@ -294,7 +296,7 @@ fun SourceBrowseScreen(
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 AsyncImage(
                     model = manga.coverUrl,
-                    contentDescription = "Obálka: ${manga.title}",
+                    contentDescription = stringResource(R.string.source_browse_cover_desc, manga.title),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
@@ -336,7 +338,7 @@ fun SourceBrowseScreen(
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("+ Přidat do knihovny", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(stringResource(R.string.source_browse_add_to_library), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                 }
             }
@@ -361,26 +363,26 @@ private fun DuplicateWarningDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text("Možná už tuhle mangu máš", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.source_browse_dup_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 Text(
-                    "\"${pending.manga.title}\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:",
+                    stringResource(R.string.source_browse_dup_desc, pending.manga.title),
                     color = TextSecondary,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 pending.matches.forEach { match ->
                     Text(
-                        "• ${match.sourceName} (v knihovně): ${match.chapterCount} kapitol",
+                        stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
                         color = TextPrimary,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
                 }
-                val newCountText = pending.newChapterCount?.let { "$it kapitol" } ?: "zjišťuji…"
+                val newCountText = pending.newChapterCount?.let { stringResource(R.string.source_browse_chapters_count, it) } ?: stringResource(R.string.source_browse_checking)
                 Text(
-                    "• ${pending.newSourceName} (nový): $newCountText",
+                    stringResource(R.string.source_browse_dup_new, pending.newSourceName, newCountText),
                     color = GlowViolet,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 4.dp),
@@ -388,10 +390,10 @@ private fun DuplicateWarningDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text("Přidat i tak", color = GlowViolet) }
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Zrušit", color = TextSecondary) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
         },
     )
 }
@@ -486,8 +488,18 @@ private fun BrowseFilterSheet(
     var selectedSort by remember { mutableStateOf(current.sortBy) }
     var sortDropdownExpanded by remember { mutableStateOf(false) }
 
-    val statuses = listOf(null to "Vše", "ongoing" to "Vychází", "completed" to "Dokončeno", "hiatus" to "Přerušeno")
-    val sorts = listOf("popular" to "Populární", "latest" to "Nejnovější", "rating" to "Hodnocení", "title" to "Název")
+    val statuses = listOf(
+        null to stringResource(R.string.common_all),
+        "ongoing" to stringResource(R.string.source_browse_status_ongoing),
+        "completed" to stringResource(R.string.source_browse_status_completed),
+        "hiatus" to stringResource(R.string.source_browse_status_hiatus),
+    )
+    val sorts = listOf(
+        "popular" to stringResource(R.string.source_browse_popular),
+        "latest" to stringResource(R.string.source_browse_latest),
+        "rating" to stringResource(R.string.source_browse_sort_rating),
+        "title" to stringResource(R.string.source_browse_sort_title),
+    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -500,12 +512,12 @@ private fun BrowseFilterSheet(
                 .padding(bottom = 32.dp),
         ) {
             Text(
-                "Filtry",
+                stringResource(R.string.source_browse_filters),
                 style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            Text("Stav vydávání", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_status_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 statuses.forEach { (value, label) ->
                     val selected = selectedStatus == value
@@ -522,11 +534,11 @@ private fun BrowseFilterSheet(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("Rok vydání", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_year_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             OutlinedTextField(
                 value = yearText,
                 onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) yearText = it },
-                placeholder = { Text("např. 2020", color = TextSecondary) },
+                placeholder = { Text(stringResource(R.string.source_browse_year_placeholder), color = TextSecondary) },
                 singleLine = true,
                 modifier = Modifier.width(140.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -539,13 +551,13 @@ private fun BrowseFilterSheet(
             )
 
             Spacer(Modifier.height(16.dp))
-            Text("Řazení", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(stringResource(R.string.source_browse_sort_label), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             Box {
                 OutlinedButton(
                     onClick = { sortDropdownExpanded = true },
                     border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
                 ) {
-                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: "Populární", color = TextPrimary)
+                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = TextPrimary)
                 }
                 DropdownMenu(
                     expanded = sortDropdownExpanded,
@@ -570,7 +582,7 @@ private fun BrowseFilterSheet(
                     modifier = Modifier.weight(1f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, TextSecondary.copy(alpha = 0.4f)),
                 ) {
-                    Text("Resetovat", color = TextSecondary)
+                    Text(stringResource(R.string.source_browse_reset), color = TextSecondary)
                 }
                 Button(
                     onClick = {
@@ -583,7 +595,7 @@ private fun BrowseFilterSheet(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),
                 ) {
-                    Text("Použít")
+                    Text(stringResource(R.string.source_browse_apply))
                 }
             }
         }

@@ -70,7 +70,7 @@ fun DownloadsSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Stažené", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(com.haise.jiyu.R.string.settings_main_downloads_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -114,7 +114,7 @@ fun DownloadsSettingsScreen(
                                     onClick = { viewModel.setDownloadFolderUri(null) },
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                                ) { Text("Reset") }
+                                ) { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_folder_reset)) }
                             }
                         }
                     }
@@ -122,7 +122,7 @@ fun DownloadsSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Stahování") {
+                SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_downloads_section_title)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -131,8 +131,8 @@ fun DownloadsSettingsScreen(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Stahovat pouze přes Wi-Fi", color = TextPrimary, fontWeight = FontWeight.Medium)
-                            Text("Mobilní data se nepoužijí ke stahování kapitol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_wifi_only), color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_wifi_only_desc), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(
                             checked = downloadOnlyWifi,
@@ -148,8 +148,8 @@ fun DownloadsSettingsScreen(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Auto-smazat přečtené", color = TextPrimary, fontWeight = FontWeight.Medium)
-                            Text("Stažené kapitoly se smažou po přečtení", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_downloads_auto_delete_title), color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_downloads_auto_delete_desc), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(
                             checked = autoDeleteRead,
@@ -159,12 +159,17 @@ fun DownloadsSettingsScreen(
                     }
                     if (autoDeleteRead) {
                         Text(
-                            text = "Prodleva před smazáním",
+                            text = stringResource(com.haise.jiyu.R.string.settings_downloads_auto_delete_delay_title),
                             color = TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(start = 16.dp, top = 4.dp),
                         )
-                        listOf(0 to "Okamžitě", 1 to "1 den", 3 to "3 dny", 7 to "7 dní").forEach { (days, label) ->
+                        listOf(
+                            0 to stringResource(com.haise.jiyu.R.string.settings_downloads_delay_immediately),
+                            1 to stringResource(com.haise.jiyu.R.string.settings_downloads_delay_1_day),
+                            3 to stringResource(com.haise.jiyu.R.string.settings_downloads_delay_3_days),
+                            7 to stringResource(com.haise.jiyu.R.string.settings_downloads_delay_7_days),
+                        ).forEach { (days, label) ->
                             GlassRadioRow(
                                 label = label,
                                 selected = autoDeleteDelayDays == days,
@@ -181,8 +186,8 @@ fun DownloadsSettingsScreen(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Exportovat jako CBZ", color = TextPrimary, fontWeight = FontWeight.Medium)
-                            Text("Po stažení vytvoří .cbz soubor vedle složky s obrázky", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_downloads_export_cbz_title), color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text(stringResource(com.haise.jiyu.R.string.settings_downloads_export_cbz_desc), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(
                             checked = saveAsCbz,
@@ -192,12 +197,17 @@ fun DownloadsSettingsScreen(
                     }
 
                     Text(
-                        text = "Paralelní stahování",
+                        text = stringResource(com.haise.jiyu.R.string.settings_downloads_parallel_title),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 16.dp, top = 4.dp),
                     )
-                    listOf(1 to "1 (postupně)", 2 to "2 naráz", 3 to "3 naráz (výchozí)", 5 to "5 naráz").forEach { (n, label) ->
+                    listOf(
+                        1 to stringResource(com.haise.jiyu.R.string.settings_downloads_parallel_1),
+                        2 to stringResource(com.haise.jiyu.R.string.settings_downloads_parallel_2),
+                        3 to stringResource(com.haise.jiyu.R.string.settings_downloads_parallel_3_default),
+                        5 to stringResource(com.haise.jiyu.R.string.settings_downloads_parallel_5),
+                    ).forEach { (n, label) ->
                         GlassRadioRow(
                             label = label,
                             selected = parallelDownloads == n,
@@ -208,10 +218,10 @@ fun DownloadsSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Stažené kapitoly") {
+                SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_downloads_chapters_section_title)) {
                     var showDeleteConfirm by remember { mutableStateOf(false) }
                     Text(
-                        text = "Staženo: $downloadedCount kapitol",
+                        text = stringResource(com.haise.jiyu.R.string.settings_downloads_downloaded_count, downloadedCount),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -221,7 +231,7 @@ fun DownloadsSettingsScreen(
                             onClick = onOpenDownloadManager,
                             modifier = Modifier.weight(1f).padding(end = 6.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = GlowViolet),
-                        ) { Text("Správa") }
+                        ) { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_manage_button)) }
                         OutlinedButton(
                             onClick = { showDeleteConfirm = true },
                             enabled = downloadedCount > 0,
@@ -229,7 +239,7 @@ fun DownloadsSettingsScreen(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         ) {
                             Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                            Text("Smazat vše")
+                            Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_button))
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -237,14 +247,14 @@ fun DownloadsSettingsScreen(
                         AlertDialog(
                             onDismissRequest = { showDeleteConfirm = false },
                             containerColor = Color(0xFF111B35),
-                            title = { Text("Smazat vše?", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                            text = { Text("Smaže $downloadedCount stažených kapitol z disku.", color = TextSecondary) },
+                            title = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            text = { Text(stringResource(com.haise.jiyu.R.string.settings_downloads_delete_all_dialog_text, downloadedCount), color = TextSecondary) },
                             confirmButton = {
                                 TextButton(onClick = { viewModel.deleteAllDownloads(); showDeleteConfirm = false }) {
-                                    Text("Smazat", color = MaterialTheme.colorScheme.error)
+                                    Text(stringResource(com.haise.jiyu.R.string.common_delete), color = MaterialTheme.colorScheme.error)
                                 }
                             },
-                            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Zrušit", color = TextSecondary) } },
+                            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(com.haise.jiyu.R.string.common_cancel), color = TextSecondary) } },
                         )
                     }
                 }

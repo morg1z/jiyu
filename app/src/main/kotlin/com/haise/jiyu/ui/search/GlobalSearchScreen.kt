@@ -62,8 +62,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -98,10 +100,10 @@ fun GlobalSearchScreen(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
             }
             Text(
-                text = "Globální vyhledávání",
+                text = stringResource(R.string.search_title),
                 style = TextStyle(brush = titleGradient, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp),
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
@@ -113,7 +115,7 @@ fun GlobalSearchScreen(
                 }) {
                     Icon(
                         if (isSaved) TablerIcons.Bookmark else TablerIcons.Bookmark,
-                        contentDescription = if (isSaved) "Odebrat ze záložek" else "Uložit vyhledávání",
+                        contentDescription = if (isSaved) stringResource(R.string.search_remove_bookmark) else stringResource(R.string.search_save_search),
                         tint = if (isSaved) Violet else TextSecondary,
                     )
                 }
@@ -123,7 +125,7 @@ fun GlobalSearchScreen(
         TextField(
             value = inputText,
             onValueChange = { inputText = it },
-            placeholder = { Text("Hledat ve všech zdrojích…", color = TextSecondary) },
+            placeholder = { Text(stringResource(R.string.browse_search_placeholder), color = TextSecondary) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
@@ -152,7 +154,7 @@ fun GlobalSearchScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 if (savedSearches.isNotEmpty()) {
                     Text(
-                        text = "ULOŽENÁ VYHLEDÁVÁNÍ",
+                        text = stringResource(R.string.search_saved_searches),
                         color = Violet,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -182,7 +184,7 @@ fun GlobalSearchScreen(
                                 Text(saved, color = TextPrimary, fontSize = 13.sp)
                                 Spacer(Modifier.width(4.dp))
                                 IconButton(onClick = { viewModel.removeSavedSearch(saved) }, modifier = Modifier.size(20.dp)) {
-                                    Icon(TablerIcons.X, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(12.dp))
+                                    Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(12.dp))
                                 }
                             }
                         }
@@ -191,7 +193,7 @@ fun GlobalSearchScreen(
                 }
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Zadej název mangy a prohledej\nvšechny zdroje najednou",
+                        text = stringResource(R.string.search_empty_hint),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
@@ -222,9 +224,9 @@ fun GlobalSearchScreen(
                                 sourceResult.loading ->
                                     JiyuLoadingIndicator(size = 14.dp, strokeWidth = 2.dp)
                                 sourceResult.error != null ->
-                                    Text("Chyba", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                                    Text(stringResource(R.string.search_error), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
                                 else ->
-                                    Text("${sourceResult.results.size} výsledků", color = TextSecondary, fontSize = 11.sp)
+                                    Text(stringResource(R.string.search_result_count, sourceResult.results.size), color = TextSecondary, fontSize = 11.sp)
                             }
                         }
 
@@ -242,7 +244,7 @@ fun GlobalSearchScreen(
                             }
                         } else if (!sourceResult.loading) {
                             Text(
-                                text = if (sourceResult.error != null) "Zdroj vrátil chybu" else "Žádné výsledky",
+                                text = if (sourceResult.error != null) stringResource(R.string.search_source_error) else stringResource(R.string.source_browse_no_results),
                                 color = TextSecondary.copy(alpha = 0.5f),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -274,26 +276,26 @@ private fun GlobalSearchDuplicateDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF111B35),
-        title = { Text("Možná už tuhle mangu máš", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.source_browse_dup_title), color = TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 Text(
-                    "\"${pending.manga.title}\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:",
+                    stringResource(R.string.source_browse_dup_desc, pending.manga.title),
                     color = TextSecondary,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
                 pending.matches.forEach { match ->
                     Text(
-                        "• ${match.sourceName} (v knihovně): ${match.chapterCount} kapitol",
+                        stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
                         color = TextPrimary,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
                 }
-                val newCountText = pending.newChapterCount?.let { "$it kapitol" } ?: "zjišťuji…"
+                val newCountText = pending.newChapterCount?.let { stringResource(R.string.source_browse_chapters_count, it) } ?: stringResource(R.string.source_browse_checking)
                 Text(
-                    "• ${pending.newSourceName} (nový): $newCountText",
+                    stringResource(R.string.source_browse_dup_new, pending.newSourceName, newCountText),
                     color = GlowViolet,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 4.dp),
@@ -301,10 +303,10 @@ private fun GlobalSearchDuplicateDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text("Přidat i tak", color = GlowViolet) }
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Zrušit", color = TextSecondary) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = TextSecondary) }
         },
     )
 }

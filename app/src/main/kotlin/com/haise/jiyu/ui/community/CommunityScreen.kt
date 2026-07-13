@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.community.PublicMangaEntry
 import com.haise.jiyu.ui.theme.NightBlue
 import com.haise.jiyu.ui.theme.TextPrimary
@@ -77,7 +79,7 @@ fun CommunityScreen(
                     Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
-                    "Community Manga",
+                    stringResource(R.string.community_title),
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -96,12 +98,12 @@ fun CommunityScreen(
                 }
                 error != null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(error ?: "", color = TextSecondary, textAlign = TextAlign.Center)
+                        Text(stringResource(R.string.community_load_error), color = TextSecondary, textAlign = TextAlign.Center)
                     }
                 }
                 entries.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Žádné veřejné manga listy", color = TextSecondary)
+                        Text(stringResource(R.string.community_empty), color = TextSecondary)
                     }
                 }
                 else -> {

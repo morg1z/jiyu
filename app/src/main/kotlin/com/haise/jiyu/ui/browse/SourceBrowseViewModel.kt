@@ -1,8 +1,10 @@
 package com.haise.jiyu.ui.browse
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
@@ -13,6 +15,7 @@ import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.util.NetworkMonitor
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +33,7 @@ class SourceBrowseViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val sourceManager: SourceManager,
     private val networkMonitor: NetworkMonitor,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val sourceId: String = checkNotNull(savedStateHandle["sourceId"])
@@ -171,7 +175,7 @@ class SourceBrowseViewModel @Inject constructor(
         lastQuery = null
         currentPage = 1
         if (!networkMonitor.isOnline) {
-            _error.value = "Nejsi připojen k internetu"
+            _error.value = appContext.getString(R.string.detail_error_no_internet)
             _results.value = emptyList()
             _hasMore.value = false
             return
@@ -198,7 +202,7 @@ class SourceBrowseViewModel @Inject constructor(
         lastQuery = query
         currentPage = 1
         if (!networkMonitor.isOnline) {
-            _error.value = "Nejsi připojen k internetu"
+            _error.value = appContext.getString(R.string.detail_error_no_internet)
             _results.value = emptyList()
             _hasMore.value = false
             return

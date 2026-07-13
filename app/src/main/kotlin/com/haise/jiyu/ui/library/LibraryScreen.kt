@@ -57,10 +57,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.ContinueReadingItem
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.theme.CardBorder
@@ -109,7 +111,7 @@ fun LibraryScreen(
                     modifier = Modifier.weight(1f).padding(start = 8.dp),
                 )
                 IconButton(onClick = onOpenSettings) {
-                    Icon(TablerIcons.Settings, contentDescription = "Nastavení", tint = TextSecondary)
+                    Icon(TablerIcons.Settings, contentDescription = stringResource(R.string.settings_title), tint = TextSecondary)
                 }
             }
 
@@ -135,7 +137,7 @@ fun LibraryScreen(
                     keyboardActions = KeyboardActions(onSearch = {}),
                     decorationBox = { inner ->
                         Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                            if (searchQuery.isEmpty()) Text("Hledat v knihovně…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                            if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
                             inner()
                         }
                     },
@@ -143,7 +145,7 @@ fun LibraryScreen(
                 )
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
-                        Icon(TablerIcons.X, contentDescription = "Smazat", tint = TextSecondary, modifier = Modifier.size(15.dp))
+                        Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                     }
                 }
             }
@@ -153,7 +155,7 @@ fun LibraryScreen(
             // ── Výsledky hledání (plochý grid) ──────────────────────────────
             val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             if (library.isEmpty()) {
-                DashboardEmptyState(text = "Nic nenalezeno", subtitle = "Zkus jiný výraz")
+                DashboardEmptyState(text = stringResource(R.string.library_nothing_found), subtitle = stringResource(R.string.library_try_different_term))
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
@@ -178,9 +180,9 @@ fun LibraryScreen(
                         Icon(TablerIcons.Book, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(44.dp))
                     }
                     Spacer(Modifier.height(24.dp))
-                    Text("Tvá knihovna čeká", style = MaterialTheme.typography.titleLarge, color = TextPrimary, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text(stringResource(R.string.library_empty_title), style = MaterialTheme.typography.titleLarge, color = TextPrimary, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Text(
-                        "Přidej svoji první mangu a začni číst",
+                        stringResource(R.string.library_empty_subtitle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         textAlign = TextAlign.Center,
@@ -194,7 +196,7 @@ fun LibraryScreen(
                             .clickable(onClick = onOpenBrowse)
                             .padding(horizontal = 28.dp, vertical = 14.dp),
                     ) {
-                        Text("Procházet mangy", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(stringResource(R.string.library_browse_manga_button), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                     }
                 }
             }
@@ -202,7 +204,7 @@ fun LibraryScreen(
             // ── Karusely ─────────────────────────────────────────────────────
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                 if (continueReading.isNotEmpty()) {
-                    CarouselSection(title = "POKRAČOVAT VE ČTENÍ") {
+                    CarouselSection(title = stringResource(R.string.library_continue_reading)) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(continueReading, key = { it.manga.id }) { item ->
                                 ContinueReadingCard(
@@ -217,7 +219,7 @@ fun LibraryScreen(
                     }
                 }
                 if (recentlyAdded.isNotEmpty()) {
-                    CarouselSection(title = "NEDÁVNO PŘIDANÉ") {
+                    CarouselSection(title = stringResource(R.string.library_recently_added)) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(recentlyAdded, key = { it.id }) { manga ->
                                 SimpleMangaCard(manga = manga, onClick = { onOpenManga(manga.id) })
@@ -226,7 +228,7 @@ fun LibraryScreen(
                     }
                 }
                 if (completed.isNotEmpty()) {
-                    CarouselSection(title = "DOKONČENÉ") {
+                    CarouselSection(title = stringResource(R.string.library_completed)) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(completed, key = { it.id }) { manga ->
                                 SimpleMangaCard(manga = manga, onClick = { onOpenManga(manga.id) })
@@ -264,7 +266,7 @@ private fun CarouselSection(title: String, content: @Composable () -> Unit) {
                 color = Violet,
                 modifier = Modifier.weight(1f),
             )
-            Icon(TablerIcons.ChevronRight, contentDescription = "Zobrazit vše", tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(TablerIcons.ChevronRight, contentDescription = stringResource(R.string.library_show_all), tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
         content()
     }
@@ -309,7 +311,7 @@ private fun ContinueReadingCard(item: ContinueReadingItem, onClick: () -> Unit) 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(11.dp))
                     Spacer(Modifier.width(3.dp))
-                    Text("Pokračovat", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.detail_continue_short), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

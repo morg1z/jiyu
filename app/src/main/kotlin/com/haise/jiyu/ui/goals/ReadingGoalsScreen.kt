@@ -34,10 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -75,7 +77,7 @@ fun ReadingGoalsScreen(
                     Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
-                    "Cíle čtení",
+                    stringResource(R.string.goals_title),
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -113,7 +115,7 @@ fun ReadingGoalsScreen(
                             fontSize = 56.sp,
                         )
                         Text(
-                            text = if (streak == 1) "den v řadě" else "dní v řadě",
+                            text = if (streak == 1) stringResource(R.string.goals_streak_day_singular) else stringResource(R.string.goals_streak_day_plural),
                             color = TextSecondary,
                             fontSize = 14.sp,
                         )
@@ -131,14 +133,14 @@ fun ReadingGoalsScreen(
                 ) {
                     Column {
                         Text(
-                            "Týdenní cíl",
+                            stringResource(R.string.goals_weekly_title),
                             color = TextPrimary,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp,
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = if (weeklyGoal == 0) "Vypnuto" else "$chaptersThisWeek / $weeklyGoal kapitol",
+                            text = if (weeklyGoal == 0) stringResource(R.string.goals_off) else stringResource(R.string.goals_progress_format, chaptersThisWeek, weeklyGoal),
                             color = Cyan,
                             fontSize = 14.sp,
                         )
@@ -156,7 +158,10 @@ fun ReadingGoalsScreen(
                         }
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            text = "Nastav cíl: ${if (weeklyGoal == 0) "Vypnuto" else "$weeklyGoal kap/týden"}",
+                            text = stringResource(
+                                R.string.goals_set_goal_label,
+                                if (weeklyGoal == 0) stringResource(R.string.goals_off) else stringResource(R.string.goals_goal_unit_format, weeklyGoal),
+                            ),
                             color = TextSecondary,
                             fontSize = 13.sp,
                         )

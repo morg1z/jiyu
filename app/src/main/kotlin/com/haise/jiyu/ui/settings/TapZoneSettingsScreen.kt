@@ -43,11 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.reader.TapZoneAction
 import com.haise.jiyu.ui.reader.TapZoneGrid
 import com.haise.jiyu.ui.theme.DeepSpace
@@ -60,13 +62,14 @@ import com.haise.jiyu.ui.theme.Violet
 private val ACTION_ORANGE = Color(0xFFFFB74D)
 private val ACTION_CYAN   = Color(0xFF4FC3F7)
 
+@Composable
 private fun TapZoneAction.label() = when (this) {
-    TapZoneAction.NONE         -> "Nic"
-    TapZoneAction.SHOW_PANEL   -> "Zobrazit\novládání"
-    TapZoneAction.PREV_PAGE    -> "Předchozí\nstránka"
-    TapZoneAction.NEXT_PAGE    -> "Další\nstránka"
-    TapZoneAction.PREV_CHAPTER -> "Předchozí\nkapitola"
-    TapZoneAction.NEXT_CHAPTER -> "Další\nkapitola"
+    TapZoneAction.NONE         -> stringResource(R.string.settings_tapzone_action_none)
+    TapZoneAction.SHOW_PANEL   -> stringResource(R.string.settings_tapzone_action_show_panel)
+    TapZoneAction.PREV_PAGE    -> stringResource(R.string.settings_tapzone_action_prev_page)
+    TapZoneAction.NEXT_PAGE    -> stringResource(R.string.settings_tapzone_action_next_page)
+    TapZoneAction.PREV_CHAPTER -> stringResource(R.string.settings_tapzone_action_prev_chapter)
+    TapZoneAction.NEXT_CHAPTER -> stringResource(R.string.settings_tapzone_action_next_chapter)
 }
 
 private fun TapZoneAction.shortLabel() = when (this) {
@@ -87,13 +90,14 @@ private fun TapZoneAction.color() = when (this) {
     TapZoneAction.NEXT_CHAPTER -> ACTION_ORANGE
 }
 
+@Composable
 private fun TapZoneAction.description() = when (this) {
-    TapZoneAction.NONE         -> "Tap v této zóně nebude dělat nic"
-    TapZoneAction.SHOW_PANEL   -> "Zobrazí / skryje ovládací panel"
-    TapZoneAction.PREV_PAGE    -> "Přejde na předchozí stránku"
-    TapZoneAction.NEXT_PAGE    -> "Přejde na další stránku"
-    TapZoneAction.PREV_CHAPTER -> "Přejde na předchozí kapitolu"
-    TapZoneAction.NEXT_CHAPTER -> "Přejde na další kapitolu"
+    TapZoneAction.NONE         -> stringResource(R.string.settings_tapzone_desc_none)
+    TapZoneAction.SHOW_PANEL   -> stringResource(R.string.settings_tapzone_desc_show_panel)
+    TapZoneAction.PREV_PAGE    -> stringResource(R.string.settings_tapzone_desc_prev_page)
+    TapZoneAction.NEXT_PAGE    -> stringResource(R.string.settings_tapzone_desc_next_page)
+    TapZoneAction.PREV_CHAPTER -> stringResource(R.string.settings_tapzone_desc_prev_chapter)
+    TapZoneAction.NEXT_CHAPTER -> stringResource(R.string.settings_tapzone_desc_next_chapter)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,21 +129,21 @@ fun TapZoneSettingsScreen(
                     Icon(TablerIcons.ArrowBack, null, tint = TextPrimary)
                 }
                 Text(
-                    "Tapové zóny",
+                    stringResource(R.string.settings_tapzone_title),
                     color = TextPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { viewModel.setTapZoneGrid(TapZoneGrid()) }) {
-                    Icon(TablerIcons.Refresh, "Výchozí nastavení", tint = TextSecondary)
+                    Icon(TablerIcons.Refresh, stringResource(R.string.settings_tapzone_reset_default), tint = TextSecondary)
                 }
             }
 
             Spacer(Modifier.height(4.dp))
 
             Text(
-                "Každá ze 9 zón obrazovky může provést jinou akci. Klepni na zónu a vyber akci.",
+                stringResource(R.string.settings_tapzone_intro),
                 color = TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -229,7 +233,7 @@ fun TapZoneSettingsScreen(
 
             // ── Legenda akcí ─────────────────────────────────────────────────
             Text(
-                "Dostupné akce",
+                stringResource(R.string.settings_tapzone_available_actions),
                 color = TextSecondary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
@@ -280,8 +284,16 @@ fun TapZoneSettingsScreen(
         val cellIdx   = editingCell!!
         val cellRow   = cellIdx / 3
         val cellCol   = cellIdx % 3
-        val rowName   = listOf("Horní", "Střední", "Dolní")[cellRow]
-        val colName   = listOf("levá", "střední", "pravá")[cellCol]
+        val rowName   = listOf(
+            stringResource(R.string.settings_tapzone_row_top),
+            stringResource(R.string.settings_tapzone_row_middle),
+            stringResource(R.string.settings_tapzone_row_bottom),
+        )[cellRow]
+        val colName   = listOf(
+            stringResource(R.string.settings_tapzone_col_left),
+            stringResource(R.string.settings_tapzone_col_center),
+            stringResource(R.string.settings_tapzone_col_right),
+        )[cellCol]
         val current   = grid[cellRow, cellCol]
 
         ModalBottomSheet(
@@ -291,14 +303,14 @@ fun TapZoneSettingsScreen(
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
                 Text(
-                    "$rowName $colName zóna",
+                    stringResource(R.string.settings_tapzone_zone_title, rowName, colName),
                     color = TextPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
                 Text(
-                    "Vyber akci pro tuto oblast obrazovky",
+                    stringResource(R.string.settings_tapzone_pick_action_desc),
                     color = TextSecondary,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 16.dp),

@@ -28,8 +28,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.screenGradient
 import compose.icons.TablerIcons
@@ -49,7 +51,7 @@ fun StorageSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Uložiště a síť", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_main_storage_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -57,9 +59,9 @@ fun StorageSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Cache překladů") {
+                SettingsSection(title = stringResource(R.string.settings_storage_translation_cache_title)) {
                     Text(
-                        text = "Uložené překlady: $cacheCount stránek",
+                        text = stringResource(R.string.settings_storage_translation_cache_count, cacheCount),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -70,13 +72,13 @@ fun StorageSettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
                         Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Vymazat cache")
+                        Text(stringResource(R.string.settings_storage_clear_cache_button))
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Cache obrázků") {
+                SettingsSection(title = stringResource(R.string.settings_storage_image_cache_title)) {
                     val imgContext = LocalContext.current
                     var diskCacheSize by remember { mutableStateOf(0L) }
                     LaunchedEffect(Unit) {
@@ -88,7 +90,7 @@ fun StorageSettingsScreen(
                         else -> "$diskCacheSize B"
                     }
                     Text(
-                        text = "Disk cache: $sizeStr",
+                        text = stringResource(R.string.settings_storage_disk_cache_size, sizeStr),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -102,7 +104,7 @@ fun StorageSettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
                         Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Vymazat cache obrázků")
+                        Text(stringResource(R.string.settings_storage_clear_image_cache_button))
                     }
                 }
 

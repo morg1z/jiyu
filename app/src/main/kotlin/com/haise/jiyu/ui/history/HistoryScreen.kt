@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.clickable
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -85,7 +87,7 @@ fun HistoryScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Historie",
+                text = stringResource(R.string.history_title),
                 style = TextStyle(
                     brush = titleGradient,
                     fontSize = 24.sp,
@@ -96,7 +98,7 @@ fun HistoryScreen(
             )
             if (groups.isNotEmpty() || searchQuery.isNotBlank()) {
                 IconButton(onClick = { viewModel.clearAll() }) {
-                    Icon(TablerIcons.Trash, contentDescription = "Smazat vše", tint = TextSecondary)
+                    Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.history_clear_all), tint = TextSecondary)
                 }
             }
         }
@@ -121,13 +123,13 @@ fun HistoryScreen(
                 textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
                 cursorBrush = SolidColor(Violet),
                 decorationBox = { inner ->
-                    if (searchQuery.isEmpty()) Text("Hledat v historii…", color = TextSecondary, fontSize = 14.sp)
+                    if (searchQuery.isEmpty()) Text(stringResource(R.string.history_search_placeholder), color = TextSecondary, fontSize = 14.sp)
                     inner()
                 },
             )
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(24.dp)) {
-                    Icon(TablerIcons.X, contentDescription = "Vymazat", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                    Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -146,13 +148,13 @@ fun HistoryScreen(
                     )
                     Spacer(Modifier.height(20.dp))
                     Text(
-                        if (searchQuery.isNotBlank()) "Nic nenalezeno" else "Ještě jsi nic nečetl",
+                        if (searchQuery.isNotBlank()) stringResource(R.string.history_empty_search_title) else stringResource(R.string.history_empty_title),
                         style = MaterialTheme.typography.titleLarge,
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        if (searchQuery.isNotBlank()) "Zkus jiný výraz" else "Přečtené kapitoly se budou zobrazovat tady",
+                        if (searchQuery.isNotBlank()) stringResource(R.string.history_empty_search_subtitle) else stringResource(R.string.history_empty_subtitle),
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -219,7 +221,7 @@ private fun HistoryEntryRow(
             ) {
                 Icon(
                     TablerIcons.Trash,
-                    contentDescription = "Smazat",
+                    contentDescription = stringResource(R.string.common_delete),
                     tint = Color.White,
                     modifier = Modifier.padding(end = 20.dp),
                 )

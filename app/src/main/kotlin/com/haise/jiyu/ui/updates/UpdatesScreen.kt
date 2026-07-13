@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.UpdateItem
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -110,7 +112,7 @@ fun UpdatesScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Aktualizace",
+                    text = stringResource(R.string.updates_title),
                     style = TextStyle(
                         brush = titleGradient,
                         fontSize = 24.sp,
@@ -127,7 +129,7 @@ fun UpdatesScreen(
                             .padding(horizontal = 10.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            text = "$unreadCount nových",
+                            text = stringResource(R.string.updates_new_count, unreadCount),
                             color = Violet,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -138,7 +140,7 @@ fun UpdatesScreen(
                 IconButton(onClick = { showOnlyUnread = !showOnlyUnread }) {
                     Icon(
                         TablerIcons.Filter,
-                        contentDescription = if (showOnlyUnread) "Zobrazit vše" else "Jen nepřečtené",
+                        contentDescription = if (showOnlyUnread) stringResource(R.string.updates_show_all) else stringResource(R.string.updates_unread_only),
                         tint = if (showOnlyUnread) Violet else TextSecondary,
                     )
                 }
@@ -146,7 +148,7 @@ fun UpdatesScreen(
                     IconButton(onClick = { viewModel.markAllRead() }) {
                         Icon(
                             TablerIcons.Checks,
-                            contentDescription = "Označit vše jako přečtené",
+                            contentDescription = stringResource(R.string.updates_mark_all_read),
                             tint = Violet,
                         )
                     }
@@ -156,7 +158,7 @@ fun UpdatesScreen(
             if (displayedUpdates.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = if (showOnlyUnread) "Žádné nepřečtené aktualizace" else "Žádné aktualizace\nPřidej mangy do knihovny",
+                        text = if (showOnlyUnread) stringResource(R.string.updates_empty_unread) else stringResource(R.string.updates_empty),
                         color = TextSecondary,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
@@ -166,13 +168,14 @@ fun UpdatesScreen(
             }
 
             // Group by date; items with dateUpload=0 go at the end by chapter number
+            val noDateLabel = stringResource(R.string.updates_no_date)
             val (dated, undated) = displayedUpdates.partition { it.dateUpload > 0 }
             val grouped = dated
                 .groupBy { SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(it.dateUpload)) }
                 .toMutableMap()
             if (undated.isNotEmpty()) {
                 // Sort undated by chapterNumber descending so newest chapters appear first
-                grouped["Bez data"] = undated.sortedByDescending { it.chapterNumber }
+                grouped[noDateLabel] = undated.sortedByDescending { it.chapterNumber }
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {

@@ -37,4 +37,743 @@
     <string name="settings_download_folder_change">Changer de dossier</string>
     <string name="settings_wifi_only">Télécharger en Wi-Fi uniquement</string>
     <string name="settings_wifi_only_desc">Les données mobiles ne seront pas utilisées</string>
+
+    <!-- Common / partagé -->
+    <string name="common_cancel">Annuler</string>
+    <string name="common_ok">OK</string>
+    <string name="common_save">Enregistrer</string>
+    <string name="common_delete">Supprimer</string>
+    <string name="common_remove">Retirer</string>
+    <string name="common_add">Ajouter</string>
+    <string name="common_change">Changer</string>
+    <string name="common_disconnect">Déconnecter</string>
+    <string name="common_close">Fermer</string>
+    <string name="common_done">Terminé</string>
+    <string name="common_back">Retour</string>
+    <string name="common_clear">Effacer</string>
+    <string name="common_search">Rechercher</string>
+    <string name="common_search_placeholder">Rechercher…</string>
+    <string name="common_yes">Oui</string>
+    <string name="common_no">Non</string>
+    <string name="common_confirm">Confirmer</string>
+    <string name="common_edit">Modifier</string>
+    <string name="common_download">Télécharger</string>
+    <string name="common_share">Partager</string>
+    <string name="common_retry">Réessayer</string>
+    <string name="common_loading">Chargement…</string>
+    <string name="common_none">Aucun</string>
+    <string name="common_all">Tous</string>
+
+    <!-- Paramètres : écran principal -->
+    <string name="settings_main_appearance_title">Apparence</string>
+    <string name="settings_main_appearance_subtitle">Langue, Thème, Bibliothèque</string>
+    <string name="settings_main_sources_title">Sources de manga</string>
+    <string name="settings_main_sources_subtitle">Catalogue de sources, CSS personnalisé, Sources Madara</string>
+    <string name="settings_main_reader_title">Paramètres du lecteur</string>
+    <string name="settings_main_reader_subtitle">Sens de lecture, Mode de lecture, Thème du lecteur</string>
+    <string name="settings_main_storage_title">Stockage et réseau</string>
+    <string name="settings_main_storage_subtitle">Cache de traduction, Cache d\'images</string>
+    <string name="settings_main_downloads_title">Téléchargements</string>
+    <string name="settings_main_downloads_subtitle">Dossier de téléchargement, Wi-Fi, Gestion</string>
+    <string name="settings_main_update_check_title">Vérifier les nouveaux chapitres</string>
+    <string name="settings_main_update_check_subtitle">Intervalle, Notifications</string>
+    <string name="settings_main_services_title">Services</string>
+    <string name="settings_main_services_subtitle">Sync cloud, MyAnimeList, Kitsu, MangaUpdates</string>
+    <string name="settings_main_backup_title">Sauvegarder et restaurer</string>
+    <string name="settings_main_backup_subtitle">Sauvegarde bibliothèque, Sauvegarde paramètres, Import Mihon</string>
+    <string name="settings_main_reading_title">Lecture</string>
+    <string name="settings_main_reading_subtitle">Objectifs de lecture, Listes communautaires, Détecteur de doublons</string>
+    <string name="settings_main_about_title">À propos</string>
+    <string name="settings_main_about_subtitle">Version, Mises à jour</string>
+
+    <!-- Paramètres : Apparence -->
+    <string name="settings_appearance_theme_title">Thème</string>
+    <string name="settings_appearance_theme_system">Système</string>
+    <string name="settings_appearance_theme_light">Clair</string>
+    <string name="settings_appearance_theme_dark">Sombre</string>
+    <string name="settings_appearance_theme_true_black">Noir pur (OLED)</string>
+    <string name="settings_appearance_library_title">Bibliothèque</string>
+    <string name="settings_appearance_grid_columns_title">Colonnes de la grille</string>
+    <string name="settings_appearance_columns_2">2 colonnes</string>
+    <string name="settings_appearance_columns_3_default">3 colonnes (par défaut)</string>
+    <string name="settings_appearance_columns_4">4 colonnes</string>
+    <string name="settings_appearance_default_category_title">Catégorie par défaut pour les nouveaux manga</string>
+    <string name="settings_appearance_default_category_none">Aucune (ne pas assigner)</string>
+
+    <!-- Paramètres : Sources -->
+    <string name="settings_sources_section_title">Sources</string>
+    <string name="settings_sources_catalog_button">Catalogue de sources (%1$d)</string>
+    <string name="settings_sources_custom_css_button">CSS personnalisé pour les sources web</string>
+    <string name="settings_sources_madara_section_title">Sources personnalisées (Madara)</string>
+    <string name="settings_sources_madara_description">Source générique pour les sites basés sur le thème Madara. Entrez un nom et l\'adresse du site - l\'appli essaiera d\'y analyser le balisage Madara standard.</string>
+    <string name="settings_sources_add_button">Ajouter une source</string>
+    <string name="settings_sources_add_dialog_title">Ajouter une source Madara</string>
+    <string name="settings_sources_field_name">Nom</string>
+    <string name="settings_sources_field_url">Adresse du site (https://…)</string>
+    <string name="settings_sources_content_type_label">Type de contenu</string>
+    <string name="settings_sources_type_manga">Manga</string>
+    <string name="settings_sources_type_manhwa">Manhwa</string>
+    <string name="settings_sources_type_manhua">Manhua</string>
+    <string name="settings_sources_type_novel">Romans</string>
+    <string name="settings_sources_type_comic">Comics</string>
+    <string name="settings_sources_advanced_hide">Masquer les sélecteurs avancés</string>
+    <string name="settings_sources_advanced_show">Sélecteurs avancés (optionnel)</string>
+    <string name="settings_sources_advanced_description">À remplir seulement si les sélecteurs Madara par défaut ne correspondent pas à ce site (thème modifié). Laisser vide pour utiliser les valeurs par défaut.</string>
+    <string name="settings_sources_selector_list">Élément de liste</string>
+    <string name="settings_sources_selector_title_link">Lien du titre</string>
+    <string name="settings_sources_selector_description">Description</string>
+    <string name="settings_sources_selector_status">Statut</string>
+    <string name="settings_sources_selector_chapter_list">Liste des chapitres</string>
+    <string name="settings_sources_selector_page_image">Image de page</string>
+    <string name="settings_sources_test_connection">Tester la connexion</string>
+    <string name="settings_sources_test_success">✓ %1$d éléments trouvés</string>
+    <string name="settings_sources_test_failure">✗ %1$s</string>
+
+    <!-- Paramètres : Lecteur -->
+    <string name="settings_reader_direction_title">Sens de lecture</string>
+    <string name="settings_reader_direction_ltr">← Gauche à droite (manhwa, occidental)</string>
+    <string name="settings_reader_direction_rtl">→ Droite à gauche (manga japonais)</string>
+    <string name="settings_reader_mode_title">Mode de lecture</string>
+    <string name="settings_reader_mode_manga">Manga  (pages horizontales)</string>
+    <string name="settings_reader_mode_webtoon">Webtoon  (défilement fluide)</string>
+    <string name="settings_reader_section_title">Lecteur</string>
+    <string name="settings_reader_tap_zones_title">Zones tactiles</string>
+    <string name="settings_reader_tap_zones_desc">Les bords tournent les pages, le centre affiche/masque les contrôles</string>
+    <string name="settings_reader_tap_zones_config">Configurer les zones</string>
+    <string name="settings_reader_scroll_speed">Vitesse de défilement (Webtoon) · %1$s×</string>
+    <string name="settings_reader_scroll_speed_desc">Vitesse de défilement Webtoon</string>
+    <string name="settings_reader_text_scale">Taille du texte traduit · %1$s×</string>
+    <string name="settings_reader_text_scale_desc">Taille du texte traduit</string>
+    <string name="settings_reader_page_scale_title">Zoom de page</string>
+    <string name="settings_reader_page_scale_fit_width">Ajuster à la largeur (par défaut)</string>
+    <string name="settings_reader_page_scale_fit_height">Ajuster à la hauteur</string>
+    <string name="settings_reader_page_scale_fit_screen">Ajuster à l\'écran</string>
+    <string name="settings_reader_page_scale_stretch">Étirer</string>
+    <string name="settings_reader_double_page_title">Affichage double page</string>
+    <string name="settings_reader_double_page_desc">Deux pages côte à côte en mode paysage (mode manga)</string>
+    <string name="settings_reader_fullscreen_title">Plein écran</string>
+    <string name="settings_reader_fullscreen_desc">Masque les barres système pendant la lecture</string>
+    <string name="settings_reader_oled_title">Mode noir OLED</string>
+    <string name="settings_reader_oled_desc">Fond noir pur entre les pages — économise la batterie sur les écrans OLED</string>
+    <string name="settings_reader_auto_next_title">Passer au chapitre suivant après lecture</string>
+    <string name="settings_reader_auto_next_desc">Passe automatiquement au chapitre suivant après la dernière page</string>
+    <string name="settings_reader_crop_borders_title">Rogner les bordures blanches</string>
+    <string name="settings_reader_crop_borders_desc">Supprime automatiquement les marges vides des pages</string>
+    <string name="settings_reader_keep_screen_on_title">Garder l\'écran allumé</string>
+    <string name="settings_reader_keep_screen_on_desc">L\'écran ne s\'éteindra pas pendant la lecture</string>
+    <string name="settings_reader_volume_keys_title">Navigation par les touches de volume</string>
+    <string name="settings_reader_volume_keys_desc">Les touches Vol+ / Vol− tournent les pages</string>
+    <string name="settings_reader_skip_read_title">Ignorer les chapitres lus</string>
+    <string name="settings_reader_skip_read_desc">La navigation ignore les chapitres marqués comme lus</string>
+    <string name="settings_reader_theme_title">Thème du lecteur</string>
+    <string name="settings_reader_theme_dark_default">Sombre (par défaut)</string>
+    <string name="settings_reader_theme_sepia">Sépia</string>
+    <string name="settings_reader_theme_paper">Papier</string>
+    <string name="settings_reader_translate_section_title">Traduction</string>
+
+    <!-- Paramètres : Stockage -->
+    <string name="settings_storage_translation_cache_title">Cache de traduction</string>
+    <string name="settings_storage_translation_cache_count">Traductions en cache : %1$d pages</string>
+    <string name="settings_storage_clear_cache_button">Vider le cache</string>
+    <string name="settings_storage_image_cache_title">Cache d\'images</string>
+    <string name="settings_storage_disk_cache_size">Cache disque : %1$s</string>
+    <string name="settings_storage_clear_image_cache_button">Vider le cache d\'images</string>
+
+    <!-- Paramètres : Téléchargements -->
+    <string name="settings_downloads_folder_reset">Réinitialiser</string>
+    <string name="settings_downloads_section_title">Téléchargements</string>
+    <string name="settings_downloads_auto_delete_title">Suppression auto après lecture</string>
+    <string name="settings_downloads_auto_delete_desc">Les chapitres téléchargés sont supprimés après lecture</string>
+    <string name="settings_downloads_auto_delete_delay_title">Délai avant suppression</string>
+    <string name="settings_downloads_delay_immediately">Immédiatement</string>
+    <string name="settings_downloads_delay_1_day">1 jour</string>
+    <string name="settings_downloads_delay_3_days">3 jours</string>
+    <string name="settings_downloads_delay_7_days">7 jours</string>
+    <string name="settings_downloads_export_cbz_title">Exporter en CBZ</string>
+    <string name="settings_downloads_export_cbz_desc">Crée un fichier .cbz à côté du dossier d\'images après le téléchargement</string>
+    <string name="settings_downloads_parallel_title">Téléchargements parallèles</string>
+    <string name="settings_downloads_parallel_1">1 (séquentiel)</string>
+    <string name="settings_downloads_parallel_2">2 à la fois</string>
+    <string name="settings_downloads_parallel_3_default">3 à la fois (par défaut)</string>
+    <string name="settings_downloads_parallel_5">5 à la fois</string>
+    <string name="settings_downloads_chapters_section_title">Chapitres téléchargés</string>
+    <string name="settings_downloads_downloaded_count">Téléchargés : %1$d chapitres</string>
+    <string name="settings_downloads_manage_button">Gérer</string>
+    <string name="settings_downloads_delete_all_button">Tout supprimer</string>
+    <string name="settings_downloads_delete_all_dialog_title">Tout supprimer ?</string>
+    <string name="settings_downloads_delete_all_dialog_text">Supprime %1$d chapitres téléchargés du disque.</string>
+
+    <!-- Paramètres : Vérification des mises à jour -->
+    <string name="settings_update_title">Vérifier les nouveaux chapitres</string>
+    <string name="settings_update_interval_section">Intervalle de mise à jour</string>
+    <string name="settings_update_interval_6h">6 heures</string>
+    <string name="settings_update_interval_12h">12 heures</string>
+    <string name="settings_update_interval_1d">1 jour</string>
+    <string name="settings_update_interval_2d">2 jours</string>
+    <string name="settings_update_notifications_section">Notifications</string>
+    <string name="settings_update_notify_new_chapters">Nouveaux chapitres</string>
+    <string name="settings_update_notify_new_chapters_desc">Notifie quand la vérification automatique trouve des nouveautés</string>
+    <string name="settings_update_notify_downloads">Téléchargements</string>
+    <string name="settings_update_notify_downloads_desc">Notifie quand un téléchargement de chapitre se termine ou échoue</string>
+
+    <!-- Paramètres : Services -->
+    <string name="settings_services_title">Services</string>
+    <string name="settings_services_account_section">Compte</string>
+    <string name="settings_services_account_button">Connexion &amp; Sync cloud</string>
+    <string name="settings_services_logged_in">Connecté</string>
+    <string name="settings_services_logout">Se déconnecter</string>
+    <string name="settings_services_mal_login_desc">Connectez-vous via MAL OAuth pour synchroniser le suivi.</string>
+    <string name="settings_services_mal_login_button">Se connecter avec MyAnimeList</string>
+    <string name="settings_services_mal_client_id_hint">MAL Client ID : ajoutez-le à local.properties sous MAL_CLIENT_ID=xxx</string>
+    <string name="settings_services_kitsu_login_desc">Connectez-vous à Kitsu pour associer vos manga.</string>
+    <string name="settings_services_email_label">E-mail</string>
+    <string name="settings_services_password_label">Mot de passe</string>
+    <string name="settings_services_kitsu_login_button">Se connecter à Kitsu</string>
+    <string name="settings_services_mu_login_desc">Connectez-vous à MangaUpdates pour associer vos manga.</string>
+    <string name="settings_services_username_label">Nom d\'utilisateur</string>
+    <string name="settings_services_mu_login_button">Se connecter à MangaUpdates</string>
+    <string name="settings_services_kitsu_login_failed">Échec de connexion à Kitsu — vérifiez l\'e-mail et le mot de passe</string>
+    <string name="settings_services_mu_login_failed">Échec de connexion à MangaUpdates</string>
+
+    <!-- Paramètres : Sauvegarde -->
+    <string name="settings_backup_error_prefix">Erreur : %1$s</string>
+    <string name="settings_backup_title">Sauvegarder et restaurer</string>
+    <string name="settings_backup_library_section">Sauvegarde de la bibliothèque</string>
+    <string name="settings_backup_library_export_desc">L\'export enregistre tous les manga, chapitres, progression et catégories dans un fichier JSON.</string>
+    <string name="settings_backup_auto_title">Sauvegarde automatique</string>
+    <string name="settings_backup_auto_desc">Enregistre une sauvegarde sur l\'appareil chaque jour (3 sauvegardes conservées)</string>
+    <string name="settings_backup_folder_target">Cible de sauvegarde auto : %1$s</string>
+    <string name="settings_backup_folder_target_default">Cible de sauvegarde auto : stockage de l\'appareil (par défaut)</string>
+    <string name="settings_backup_folder_hint">Choisissez un dossier synchronisé par Google Drive/Dropbox pour une sauvegarde cloud sans configuration d\'API.</string>
+    <string name="settings_backup_pick_folder">Choisir un dossier</string>
+    <string name="settings_backup_reset_folder">Réinitialiser</string>
+    <string name="settings_backup_export_button">Exporter</string>
+    <string name="settings_backup_import_button">Importer</string>
+    <string name="settings_backup_settings_section">Sauvegarde des paramètres</string>
+    <string name="settings_backup_settings_export_desc">Enregistre les paramètres de l\'appli (thème, zones tactiles, lecteur...) en JSON. Les jetons de connexion ne sont pas exportés.</string>
+    <string name="settings_backup_mihon_section">Importer depuis Mihon / Tachiyomi</string>
+    <string name="settings_backup_mihon_desc">Importez votre bibliothèque depuis Mihon ou Tachiyomi. Dans Mihon : Paramètres → Sauvegarde → Créer une sauvegarde → JSON. Les chapitres lus sont conservés.</string>
+    <string name="settings_backup_importing">Importation...</string>
+    <string name="settings_backup_pick_mihon_file">Choisir une sauvegarde Mihon (.json)</string>
+    <string name="settings_backup_import_done_title">Import terminé</string>
+    <string name="settings_backup_import_done_imported">Importés : %1$d</string>
+    <string name="settings_backup_import_done_skipped">Ignorés (déjà dans la bibliothèque) : %1$d</string>
+    <string name="settings_backup_import_done_errors_label">Erreurs :</string>
+    <string name="settings_backup_export_success">Sauvegarde exportée</string>
+    <string name="settings_backup_generic_export_error">Erreur d\'export</string>
+    <string name="settings_backup_import_success">Restaurés : %1$d manga, %2$d chapitres</string>
+    <string name="settings_backup_generic_import_error">Erreur d\'import</string>
+    <string name="settings_backup_settings_export_success">Paramètres exportés</string>
+    <string name="settings_backup_settings_import_success">%1$d paramètres restaurés</string>
+
+    <!-- Paramètres : Lecture -->
+    <string name="settings_reading_title">Lecture</string>
+    <string name="settings_reading_goals_button">Objectifs de lecture &amp; Série</string>
+    <string name="settings_reading_community_button">Listes manga communautaires</string>
+    <string name="settings_reading_duplicates_button">Détecteur de doublons</string>
+
+    <!-- Paramètres : À propos -->
+    <string name="settings_about_title">À propos</string>
+    <string name="settings_about_version">Version %1$s</string>
+    <string name="settings_about_new_version_available">La version %1$s est disponible</string>
+    <string name="settings_about_download_install">Télécharger et installer</string>
+    <string name="settings_about_open_release_page">Ouvrir la page de version</string>
+    <string name="settings_about_up_to_date">Vous avez la dernière version</string>
+    <string name="settings_about_check_updates">Vérifier les mises à jour</string>
+    <string name="settings_about_grant_install_permission">Veuillez autoriser les installations depuis Jiyu et réessayer le téléchargement</string>
+    <string name="settings_about_download_started">Téléchargement démarré - consultez la barre de notifications</string>
+
+    <!-- Paramètres : Catalogue de sources -->
+    <string name="settings_source_catalog_add_source_fab">Ajouter une source</string>
+    <string name="settings_source_catalog_title">Sources</string>
+    <string name="settings_source_catalog_tab_catalog">Catalogue</string>
+    <string name="settings_source_catalog_tab_mine">Mes sources</string>
+    <string name="settings_source_catalog_catalog_desc">Sources Madara préconfigurées — ajoutez-les en un clic.</string>
+    <string name="settings_source_catalog_empty_catalog">Le catalogue est vide.</string>
+    <string name="settings_source_catalog_empty_mine_title">Aucune source personnalisée pour l\'instant</string>
+    <string name="settings_source_catalog_empty_mine_desc">Appuyez sur + pour ajouter n\'importe quel site Madara.</string>
+    <string name="settings_source_catalog_installed">Installée</string>
+    <string name="settings_source_catalog_form_title">Ajouter une source Madara personnalisée</string>
+    <string name="settings_source_catalog_form_desc">Fonctionne avec tout site basé sur le thème WordPress Madara.</string>
+    <string name="settings_source_catalog_name_label">Nom de la source *</string>
+    <string name="settings_source_catalog_url_label">URL du site * (https://...)</string>
+    <string name="settings_source_catalog_url_error">L\'URL doit commencer par https://</string>
+    <string name="settings_source_catalog_content_type_label">Type de contenu</string>
+    <string name="settings_source_catalog_advanced_toggle">Sélecteurs CSS personnalisés (optionnel)</string>
+    <string name="settings_source_catalog_advanced_hint">Laisser vide pour utiliser le sélecteur Madara par défaut.</string>
+    <string name="settings_source_catalog_field_list_item">Élément de liste</string>
+    <string name="settings_source_catalog_field_title_link">Lien du titre</string>
+    <string name="settings_source_catalog_field_description">Description</string>
+    <string name="settings_source_catalog_field_status">Statut</string>
+    <string name="settings_source_catalog_field_chapter_list">Liste des chapitres</string>
+    <string name="settings_source_catalog_field_page_image">Image de page</string>
+    <string name="settings_source_catalog_field_placeholder_default">par défaut</string>
+    <string name="settings_source_catalog_testing">Test de connexion...</string>
+    <string name="settings_source_catalog_test_success">✓ Connexion OK — %1$d éléments trouvés</string>
+    <string name="settings_source_catalog_test_failure">✗ %1$s</string>
+    <string name="settings_source_catalog_test_button">Tester</string>
+    <string name="settings_source_catalog_test_no_items">Aucun élément trouvé - vérifiez l\'adresse ou les sélecteurs</string>
+
+    <!-- Paramètres : Zones tactiles -->
+    <string name="settings_tapzone_action_none">Rien</string>
+    <string name="settings_tapzone_action_show_panel">Afficher\nles contrôles</string>
+    <string name="settings_tapzone_action_prev_page">Page\nprécédente</string>
+    <string name="settings_tapzone_action_next_page">Page\nsuivante</string>
+    <string name="settings_tapzone_action_prev_chapter">Chapitre\nprécédent</string>
+    <string name="settings_tapzone_action_next_chapter">Chapitre\nsuivant</string>
+    <string name="settings_tapzone_desc_none">Toucher cette zone ne fait rien</string>
+    <string name="settings_tapzone_desc_show_panel">Affiche / masque le panneau de contrôle</string>
+    <string name="settings_tapzone_desc_prev_page">Va à la page précédente</string>
+    <string name="settings_tapzone_desc_next_page">Va à la page suivante</string>
+    <string name="settings_tapzone_desc_prev_chapter">Va au chapitre précédent</string>
+    <string name="settings_tapzone_desc_next_chapter">Va au chapitre suivant</string>
+    <string name="settings_tapzone_title">Zones tactiles</string>
+    <string name="settings_tapzone_reset_default">Réinitialiser par défaut</string>
+    <string name="settings_tapzone_intro">Chacune des 9 zones de l\'écran peut déclencher une action différente. Touchez une zone pour choisir son action.</string>
+    <string name="settings_tapzone_available_actions">Actions disponibles</string>
+    <string name="settings_tapzone_row_top">Haut</string>
+    <string name="settings_tapzone_row_middle">Milieu</string>
+    <string name="settings_tapzone_row_bottom">Bas</string>
+    <string name="settings_tapzone_col_left">gauche</string>
+    <string name="settings_tapzone_col_center">centre</string>
+    <string name="settings_tapzone_col_right">droite</string>
+    <string name="settings_tapzone_zone_title">Zone %1$s %2$s</string>
+    <string name="settings_tapzone_pick_action_desc">Choisissez une action pour cette zone de l\'écran</string>
+
+    <!-- Paramètres : CSS personnalisé -->
+    <string name="settings_css_title">CSS personnalisé</string>
+    <string name="settings_css_desc">Le CSS est injecté dans les pages des sources web. Utilisez-le pour masquer les pubs ou modifier l\'apparence.</string>
+    <string name="settings_css_placeholder">/* Exemple : */\n.ad-banner { display: none !important; }</string>
+    <string name="settings_css_reset">Réinitialiser</string>
+
+    <!-- Détail du manga -->
+    <string name="detail_open_details">Détails</string>
+    <string name="detail_qr_code">Code QR</string>
+    <string name="detail_remove_from_library">Retirer de la bibliothèque</string>
+    <string name="detail_in_library">Dans la bibliothèque</string>
+    <string name="detail_status_ongoing">En cours</string>
+    <string name="detail_status_completed">Terminé</string>
+    <string name="detail_status_hiatus">En pause</string>
+    <string name="detail_status_cancelled">Annulé</string>
+    <string name="detail_chapter_count">%1$d chapitres</string>
+    <string name="detail_reading_time">Temps de lecture : %1$s</string>
+    <string name="detail_show_less">Moins</string>
+    <string name="detail_show_more">Voir plus</string>
+    <string name="detail_reading_status_reading">En cours de lecture</string>
+    <string name="detail_reading_status_on_hold">En pause</string>
+    <string name="detail_reading_status_dropped">Abandonné</string>
+    <string name="detail_reading_status_plan">À lire</string>
+    <string name="detail_status_placeholder">Statut</string>
+    <string name="detail_continue_short">Continuer</string>
+    <string name="detail_read_options">Options de lecture</string>
+    <string name="detail_chapters_header">CHAPITRES</string>
+    <string name="detail_search_chapter">Rechercher un chapitre</string>
+    <string name="detail_sort">Trier</string>
+    <string name="detail_sort_oldest">Plus anciens</string>
+    <string name="detail_sort_newest">Plus récents</string>
+    <string name="detail_more_options">Plus d\'options</string>
+    <string name="detail_mark_all_read">Tout marquer comme lu</string>
+    <string name="detail_jump_first_unread">Aller au premier non lu</string>
+    <string name="detail_view_as_list">Afficher en liste</string>
+    <string name="detail_view_as_grid">Afficher en grille</string>
+    <string name="detail_ungroup_volume">Ne plus grouper par volume</string>
+    <string name="detail_group_volume">Grouper par volume</string>
+    <string name="detail_download_all">Tout télécharger</string>
+    <string name="detail_download_unread">Télécharger les non lus</string>
+    <string name="detail_download_first_n">Télécharger les N premiers…</string>
+    <string name="detail_download_first_n_title">Télécharger les N premiers non lus</string>
+    <string name="detail_n_chapters">%1$d chapitres</string>
+    <string name="detail_search_chapter_placeholder">Rechercher un chapitre…</string>
+    <string name="detail_filter_unread">Non lus</string>
+    <string name="detail_filter_read">Lus</string>
+    <string name="detail_filter_downloaded">Téléchargés</string>
+    <string name="detail_all_groups">Tous les groupes</string>
+    <string name="detail_no_volume">Sans volume</string>
+    <string name="detail_volume_label">Volume %1$s</string>
+    <string name="detail_chapter_downloaded">Téléchargé</string>
+    <string name="detail_mark_read_up_to">Marquer celui-ci et les plus anciens comme lus</string>
+    <string name="detail_mark_all_older_read">Marquer tous les plus anciens comme lus</string>
+    <string name="detail_mark_all_newer_unread">Marquer tous les plus récents comme non lus</string>
+    <string name="detail_mark_as_unread">Marquer comme non lu</string>
+    <string name="detail_mark_as_read">Marquer comme lu</string>
+    <string name="detail_error_no_internet">Vous n\'êtes pas connecté à internet</string>
+    <string name="detail_error_refresh_failed">Échec de la mise à jour : %1$s</string>
+
+    <!-- Détail du manga : sous-page Détails -->
+    <string name="detail_info_title_fallback">Détails</string>
+    <string name="detail_info_section_info">INFO</string>
+    <string name="detail_info_author_label">Auteur :</string>
+    <string name="detail_info_artist_label">Dessinateur :</string>
+    <string name="detail_info_year_label">Année :</string>
+    <string name="detail_info_genres_label">Genres :</string>
+    <string name="detail_info_dir_ltr">LTR (Gauche → Droite)</string>
+    <string name="detail_info_dir_rtl">RTL (Droite → Gauche)</string>
+    <string name="detail_info_dir_webtoon">Webtoon (Défilement)</string>
+    <string name="detail_info_dir_default">Par défaut (des paramètres)</string>
+    <string name="detail_info_dir_default_short">Par défaut</string>
+    <string name="detail_info_dir_webtoon_short">Webtoon</string>
+    <string name="detail_info_reader_direction_label">Sens de lecture :</string>
+    <string name="detail_info_section_categories">CATÉGORIES</string>
+    <string name="detail_info_section_related">SIMILAIRES</string>
+    <string name="detail_info_section_rating">NOTE</string>
+    <string name="detail_info_rating_out_of_10">/ 10</string>
+    <string name="detail_info_clear_rating">Effacer la note</string>
+    <string name="detail_info_section_tracking">SUIVI</string>
+    <string name="detail_info_mal_id">ID MAL : %1$s</string>
+    <string name="detail_info_score">Score : %1$s</string>
+    <string name="detail_info_link_mal">Associer à MyAnimeList</string>
+    <string name="detail_info_mal_no_client_id">Définissez MAL_CLIENT_ID dans local.properties pour activer la recherche (myanimelist.net/apiconfig)</string>
+    <string name="detail_info_mal_no_client_id_full">MAL_CLIENT_ID n\'est pas défini. Enregistrez l\'appli sur myanimelist.net/apiconfig et ajoutez le CLIENT ID à local.properties.</string>
+    <string name="detail_info_sync_from_mal">Récupérer le statut depuis MAL</string>
+    <string name="detail_info_anilist_login_hint">Connectez-vous à AniList dans Compte pour l\'associer.</string>
+    <string name="detail_info_anilist_id">ID AniList : %1$s</string>
+    <string name="detail_info_link_anilist">Associer à AniList</string>
+    <string name="detail_info_kitsu_login_hint">Connectez-vous à Kitsu dans Paramètres pour l\'associer.</string>
+    <string name="detail_info_kitsu_id">ID Kitsu : %1$s</string>
+    <string name="detail_info_sync_from_kitsu">Récupérer le statut depuis Kitsu</string>
+    <string name="detail_info_link_kitsu">Associer à Kitsu</string>
+    <string name="detail_info_mu_login_hint">Connectez-vous à MangaUpdates dans Paramètres pour l\'associer.</string>
+    <string name="detail_info_mu_id">ID MU Series : %1$s</string>
+    <string name="detail_info_sync_from_mu">Récupérer le statut depuis MangaUpdates</string>
+    <string name="detail_info_link_mu">Associer à MangaUpdates</string>
+    <string name="detail_info_section_tags">TAGS</string>
+    <string name="detail_info_add_tag">Ajouter un tag</string>
+    <string name="detail_info_new_tag_placeholder">Nouveau tag…</string>
+    <string name="detail_info_no_tags">Aucun tag</string>
+    <string name="detail_info_section_glossary">GLOSSAIRE DE TRADUCTION</string>
+    <string name="detail_info_add_glossary_entry">Ajouter un terme</string>
+    <string name="detail_info_glossary_hint">Les noms, techniques et surnoms seront toujours traduits ainsi, dans tous les chapitres.</string>
+    <string name="detail_info_glossary_source_placeholder">Original (Sung Jin-woo)</string>
+    <string name="detail_info_glossary_target_placeholder">Traduction (Sung Jin-woo)</string>
+    <string name="detail_info_add_to_glossary">Ajouter au glossaire (%1$s)</string>
+    <string name="detail_info_no_glossary">Aucun terme dans le glossaire</string>
+    <string name="detail_info_section_notes">NOTES</string>
+    <string name="detail_info_note_placeholder">Ajouter une note pour ce manga…</string>
+    <string name="detail_info_section_downloads">TÉLÉCHARGEMENTS</string>
+    <string name="detail_info_auto_download">Télécharger auto. les nouveaux chapitres</string>
+    <string name="detail_info_exclude_updates">Exclure des mises à jour automatiques</string>
+    <string name="detail_info_search_anilist_title">Rechercher sur AniList</string>
+    <string name="detail_info_manga_title_placeholder">Titre du manga...</string>
+    <string name="detail_info_no_search_results">Aucun résultat. Entrez un titre de manga.</string>
+    <string name="detail_info_search_kitsu_title">Rechercher sur Kitsu</string>
+    <string name="detail_info_search_mu_title">Rechercher sur MangaUpdates</string>
+    <string name="detail_info_search_result_year">Année : %1$d</string>
+    <string name="detail_info_search_mal_title">Rechercher sur MyAnimeList</string>
+
+    <!-- Bibliothèque (tableau de bord) -->
+    <string name="library_search_placeholder">Rechercher dans la bibliothèque…</string>
+    <string name="library_nothing_found">Rien trouvé</string>
+    <string name="library_try_different_term">Essayez un autre terme</string>
+    <string name="library_empty_title">Votre bibliothèque vous attend</string>
+    <string name="library_empty_subtitle">Ajoutez votre premier manga et commencez à lire</string>
+    <string name="library_browse_manga_button">Parcourir les manga</string>
+    <string name="library_continue_reading">CONTINUER LA LECTURE</string>
+    <string name="library_recently_added">AJOUTÉS RÉCEMMENT</string>
+    <string name="library_completed">TERMINÉS</string>
+    <string name="library_show_all">Tout afficher</string>
+    <string name="library_refresh_error">Échec de la mise à jour : %1$s%2$s</string>
+    <string name="library_refresh_error_and_more"> et plus</string>
+
+    <!-- Ma liste -->
+    <string name="mylist_error_prefix">Erreur : </string>
+    <string name="mylist_clear_selection">Effacer la sélection</string>
+    <string name="mylist_selected_count">%1$d sélectionnés</string>
+    <string name="mylist_title">Ma liste</string>
+    <string name="mylist_title_count">%1$d titres</string>
+    <string name="mylist_switch_to_list">Passer en liste</string>
+    <string name="mylist_switch_to_grid">Passer en grille</string>
+    <string name="mylist_sort">Trier</string>
+    <string name="mylist_open_cbz">Ouvrir un CBZ/ZIP</string>
+    <string name="mylist_mark_library_read">Marquer la bibliothèque comme lue</string>
+    <string name="mylist_manage_categories">Gérer les catégories</string>
+    <string name="mylist_add_category">Ajouter une catégorie</string>
+    <string name="mylist_content_manhwa">Manhwa</string>
+    <string name="mylist_content_manhua">Manhua</string>
+    <string name="mylist_add_to_category">Ajouter à une catégorie</string>
+    <string name="mylist_remove_from_library">Retirer de la bibliothèque</string>
+    <string name="mylist_importing_file">Import du fichier…</string>
+    <string name="mylist_add_fab">+ Ajouter</string>
+    <string name="mylist_mark_all_read_title">Marquer toute la bibliothèque comme lue ?</string>
+    <string name="mylist_mark_all_read_body">Tous les chapitres des %1$d manga de votre bibliothèque seront marqués comme lus. Cette action ne peut pas être annulée en masse.</string>
+    <string name="mylist_mark_all">Tout marquer</string>
+    <string name="mylist_try_different_term_or_search">Essayez un autre terme ou recherchez par auteur / genre</string>
+    <string name="mylist_no_titles_match_filter">Aucun titre ne correspond au filtre</string>
+    <string name="mylist_add_from_browse_or_change_filter">Ajoutez un manga depuis Parcourir, ou changez le filtre</string>
+    <string name="mylist_bulk_read">Lu</string>
+    <string name="mylist_bulk_category">Catégorie</string>
+    <string name="mylist_sort_last_updated">Dernière mise à jour</string>
+    <string name="mylist_sort_date_added">Date d\'ajout</string>
+    <string name="mylist_sort_random">Aléatoire</string>
+    <string name="mylist_ascending">Croissant</string>
+    <string name="mylist_descending">Décroissant</string>
+    <string name="mylist_read_total_count">%1$d / %2$d</string>
+    <string name="mylist_selected_desc">Sélectionné</string>
+    <string name="mylist_downloaded_offline">Téléchargé hors ligne</string>
+    <string name="mylist_add_n_to_category">Ajouter %1$d manga à une catégorie</string>
+    <string name="mylist_categories_title">Catégories</string>
+    <string name="mylist_new_category_name">Nom de la nouvelle catégorie</string>
+    <string name="mylist_time_hours_minutes">%1$dh %2$dmin</string>
+    <string name="mylist_time_minutes">%1$d min</string>
+    <string name="mylist_time_less_than_minute">moins d\'une minute</string>
+    <string name="mylist_reading_stats_title">Statistiques de lecture</string>
+    <string name="mylist_chapters_read">Chapitres lus</string>
+    <string name="mylist_pages_read">Pages lues</string>
+    <string name="mylist_detailed_stats">Détails →</string>
+
+    <!-- Lecteur -->
+    <string name="reader_sleep_timer_title">Minuteur de sommeil</string>
+    <string name="reader_sleep_timer_close_after">Fermer le lecteur après :</string>
+    <string name="reader_sleep_timer_15min">15 minutes</string>
+    <string name="reader_sleep_timer_30min">30 minutes</string>
+    <string name="reader_sleep_timer_45min">45 minutes</string>
+    <string name="reader_sleep_timer_1h">1 heure</string>
+    <string name="reader_sleep_timer_cancel">Annuler le minuteur</string>
+    <string name="reader_share_page_chooser">Partager la page</string>
+    <string name="reader_incognito_badge">INCOGNITO</string>
+    <string name="reader_chapter_load_failed">Impossible de charger le chapitre.</string>
+    <string name="reader_translate_chapter_desc">Traduction du chapitre</string>
+    <string name="reader_glossary_button">Glossaire</string>
+    <string name="reader_original_toggle">Original</string>
+    <string name="reader_translate_toggle">Traduire</string>
+    <string name="reader_translation_word">Traduction</string>
+    <string name="reader_line_spacing_label">Interligne : %1$sx</string>
+    <string name="reader_font_size_label">Taille : %1$dsp</string>
+    <string name="reader_font_decrease">A-</string>
+    <string name="reader_font_increase">A+</string>
+    <string name="reader_theme_dark">🌙 Sombre</string>
+    <string name="reader_theme_sepia">🟤 Sépia</string>
+    <string name="reader_theme_paper">📄 Papier</string>
+    <string name="reader_theme_white">☀️ Blanc</string>
+    <string name="reader_prev_novel">← Précédent</string>
+    <string name="reader_next_novel">Suivant →</string>
+    <string name="reader_prev_chapter_desc">Chapitre précédent</string>
+    <string name="reader_offline_desc">Hors ligne</string>
+    <string name="reader_panel_mode_desc">Case par case</string>
+    <string name="reader_pick_chapter_desc">Choisir un chapitre</string>
+    <string name="reader_chapters_sheet_title">Chapitres (%1$d)</string>
+    <string name="reader_incognito_off_desc">Désactiver l\'incognito</string>
+    <string name="reader_incognito_on_desc">Incognito</string>
+    <string name="reader_stop_translation_desc">Arrêter la traduction</string>
+    <string name="reader_hide_translation_desc">Masquer la traduction</string>
+    <string name="reader_translate_chapter_action_desc">Traduire le chapitre</string>
+    <string name="reader_next_chapter_desc">Chapitre suivant</string>
+    <string name="reader_translation_label">Traduction :</string>
+    <string name="reader_orientation_label">Orientation :</string>
+    <string name="reader_orientation_auto">Auto</string>
+    <string name="reader_orientation_portrait">↕ Portrait</string>
+    <string name="reader_orientation_landscape">↔ Paysage</string>
+    <string name="reader_translate_all_progress">Traduction en cours… %1$d/%2$d</string>
+    <string name="reader_translate_all_button">Tout traduire</string>
+    <string name="reader_translating_progress">Traduction… %1$d/%2$d</string>
+    <string name="reader_glossary_title">Glossaire de traduction</string>
+    <string name="reader_glossary_desc">Les noms, techniques et surnoms seront toujours traduits de la même façon dans tous les chapitres.</string>
+    <string name="reader_glossary_translation_placeholder">Traduction</string>
+    <string name="reader_glossary_add_button">Ajouter (%1$s)</string>
+    <string name="reader_glossary_empty">Pas encore de termes dans le glossaire.</string>
+    <string name="reader_share_link">Partager le lien</string>
+    <string name="reader_save_to_gallery">Enregistrer dans la galerie</string>
+    <string name="reader_page_content_desc">Page %1$d</string>
+    <string name="reader_page_load_failed">Échec du chargement de la page</string>
+    <string name="reader_error_missing_supabase_url">SUPABASE_URL manquant dans local.properties - la traduction n\'a nulle part où appeler</string>
+    <string name="reader_error_translation_failed">Échec de la traduction du chapitre, réessayez</string>
+
+    <!-- Parcourir -->
+    <string name="browse_title">Parcourir</string>
+    <string name="browse_search_placeholder">Rechercher dans toutes les sources…</string>
+    <string name="browse_filter_manga">Manga</string>
+    <string name="browse_filter_novels">Romans</string>
+    <string name="browse_filter_comics">Comics</string>
+    <string name="browse_lang_all">🌐 Tous</string>
+    <string name="browse_no_sources_match">Aucune source ne correspond au filtre</string>
+
+    <!-- Parcourir une source -->
+    <string name="source_browse_filters">Filtres</string>
+    <string name="source_browse_search_placeholder">Rechercher dans %1$s…</string>
+    <string name="source_browse_popular">Populaires</string>
+    <string name="source_browse_latest">Récents</string>
+    <string name="source_browse_load_failed">Échec du chargement</string>
+    <string name="source_browse_no_results">Aucun résultat</string>
+    <string name="source_browse_cover_desc">Couverture : %1$s</string>
+    <string name="source_browse_add_to_library">+ Ajouter à la bibliothèque</string>
+    <string name="source_browse_dup_title">Vous avez peut-être déjà ce manga</string>
+    <string name="source_browse_dup_desc">« %1$s » porte le même titre qu\'un manga déjà dans votre bibliothèque depuis une autre source. Les sources diffèrent en nombre de chapitres traduits et en qualité de traduction :</string>
+    <string name="source_browse_dup_existing">• %1$s (dans la bibliothèque) : %2$d chapitres</string>
+    <string name="source_browse_chapters_count">%1$d chapitres</string>
+    <string name="source_browse_checking">vérification…</string>
+    <string name="source_browse_dup_new">• %1$s (nouveau) : %2$s</string>
+    <string name="source_browse_add_anyway">Ajouter quand même</string>
+    <string name="source_browse_status_ongoing">En cours</string>
+    <string name="source_browse_status_completed">Terminé</string>
+    <string name="source_browse_status_hiatus">En pause</string>
+    <string name="source_browse_sort_rating">Note</string>
+    <string name="source_browse_sort_title">Titre</string>
+    <string name="source_browse_status_label">Statut de publication</string>
+    <string name="source_browse_year_label">Année de publication</string>
+    <string name="source_browse_year_placeholder">ex. 2020</string>
+    <string name="source_browse_sort_label">Tri</string>
+    <string name="source_browse_reset">Réinitialiser</string>
+    <string name="source_browse_apply">Appliquer</string>
+
+    <!-- Recherche globale -->
+    <string name="search_title">Recherche globale</string>
+    <string name="search_remove_bookmark">Retirer des favoris</string>
+    <string name="search_save_search">Enregistrer la recherche</string>
+    <string name="search_saved_searches">RECHERCHES ENREGISTRÉES</string>
+    <string name="search_empty_hint">Entrez un titre de manga et recherchez\ntoutes les sources à la fois</string>
+    <string name="search_error">Erreur</string>
+    <string name="search_result_count">%1$d résultats</string>
+    <string name="search_source_error">La source a renvoyé une erreur</string>
+
+    <!-- Compte -->
+    <string name="account_error_prefix">Erreur : %1$s</string>
+    <string name="account_password_reset_sent">E-mail de réinitialisation envoyé</string>
+    <string name="account_title">Compte</string>
+    <string name="account_anilist_tracking_title">Suivi AniList</string>
+    <string name="account_anilist_connected_desc">Connecté — la progression des chapitres se synchronise automatiquement.</string>
+    <string name="account_anilist_disconnected_desc">Connectez votre compte AniList et la progression se mettra à jour automatiquement pendant la lecture.</string>
+    <string name="account_anilist_disconnect">Déconnecter AniList</string>
+    <string name="account_anilist_missing_client_id">L\'AniList Client ID n\'est pas défini. Enregistrez l\'appli sur anilist.co/settings/developer (URI de redirection : jiyu://anilist/callback) et ajoutez le Client ID à local.properties sous ANILIST_CLIENT_ID=xxx</string>
+    <string name="account_anilist_connect">Connecter AniList</string>
+    <string name="account_cloud_title">Jiyu Cloud</string>
+    <string name="account_sync_subtitle">Synchronisez votre bibliothèque entre appareils.</string>
+    <string name="account_email">E-mail</string>
+    <string name="account_password">Mot de passe</string>
+    <string name="account_signin_google">Se connecter avec Google</string>
+    <string name="account_signup_button">S\'inscrire</string>
+    <string name="account_signin_button">Se connecter</string>
+    <string name="account_have_account">J\'ai déjà un compte</string>
+    <string name="account_new_account">Nouveau compte</string>
+    <string name="account_forgot_password">Mot de passe oublié</string>
+    <string name="account_avatar_desc_named">Photo de profil de %1$s</string>
+    <string name="account_avatar_desc">Photo de profil</string>
+    <string name="account_default_username">Utilisateur</string>
+    <string name="account_cloud_sync_title">Synchronisation cloud</string>
+    <string name="account_cloud_sync_desc">Envoyez l\'état de votre bibliothèque et des chapitres lus vers le cloud.</string>
+    <string name="account_syncing">Synchronisation...</string>
+    <string name="account_sync_now">Synchroniser maintenant</string>
+    <string name="account_sign_out">Se déconnecter</string>
+    <string name="account_error_unsupported_credential">Type de connexion non pris en charge</string>
+    <string name="account_error_login_generic">Erreur de connexion</string>
+    <string name="account_sync_done">Synchronisation terminée</string>
+    <string name="account_error_sync_generic">Erreur de synchronisation</string>
+    <string name="account_error_signup_generic">Erreur d\'inscription</string>
+    <string name="account_password_reset_email_sent">E-mail de réinitialisation envoyé (si le compte existe)</string>
+
+    <!-- Communauté -->
+    <string name="community_title">Manga communautaires</string>
+    <string name="community_load_error">Impossible de charger la liste communautaire</string>
+    <string name="community_empty">Aucune liste manga publique</string>
+
+    <!-- Gestionnaire de téléchargements -->
+    <string name="downloads_manager_title">Chapitres téléchargés</string>
+    <string name="downloads_manager_storage_used">Utilisé : %1$s</string>
+    <string name="downloads_manager_resume">Reprendre les téléchargements</string>
+    <string name="downloads_manager_pause">Suspendre les téléchargements</string>
+    <string name="downloads_manager_delete_read">Supprimer les lus</string>
+    <string name="downloads_manager_delete_read_confirm_title">Supprimer les chapitres lus ?</string>
+    <string name="downloads_manager_delete_read_confirm_body">Supprime tous les chapitres téléchargés marqués comme lus.</string>
+    <string name="downloads_manager_empty_title">Rien de téléchargé</string>
+    <string name="downloads_manager_empty_subtitle">Les chapitres téléchargés apparaîtront ici — lisez hors ligne sans connexion</string>
+    <string name="downloads_manager_cover_desc">Couverture : %1$s</string>
+    <string name="downloads_manager_count_downloaded">%1$d téléchargés</string>
+    <string name="downloads_manager_count_downloading">%1$d en cours</string>
+    <string name="downloads_manager_count_queued">%1$d en attente</string>
+    <string name="downloads_manager_cancel_download">Annuler le téléchargement</string>
+    <string name="downloads_manager_delete_all">Tout supprimer</string>
+    <string name="downloads_manager_collapse_list">Réduire la liste des chapitres</string>
+    <string name="downloads_manager_expand_list">Développer la liste des chapitres</string>
+    <string name="downloads_manager_delete_group_confirm_title">Supprimer les téléchargements ?</string>
+    <string name="downloads_manager_delete_group_confirm_body">Supprime %1$d chapitres téléchargés de « %2$s ».</string>
+    <string name="downloads_manager_page_count">%1$dp.</string>
+    <string name="downloads_manager_downloading_status">Téléchargement…</string>
+    <string name="downloads_manager_queued_status">En attente</string>
+    <string name="downloads_manager_error_status">Erreur</string>
+    <string name="downloads_manager_error_desc">Échec du téléchargement, touchez pour supprimer</string>
+
+    <!-- Doublons -->
+    <string name="duplicates_title">Doublons</string>
+    <string name="duplicates_groups_found">%1$d groupes trouvés</string>
+    <string name="duplicates_rescan">Rescanner</string>
+    <string name="duplicates_empty_title">Aucun doublon trouvé</string>
+    <string name="duplicates_empty_subtitle">Tous les manga de votre bibliothèque ont des titres uniques.</string>
+    <string name="duplicates_remove_from_library">Retirer de la bibliothèque</string>
+
+    <!-- Objectifs de lecture -->
+    <string name="goals_title">Objectifs de lecture</string>
+    <string name="goals_streak_day_singular">jour de série</string>
+    <string name="goals_streak_day_plural">jours de série</string>
+    <string name="goals_weekly_title">Objectif hebdomadaire</string>
+    <string name="goals_off">Désactivé</string>
+    <string name="goals_progress_format">%1$d / %2$d chapitres</string>
+    <string name="goals_set_goal_label">Définir l\'objectif : %1$s</string>
+    <string name="goals_goal_unit_format">%1$d ch/semaine</string>
+
+    <!-- Historique -->
+    <string name="history_title">Historique</string>
+    <string name="history_clear_all">Tout effacer</string>
+    <string name="history_search_placeholder">Rechercher dans l\'historique…</string>
+    <string name="history_empty_search_title">Rien trouvé</string>
+    <string name="history_empty_title">Vous n\'avez encore rien lu</string>
+    <string name="history_empty_search_subtitle">Essayez un autre terme</string>
+    <string name="history_empty_subtitle">Les chapitres lus apparaîtront ici</string>
+    <string name="history_group_today">Aujourd\'hui</string>
+    <string name="history_group_yesterday">Hier</string>
+    <string name="history_group_this_week">Cette semaine</string>
+
+    <!-- Statistiques -->
+    <string name="stats_title">Statistiques</string>
+    <string name="stats_export_desc">Exporter les statistiques</string>
+    <string name="stats_export_json">Exporter en JSON</string>
+    <string name="stats_export_csv">Exporter en CSV</string>
+    <string name="stats_export_error">Erreur : %1$s</string>
+    <string name="stats_chapters_label">Chapitres</string>
+    <string name="stats_pages_label">Pages</string>
+    <string name="stats_reading_time_label">Temps de lecture</string>
+    <string name="stats_streak_label">Série de jours</string>
+    <string name="stats_chapters_30days_title">CHAPITRES SUR 30 JOURS</string>
+    <string name="stats_no_reading_30days">Aucune lecture au cours des 30 derniers jours</string>
+    <string name="stats_top_genres_title">GENRES PRÉFÉRÉS</string>
+    <string name="stats_top_authors_title">AUTEURS PRÉFÉRÉS</string>
+    <string name="stats_reading_status_title">STATUT DE LECTURE</string>
+    <string name="stats_status_reading">En cours de lecture</string>
+    <string name="stats_status_completed">Terminé</string>
+    <string name="stats_status_on_hold">En pause</string>
+    <string name="stats_status_dropped">Abandonné</string>
+    <string name="stats_status_plan_to_read">À lire</string>
+    <string name="stats_status_unset">Sans statut</string>
+    <string name="stats_export_open_file_error">Impossible d\'ouvrir le fichier de sortie</string>
+    <string name="stats_export_success_json">Statistiques exportées (JSON)</string>
+    <string name="stats_export_success_csv">Statistiques exportées (CSV)</string>
+    <string name="stats_export_generic_error">Erreur d\'export</string>
+
+    <!-- Mises à jour -->
+    <string name="updates_title">Mises à jour</string>
+    <string name="updates_new_count">%1$d nouveaux</string>
+    <string name="updates_show_all">Tout afficher</string>
+    <string name="updates_unread_only">Non lus seulement</string>
+    <string name="updates_mark_all_read">Tout marquer comme lu</string>
+    <string name="updates_empty_unread">Aucune mise à jour non lue</string>
+    <string name="updates_empty">Aucune mise à jour\nAjoutez des manga à votre bibliothèque</string>
+    <string name="updates_no_date">Aucune date</string>
+    <string name="updates_refresh_error">Échec : %1$s%2$s</string>
+
+    <!-- Code QR -->
+    <string name="qr_title">Code QR</string>
+    <string name="qr_content_description">Code QR pour %1$s</string>
+    <string name="qr_share_button">Partager le QR</string>
+
+    <!-- Onboarding (ajout) -->
+    <string name="onb_reading_direction_label">Sens de lecture</string>
+    <string name="onb_reading_mode_label">Mode de lecture</string>
+
+    <!-- Navigation principale -->
+    <string name="main_screen_tab_library">Bibliothèque</string>
+    <string name="main_screen_tab_list">Liste</string>
+    <string name="main_screen_tab_updates">Nouveautés</string>
+    <string name="main_screen_tab_browse">Parcourir</string>
+    <string name="main_screen_tab_history">Historique</string>
+
+    <!-- Widget -->
+    <string name="widget_library_label">Bibliothèque</string>
+    <string name="widget_empty_library">Aucun manga dans la bibliothèque</string>
 </resources>

@@ -29,9 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -54,7 +56,7 @@ fun UpdateCheckSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Zkontrolovat nové kapitoly", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_update_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -62,8 +64,13 @@ fun UpdateCheckSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Interval aktualizací") {
-                    listOf(6L to "6 hodin", 12L to "12 hodin", 24L to "1 den", 48L to "2 dny").forEach { (hours, label) ->
+                SettingsSection(title = stringResource(R.string.settings_update_interval_section)) {
+                    listOf(
+                        6L to stringResource(R.string.settings_update_interval_6h),
+                        12L to stringResource(R.string.settings_update_interval_12h),
+                        24L to stringResource(R.string.settings_update_interval_1d),
+                        48L to stringResource(R.string.settings_update_interval_2d),
+                    ).forEach { (hours, label) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -79,7 +86,7 @@ fun UpdateCheckSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Notifikace") {
+                SettingsSection(title = stringResource(R.string.settings_update_notifications_section)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -88,8 +95,8 @@ fun UpdateCheckSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Nové kapitoly", color = TextPrimary, fontWeight = FontWeight.Medium)
-                            Text("Upozornění při automatické kontrole nových kapitol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.settings_update_notify_new_chapters), color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.settings_update_notify_new_chapters_desc), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(
                             checked = notifyNewChapters,
@@ -105,8 +112,8 @@ fun UpdateCheckSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Stahování", color = TextPrimary, fontWeight = FontWeight.Medium)
-                            Text("Upozornění při dokončení nebo selhání stahování kapitoly", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.settings_update_notify_downloads), color = TextPrimary, fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.settings_update_notify_downloads_desc), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(
                             checked = notifyDownloads,

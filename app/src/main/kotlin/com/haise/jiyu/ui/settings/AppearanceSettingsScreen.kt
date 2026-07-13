@@ -40,7 +40,7 @@ fun AppearanceSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Vzhled", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(com.haise.jiyu.R.string.settings_main_appearance_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -69,12 +69,12 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Téma") {
+                SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_appearance_theme_title)) {
                     listOf(
-                        ThemeOption.SYSTEM to "Systémové",
-                        ThemeOption.LIGHT to "Světlé",
-                        ThemeOption.DARK to "Tmavé",
-                        ThemeOption.TRUE_BLACK to "Čistě černé (OLED)",
+                        ThemeOption.SYSTEM to stringResource(com.haise.jiyu.R.string.settings_appearance_theme_system),
+                        ThemeOption.LIGHT to stringResource(com.haise.jiyu.R.string.settings_appearance_theme_light),
+                        ThemeOption.DARK to stringResource(com.haise.jiyu.R.string.settings_appearance_theme_dark),
+                        ThemeOption.TRUE_BLACK to stringResource(com.haise.jiyu.R.string.settings_appearance_theme_true_black),
                     ).forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = theme == value, onClick = { viewModel.setTheme(value) })
                     }
@@ -82,14 +82,18 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Knihovna") {
+                SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_appearance_library_title)) {
                     androidx.compose.material3.Text(
-                        text = "Sloupce v mřížce",
+                        text = stringResource(com.haise.jiyu.R.string.settings_appearance_grid_columns_title),
                         color = com.haise.jiyu.ui.theme.TextSecondary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
                     )
-                    listOf(2 to "2 sloupce", 3 to "3 sloupce (výchozí)", 4 to "4 sloupce").forEach { (n, label) ->
+                    listOf(
+                        2 to stringResource(com.haise.jiyu.R.string.settings_appearance_columns_2),
+                        3 to stringResource(com.haise.jiyu.R.string.settings_appearance_columns_3_default),
+                        4 to stringResource(com.haise.jiyu.R.string.settings_appearance_columns_4),
+                    ).forEach { (n, label) ->
                         GlassRadioRow(
                             label = label,
                             selected = libraryGridColumns == n,
@@ -99,13 +103,13 @@ fun AppearanceSettingsScreen(
 
                     if (allCategories.isNotEmpty()) {
                         androidx.compose.material3.Text(
-                            text = "Výchozí kategorie pro nová manga",
+                            text = stringResource(com.haise.jiyu.R.string.settings_appearance_default_category_title),
                             color = com.haise.jiyu.ui.theme.TextSecondary,
                             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
                         )
                         GlassRadioRow(
-                            label = "Žádná (nepřiřazovat)",
+                            label = stringResource(com.haise.jiyu.R.string.settings_appearance_default_category_none),
                             selected = defaultCategoryId == null,
                             onClick = { viewModel.setDefaultCategoryId(null) },
                         )

@@ -45,12 +45,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.ui.theme.CardBorder
 import com.haise.jiyu.ui.theme.DeepSpace
@@ -87,7 +89,7 @@ fun BrowseScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Text(
-                text = "Procházet",
+                text = stringResource(R.string.browse_title),
                 style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
             )
 
@@ -109,17 +111,17 @@ fun BrowseScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Hledat ve všech zdrojích…", color = TextSecondary, fontSize = 15.sp)
+                    Text(stringResource(R.string.browse_search_placeholder), color = TextSecondary, fontSize = 15.sp)
                 }
             }
         }
 
         // ── Typový filtr - kompaktní řádek chipů ─────────────────────────────
         val contentTypes = listOf(
-            "ALL" to "Vše",
-            BrowseViewModel.MANGA_GROUP to "Manga",
-            "NOVEL" to "Novely",
-            "COMIC" to "Komiksy",
+            "ALL" to stringResource(R.string.common_all),
+            BrowseViewModel.MANGA_GROUP to stringResource(R.string.browse_filter_manga),
+            "NOVEL" to stringResource(R.string.browse_filter_novels),
+            "COMIC" to stringResource(R.string.browse_filter_comics),
         )
         LazyRow(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -133,7 +135,7 @@ fun BrowseScreen(
 
         // ── Jazykový filtr - kompaktní řádek chipů ───────────────────────────
         val languages = listOf(
-            "ALL" to "🌐 Vše",
+            "ALL" to stringResource(R.string.browse_lang_all),
             "en"  to "🇺🇸 EN",
             "fr"  to "🇫🇷 FR",
             "es"  to "🇪🇸 ES",
@@ -154,7 +156,7 @@ fun BrowseScreen(
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         if (sources.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Žádné zdroje neodpovídají filtru", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.browse_no_sources_match), color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyVerticalGrid(

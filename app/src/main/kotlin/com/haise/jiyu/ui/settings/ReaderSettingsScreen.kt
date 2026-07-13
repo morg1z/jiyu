@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.haise.jiyu.R
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -82,7 +84,7 @@ fun ReaderSettingsScreen(
                 .background(screenGradient)
                 .padding(innerPadding),
         ) {
-            SettingsSubScreenHeader(title = "Nastavení čtečky", onBack = onBack)
+            SettingsSubScreenHeader(title = stringResource(R.string.settings_main_reader_title), onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -90,10 +92,10 @@ fun ReaderSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = "Směr čtení") {
+                SettingsSection(title = stringResource(R.string.settings_reader_direction_title)) {
                     listOf(
-                        ReadingDirection.LTR to "← Zleva doprava (manhwa, western)",
-                        ReadingDirection.RTL to "→ Zprava doleva (japonská manga)",
+                        ReadingDirection.LTR to stringResource(R.string.settings_reader_direction_ltr),
+                        ReadingDirection.RTL to stringResource(R.string.settings_reader_direction_rtl),
                     ).forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = direction == value, onClick = { viewModel.setReadingDirection(value) })
                     }
@@ -101,10 +103,10 @@ fun ReaderSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Režim čtení") {
+                SettingsSection(title = stringResource(R.string.settings_reader_mode_title)) {
                     listOf(
-                        ReadingMode.MANGA   to "Manga  (horizontální stránky)",
-                        ReadingMode.WEBTOON to "Webtoon  (plynulé rolování)",
+                        ReadingMode.MANGA   to stringResource(R.string.settings_reader_mode_manga),
+                        ReadingMode.WEBTOON to stringResource(R.string.settings_reader_mode_webtoon),
                     ).forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = readingMode == value, onClick = { viewModel.setReadingMode(value) })
                     }
@@ -113,7 +115,7 @@ fun ReaderSettingsScreen(
                 Spacer(Modifier.height(12.dp))
 
                 // ── Čtečka ───────────────────────────────────────────────────
-                SettingsSection(title = "Čtečka") {
+                SettingsSection(title = stringResource(R.string.settings_reader_section_title)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -122,8 +124,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Zóny pro tapnutí", color = TextPrimary, fontSize = 14.sp)
-                            Text("Okraje listují stránky, střed zobrazí/skryje ovládání", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_tap_zones_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_tap_zones_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = tapZonesEnabled,
@@ -141,7 +143,7 @@ fun ReaderSettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Konfigurace zón", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.settings_reader_tap_zones_config), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                 Text(
                                     buildZoneGridSummary(tapZoneGrid),
                                     color = TextSecondary,
@@ -153,35 +155,37 @@ fun ReaderSettingsScreen(
                     }
 
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Rychlost scrollování (Webtoon) · ${String.format("%.1f", webtoonScrollSpeed)}×", color = TextPrimary, fontSize = 14.sp)
+                        val scrollSpeedDesc = stringResource(R.string.settings_reader_scroll_speed_desc)
+                        Text(stringResource(R.string.settings_reader_scroll_speed, String.format("%.1f", webtoonScrollSpeed)), color = TextPrimary, fontSize = 14.sp)
                         Slider(
                             value = webtoonScrollSpeed,
                             onValueChange = { viewModel.setWebtoonScrollSpeed(it) },
                             valueRange = 0.5f..3.0f,
-                            modifier = Modifier.semantics { contentDescription = "Rychlost scrollování Webtoon" },
+                            modifier = Modifier.semantics { contentDescription = scrollSpeedDesc },
                             colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
                         )
                     }
 
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Velikost textu překladu · ${String.format("%.1f", readerTextScale)}×", color = TextPrimary, fontSize = 14.sp)
+                        val textScaleDesc = stringResource(R.string.settings_reader_text_scale_desc)
+                        Text(stringResource(R.string.settings_reader_text_scale, String.format("%.1f", readerTextScale)), color = TextPrimary, fontSize = 14.sp)
                         Slider(
                             value = readerTextScale,
                             onValueChange = { viewModel.setReaderTextScale(it) },
                             valueRange = 0.7f..1.6f,
-                            modifier = Modifier.semantics { contentDescription = "Velikost textu překladu" },
+                            modifier = Modifier.semantics { contentDescription = textScaleDesc },
                             colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
                         )
                     }
 
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text("Přiblížení stránky", color = TextPrimary, fontSize = 14.sp)
+                        Text(stringResource(R.string.settings_reader_page_scale_title), color = TextPrimary, fontSize = 14.sp)
                         Spacer(Modifier.height(4.dp))
                         listOf(
-                            "fit_width"  to "Na šířku (výchozí)",
-                            "fit_height" to "Na výšku",
-                            "fit_screen" to "Na obrazovku",
-                            "stretch"    to "Roztáhnout",
+                            "fit_width"  to stringResource(R.string.settings_reader_page_scale_fit_width),
+                            "fit_height" to stringResource(R.string.settings_reader_page_scale_fit_height),
+                            "fit_screen" to stringResource(R.string.settings_reader_page_scale_fit_screen),
+                            "stretch"    to stringResource(R.string.settings_reader_page_scale_stretch),
                         ).forEach { (value, label) ->
                             GlassRadioRow(label = label, selected = pageScale == value, onClick = { viewModel.setPageScale(value) })
                         }
@@ -195,8 +199,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Dvoustránkové zobrazení", color = TextPrimary, fontSize = 14.sp)
-                            Text("Dvě stránky vedle sebe při otočení na šířku (manga mód)", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_double_page_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_double_page_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = doublePageSpread,
@@ -213,8 +217,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Celá obrazovka", color = TextPrimary, fontSize = 14.sp)
-                            Text("Skryje systémové lišty při čtení", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_fullscreen_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_fullscreen_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = fullscreenEnabled,
@@ -231,8 +235,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("OLED Black Mode", color = TextPrimary, fontSize = 14.sp)
-                            Text("Čistě černé pozadí mezi stránkami — šetří baterii OLED displejů", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_oled_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_oled_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = oledMode,
@@ -249,8 +253,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Po dočtení přejít na další kapitolu", color = TextPrimary, fontSize = 14.sp)
-                            Text("Po dosažení poslední stránky se automaticky přejde na další kapitolu", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_auto_next_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_auto_next_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = autoNextChapter,
@@ -267,8 +271,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Ořez bílých okrajů", color = TextPrimary, fontSize = 14.sp)
-                            Text("Automaticky odstraní prázdné okraje stránek", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_crop_borders_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_crop_borders_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = cropBorders,
@@ -285,8 +289,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Udržet obrazovku zapnutou", color = TextPrimary, fontSize = 14.sp)
-                            Text("Obrazovka nezhasne při čtení", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_keep_screen_on_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_keep_screen_on_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = keepScreenOn,
@@ -303,8 +307,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Navigace hlasitostními tlačítky", color = TextPrimary, fontSize = 14.sp)
-                            Text("Tlačítka hl. + / hl. − přepínají stránky", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_volume_keys_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_volume_keys_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = volumeKeysNav,
@@ -321,8 +325,8 @@ fun ReaderSettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Přeskakovat přečtené kapitoly", color = TextPrimary, fontSize = 14.sp)
-                            Text("Navigace přeskočí kapitoly označené jako přečtené", color = TextSecondary, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_reader_skip_read_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_reader_skip_read_desc), color = TextSecondary, fontSize = 11.sp)
                         }
                         Switch(
                             checked = skipReadChapters,
@@ -334,11 +338,11 @@ fun ReaderSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Téma čtečky") {
+                SettingsSection(title = stringResource(R.string.settings_reader_theme_title)) {
                     listOf(
-                        "dark"  to "Tmavé (výchozí)",
-                        "sepia" to "Sépia",
-                        "paper" to "Papír",
+                        "dark"  to stringResource(R.string.settings_reader_theme_dark_default),
+                        "sepia" to stringResource(R.string.settings_reader_theme_sepia),
+                        "paper" to stringResource(R.string.settings_reader_theme_paper),
                     ).forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = readerTheme == value, onClick = { viewModel.setReaderTheme(value) })
                     }
@@ -346,7 +350,7 @@ fun ReaderSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingsSection(title = "Překlad") {
+                SettingsSection(title = stringResource(R.string.settings_reader_translate_section_title)) {
                     TRANSLATE_LANGUAGES.forEach { (value, label) ->
                         GlassRadioRow(label = label, selected = language == value, onClick = { viewModel.setTargetLanguage(value) })
                     }

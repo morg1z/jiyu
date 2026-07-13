@@ -1,9 +1,12 @@
 package com.haise.jiyu.ui.history
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,7 +18,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 
 data class HistoryGroup(
@@ -26,6 +28,7 @@ data class HistoryGroup(
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val historyDao: ReadHistoryDao,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -57,15 +60,19 @@ class HistoryViewModel @Inject constructor(
         val yesterday = startOfDay(-1)
         val thisWeek = startOfDay(-6)
 
-        val fmt = SimpleDateFormat("d. MMMM", Locale("cs"))
+        val locale = appContext.resources.configuration.locales[0]
+        val fmt = SimpleDateFormat("d. MMMM", locale)
+        val todayLabel = appContext.getString(R.string.history_group_today)
+        val yesterdayLabel = appContext.getString(R.string.history_group_yesterday)
+        val thisWeekLabel = appContext.getString(R.string.history_group_this_week)
 
         return entries
             .groupBy { entry ->
                 val t = entry.readAt
                 when {
-                    t >= today     -> "Dnes"
-                    t >= yesterday -> "Včera"
-                    t >= thisWeek  -> "Tento týden"
+                    t >= today     -> todayLabel
+                    t >= yesterday -> yesterdayLabel
+                    t >= thisWeek  -> thisWeekLabel
                     else           -> fmt.format(Date(t))
                 }
             }

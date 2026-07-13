@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.repository.MangaRepository
@@ -134,10 +135,10 @@ class ExtendedStatsViewModel @Inject constructor(
                 })
             }
             context.contentResolver.openOutputStream(uri)?.use { it.write(root.toString(2).toByteArray()) }
-                ?: error("Nelze otevřít výstupní soubor")
-            _exportState.value = StatsExportState.Success("Statistiky exportovány (JSON)")
+                ?: error(context.getString(R.string.stats_export_open_file_error))
+            _exportState.value = StatsExportState.Success(context.getString(R.string.stats_export_success_json))
         } catch (e: Exception) {
-            _exportState.value = StatsExportState.Error(e.message ?: "Chyba exportu")
+            _exportState.value = StatsExportState.Error(e.message ?: context.getString(R.string.stats_export_generic_error))
         }
     }
 
@@ -161,10 +162,10 @@ class ExtendedStatsViewModel @Inject constructor(
             s.statusBreakdown.forEach { (status, count) -> sb.append("$status,$count\n") }
 
             context.contentResolver.openOutputStream(uri)?.use { it.write(sb.toString().toByteArray()) }
-                ?: error("Nelze otevřít výstupní soubor")
-            _exportState.value = StatsExportState.Success("Statistiky exportovány (CSV)")
+                ?: error(context.getString(R.string.stats_export_open_file_error))
+            _exportState.value = StatsExportState.Success(context.getString(R.string.stats_export_success_csv))
         } catch (e: Exception) {
-            _exportState.value = StatsExportState.Error(e.message ?: "Chyba exportu")
+            _exportState.value = StatsExportState.Error(e.message ?: context.getString(R.string.stats_export_generic_error))
         }
     }
 }

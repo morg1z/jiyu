@@ -40,4 +40,743 @@
     <string name="settings_download_folder_change">Změnit složku</string>
     <string name="settings_wifi_only">Stahovat pouze přes Wi-Fi</string>
     <string name="settings_wifi_only_desc">Mobilní data se nepoužijí ke stahování kapitol</string>
+
+    <!-- Common / sdílené - znovupoužívat napříč obrazovkami, nevytvářet duplicity -->
+    <string name="common_cancel">Zrušit</string>
+    <string name="common_ok">OK</string>
+    <string name="common_save">Uložit</string>
+    <string name="common_delete">Smazat</string>
+    <string name="common_remove">Odebrat</string>
+    <string name="common_add">Přidat</string>
+    <string name="common_change">Změnit</string>
+    <string name="common_disconnect">Odpojit</string>
+    <string name="common_close">Zavřít</string>
+    <string name="common_done">Hotovo</string>
+    <string name="common_back">Zpět</string>
+    <string name="common_clear">Vymazat</string>
+    <string name="common_search">Hledat</string>
+    <string name="common_search_placeholder">Hledat…</string>
+    <string name="common_yes">Ano</string>
+    <string name="common_no">Ne</string>
+    <string name="common_confirm">Potvrdit</string>
+    <string name="common_edit">Upravit</string>
+    <string name="common_download">Stáhnout</string>
+    <string name="common_share">Sdílet</string>
+    <string name="common_retry">Zkusit znovu</string>
+    <string name="common_loading">Načítání…</string>
+    <string name="common_none">Žádné</string>
+    <string name="common_all">Vše</string>
+
+    <!-- Settings: hlavní obrazovka -->
+    <string name="settings_main_appearance_title">Vzhled</string>
+    <string name="settings_main_appearance_subtitle">Jazyk, Téma, Knihovna</string>
+    <string name="settings_main_sources_title">Zdroje mang</string>
+    <string name="settings_main_sources_subtitle">Katalog zdrojů, Vlastní CSS, Madara zdroje</string>
+    <string name="settings_main_reader_title">Nastavení čtečky</string>
+    <string name="settings_main_reader_subtitle">Směr čtení, Režim čtení, Téma čtečky</string>
+    <string name="settings_main_storage_title">Uložiště a síť</string>
+    <string name="settings_main_storage_subtitle">Cache překladů, Cache obrázků</string>
+    <string name="settings_main_downloads_title">Stažené</string>
+    <string name="settings_main_downloads_subtitle">Složka stahování, Wi-Fi, Správa</string>
+    <string name="settings_main_update_check_title">Zkontrolovat nové kapitoly</string>
+    <string name="settings_main_update_check_subtitle">Interval, Notifikace</string>
+    <string name="settings_main_services_title">Služby</string>
+    <string name="settings_main_services_subtitle">Cloud sync, MyAnimeList, Kitsu, MangaUpdates</string>
+    <string name="settings_main_backup_title">Zálohovat a obnovit</string>
+    <string name="settings_main_backup_subtitle">Záloha knihovny, Záloha nastavení, Import Mihon</string>
+    <string name="settings_main_reading_title">Čtení</string>
+    <string name="settings_main_reading_subtitle">Cíle čtení, Community listy, Duplikát detektor</string>
+    <string name="settings_main_about_title">O aplikaci</string>
+    <string name="settings_main_about_subtitle">Verze, Aktualizace</string>
+
+    <!-- Settings: Vzhled -->
+    <string name="settings_appearance_theme_title">Téma</string>
+    <string name="settings_appearance_theme_system">Systémové</string>
+    <string name="settings_appearance_theme_light">Světlé</string>
+    <string name="settings_appearance_theme_dark">Tmavé</string>
+    <string name="settings_appearance_theme_true_black">Čistě černé (OLED)</string>
+    <string name="settings_appearance_library_title">Knihovna</string>
+    <string name="settings_appearance_grid_columns_title">Sloupce v mřížce</string>
+    <string name="settings_appearance_columns_2">2 sloupce</string>
+    <string name="settings_appearance_columns_3_default">3 sloupce (výchozí)</string>
+    <string name="settings_appearance_columns_4">4 sloupce</string>
+    <string name="settings_appearance_default_category_title">Výchozí kategorie pro nová manga</string>
+    <string name="settings_appearance_default_category_none">Žádná (nepřiřazovat)</string>
+
+    <!-- Settings: Zdroje -->
+    <string name="settings_sources_section_title">Zdroje</string>
+    <string name="settings_sources_catalog_button">Katalog zdrojů (%1$d)</string>
+    <string name="settings_sources_custom_css_button">Vlastní CSS pro web zdroje</string>
+    <string name="settings_sources_madara_section_title">Vlastní zdroje (Madara)</string>
+    <string name="settings_sources_madara_description">Generický zdroj pro weby postavené na Madara šabloně. Zadej název a adresu webu - appka proti ní zkusí parsovat standardní Madara markup.</string>
+    <string name="settings_sources_add_button">Přidat zdroj</string>
+    <string name="settings_sources_add_dialog_title">Přidat Madara zdroj</string>
+    <string name="settings_sources_field_name">Název</string>
+    <string name="settings_sources_field_url">Adresa webu (https://…)</string>
+    <string name="settings_sources_content_type_label">Typ obsahu</string>
+    <string name="settings_sources_type_manga">Manga</string>
+    <string name="settings_sources_type_manhwa">Manhwa</string>
+    <string name="settings_sources_type_manhua">Manhua</string>
+    <string name="settings_sources_type_novel">Novely</string>
+    <string name="settings_sources_type_comic">Komiksy</string>
+    <string name="settings_sources_advanced_hide">Skrýt pokročilé selektory</string>
+    <string name="settings_sources_advanced_show">Pokročilé selektory (volitelné)</string>
+    <string name="settings_sources_advanced_description">Vyplň jen pokud výchozí Madara selektory na tomto webu nesedí (téma bylo upravené). Prázdné pole = použije se výchozí.</string>
+    <string name="settings_sources_selector_list">Seznam položek (list)</string>
+    <string name="settings_sources_selector_title_link">Odkaz s názvem (title link)</string>
+    <string name="settings_sources_selector_description">Popis (description)</string>
+    <string name="settings_sources_selector_status">Stav vydávání (status)</string>
+    <string name="settings_sources_selector_chapter_list">Seznam kapitol (chapter list)</string>
+    <string name="settings_sources_selector_page_image">Obrázky stránky (page image)</string>
+    <string name="settings_sources_test_connection">Otestovat připojení</string>
+    <string name="settings_sources_test_success">✓ Nalezeno %1$d položek</string>
+    <string name="settings_sources_test_failure">✗ %1$s</string>
+
+    <!-- Settings: Čtečka -->
+    <string name="settings_reader_direction_title">Směr čtení</string>
+    <string name="settings_reader_direction_ltr">← Zleva doprava (manhwa, western)</string>
+    <string name="settings_reader_direction_rtl">→ Zprava doleva (japonská manga)</string>
+    <string name="settings_reader_mode_title">Režim čtení</string>
+    <string name="settings_reader_mode_manga">Manga  (horizontální stránky)</string>
+    <string name="settings_reader_mode_webtoon">Webtoon  (plynulé rolování)</string>
+    <string name="settings_reader_section_title">Čtečka</string>
+    <string name="settings_reader_tap_zones_title">Zóny pro tapnutí</string>
+    <string name="settings_reader_tap_zones_desc">Okraje listují stránky, střed zobrazí/skryje ovládání</string>
+    <string name="settings_reader_tap_zones_config">Konfigurace zón</string>
+    <string name="settings_reader_scroll_speed">Rychlost scrollování (Webtoon) · %1$s×</string>
+    <string name="settings_reader_scroll_speed_desc">Rychlost scrollování Webtoon</string>
+    <string name="settings_reader_text_scale">Velikost textu překladu · %1$s×</string>
+    <string name="settings_reader_text_scale_desc">Velikost textu překladu</string>
+    <string name="settings_reader_page_scale_title">Přiblížení stránky</string>
+    <string name="settings_reader_page_scale_fit_width">Na šířku (výchozí)</string>
+    <string name="settings_reader_page_scale_fit_height">Na výšku</string>
+    <string name="settings_reader_page_scale_fit_screen">Na obrazovku</string>
+    <string name="settings_reader_page_scale_stretch">Roztáhnout</string>
+    <string name="settings_reader_double_page_title">Dvoustránkové zobrazení</string>
+    <string name="settings_reader_double_page_desc">Dvě stránky vedle sebe při otočení na šířku (manga mód)</string>
+    <string name="settings_reader_fullscreen_title">Celá obrazovka</string>
+    <string name="settings_reader_fullscreen_desc">Skryje systémové lišty při čtení</string>
+    <string name="settings_reader_oled_title">OLED Black Mode</string>
+    <string name="settings_reader_oled_desc">Čistě černé pozadí mezi stránkami — šetří baterii OLED displejů</string>
+    <string name="settings_reader_auto_next_title">Po dočtení přejít na další kapitolu</string>
+    <string name="settings_reader_auto_next_desc">Po dosažení poslední stránky se automaticky přejde na další kapitolu</string>
+    <string name="settings_reader_crop_borders_title">Ořez bílých okrajů</string>
+    <string name="settings_reader_crop_borders_desc">Automaticky odstraní prázdné okraje stránek</string>
+    <string name="settings_reader_keep_screen_on_title">Udržet obrazovku zapnutou</string>
+    <string name="settings_reader_keep_screen_on_desc">Obrazovka nezhasne při čtení</string>
+    <string name="settings_reader_volume_keys_title">Navigace hlasitostními tlačítky</string>
+    <string name="settings_reader_volume_keys_desc">Tlačítka hl. + / hl. − přepínají stránky</string>
+    <string name="settings_reader_skip_read_title">Přeskakovat přečtené kapitoly</string>
+    <string name="settings_reader_skip_read_desc">Navigace přeskočí kapitoly označené jako přečtené</string>
+    <string name="settings_reader_theme_title">Téma čtečky</string>
+    <string name="settings_reader_theme_dark_default">Tmavé (výchozí)</string>
+    <string name="settings_reader_theme_sepia">Sépia</string>
+    <string name="settings_reader_theme_paper">Papír</string>
+    <string name="settings_reader_translate_section_title">Překlad</string>
+
+    <!-- Settings: Uložiště -->
+    <string name="settings_storage_translation_cache_title">Cache překladů</string>
+    <string name="settings_storage_translation_cache_count">Uložené překlady: %1$d stránek</string>
+    <string name="settings_storage_clear_cache_button">Vymazat cache</string>
+    <string name="settings_storage_image_cache_title">Cache obrázků</string>
+    <string name="settings_storage_disk_cache_size">Disk cache: %1$s</string>
+    <string name="settings_storage_clear_image_cache_button">Vymazat cache obrázků</string>
+
+    <!-- Settings: Stažené -->
+    <string name="settings_downloads_folder_reset">Reset</string>
+    <string name="settings_downloads_section_title">Stahování</string>
+    <string name="settings_downloads_auto_delete_title">Auto-smazat přečtené</string>
+    <string name="settings_downloads_auto_delete_desc">Stažené kapitoly se smažou po přečtení</string>
+    <string name="settings_downloads_auto_delete_delay_title">Prodleva před smazáním</string>
+    <string name="settings_downloads_delay_immediately">Okamžitě</string>
+    <string name="settings_downloads_delay_1_day">1 den</string>
+    <string name="settings_downloads_delay_3_days">3 dny</string>
+    <string name="settings_downloads_delay_7_days">7 dní</string>
+    <string name="settings_downloads_export_cbz_title">Exportovat jako CBZ</string>
+    <string name="settings_downloads_export_cbz_desc">Po stažení vytvoří .cbz soubor vedle složky s obrázky</string>
+    <string name="settings_downloads_parallel_title">Paralelní stahování</string>
+    <string name="settings_downloads_parallel_1">1 (postupně)</string>
+    <string name="settings_downloads_parallel_2">2 naráz</string>
+    <string name="settings_downloads_parallel_3_default">3 naráz (výchozí)</string>
+    <string name="settings_downloads_parallel_5">5 naráz</string>
+    <string name="settings_downloads_chapters_section_title">Stažené kapitoly</string>
+    <string name="settings_downloads_downloaded_count">Staženo: %1$d kapitol</string>
+    <string name="settings_downloads_manage_button">Správa</string>
+    <string name="settings_downloads_delete_all_button">Smazat vše</string>
+    <string name="settings_downloads_delete_all_dialog_title">Smazat vše?</string>
+    <string name="settings_downloads_delete_all_dialog_text">Smaže %1$d stažených kapitol z disku.</string>
+
+    <!-- Settings: Aktualizace -->
+    <string name="settings_update_title">Zkontrolovat nové kapitoly</string>
+    <string name="settings_update_interval_section">Interval aktualizací</string>
+    <string name="settings_update_interval_6h">6 hodin</string>
+    <string name="settings_update_interval_12h">12 hodin</string>
+    <string name="settings_update_interval_1d">1 den</string>
+    <string name="settings_update_interval_2d">2 dny</string>
+    <string name="settings_update_notifications_section">Notifikace</string>
+    <string name="settings_update_notify_new_chapters">Nové kapitoly</string>
+    <string name="settings_update_notify_new_chapters_desc">Upozornění při automatické kontrole nových kapitol</string>
+    <string name="settings_update_notify_downloads">Stahování</string>
+    <string name="settings_update_notify_downloads_desc">Upozornění při dokončení nebo selhání stahování kapitoly</string>
+
+    <!-- Settings: Služby -->
+    <string name="settings_services_title">Služby</string>
+    <string name="settings_services_account_section">Účet</string>
+    <string name="settings_services_account_button">Přihlášení &amp; Cloud sync</string>
+    <string name="settings_services_logged_in">Přihlášen</string>
+    <string name="settings_services_logout">Odhlásit</string>
+    <string name="settings_services_mal_login_desc">Přihlas se přes MAL OAuth pro synchronizaci sledování.</string>
+    <string name="settings_services_mal_login_button">Přihlásit se přes MyAnimeList</string>
+    <string name="settings_services_mal_client_id_hint">MAL Client ID: přidej do local.properties jako MAL_CLIENT_ID=xxx</string>
+    <string name="settings_services_kitsu_login_desc">Přihlas se ke Kitsu pro párování mangy.</string>
+    <string name="settings_services_email_label">E-mail</string>
+    <string name="settings_services_password_label">Heslo</string>
+    <string name="settings_services_kitsu_login_button">Přihlásit se ke Kitsu</string>
+    <string name="settings_services_mu_login_desc">Přihlas se k MangaUpdates pro párování mangy.</string>
+    <string name="settings_services_username_label">Uživatelské jméno</string>
+    <string name="settings_services_mu_login_button">Přihlásit se k MangaUpdates</string>
+    <string name="settings_services_kitsu_login_failed">Přihlášení k Kitsu selhalo — zkontroluj e-mail a heslo</string>
+    <string name="settings_services_mu_login_failed">Přihlášení k MangaUpdates selhalo</string>
+
+    <!-- Settings: Zálohování -->
+    <string name="settings_backup_error_prefix">Chyba: %1$s</string>
+    <string name="settings_backup_title">Zálohovat a obnovit</string>
+    <string name="settings_backup_library_section">Záloha knihovny</string>
+    <string name="settings_backup_library_export_desc">Export uloží všechnu mangu, kapitoly, progress a kategorie do JSON souboru.</string>
+    <string name="settings_backup_auto_title">Automatická záloha</string>
+    <string name="settings_backup_auto_desc">Denně ukládá zálohu do úložiště zařízení (3 zálohy)</string>
+    <string name="settings_backup_folder_target">Cíl auto-zálohy: %1$s</string>
+    <string name="settings_backup_folder_target_default">Cíl auto-zálohy: úložiště zařízení (výchozí)</string>
+    <string name="settings_backup_folder_hint">Vyber složku synchronizovanou appkou Google Drive/Dropbox pro cloudovou zálohu bez nastavování API.</string>
+    <string name="settings_backup_pick_folder">Vybrat složku</string>
+    <string name="settings_backup_reset_folder">Reset</string>
+    <string name="settings_backup_export_button">Exportovat</string>
+    <string name="settings_backup_import_button">Importovat</string>
+    <string name="settings_backup_settings_section">Záloha nastavení</string>
+    <string name="settings_backup_settings_export_desc">Uloží nastavení appky (téma, tap zóny, čtečka...) do JSON. Přihlašovací tokeny se neexportují.</string>
+    <string name="settings_backup_mihon_section">Import z Mihon / Tachiyomi</string>
+    <string name="settings_backup_mihon_desc">Importuj knihovnu z Mihon nebo Tachiyomi. V Mihon: Settings → Backup → Create backup → JSON. Přečtené kapitoly se zachovají.</string>
+    <string name="settings_backup_importing">Importuji...</string>
+    <string name="settings_backup_pick_mihon_file">Vybrat zálohu Mihon (.json)</string>
+    <string name="settings_backup_import_done_title">Import dokončen</string>
+    <string name="settings_backup_import_done_imported">Importováno: %1$d</string>
+    <string name="settings_backup_import_done_skipped">Přeskočeno (již v knihovně): %1$d</string>
+    <string name="settings_backup_import_done_errors_label">Chyby:</string>
+    <string name="settings_backup_export_success">Záloha exportována</string>
+    <string name="settings_backup_generic_export_error">Chyba exportu</string>
+    <string name="settings_backup_import_success">Obnoveno: %1$d manga, %2$d kapitol</string>
+    <string name="settings_backup_generic_import_error">Chyba importu</string>
+    <string name="settings_backup_settings_export_success">Nastavení exportováno</string>
+    <string name="settings_backup_settings_import_success">Obnoveno %1$d nastavení</string>
+
+    <!-- Settings: Čtení -->
+    <string name="settings_reading_title">Čtení</string>
+    <string name="settings_reading_goals_button">Cíle čtení &amp; Série dnů</string>
+    <string name="settings_reading_community_button">Community manga listy</string>
+    <string name="settings_reading_duplicates_button">Duplikát detektor</string>
+
+    <!-- Settings: O aplikaci -->
+    <string name="settings_about_title">O aplikaci</string>
+    <string name="settings_about_version">Verze %1$s</string>
+    <string name="settings_about_new_version_available">Nová verze %1$s je k dispozici</string>
+    <string name="settings_about_download_install">Stáhnout a nainstalovat</string>
+    <string name="settings_about_open_release_page">Otevřít stránku vydání</string>
+    <string name="settings_about_up_to_date">Máš nejnovější verzi</string>
+    <string name="settings_about_check_updates">Zkontrolovat aktualizace</string>
+    <string name="settings_about_grant_install_permission">Povol prosím instalaci z Jiyu a zkus stažení znovu</string>
+    <string name="settings_about_download_started">Stahování zahájeno - sleduj lištu oznámení</string>
+
+    <!-- Settings: Katalog zdrojů -->
+    <string name="settings_source_catalog_add_source_fab">Přidat zdroj</string>
+    <string name="settings_source_catalog_title">Zdroje</string>
+    <string name="settings_source_catalog_tab_catalog">Katalog</string>
+    <string name="settings_source_catalog_tab_mine">Moje zdroje</string>
+    <string name="settings_source_catalog_catalog_desc">Přednastavené Madara zdroje — jedním klepnutím přidat.</string>
+    <string name="settings_source_catalog_empty_catalog">Katalog je prázdný.</string>
+    <string name="settings_source_catalog_empty_mine_title">Zatím žádné vlastní zdroje</string>
+    <string name="settings_source_catalog_empty_mine_desc">Klepni na + a přidej libovolný Madara web.</string>
+    <string name="settings_source_catalog_installed">Nainstalováno</string>
+    <string name="settings_source_catalog_form_title">Přidat vlastní Madara zdroj</string>
+    <string name="settings_source_catalog_form_desc">Funguje s libovolným webem postaveným na WordPress Madara tématu.</string>
+    <string name="settings_source_catalog_name_label">Název zdroje *</string>
+    <string name="settings_source_catalog_url_label">URL webu * (https://...)</string>
+    <string name="settings_source_catalog_url_error">URL musí začínat https://</string>
+    <string name="settings_source_catalog_content_type_label">Typ obsahu</string>
+    <string name="settings_source_catalog_advanced_toggle">Vlastní CSS selektory (nepovinné)</string>
+    <string name="settings_source_catalog_advanced_hint">Prázdné pole = použije se výchozí Madara selektor.</string>
+    <string name="settings_source_catalog_field_list_item">Položka v seznamu</string>
+    <string name="settings_source_catalog_field_title_link">Odkaz s názvem</string>
+    <string name="settings_source_catalog_field_description">Popis</string>
+    <string name="settings_source_catalog_field_status">Status</string>
+    <string name="settings_source_catalog_field_chapter_list">Seznam kapitol</string>
+    <string name="settings_source_catalog_field_page_image">Obrázek stránky</string>
+    <string name="settings_source_catalog_field_placeholder_default">výchozí</string>
+    <string name="settings_source_catalog_testing">Testuji připojení...</string>
+    <string name="settings_source_catalog_test_success">✓ Připojení OK — nalezeno %1$d položek</string>
+    <string name="settings_source_catalog_test_failure">✗ %1$s</string>
+    <string name="settings_source_catalog_test_button">Otestovat</string>
+    <string name="settings_source_catalog_test_no_items">Nenalezeny žádné položky - zkontroluj adresu nebo selektory</string>
+
+    <!-- Settings: Tapové zóny -->
+    <string name="settings_tapzone_action_none">Nic</string>
+    <string name="settings_tapzone_action_show_panel">Zobrazit\novládání</string>
+    <string name="settings_tapzone_action_prev_page">Předchozí\nstránka</string>
+    <string name="settings_tapzone_action_next_page">Další\nstránka</string>
+    <string name="settings_tapzone_action_prev_chapter">Předchozí\nkapitola</string>
+    <string name="settings_tapzone_action_next_chapter">Další\nkapitola</string>
+    <string name="settings_tapzone_desc_none">Tap v této zóně nebude dělat nic</string>
+    <string name="settings_tapzone_desc_show_panel">Zobrazí / skryje ovládací panel</string>
+    <string name="settings_tapzone_desc_prev_page">Přejde na předchozí stránku</string>
+    <string name="settings_tapzone_desc_next_page">Přejde na další stránku</string>
+    <string name="settings_tapzone_desc_prev_chapter">Přejde na předchozí kapitolu</string>
+    <string name="settings_tapzone_desc_next_chapter">Přejde na další kapitolu</string>
+    <string name="settings_tapzone_title">Tapové zóny</string>
+    <string name="settings_tapzone_reset_default">Výchozí nastavení</string>
+    <string name="settings_tapzone_intro">Každá ze 9 zón obrazovky může provést jinou akci. Klepni na zónu a vyber akci.</string>
+    <string name="settings_tapzone_available_actions">Dostupné akce</string>
+    <string name="settings_tapzone_row_top">Horní</string>
+    <string name="settings_tapzone_row_middle">Střední</string>
+    <string name="settings_tapzone_row_bottom">Dolní</string>
+    <string name="settings_tapzone_col_left">levá</string>
+    <string name="settings_tapzone_col_center">střední</string>
+    <string name="settings_tapzone_col_right">pravá</string>
+    <string name="settings_tapzone_zone_title">%1$s %2$s zóna</string>
+    <string name="settings_tapzone_pick_action_desc">Vyber akci pro tuto oblast obrazovky</string>
+
+    <!-- Settings: Vlastní CSS -->
+    <string name="settings_css_title">Vlastní CSS</string>
+    <string name="settings_css_desc">CSS se injektuje do stránek webových zdrojů. Použij pro skrytí reklam nebo úpravu vzhledu.</string>
+    <string name="settings_css_placeholder">/* Příklad: */\n.ad-banner { display: none !important; }</string>
+    <string name="settings_css_reset">Reset</string>
+
+    <!-- Detail mangy -->
+    <string name="detail_open_details">Detaily</string>
+    <string name="detail_qr_code">QR kód</string>
+    <string name="detail_remove_from_library">Odebrat z knihovny</string>
+    <string name="detail_in_library">V knihovně</string>
+    <string name="detail_status_ongoing">Vychází</string>
+    <string name="detail_status_completed">Dokončeno</string>
+    <string name="detail_status_hiatus">Pauza</string>
+    <string name="detail_status_cancelled">Zrušeno</string>
+    <string name="detail_chapter_count">%1$d kapitol</string>
+    <string name="detail_reading_time">Čas čtení: %1$s</string>
+    <string name="detail_show_less">Méně</string>
+    <string name="detail_show_more">Zobrazit více</string>
+    <string name="detail_reading_status_reading">Čtu</string>
+    <string name="detail_reading_status_on_hold">Pozastaveno</string>
+    <string name="detail_reading_status_dropped">Opuštěno</string>
+    <string name="detail_reading_status_plan">Plánuji číst</string>
+    <string name="detail_status_placeholder">Status</string>
+    <string name="detail_continue_short">Pokračovat</string>
+    <string name="detail_read_options">Možnosti čtení</string>
+    <string name="detail_chapters_header">KAPITOLY</string>
+    <string name="detail_search_chapter">Hledat kapitolu</string>
+    <string name="detail_sort">Seřadit</string>
+    <string name="detail_sort_oldest">Nejstarší</string>
+    <string name="detail_sort_newest">Nejnovější</string>
+    <string name="detail_more_options">Další možnosti</string>
+    <string name="detail_mark_all_read">Označit vše přečtené</string>
+    <string name="detail_jump_first_unread">Přejít na první nepřečtenou</string>
+    <string name="detail_view_as_list">Zobrazit jako seznam</string>
+    <string name="detail_view_as_grid">Zobrazit jako mřížku</string>
+    <string name="detail_ungroup_volume">Zrušit seskupení podle volume</string>
+    <string name="detail_group_volume">Seskupit podle volume</string>
+    <string name="detail_download_all">Stáhnout vše</string>
+    <string name="detail_download_unread">Stáhnout nepřečtené</string>
+    <string name="detail_download_first_n">Stáhnout prvních N…</string>
+    <string name="detail_download_first_n_title">Stáhnout prvních N nepřečtených</string>
+    <string name="detail_n_chapters">%1$d kapitol</string>
+    <string name="detail_search_chapter_placeholder">Hledat kapitolu…</string>
+    <string name="detail_filter_unread">Nepřečtené</string>
+    <string name="detail_filter_read">Přečtené</string>
+    <string name="detail_filter_downloaded">Stažené</string>
+    <string name="detail_all_groups">Všechny skupiny</string>
+    <string name="detail_no_volume">Bez volumu</string>
+    <string name="detail_volume_label">Volume %1$s</string>
+    <string name="detail_chapter_downloaded">Staženo</string>
+    <string name="detail_mark_read_up_to">Označit toto i vše starší přečtené</string>
+    <string name="detail_mark_all_older_read">Označit vše starší jako přečtené</string>
+    <string name="detail_mark_all_newer_unread">Označit vše novější jako nepřečtené</string>
+    <string name="detail_mark_as_unread">Označit jako nepřečtené</string>
+    <string name="detail_mark_as_read">Označit jako přečtené</string>
+    <string name="detail_error_no_internet">Nejsi připojen k internetu</string>
+    <string name="detail_error_refresh_failed">Aktualizace selhala: %1$s</string>
+
+    <!-- Detail mangy: podstránka Detaily -->
+    <string name="detail_info_title_fallback">Detaily</string>
+    <string name="detail_info_section_info">INFO</string>
+    <string name="detail_info_author_label">Autor:</string>
+    <string name="detail_info_artist_label">Kreslíř:</string>
+    <string name="detail_info_year_label">Rok:</string>
+    <string name="detail_info_genres_label">Žánry:</string>
+    <string name="detail_info_dir_ltr">LTR (Vlevo → Vpravo)</string>
+    <string name="detail_info_dir_rtl">RTL (Vpravo → Vlevo)</string>
+    <string name="detail_info_dir_webtoon">Webtoon (Scroll)</string>
+    <string name="detail_info_dir_default">Výchozí (z nastavení)</string>
+    <string name="detail_info_dir_default_short">Výchozí</string>
+    <string name="detail_info_dir_webtoon_short">Webtoon</string>
+    <string name="detail_info_reader_direction_label">Směr čtení:</string>
+    <string name="detail_info_section_categories">KATEGORIE</string>
+    <string name="detail_info_section_related">PODOBNÉ</string>
+    <string name="detail_info_section_rating">HODNOCENÍ</string>
+    <string name="detail_info_rating_out_of_10">/ 10</string>
+    <string name="detail_info_clear_rating">Smazat hodnocení</string>
+    <string name="detail_info_section_tracking">SLEDOVÁNÍ</string>
+    <string name="detail_info_mal_id">MAL ID: %1$s</string>
+    <string name="detail_info_score">Skóre: %1$s</string>
+    <string name="detail_info_link_mal">Propojit s MyAnimeList</string>
+    <string name="detail_info_mal_no_client_id">Pro vyhledávání nastav MAL_CLIENT_ID v local.properties (myanimelist.net/apiconfig)</string>
+    <string name="detail_info_mal_no_client_id_full">MAL_CLIENT_ID není nastaven. Zaregistruj appku na myanimelist.net/apiconfig a vlož CLIENT ID do local.properties.</string>
+    <string name="detail_info_sync_from_mal">Stáhnout status z MAL</string>
+    <string name="detail_info_anilist_login_hint">Přihlas se k AniListu v Účtu pro párování.</string>
+    <string name="detail_info_anilist_id">AniList ID: %1$s</string>
+    <string name="detail_info_link_anilist">Propojit s AniList</string>
+    <string name="detail_info_kitsu_login_hint">Přihlas se ke Kitsu v Nastavení pro párování.</string>
+    <string name="detail_info_kitsu_id">Kitsu ID: %1$s</string>
+    <string name="detail_info_sync_from_kitsu">Stáhnout status z Kitsu</string>
+    <string name="detail_info_link_kitsu">Propojit s Kitsu</string>
+    <string name="detail_info_mu_login_hint">Přihlas se k MangaUpdates v Nastavení pro párování.</string>
+    <string name="detail_info_mu_id">MU Series ID: %1$s</string>
+    <string name="detail_info_sync_from_mu">Stáhnout status z MangaUpdates</string>
+    <string name="detail_info_link_mu">Propojit s MangaUpdates</string>
+    <string name="detail_info_section_tags">TAGY</string>
+    <string name="detail_info_add_tag">Přidat tag</string>
+    <string name="detail_info_new_tag_placeholder">Nový tag…</string>
+    <string name="detail_info_no_tags">Žádné tagy</string>
+    <string name="detail_info_section_glossary">SLOVNÍK PŘEKLADU</string>
+    <string name="detail_info_add_glossary_entry">Přidat pojem</string>
+    <string name="detail_info_glossary_hint">Jména, techniky a přezdívky se budou vždy překládat takhle, napříč všemi kapitolami.</string>
+    <string name="detail_info_glossary_source_placeholder">Originál (Sung Jin-woo)</string>
+    <string name="detail_info_glossary_target_placeholder">Překlad (Sung Jin-woo)</string>
+    <string name="detail_info_add_to_glossary">Přidat do slovníku (%1$s)</string>
+    <string name="detail_info_no_glossary">Žádné pojmy ve slovníku</string>
+    <string name="detail_info_section_notes">POZNÁMKY</string>
+    <string name="detail_info_note_placeholder">Přidej poznámku k tomuto mangu…</string>
+    <string name="detail_info_section_downloads">STAHOVÁNÍ</string>
+    <string name="detail_info_auto_download">Auto-stahování nových kapitol</string>
+    <string name="detail_info_exclude_updates">Vyloučit z automatických aktualizací</string>
+    <string name="detail_info_search_anilist_title">Hledat na AniListu</string>
+    <string name="detail_info_manga_title_placeholder">Název mangy...</string>
+    <string name="detail_info_no_search_results">Žádné výsledky. Zadej název mangy.</string>
+    <string name="detail_info_search_kitsu_title">Hledat na Kitsu</string>
+    <string name="detail_info_search_mu_title">Hledat na MangaUpdates</string>
+    <string name="detail_info_search_result_year">Rok: %1$d</string>
+    <string name="detail_info_search_mal_title">Hledat na MyAnimeList</string>
+
+    <!-- Knihovna (dashboard) -->
+    <string name="library_search_placeholder">Hledat v knihovně…</string>
+    <string name="library_nothing_found">Nic nenalezeno</string>
+    <string name="library_try_different_term">Zkus jiný výraz</string>
+    <string name="library_empty_title">Tvá knihovna čeká</string>
+    <string name="library_empty_subtitle">Přidej svoji první mangu a začni číst</string>
+    <string name="library_browse_manga_button">Procházet mangy</string>
+    <string name="library_continue_reading">POKRAČOVAT VE ČTENÍ</string>
+    <string name="library_recently_added">NEDÁVNO PŘIDANÉ</string>
+    <string name="library_completed">DOKONČENÉ</string>
+    <string name="library_show_all">Zobrazit vše</string>
+    <string name="library_refresh_error">Nepodařilo se aktualizovat: %1$s%2$s</string>
+    <string name="library_refresh_error_and_more"> a další</string>
+
+    <!-- Můj seznam -->
+    <string name="mylist_error_prefix">Chyba: </string>
+    <string name="mylist_clear_selection">Zrušit výběr</string>
+    <string name="mylist_selected_count">%1$d vybráno</string>
+    <string name="mylist_title">Můj seznam</string>
+    <string name="mylist_title_count">%1$d titulů</string>
+    <string name="mylist_switch_to_list">Přepnout na seznam</string>
+    <string name="mylist_switch_to_grid">Přepnout na mřížku</string>
+    <string name="mylist_sort">Řadit</string>
+    <string name="mylist_open_cbz">Otevřít CBZ/ZIP</string>
+    <string name="mylist_mark_library_read">Označit knihovnu jako přečtenou</string>
+    <string name="mylist_manage_categories">Spravovat kategorie</string>
+    <string name="mylist_add_category">Přidat kategorii</string>
+    <string name="mylist_content_manhwa">Manhwa</string>
+    <string name="mylist_content_manhua">Manhua</string>
+    <string name="mylist_add_to_category">Přidat do kategorie</string>
+    <string name="mylist_remove_from_library">Odebrat z knihovny</string>
+    <string name="mylist_importing_file">Importuji soubor…</string>
+    <string name="mylist_add_fab">+ Přidat</string>
+    <string name="mylist_mark_all_read_title">Označit celou knihovnu jako přečtenou?</string>
+    <string name="mylist_mark_all_read_body">Všechny kapitoly u všech %1$d mang v knihovně budou označeny jako přečtené. Tuto akci nelze hromadně vrátit.</string>
+    <string name="mylist_mark_all">Označit vše</string>
+    <string name="mylist_try_different_term_or_search">Zkus jiný výraz nebo vyhledej autora / žánr</string>
+    <string name="mylist_no_titles_match_filter">Žádné tituly neodpovídají filtru</string>
+    <string name="mylist_add_from_browse_or_change_filter">Přidej mangu z Procházet, nebo změň filtr</string>
+    <string name="mylist_bulk_read">Přečteno</string>
+    <string name="mylist_bulk_category">Kategorie</string>
+    <string name="mylist_sort_last_updated">Naposledy aktualizováno</string>
+    <string name="mylist_sort_date_added">Datum přidání</string>
+    <string name="mylist_sort_random">Náhodně</string>
+    <string name="mylist_ascending">Vzestupně</string>
+    <string name="mylist_descending">Sestupně</string>
+    <string name="mylist_read_total_count">%1$d / %2$d</string>
+    <string name="mylist_selected_desc">Vybráno</string>
+    <string name="mylist_downloaded_offline">Staženo offline</string>
+    <string name="mylist_add_n_to_category">Přidat %1$d mang do kategorie</string>
+    <string name="mylist_categories_title">Kategorie</string>
+    <string name="mylist_new_category_name">Název nové kategorie</string>
+    <string name="mylist_time_hours_minutes">%1$d h %2$d min</string>
+    <string name="mylist_time_minutes">%1$d min</string>
+    <string name="mylist_time_less_than_minute">méně než minutu</string>
+    <string name="mylist_reading_stats_title">Statistiky čtení</string>
+    <string name="mylist_chapters_read">Přečtené kapitoly</string>
+    <string name="mylist_pages_read">Přečtené stránky</string>
+    <string name="mylist_detailed_stats">Detailní →</string>
+
+    <!-- Čtečka -->
+    <string name="reader_sleep_timer_title">Časovač spánku</string>
+    <string name="reader_sleep_timer_close_after">Zavřít čtečku po:</string>
+    <string name="reader_sleep_timer_15min">15 minut</string>
+    <string name="reader_sleep_timer_30min">30 minut</string>
+    <string name="reader_sleep_timer_45min">45 minut</string>
+    <string name="reader_sleep_timer_1h">1 hodina</string>
+    <string name="reader_sleep_timer_cancel">Zrušit časovač</string>
+    <string name="reader_share_page_chooser">Sdílet stránku</string>
+    <string name="reader_incognito_badge">INKOGNITO</string>
+    <string name="reader_chapter_load_failed">Kapitolu se nepodařilo načíst.</string>
+    <string name="reader_translate_chapter_desc">Překlad kapitoly</string>
+    <string name="reader_glossary_button">Slovník</string>
+    <string name="reader_original_toggle">Originál</string>
+    <string name="reader_translate_toggle">Přeložit</string>
+    <string name="reader_translation_word">Překlad</string>
+    <string name="reader_line_spacing_label">Řádkování: %1$sx</string>
+    <string name="reader_font_size_label">Velikost: %1$dsp</string>
+    <string name="reader_font_decrease">A-</string>
+    <string name="reader_font_increase">A+</string>
+    <string name="reader_theme_dark">🌙 Tmavé</string>
+    <string name="reader_theme_sepia">🟤 Sépiové</string>
+    <string name="reader_theme_paper">📄 Papír</string>
+    <string name="reader_theme_white">☀️ Bílé</string>
+    <string name="reader_prev_novel">← Předchozí</string>
+    <string name="reader_next_novel">Další →</string>
+    <string name="reader_prev_chapter_desc">Předchozí kapitola</string>
+    <string name="reader_offline_desc">Offline</string>
+    <string name="reader_panel_mode_desc">Panel po panelu</string>
+    <string name="reader_pick_chapter_desc">Vybrat kapitolu</string>
+    <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
+    <string name="reader_incognito_off_desc">Vypnout inkognito</string>
+    <string name="reader_incognito_on_desc">Inkognito</string>
+    <string name="reader_stop_translation_desc">Zastavit překlad</string>
+    <string name="reader_hide_translation_desc">Skrýt překlad</string>
+    <string name="reader_translate_chapter_action_desc">Přeložit kapitolu</string>
+    <string name="reader_next_chapter_desc">Další kapitola</string>
+    <string name="reader_translation_label">Překlad:</string>
+    <string name="reader_orientation_label">Orientace:</string>
+    <string name="reader_orientation_auto">Auto</string>
+    <string name="reader_orientation_portrait">↕ Portrét</string>
+    <string name="reader_orientation_landscape">↔ Krajina</string>
+    <string name="reader_translate_all_progress">Překlad všech… %1$d/%2$d</string>
+    <string name="reader_translate_all_button">Přeložit vše</string>
+    <string name="reader_translating_progress">Překládám… %1$d/%2$d</string>
+    <string name="reader_glossary_title">Slovník překladu</string>
+    <string name="reader_glossary_desc">Jména, techniky a přezdívky se přeloží vždy stejně napříč všemi kapitolami.</string>
+    <string name="reader_glossary_translation_placeholder">Překlad</string>
+    <string name="reader_glossary_add_button">Přidat (%1$s)</string>
+    <string name="reader_glossary_empty">Zatím žádné pojmy ve slovníku.</string>
+    <string name="reader_share_link">Sdílet odkaz</string>
+    <string name="reader_save_to_gallery">Uložit do galerie</string>
+    <string name="reader_page_content_desc">Stránka %1$d</string>
+    <string name="reader_page_load_failed">Stránka se nenačetla</string>
+    <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
+    <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>
+
+    <!-- Procházet -->
+    <string name="browse_title">Procházet</string>
+    <string name="browse_search_placeholder">Hledat ve všech zdrojích…</string>
+    <string name="browse_filter_manga">Manga</string>
+    <string name="browse_filter_novels">Novely</string>
+    <string name="browse_filter_comics">Komiksy</string>
+    <string name="browse_lang_all">🌐 Vše</string>
+    <string name="browse_no_sources_match">Žádné zdroje neodpovídají filtru</string>
+
+    <!-- Procházet zdroj -->
+    <string name="source_browse_filters">Filtry</string>
+    <string name="source_browse_search_placeholder">Hledat v %1$s…</string>
+    <string name="source_browse_popular">Populární</string>
+    <string name="source_browse_latest">Nejnovější</string>
+    <string name="source_browse_load_failed">Načtení selhalo</string>
+    <string name="source_browse_no_results">Žádné výsledky</string>
+    <string name="source_browse_cover_desc">Obálka: %1$s</string>
+    <string name="source_browse_add_to_library">+ Přidat do knihovny</string>
+    <string name="source_browse_dup_title">Možná už tuhle mangu máš</string>
+    <string name="source_browse_dup_desc">\"%1$s\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:</string>
+    <string name="source_browse_dup_existing">• %1$s (v knihovně): %2$d kapitol</string>
+    <string name="source_browse_chapters_count">%1$d kapitol</string>
+    <string name="source_browse_checking">zjišťuji…</string>
+    <string name="source_browse_dup_new">• %1$s (nový): %2$s</string>
+    <string name="source_browse_add_anyway">Přidat i tak</string>
+    <string name="source_browse_status_ongoing">Vychází</string>
+    <string name="source_browse_status_completed">Dokončeno</string>
+    <string name="source_browse_status_hiatus">Přerušeno</string>
+    <string name="source_browse_sort_rating">Hodnocení</string>
+    <string name="source_browse_sort_title">Název</string>
+    <string name="source_browse_status_label">Stav vydávání</string>
+    <string name="source_browse_year_label">Rok vydání</string>
+    <string name="source_browse_year_placeholder">např. 2020</string>
+    <string name="source_browse_sort_label">Řazení</string>
+    <string name="source_browse_reset">Resetovat</string>
+    <string name="source_browse_apply">Použít</string>
+
+    <!-- Globální vyhledávání -->
+    <string name="search_title">Globální vyhledávání</string>
+    <string name="search_remove_bookmark">Odebrat ze záložek</string>
+    <string name="search_save_search">Uložit vyhledávání</string>
+    <string name="search_saved_searches">ULOŽENÁ VYHLEDÁVÁNÍ</string>
+    <string name="search_empty_hint">Zadej název mangy a prohledej\nvšechny zdroje najednou</string>
+    <string name="search_error">Chyba</string>
+    <string name="search_result_count">%1$d výsledků</string>
+    <string name="search_source_error">Zdroj vrátil chybu</string>
+
+    <!-- Účet -->
+    <string name="account_error_prefix">Chyba: %1$s</string>
+    <string name="account_password_reset_sent">Email pro reset hesla odeslán</string>
+    <string name="account_title">Účet</string>
+    <string name="account_anilist_tracking_title">AniList Tracking</string>
+    <string name="account_anilist_connected_desc">Připojeno — progress kapitol se automaticky synchronizuje.</string>
+    <string name="account_anilist_disconnected_desc">Připoj svůj AniList účet a progress se bude automaticky aktualizovat při čtení.</string>
+    <string name="account_anilist_disconnect">Odpojit AniList</string>
+    <string name="account_anilist_missing_client_id">AniList Client ID není nastaven. Zaregistruj appku na anilist.co/settings/developer (redirect URI: jiyu://anilist/callback) a vlož Client ID do local.properties jako ANILIST_CLIENT_ID=xxx</string>
+    <string name="account_anilist_connect">Připojit AniList</string>
+    <string name="account_cloud_title">Jiyu Cloud</string>
+    <string name="account_sync_subtitle">Synchronizuj svou knihovnu napříč zařízeními.</string>
+    <string name="account_email">Email</string>
+    <string name="account_password">Heslo</string>
+    <string name="account_signin_google">Přihlásit se přes Google</string>
+    <string name="account_signup_button">Zaregistrovat se</string>
+    <string name="account_signin_button">Přihlásit se</string>
+    <string name="account_have_account">Již mám účet</string>
+    <string name="account_new_account">Nový účet</string>
+    <string name="account_forgot_password">Zapomenuté heslo</string>
+    <string name="account_avatar_desc_named">Profilový obrázek %1$s</string>
+    <string name="account_avatar_desc">Profilový obrázek</string>
+    <string name="account_default_username">Uživatel</string>
+    <string name="account_cloud_sync_title">Cloud Synchronizace</string>
+    <string name="account_cloud_sync_desc">Nahraj stav knihovny a přečtených kapitol do cloudu.</string>
+    <string name="account_syncing">Synchronizuji...</string>
+    <string name="account_sync_now">Synchronizovat nyní</string>
+    <string name="account_sign_out">Odhlásit se</string>
+    <string name="account_error_unsupported_credential">Nepodporovaný typ přihlášení</string>
+    <string name="account_error_login_generic">Chyba přihlášení</string>
+    <string name="account_sync_done">Synchronizace dokončena</string>
+    <string name="account_error_sync_generic">Chyba synchronizace</string>
+    <string name="account_error_signup_generic">Chyba registrace</string>
+    <string name="account_password_reset_email_sent">Email pro reset odeslán (pokud účet existuje)</string>
+
+    <!-- Komunita -->
+    <string name="community_title">Community Manga</string>
+    <string name="community_load_error">Nepodařilo se načíst community seznam</string>
+    <string name="community_empty">Žádné veřejné manga listy</string>
+
+    <!-- Správce stažených -->
+    <string name="downloads_manager_title">Stažené kapitoly</string>
+    <string name="downloads_manager_storage_used">Využito: %1$s</string>
+    <string name="downloads_manager_resume">Obnovit stahování</string>
+    <string name="downloads_manager_pause">Pozastavit stahování</string>
+    <string name="downloads_manager_delete_read">Smazat přečtené</string>
+    <string name="downloads_manager_delete_read_confirm_title">Smazat přečtené?</string>
+    <string name="downloads_manager_delete_read_confirm_body">Smaže všechny stažené kapitoly označené jako přečtené.</string>
+    <string name="downloads_manager_empty_title">Nic nestaženo</string>
+    <string name="downloads_manager_empty_subtitle">Stažené kapitoly najdeš tady — čti offline bez připojení</string>
+    <string name="downloads_manager_cover_desc">Obálka: %1$s</string>
+    <string name="downloads_manager_count_downloaded">%1$d staženo</string>
+    <string name="downloads_manager_count_downloading">%1$d stahuje se</string>
+    <string name="downloads_manager_count_queued">%1$d ve frontě</string>
+    <string name="downloads_manager_cancel_download">Zrušit stahování</string>
+    <string name="downloads_manager_delete_all">Smazat vše</string>
+    <string name="downloads_manager_collapse_list">Sbalit seznam kapitol</string>
+    <string name="downloads_manager_expand_list">Rozbalit seznam kapitol</string>
+    <string name="downloads_manager_delete_group_confirm_title">Smazat stažené?</string>
+    <string name="downloads_manager_delete_group_confirm_body">Smaže %1$d stažených kapitol od \"%2$s\".</string>
+    <string name="downloads_manager_page_count">%1$dstr.</string>
+    <string name="downloads_manager_downloading_status">Stahuje se…</string>
+    <string name="downloads_manager_queued_status">Ve frontě</string>
+    <string name="downloads_manager_error_status">Chyba</string>
+    <string name="downloads_manager_error_desc">Stahování selhalo, klepnutím odstranit</string>
+
+    <!-- Duplikáty -->
+    <string name="duplicates_title">Duplikáty</string>
+    <string name="duplicates_groups_found">%1$d skupin nalezeno</string>
+    <string name="duplicates_rescan">Znovu prohledat</string>
+    <string name="duplicates_empty_title">Žádné duplikáty nenalezeny</string>
+    <string name="duplicates_empty_subtitle">Všechna manga v knihovně mají unikátní názvy.</string>
+    <string name="duplicates_remove_from_library">Odebrat z knihovny</string>
+
+    <!-- Cíle čtení -->
+    <string name="goals_title">Cíle čtení</string>
+    <string name="goals_streak_day_singular">den v řadě</string>
+    <string name="goals_streak_day_plural">dní v řadě</string>
+    <string name="goals_weekly_title">Týdenní cíl</string>
+    <string name="goals_off">Vypnuto</string>
+    <string name="goals_progress_format">%1$d / %2$d kapitol</string>
+    <string name="goals_set_goal_label">Nastav cíl: %1$s</string>
+    <string name="goals_goal_unit_format">%1$d kap/týden</string>
+
+    <!-- Historie -->
+    <string name="history_title">Historie</string>
+    <string name="history_clear_all">Smazat vše</string>
+    <string name="history_search_placeholder">Hledat v historii…</string>
+    <string name="history_empty_search_title">Nic nenalezeno</string>
+    <string name="history_empty_title">Ještě jsi nic nečetl</string>
+    <string name="history_empty_search_subtitle">Zkus jiný výraz</string>
+    <string name="history_empty_subtitle">Přečtené kapitoly se budou zobrazovat tady</string>
+    <string name="history_group_today">Dnes</string>
+    <string name="history_group_yesterday">Včera</string>
+    <string name="history_group_this_week">Tento týden</string>
+
+    <!-- Statistiky -->
+    <string name="stats_title">Statistiky</string>
+    <string name="stats_export_desc">Exportovat statistiky</string>
+    <string name="stats_export_json">Exportovat jako JSON</string>
+    <string name="stats_export_csv">Exportovat jako CSV</string>
+    <string name="stats_export_error">Chyba: %1$s</string>
+    <string name="stats_chapters_label">Kapitoly</string>
+    <string name="stats_pages_label">Stránky</string>
+    <string name="stats_reading_time_label">Čas čtení</string>
+    <string name="stats_streak_label">Série dnů</string>
+    <string name="stats_chapters_30days_title">KAPITOLY ZA 30 DNÍ</string>
+    <string name="stats_no_reading_30days">Za posledních 30 dní žádné čtení</string>
+    <string name="stats_top_genres_title">OBLÍBENÉ ŽÁNRY</string>
+    <string name="stats_top_authors_title">OBLÍBENÍ AUTOŘI</string>
+    <string name="stats_reading_status_title">STAV ČTENÍ</string>
+    <string name="stats_status_reading">Čtu</string>
+    <string name="stats_status_completed">Dokončeno</string>
+    <string name="stats_status_on_hold">Pozastaveno</string>
+    <string name="stats_status_dropped">Opuštěno</string>
+    <string name="stats_status_plan_to_read">Plánuji</string>
+    <string name="stats_status_unset">Bez statusu</string>
+    <string name="stats_export_open_file_error">Nelze otevřít výstupní soubor</string>
+    <string name="stats_export_success_json">Statistiky exportovány (JSON)</string>
+    <string name="stats_export_success_csv">Statistiky exportovány (CSV)</string>
+    <string name="stats_export_generic_error">Chyba exportu</string>
+
+    <!-- Aktualizace -->
+    <string name="updates_title">Aktualizace</string>
+    <string name="updates_new_count">%1$d nových</string>
+    <string name="updates_show_all">Zobrazit vše</string>
+    <string name="updates_unread_only">Jen nepřečtené</string>
+    <string name="updates_mark_all_read">Označit vše jako přečtené</string>
+    <string name="updates_empty_unread">Žádné nepřečtené aktualizace</string>
+    <string name="updates_empty">Žádné aktualizace\nPřidej mangy do knihovny</string>
+    <string name="updates_no_date">Bez data</string>
+    <string name="updates_refresh_error">Nepodařilo se: %1$s%2$s</string>
+
+    <!-- QR kód -->
+    <string name="qr_title">QR kód</string>
+    <string name="qr_content_description">QR kód pro %1$s</string>
+    <string name="qr_share_button">Sdílet QR</string>
+
+    <!-- Onboarding (doplněk) -->
+    <string name="onb_reading_direction_label">Směr čtení</string>
+    <string name="onb_reading_mode_label">Režim čtení</string>
+
+    <!-- Hlavní navigace -->
+    <string name="main_screen_tab_library">Knihovna</string>
+    <string name="main_screen_tab_list">Seznam</string>
+    <string name="main_screen_tab_updates">Novinky</string>
+    <string name="main_screen_tab_browse">Procházet</string>
+    <string name="main_screen_tab_history">Historie</string>
+
+    <!-- Widget -->
+    <string name="widget_library_label">Knihovna</string>
+    <string name="widget_empty_library">Žádné manga v knihovně</string>
 </resources>
