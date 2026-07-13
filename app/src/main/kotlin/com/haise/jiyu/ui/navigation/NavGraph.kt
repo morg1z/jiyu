@@ -22,9 +22,19 @@ import com.haise.jiyu.ui.onboarding.OnboardingScreen
 import com.haise.jiyu.ui.qr.MangaQrScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
 import com.haise.jiyu.ui.search.GlobalSearchScreen
+import com.haise.jiyu.ui.settings.AboutSettingsScreen
+import com.haise.jiyu.ui.settings.AppearanceSettingsScreen
+import com.haise.jiyu.ui.settings.BackupSettingsScreen
+import com.haise.jiyu.ui.settings.DownloadsSettingsScreen
+import com.haise.jiyu.ui.settings.ReaderSettingsScreen
+import com.haise.jiyu.ui.settings.ReadingSettingsScreen
+import com.haise.jiyu.ui.settings.ServicesSettingsScreen
 import com.haise.jiyu.ui.settings.SettingsScreen
 import com.haise.jiyu.ui.settings.SourceCatalogScreen
+import com.haise.jiyu.ui.settings.SourcesSettingsScreen
+import com.haise.jiyu.ui.settings.StorageSettingsScreen
 import com.haise.jiyu.ui.settings.TapZoneSettingsScreen
+import com.haise.jiyu.ui.settings.UpdateCheckSettingsScreen
 import com.haise.jiyu.ui.duplicates.DuplicateDetectorScreen
 import com.haise.jiyu.ui.stats.ExtendedStatsScreen
 import com.haise.jiyu.ui.updates.UpdatesScreen
@@ -51,6 +61,18 @@ internal object Routes {
     const val DUPLICATES    = "duplicates"
     const val TAP_ZONES     = "tap_zones"
     const val QR            = "qr/{mangaId}?title={mangaTitle}"
+
+    // ── Podstránky Nastavení (kategorie) ─────────────────────────────────
+    const val SETTINGS_APPEARANCE   = "settings_appearance"
+    const val SETTINGS_SOURCES      = "settings_sources"
+    const val SETTINGS_READER       = "settings_reader"
+    const val SETTINGS_STORAGE      = "settings_storage"
+    const val SETTINGS_DOWNLOADS    = "settings_downloads"
+    const val SETTINGS_UPDATE_CHECK = "settings_update_check"
+    const val SETTINGS_SERVICES     = "settings_services"
+    const val SETTINGS_BACKUP       = "settings_backup"
+    const val SETTINGS_READING      = "settings_reading"
+    const val SETTINGS_ABOUT        = "settings_about"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
     fun sourceBrowse(sourceId: String) = "source_browse/${android.net.Uri.encode(sourceId)}"
@@ -151,15 +173,75 @@ fun JiyuNavGraph(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
+                onOpenAppearance = { navController.navigate(Routes.SETTINGS_APPEARANCE) },
+                onOpenSources = { navController.navigate(Routes.SETTINGS_SOURCES) },
+                onOpenReaderSettings = { navController.navigate(Routes.SETTINGS_READER) },
+                onOpenStorage = { navController.navigate(Routes.SETTINGS_STORAGE) },
+                onOpenDownloadsSettings = { navController.navigate(Routes.SETTINGS_DOWNLOADS) },
+                onOpenUpdateCheck = { navController.navigate(Routes.SETTINGS_UPDATE_CHECK) },
+                onOpenServices = { navController.navigate(Routes.SETTINGS_SERVICES) },
+                onOpenBackup = { navController.navigate(Routes.SETTINGS_BACKUP) },
+                onOpenReading = { navController.navigate(Routes.SETTINGS_READING) },
+                onOpenAbout = { navController.navigate(Routes.SETTINGS_ABOUT) },
+            )
+        }
+
+        composable(Routes.SETTINGS_APPEARANCE) {
+            AppearanceSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS_SOURCES) {
+            SourcesSettingsScreen(
+                onBack = { navController.popBackStack() },
                 onOpenSourceCatalog = { navController.navigate(Routes.CATALOG) },
-                onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
                 onOpenCustomCss = { navController.navigate(Routes.CUSTOM_CSS) },
+            )
+        }
+
+        composable(Routes.SETTINGS_READER) {
+            ReaderSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenTapZones = { navController.navigate(Routes.TAP_ZONES) },
+            )
+        }
+
+        composable(Routes.SETTINGS_STORAGE) {
+            StorageSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS_DOWNLOADS) {
+            DownloadsSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDownloadManager = { navController.navigate(Routes.DOWNLOADS) },
+            )
+        }
+
+        composable(Routes.SETTINGS_UPDATE_CHECK) {
+            UpdateCheckSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS_SERVICES) {
+            ServicesSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
+            )
+        }
+
+        composable(Routes.SETTINGS_BACKUP) {
+            BackupSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS_READING) {
+            ReadingSettingsScreen(
+                onBack = { navController.popBackStack() },
                 onOpenGoals = { navController.navigate(Routes.GOALS) },
                 onOpenCommunity = { navController.navigate(Routes.COMMUNITY) },
                 onOpenDuplicates = { navController.navigate(Routes.DUPLICATES) },
-                onOpenTapZones = { navController.navigate(Routes.TAP_ZONES) },
             )
+        }
+
+        composable(Routes.SETTINGS_ABOUT) {
+            AboutSettingsScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.TAP_ZONES) {
