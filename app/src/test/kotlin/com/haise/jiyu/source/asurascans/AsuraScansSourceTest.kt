@@ -12,6 +12,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * asuracomic.net presmerovava na asurascans.com (novy Astro frontend) -
+ * /series -> /browse, /series/{slug} -> /comics/{slug}, karty maji
+ * div.series-card a stranky ctecky maji img[data-page-index].
+ */
 class AsuraScansSourceTest {
 
     private lateinit var server: MockWebServer
@@ -19,23 +24,24 @@ class AsuraScansSourceTest {
 
     private val listHtml = """
         <html><body>
-        <div class="series-card"><a href="/series/test-series"><span class="block">Test Series</span><img src="https://cdn.example.com/test.jpg" /></a></div>
+        <div class="series-card"><a href="/comics/test-series-abc123"><img src="https://cdn.example.com/test.jpg" alt="Test Series" /></a><div class="p-3"><h3>Test Series</h3></div></div>
         </body></html>
     """.trimIndent()
 
     private val detailHtml = """
-        <html><body>
-        <span class="text-xl">Test Series</span>
-        <img class="rounded" src="https://cdn.example.com/test.jpg" />
-        <span class="font-medium text-sm">A description.</span>
-        <div class="flex"><a href="/genre/action">Action</a></div>
-        <div class="scrollbar-thumb-themecolor"><a href="/series/test-series/chapter-1">Chapter 1</a></div>
+        <html><head>
+        <meta property="og:image" content="https://cdn.example.com/test.jpg" />
+        <meta property="og:description" content="A description." />
+        </head><body>
+        <h1>Test Series</h1>
+        <a href="/genre/action">Action</a>
+        <a href="/comics/test-series-abc123/chapter/1"><span class="font-medium">Chapter 1</span></a>
         </body></html>
     """.trimIndent()
 
     private val pagesHtml = """
         <html><body>
-        <div id="readerarea"><img src="https://cdn.example.com/test/1/01.jpg" /></div>
+        <img src="https://cdn.example.com/test/1/01.jpg" data-page-index="0" />
         </body></html>
     """.trimIndent()
 
@@ -46,9 +52,9 @@ class AsuraScansSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/series?page=") -> MockResponse().setBody(listHtml)
-                    path == "/series/test-series" -> MockResponse().setBody(detailHtml)
-                    path == "/series/test-series/chapter-1" -> MockResponse().setBody(pagesHtml)
+                    path.startsWith("/browse?page=") -> MockResponse().setBody(listHtml)
+                    path == "/comics/test-series-abc123" -> MockResponse().setBody(detailHtml)
+                    path == "/comics/test-series-abc123/chapter/1" -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -79,6 +85,7 @@ class AsuraScansSourceTest {
 
         val chapters = source.getChapterList(manga)
         assertEquals(1, chapters.size)
+        assertEquals(1f, chapters[0].chapterNumber)
 
         val pages = source.getPageList(chapters[0])
         assertEquals(1, pages.size)

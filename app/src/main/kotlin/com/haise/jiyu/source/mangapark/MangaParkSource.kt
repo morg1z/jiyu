@@ -7,14 +7,25 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import org.jsoup.Jsoup
+import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * mangapark.net/.org/.io presmerovavaji na malvertising/anti-adblock stenu
+ * (mangapark.io, stejna rodina domen jako zabaveny bato.to), takze puvodni
+ * GraphQL API (/apo/) uz neni dostupne. mangapark.page je samostatna zivá
+ * domena bez GraphQL - misto toho server-rendered HTML (/series listing,
+ * /series/{slug}.{hash} detail se schema.org microdata) plus dva
+ * pomocne JSON endpointy zjistene z bundlovaneho JS:
+ *  - /api/search?search={query} - vyhledavani (slug_hash je uz plna cast URL)
+ *  - /get-chapter-list?slug={slug} - kompletni seznam kapitol (detailni
+ *    stranka v prvotnim HTML ukazuje jen kapitolu 1 + poslednich ~18)
+ */
 @Singleton
 class MangaParkSource @Inject constructor(
     private val client: OkHttpClient,
@@ -23,109 +34,98 @@ class MangaParkSource @Inject constructor(
     override val id = "mangapark"
     override val name = "MangaPark"
 
-    private val api = "https://mangapark.net/apo/"
+    private val base = "https://mangapark.page"
 
-    private fun gql(query: String, variables: JSONObject = JSONObject()): JSONObject {
-        val body = JSONObject().put("query", query).put("variables", variables).toString()
-            .toRequestBody("application/json".toMediaType())
-        val req = Request.Builder().url(api).post(body)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .header("Content-Type", "application/json")
-            .header("Referer", "https://mangapark.net/")
+    private fun get(url: String): String {
+        val req = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Referer", base)
             .build()
-        return JSONObject(client.newCall(req).execute().use { it.body?.string() ?: "{}" })
-            .optJSONObject("data") ?: JSONObject()
+        return client.newCall(req).execute().use { it.body?.string() ?: "" }
+    }
+
+    private fun parseList(html: String): List<SManga> {
+        val doc = Jsoup.parse(html)
+        return doc.select("div.comic-item").mapNotNull { card ->
+            val link = card.selectFirst("a[href^=/series/]") ?: return@mapNotNull null
+            val href = link.attr("href")
+            val img = card.selectFirst("img.series-card-img")
+            val title = card.selectFirst("h1")?.text()?.trim()?.ifBlank { null }
+                ?: img?.attr("alt")?.removePrefix("Cover of ")?.trim()?.ifBlank { null }
+                ?: return@mapNotNull null
+            val cover = img?.attr("data-src")?.takeIf { it.isNotBlank() } ?: img?.attr("src")
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover)
+        }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try {
-            val vars = JSONObject().put("select", JSONObject().put("page", page).put("sortby", "view_count"))
-            val data = gql("""query(${'$'}select: ComicSearchSelect) { searchComics(select: ${'$'}select) {
-                items { data { id name urlPath imageCoverUrl } } } }""", vars)
-            val items = data.optJSONObject("searchComics")?.optJSONArray("items") ?: return@withContext emptyList()
-            (0 until items.length()).mapNotNull { i ->
-                val d = items.getJSONObject(i).optJSONObject("data") ?: return@mapNotNull null
-                SManga(
-                    sourceId = id,
-                    url = d.optString("urlPath", ""),
-                    title = d.optString("name", ""),
-                    coverUrl = d.optString("imageCoverUrl").takeIf { it.isNotBlank() },
-                )
-            }
-        } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/series?page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
-            val vars = JSONObject().put("select", JSONObject().put("page", page).put("word", query))
-            val data = gql("""query(${'$'}select: ComicSearchSelect) { searchComics(select: ${'$'}select) {
-                items { data { id name urlPath imageCoverUrl } } } }""", vars)
-            val items = data.optJSONObject("searchComics")?.optJSONArray("items") ?: return@withContext emptyList()
-            (0 until items.length()).mapNotNull { i ->
-                val d = items.getJSONObject(i).optJSONObject("data") ?: return@mapNotNull null
+            val q = URLEncoder.encode(query, "UTF-8")
+            val body = get("$base/api/search?search=$q&page=$page")
+            val comics = JSONObject(body).optJSONArray("comics") ?: return@withContext emptyList()
+            (0 until comics.length()).map { i ->
+                val c = comics.getJSONObject(i)
                 SManga(
                     sourceId = id,
-                    url = d.optString("urlPath", ""),
-                    title = d.optString("name", ""),
-                    coverUrl = d.optString("imageCoverUrl").takeIf { it.isNotBlank() },
+                    url = "/series/${c.optString("slug_hash")}",
+                    title = c.optString("title"),
+                    coverUrl = c.optString("image").takeIf { it.isNotBlank() },
                 )
             }
         } catch (_: Exception) { emptyList() }
     }
 
+    /** Slug bez hashe pouzity v /get-chapter-list?slug=... - "gachiakuta.NTE9Qw" -> "gachiakuta". */
+    private fun slugOf(manga: SManga) = manga.url.substringAfterLast("/").substringBefore(".")
+
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val escaped = manga.url.replace("\"", "\\\"")
-            val data = gql("""{ comicByUrlPath(urlPath: "$escaped") { data {
-                name imageCoverUrl summary genres { name } artists { name } } } }""")
-            val d = data.optJSONObject("comicByUrlPath")?.optJSONObject("data") ?: return@withContext manga
-            val genres = d.optJSONArray("genres")?.let { arr ->
-                (0 until arr.length()).map { arr.getJSONObject(it).optString("name") }.filter { it.isNotBlank() }
-            } ?: emptyList()
-            val author = d.optJSONArray("artists")?.let { arr ->
-                if (arr.length() > 0) arr.getJSONObject(0).optString("name").takeIf { it.isNotBlank() } else null
-            }
+            val doc = Jsoup.parse(get("$base${manga.url}"))
             manga.copy(
-                title = d.optString("name").takeIf { it.isNotBlank() } ?: manga.title,
-                coverUrl = d.optString("imageCoverUrl").takeIf { it.isNotBlank() } ?: manga.coverUrl,
-                description = d.optString("summary").takeIf { it.isNotBlank() },
-                genres = genres,
-                author = author,
+                title = doc.selectFirst("h1[itemprop=name]")?.text()?.trim() ?: manga.title,
+                coverUrl = doc.selectFirst("[itemprop=image] img")?.let {
+                    it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
+                }?.takeIf { it.isNotBlank() } ?: manga.coverUrl,
+                description = doc.selectFirst("[itemprop=description]")?.text()?.trim(),
+                genres = doc.select("a[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
             )
         } catch (_: Exception) { manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val escaped = manga.url.replace("\"", "\\\"")
-            val data = gql("""{ comicByUrlPath(urlPath: "$escaped") { data {
-                chapterNodes { data { id dname urlPath numberFloat } } } } }""")
-            val nodes = data.optJSONObject("comicByUrlPath")?.optJSONObject("data")?.optJSONArray("chapterNodes")
-                ?: return@withContext emptyList()
-            (0 until nodes.length()).mapNotNull { i ->
-                val d = nodes.getJSONObject(i).optJSONObject("data") ?: return@mapNotNull null
-                val num = d.optDouble("numberFloat", 0.0).toFloat()
+            val slug = slugOf(manga)
+            val json = JSONObject(get("$base/get-chapter-list?slug=$slug"))
+            if (!json.optBoolean("success")) return@withContext emptyList()
+            val data = json.optJSONArray("data") ?: return@withContext emptyList()
+            (0 until data.length()).map { i ->
+                val d = data.getJSONObject(i)
+                val num = d.optDouble("chapter_num", 0.0).toFloat()
                 SChapter(
                     sourceId = id,
                     mangaUrl = manga.url,
-                    url = d.optString("urlPath", ""),
-                    name = d.optString("dname", "Chapter $num"),
+                    url = "${manga.url}/${d.optString("chapter_slug")}",
+                    name = d.optString("chapter_name", "Chapter $num"),
                     chapterNumber = num,
                     dateUpload = 0L,
                 )
-            }.reversed()
+            }.sortedByDescending { it.chapterNumber }
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val escaped = chapter.url.replace("\"", "\\\"")
-            val data = gql("""{ chapterByUrlPath(urlPath: "$escaped") { data { imageFile { urlList } } } }""")
-            val urls = data.optJSONObject("chapterByUrlPath")?.optJSONObject("data")
-                ?.optJSONObject("imageFile")?.optJSONArray("urlList")
-                ?: return@withContext emptyList()
-            (0 until urls.length()).map { i -> Page(i, urls.getString(i), urls.getString(i)) }
+            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            doc.select("img[data-number]").sortedBy { it.attr("data-number").toIntOrNull() ?: 0 }
+                .mapIndexedNotNull { i, img ->
+                    val url = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                    Page(i, url, url)
+                }
         } catch (_: Exception) { emptyList() }
     }
 }
