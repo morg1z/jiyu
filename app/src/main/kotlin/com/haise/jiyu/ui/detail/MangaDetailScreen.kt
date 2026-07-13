@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,38 +37,20 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import kotlin.math.roundToInt
-import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
@@ -95,12 +78,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.theme.Cyan
-import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -114,60 +94,26 @@ import com.haise.jiyu.ui.theme.titleGradient
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MangaDetailScreen(
+    onBack: () -> Unit = {},
     onOpenChapter: (String) -> Unit,
     onOpenChapterIncognito: (String) -> Unit = {},
-    onOpenManga: (String) -> Unit = {},
     onOpenQr: (mangaId: String, mangaTitle: String) -> Unit = { _, _ -> },
+    onOpenDetails: () -> Unit = {},
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
     val manga            by viewModel.manga.collectAsState()
     val chapters         by viewModel.chapters.collectAsState()
     val continueChapter  by viewModel.continueChapter.collectAsState()
     val firstUnread      by viewModel.firstUnreadChapter.collectAsState()
-    val relatedManga     by viewModel.relatedManga.collectAsState()
     val sortAscending    by viewModel.sortAscending.collectAsState()
-    val allCategories    by viewModel.allCategories.collectAsState()
-    val categoryIds      by viewModel.mangaCategoryIds.collectAsState()
     val isRefreshing     by viewModel.isRefreshing.collectAsState()
     val errorMessage     by viewModel.errorMessage.collectAsState()
-    val autoDownload     by viewModel.autoDownload.collectAsState()
-    val mangaNote        by viewModel.mangaNote.collectAsState()
-    val mangaTags        by viewModel.mangaTags.collectAsState()
-    val glossary         by viewModel.glossary.collectAsState()
-    val defaultTargetLanguage by viewModel.defaultTargetLanguage.collectAsState()
-    val userRating       by viewModel.userRating.collectAsState()
     val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
     val chapterFilter       by viewModel.chapterFilter.collectAsState()
     val statusFilter        by viewModel.statusFilter.collectAsState()
     val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
     val availableScanlators by viewModel.availableScanlators.collectAsState()
-    val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsState()
-    val malId               by viewModel.malId.collectAsState()
-    val malScore            by viewModel.malScore.collectAsState()
-    val malSearchResults    by viewModel.malSearchResults.collectAsState()
-    val malSearchLoading    by viewModel.malSearchLoading.collectAsState()
-    var showMalSheet        by remember { mutableStateOf(false) }
-    var malSearchQuery      by remember { mutableStateOf("") }
-    val aniListIsLoggedIn   by viewModel.aniListIsLoggedIn.collectAsState()
-    val aniListId           by viewModel.aniListId.collectAsState()
-    val aniListSearchResults by viewModel.aniListSearchResults.collectAsState()
-    val aniListSearchLoading by viewModel.aniListSearchLoading.collectAsState()
-    val kitsuId             by viewModel.kitsuId.collectAsState()
-    val kitsuScore          by viewModel.kitsuScore.collectAsState()
-    val kitsuIsLoggedIn     by viewModel.kitsuIsLoggedIn.collectAsState()
-    val kitsuSearchResults  by viewModel.kitsuSearchResults.collectAsState()
-    val kitsuSearchLoading  by viewModel.kitsuSearchLoading.collectAsState()
-    var showAniListSheet    by remember { mutableStateOf(false) }
-    var aniListSearchQuery  by remember { mutableStateOf("") }
-    var showKitsuSheet      by remember { mutableStateOf(false) }
-    var kitsuSearchQuery    by remember { mutableStateOf("") }
-    val muId                by viewModel.muId.collectAsState()
-    val muIsLoggedIn        by viewModel.muIsLoggedIn.collectAsState()
-    val muSearchResults     by viewModel.muSearchResults.collectAsState()
-    val muSearchLoading     by viewModel.muSearchLoading.collectAsState()
-    var showMuSheet         by remember { mutableStateOf(false) }
-    var muSearchQuery       by remember { mutableStateOf("") }
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -177,12 +123,9 @@ fun MangaDetailScreen(
     var chapterSearchActive by remember { mutableStateOf(false) }
     var chapterGridView by remember { mutableStateOf(false) }
     var groupByVolume by remember { mutableStateOf(false) }
-    var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
-    var addTagText by remember { mutableStateOf("") }
-    var showAddTagField by remember { mutableStateOf(false) }
-    var showAddGlossaryField by remember { mutableStateOf(false) }
-    var glossarySourceText by remember { mutableStateOf("") }
-    var glossaryTargetText by remember { mutableStateOf("") }
+    var descriptionExpanded by remember { mutableStateOf(false) }
+    var showCoverFullscreen by remember { mutableStateOf(false) }
+    var statusDropdownExpanded by remember { mutableStateOf(false) }
 
     // Koordinace pull-to-refresh se stavem ViewModel
     LaunchedEffect(pullToRefreshState.isRefreshing) {
@@ -216,104 +159,97 @@ fun MangaDetailScreen(
                 contentPadding = PaddingValues(bottom = navBottom),
             ) {
 
-                // ── Hero image ────────────────────────────────────────────────
+                // ── Top bar (zpět, detaily, sdílet, QR, knihovna) ──────────────
                 item {
-                    var showCoverFullscreen by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
-                        AsyncImage(
-                            model = manga?.coverUrl,
-                            contentDescription = manga?.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().clickable { showCoverFullscreen = true },
-                        )
-                    if (showCoverFullscreen) {
-                        Dialog(
-                            onDismissRequest = { showCoverFullscreen = false },
-                            properties = DialogProperties(usePlatformDefaultWidth = false),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black)
-                                    .clickable { showCoverFullscreen = false },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                AsyncImage(
-                                    model = manga?.coverUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
+                    val inLibrary = manga?.inLibrary == true
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(TablerIcons.ArrowBack, contentDescription = "Zpět", tint = TextSecondary)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(onClick = onOpenDetails) {
+                            Icon(TablerIcons.InfoCircle, contentDescription = "Detaily", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = {
+                            manga?.let { m -> onOpenQr(m.id, m.title) }
+                        }) {
+                            Icon(TablerIcons.Qrcode, contentDescription = "QR kód", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = {
+                            manga?.let { m ->
+                                val i = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, "${m.title}\n${m.url}")
+                                }
+                                context.startActivity(Intent.createChooser(i, "Sdílet"))
                             }
+                        }) {
+                            Icon(TablerIcons.Share, contentDescription = "Sdílet", tint = TextSecondary, modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
+                            Icon(
+                                imageVector = TablerIcons.Bookmark,
+                                contentDescription = if (inLibrary) "Odebrat z knihovny" else "V knihovně",
+                                tint = if (inLibrary) GlowViolet else TextSecondary,
+                                modifier = Modifier.size(22.dp),
+                            )
                         }
                     }
+                }
+
+                // ── Kompaktní hlavička (cover + info) ───────────────────────────
+                item {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                         Box(
-                            modifier = Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(listOf(Color.Transparent, DeepSpace.copy(alpha = 0.7f), DeepSpace), startY = 80f)
+                            modifier = Modifier
+                                .width(110.dp)
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { showCoverFullscreen = true },
+                        ) {
+                            AsyncImage(
+                                model = manga?.coverUrl,
+                                contentDescription = manga?.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
                             )
-                        )
-                        val inLibrary = manga?.inLibrary == true
-                        val context = LocalContext.current
-                        Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                            IconButton(onClick = {
-                                manga?.let { m -> onOpenQr(m.id, m.title) }
-                            }) {
-                                Icon(TablerIcons.Qrcode, contentDescription = "QR kód", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
-                            }
-                            IconButton(onClick = {
-                                manga?.let { m ->
-                                    val i = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "${m.title}\n${m.url}")
-                                    }
-                                    context.startActivity(Intent.createChooser(i, "Sdílet"))
+                        }
+                        if (showCoverFullscreen) {
+                            Dialog(
+                                onDismissRequest = { showCoverFullscreen = false },
+                                properties = DialogProperties(usePlatformDefaultWidth = false),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black)
+                                        .clickable { showCoverFullscreen = false },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    AsyncImage(
+                                        model = manga?.coverUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
                                 }
-                            }) {
-                                Icon(TablerIcons.Share, contentDescription = "Sdílet", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp))
-                            }
-                            IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
-                                Icon(
-                                    imageVector = if (inLibrary) TablerIcons.Bookmark else TablerIcons.Bookmark,
-                                    contentDescription = if (inLibrary) "Odebrat z knihovny" else "V knihovně",
-                                    tint = if (inLibrary) GlowViolet else Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(26.dp),
-                                )
                             }
                         }
-                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(20.dp)) {
+                        Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
                             Text(
                                 text = manga?.title ?: "",
-                                style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp),
+                                style = TextStyle(brush = titleGradient, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 22.sp),
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            val readCount = chapters.count { it.read }
-                            val totalCount = chapters.size
-                            Text(text = "$totalCount kapitol", style = MaterialTheme.typography.labelMedium, color = TextSecondary, modifier = Modifier.padding(top = 2.dp))
-                            if (totalCount > 0) {
-                                val progress = readCount.toFloat() / totalCount
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                    LinearProgressIndicator(
-                                        progress = { progress },
-                                        modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                        color = GlowViolet,
-                                        trackColor = TextSecondary.copy(alpha = 0.18f),
-                                    )
-                                    Text(
-                                        text = " $readCount / $totalCount",
-                                        color = TextSecondary.copy(alpha = 0.7f),
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.padding(start = 6.dp),
-                                    )
-                                }
-                            }
-                            if (readingTimeMs > 0) {
-                                Text(
-                                    text = "Čas čtení: ${formatReadingTime(readingTimeMs)}",
-                                    color = TextSecondary.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(top = 2.dp),
-                                )
+                            manga?.author?.let { author ->
+                                Text(text = author, color = TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
                             }
                             manga?.status?.let { status ->
                                 val (label, statusColor) = when (status.lowercase()) {
@@ -325,7 +261,7 @@ fun MangaDetailScreen(
                                 }
                                 Box(
                                     modifier = Modifier
-                                        .padding(top = 4.dp)
+                                        .padding(top = 6.dp)
                                         .clip(RoundedCornerShape(50))
                                         .background(statusColor.copy(alpha = 0.15f))
                                         .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(50))
@@ -334,11 +270,60 @@ fun MangaDetailScreen(
                                     Text(text = label, color = statusColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
+                            val genres = manga?.genres?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                            if (genres.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(top = 6.dp),
+                                ) {
+                                    genres.take(4).forEach { genre ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(Violet.copy(alpha = 0.15f))
+                                                .border(1.dp, Violet.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                        ) {
+                                            Text(genre, color = Violet, fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.weight(1f))
+                            val readCount = chapters.count { it.read }
+                            val totalCount = chapters.size
+                            Text(text = "$totalCount kapitol", color = TextSecondary, fontSize = 11.sp)
+                            if (totalCount > 0) {
+                                val progress = readCount.toFloat() / totalCount
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                        color = GlowViolet,
+                                        trackColor = TextSecondary.copy(alpha = 0.18f),
+                                    )
+                                    Text(
+                                        text = " $readCount/$totalCount",
+                                        color = TextSecondary.copy(alpha = 0.7f),
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(start = 6.dp),
+                                    )
+                                }
+                            }
+                            if (readingTimeMs > 0) {
+                                Text(
+                                    text = "Čas čtení: ${formatReadingTime(readingTimeMs)}",
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
                         }
                     }
                 }
 
-                // ── Description ───────────────────────────────────────────────
+                // ── Description (collapsible) ───────────────────────────────────
                 item {
                     if (!manga?.description.isNullOrBlank()) {
                         Box(
@@ -348,101 +333,30 @@ fun MangaDetailScreen(
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(glassGradient)
                                 .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                                .clickable { descriptionExpanded = !descriptionExpanded }
                                 .padding(14.dp),
                         ) {
-                            Text(text = manga?.description ?: "", style = MaterialTheme.typography.bodyMedium, color = TextSecondary, maxLines = 5, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-
-                // ── Metadata (author, year, genres) ──────────────────────────
-                item {
-                    val m = manga
-                    if (m != null && (m.author != null || m.year != null || m.genres.isNotBlank())) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text("INFO", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
-                            if (m.author != null) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                    Text("Autor:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
-                                    Text(m.author, color = TextPrimary, fontSize = 13.sp)
-                                }
-                            }
-                            if (m.artist != null && m.artist != m.author) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                    Text("Kreslíř:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
-                                    Text(m.artist, color = TextPrimary, fontSize = 13.sp)
-                                }
-                            }
-                            if (m.year != null) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                                    Text("Rok:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(56.dp))
-                                    Text(m.year.toString(), color = TextPrimary, fontSize = 13.sp)
-                                }
-                            }
-                            if (m.genres.isNotBlank()) {
-                                val genreList = m.genres.split(",").filter { it.isNotBlank() }
-                                if (genreList.isNotEmpty()) {
-                                    Text("Žánry:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp, top = 2.dp))
-                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        genreList.forEach { genre ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(50))
-                                                    .background(Violet.copy(alpha = 0.15f))
-                                                    .border(1.dp, Violet.copy(alpha = 0.4f), RoundedCornerShape(50))
-                                                    .padding(horizontal = 10.dp, vertical = 3.dp),
-                                            ) {
-                                                Text(genre.trim(), color = Violet, fontSize = 11.sp)
-                                            }
-                                        }
-                                    }
-                                }
+                            Column {
+                                Text(
+                                    text = manga?.description ?: "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary,
+                                    maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = if (descriptionExpanded) "Méně" else "Zobrazit více",
+                                    color = GlowCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
                             }
                         }
                     }
                 }
 
-                // ── Per-manga reader direction ────────────────────────────────
-                item {
-                    var dirDropdownExpanded by remember { mutableStateOf(false) }
-                    val currentDir = manga?.readerDirectionOverride
-                    val dirLabel = when (currentDir) {
-                        "LTR"     -> "LTR (Vlevo → Vpravo)"
-                        "RTL"     -> "RTL (Vpravo → Vlevo)"
-                        "WEBTOON" -> "Webtoon (Scroll)"
-                        else      -> "Výchozí (z nastavení)"
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Směr čtení:", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(100.dp))
-                        Box {
-                            Text(
-                                text = dirLabel,
-                                color = Cyan,
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clickable { dirDropdownExpanded = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    .border(1.dp, Cyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                            DropdownMenu(expanded = dirDropdownExpanded, onDismissRequest = { dirDropdownExpanded = false }) {
-                                listOf(null to "Výchozí", "LTR" to "LTR", "RTL" to "RTL", "WEBTOON" to "Webtoon").forEach { (value, label) ->
-                                    DropdownMenuItem(
-                                        text = { Text(label) },
-                                        onClick = { viewModel.setReaderDirection(value); dirDropdownExpanded = false },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Čtecí status ──────────────────────────────────────────────
+                // ── Akční řádek: Pokračovat + čtecí status ──────────────────────
                 item {
                     val statusOptions = listOf(
                         "READING"      to "Čtu",
@@ -458,654 +372,82 @@ fun MangaDetailScreen(
                         "DROPPED"      to Color(0xFFEF5350),
                         "PLAN_TO_READ" to Color(0xFF9C27B0),
                     )
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(
-                            text = "ČTECÍ STATUS",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = Violet,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        androidx.compose.foundation.layout.FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            statusOptions.forEach { (key, label) ->
-                                val isSelected = readingStatus == key
-                                val chipColor = statusColors[key] ?: Violet
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .background(if (isSelected) chipColor.copy(alpha = 0.22f) else Color.Transparent)
-                                        .border(1.dp, if (isSelected) chipColor else chipColor.copy(alpha = 0.35f), RoundedCornerShape(50))
-                                        .clickable { viewModel.setReadingStatus(if (isSelected) null else key) }
-                                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (isSelected) Icon(TablerIcons.CircleCheck, contentDescription = null, tint = chipColor, modifier = Modifier.size(13.dp).padding(end = 4.dp))
-                                        Text(label, color = if (isSelected) chipColor else TextSecondary, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                    val statusLabel = statusOptions.firstOrNull { it.first == readingStatus }?.second ?: "Status"
+                    val statusColor = statusColors[readingStatus] ?: TextSecondary
 
-                // ── Kategorie ─────────────────────────────────────────────────
-                if (allCategories.isNotEmpty()) {
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text(text = "KATEGORIE", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                allCategories.forEach { cat ->
-                                    CategoryToggleChip(category = cat, selected = cat.id in categoryIds, onClick = { viewModel.toggleCategory(cat.id) })
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Podobné manga ─────────────────────────────────────────────
-                if (relatedManga.isNotEmpty()) {
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text(
-                                text = "PODOBNÉ",
-                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                                color = Violet,
-                                modifier = Modifier.padding(bottom = 10.dp),
-                            )
-                        }
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            items(relatedManga) { related ->
-                                RelatedMangaCard(
-                                    manga = related,
-                                    onClick = { onOpenManga("${related.sourceId}::${related.url}") },
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-
-                // ── Hodnocení (#41) ────────────────────────────────────────────
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(
-                            text = "HODNOCENÍ",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = Violet,
-                            modifier = Modifier.padding(bottom = 12.dp),
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            // Velké skóre
-                            val scoreText = if (userRating != null)
-                                String.format("%.1f", userRating!! / 10.0) else "—"
-                            val scoreColor = when {
-                                userRating == null -> TextSecondary
-                                userRating!! >= 85 -> GlowCyan
-                                userRating!! >= 70 -> Color(0xFF10B981)
-                                userRating!! >= 50 -> Color(0xFFF59E0B)
-                                else              -> Color(0xFFEF4444)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = scoreText,
-                                    fontSize = 36.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = scoreColor,
-                                    lineHeight = 36.sp,
-                                )
-                                Text(
-                                    text = "/ 10",
-                                    fontSize = 12.sp,
-                                    color = TextSecondary,
-                                )
-                            }
-                            // Slider
-                            Column(modifier = Modifier.weight(1f)) {
-                                Slider(
-                                    value = (userRating ?: 0).toFloat(),
-                                    onValueChange = { viewModel.setRating(it.roundToInt()) },
-                                    valueRange = 0f..100f,
-                                    steps = 19,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = scoreColor,
-                                        activeTrackColor = scoreColor,
-                                        inactiveTrackColor = TextSecondary.copy(alpha = 0.2f),
-                                        activeTickColor = Color.Transparent,
-                                        inactiveTickColor = Color.Transparent,
-                                    ),
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text("0", color = TextSecondary, fontSize = 10.sp)
-                                    Text("5", color = TextSecondary, fontSize = 10.sp)
-                                    Text("10", color = TextSecondary, fontSize = 10.sp)
-                                }
-                            }
-                            // Smazat hodnocení
-                            if (userRating != null) {
-                                IconButton(
-                                    onClick = { viewModel.clearRating() },
-                                    modifier = Modifier.size(32.dp),
-                                ) {
-                                    Icon(
-                                        TablerIcons.X,
-                                        contentDescription = "Smazat hodnocení",
-                                        tint = TextSecondary.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── MAL tracking ──────────────────────────────────────────────
-                item {
-                    val malBlue = Color(0xFF2E51A2)
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(
-                            text = "MYANIMELIST",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = malBlue,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        if (malId != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(malBlue.copy(alpha = 0.08f))
-                                    .border(1.dp, malBlue.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.openMalPage(context) }
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column {
-                                    Text("MAL ID: $malId", color = TextPrimary, fontSize = 14.sp)
-                                    if (malScore != null) {
-                                        Text("Skóre: ${String.format("%.2f", malScore)}", color = TextSecondary, fontSize = 12.sp)
-                                    }
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = {
-                                        malSearchQuery = manga?.title ?: ""
-                                        viewModel.searchMal(malSearchQuery)
-                                        showMalSheet = true
-                                    }) { Text("Změnit", color = malBlue, fontSize = 12.sp) }
-                                    IconButton(onClick = { viewModel.syncFromMal() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MAL", tint = malBlue, modifier = Modifier.size(16.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    malSearchQuery = manga?.title ?: ""
-                                    viewModel.searchMal(malSearchQuery)
-                                    showMalSheet = true
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, malBlue.copy(alpha = 0.4f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = malBlue),
-                            ) {
-                                Text("Propojit s MyAnimeList")
-                            }
-                            if (!viewModel.malHasClientId) {
-                                Text(
-                                    "Pro vyhledávání nastav MAL_CLIENT_ID v local.properties (myanimelist.net/apiconfig)",
-                                    color = TextSecondary.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(top = 4.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ── AniList tracking ─────────────────────────────────────────────
-                item {
-                    val aniListColor = Color(0xFF2E51A2)
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(
-                            text = "ANILIST",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = aniListColor,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        if (!aniListIsLoggedIn) {
-                            Text(
-                                "Přihlas se k AniListu v Účtu pro párování.",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                            )
-                        } else if (aniListId != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(aniListColor.copy(alpha = 0.08f))
-                                    .border(1.dp, aniListColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.openAniListPage(context) }
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("AniList ID: $aniListId", color = TextPrimary, fontSize = 14.sp)
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = {
-                                        aniListSearchQuery = manga?.title ?: ""
-                                        viewModel.searchAniList(aniListSearchQuery)
-                                        showAniListSheet = true
-                                    }) { Text("Změnit", color = aniListColor, fontSize = 12.sp) }
-                                    IconButton(onClick = { viewModel.unlinkAniList() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    aniListSearchQuery = manga?.title ?: ""
-                                    viewModel.searchAniList(aniListSearchQuery)
-                                    showAniListSheet = true
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, aniListColor.copy(alpha = 0.4f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = aniListColor),
-                            ) { Text("Propojit s AniList") }
-                        }
-                    }
-                }
-
-                // ── Kitsu tracking ─────────────────────────────────────────────
-                item {
-                    val kitsuColor = Color(0xFF51A351)
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(
-                            text = "KITSU",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = kitsuColor,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        if (!kitsuIsLoggedIn) {
-                            Text(
-                                "Přihlas se ke Kitsu v Nastavení pro párování.",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                            )
-                        } else if (kitsuId != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(kitsuColor.copy(alpha = 0.08f))
-                                    .border(1.dp, kitsuColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.openKitsuPage(context) }
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column {
-                                    Text("Kitsu ID: $kitsuId", color = TextPrimary, fontSize = 14.sp)
-                                    if (kitsuScore != null) Text("Skóre: ${String.format("%.2f", kitsuScore)}", color = TextSecondary, fontSize = 12.sp)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = {
-                                        kitsuSearchQuery = manga?.title ?: ""
-                                        viewModel.searchKitsu(kitsuSearchQuery)
-                                        showKitsuSheet = true
-                                    }) { Text("Změnit", color = kitsuColor, fontSize = 12.sp) }
-                                    IconButton(onClick = { viewModel.syncFromKitsu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z Kitsu", tint = kitsuColor, modifier = Modifier.size(16.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.unlinkKitsu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    kitsuSearchQuery = manga?.title ?: ""
-                                    viewModel.searchKitsu(kitsuSearchQuery)
-                                    showKitsuSheet = true
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, kitsuColor.copy(alpha = 0.4f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = kitsuColor),
-                            ) { Text("Propojit s Kitsu") }
-                        }
-                    }
-                }
-
-                // ── MangaUpdates tracking ──────────────────────────────────────
-                item {
-                    val muColor = Color(0xFF3B82F6)
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(
-                            text = "MANGAUPDATES",
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
-                            color = muColor,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        if (!muIsLoggedIn) {
-                            Text(
-                                "Přihlas se k MangaUpdates v Nastavení pro párování.",
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                            )
-                        } else if (muId != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(muColor.copy(alpha = 0.08f))
-                                    .border(1.dp, muColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .clickable { viewModel.openMuPage(context) }
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column {
-                                    Text("MU Series ID: $muId", color = TextPrimary, fontSize = 14.sp)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = {
-                                        muSearchQuery = manga?.title ?: ""
-                                        viewModel.searchMu(muSearchQuery)
-                                        showMuSheet = true
-                                    }) { Text("Změnit", color = muColor, fontSize = 12.sp) }
-                                    IconButton(onClick = { viewModel.syncFromMu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.Refresh, contentDescription = "Stáhnout status z MangaUpdates", tint = muColor, modifier = Modifier.size(16.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.unlinkMu() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(TablerIcons.X, contentDescription = "Odpojit", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    muSearchQuery = manga?.title ?: ""
-                                    viewModel.searchMu(muSearchQuery)
-                                    showMuSheet = true
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, muColor.copy(alpha = 0.4f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = muColor),
-                            ) { Text("Propojit s MangaUpdates") }
-                        }
-                    }
-                }
-
-                // ── Tagy (#26) ────────────────────────────────────────────────
-                item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "TAGY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { showAddTagField = !showAddTagField }, modifier = Modifier.size(28.dp)) {
-                                Icon(TablerIcons.Plus, contentDescription = "Přidat tag", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        if (showAddTagField) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                BasicTextField(
-                                    value = addTagText,
-                                    onValueChange = { addTagText = it },
-                                    singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                    decorationBox = { inner ->
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color.White.copy(alpha = 0.06f))
-                                                .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        ) {
-                                            if (addTagText.isEmpty()) Text("Nový tag…", color = TextSecondary, fontSize = 13.sp)
-                                            inner()
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TextButton(onClick = {
-                                    viewModel.addTag(addTagText)
-                                    addTagText = ""
-                                    showAddTagField = false
-                                }) { Text("OK", color = GlowCyan) }
-                            }
-                        }
-                        if (mangaTags.isNotEmpty()) {
-                            androidx.compose.foundation.layout.FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                mangaTags.forEach { tagEntity ->
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(50))
-                                            .background(GlowCyan.copy(alpha = 0.12f))
-                                            .border(1.dp, GlowCyan.copy(alpha = 0.4f), RoundedCornerShape(50))
-                                            .clickable { viewModel.removeTag(tagEntity.tag) }
-                                            .padding(horizontal = 10.dp, vertical = 3.dp),
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(tagEntity.tag, color = GlowCyan, fontSize = 11.sp)
-                                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = GlowCyan.copy(alpha = 0.7f), modifier = Modifier.size(11.dp).padding(start = 3.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Text("Žádné tagy", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-                        }
-                    }
-                }
-
-                // ── Slovník AI překladu ─────────────────────────────────────────
-                item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "SLOVNÍK PŘEKLADU", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }, modifier = Modifier.size(28.dp)) {
-                                Icon(TablerIcons.Plus, contentDescription = "Přidat pojem", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        Text(
-                            "Jména, techniky a přezdívky se budou vždy překládat takhle, napříč všemi kapitolami.",
-                            color = TextSecondary.copy(alpha = 0.6f),
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(bottom = 6.dp),
-                        )
-                        if (showAddGlossaryField) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    BasicTextField(
-                                        value = glossarySourceText,
-                                        onValueChange = { glossarySourceText = it },
-                                        singleLine = true,
-                                        textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                        decorationBox = { inner ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.White.copy(alpha = 0.06f))
-                                                    .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                            ) {
-                                                if (glossarySourceText.isEmpty()) Text("Originál (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
-                                                inner()
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text("→", color = TextSecondary, fontSize = 13.sp)
-                                    BasicTextField(
-                                        value = glossaryTargetText,
-                                        onValueChange = { glossaryTargetText = it },
-                                        singleLine = true,
-                                        textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                        decorationBox = { inner ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.White.copy(alpha = 0.06f))
-                                                    .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                            ) {
-                                                if (glossaryTargetText.isEmpty()) Text("Překlad (Sung Jin-woo)", color = TextSecondary, fontSize = 12.sp)
-                                                inner()
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                Row(modifier = Modifier.padding(top = 4.dp)) {
-                                    TextButton(onClick = {
-                                        viewModel.addGlossaryEntry(glossarySourceText, glossaryTargetText, defaultTargetLanguage)
-                                        glossarySourceText = ""
-                                        glossaryTargetText = ""
-                                        showAddGlossaryField = false
-                                    }) { Text("Přidat do slovníku ($defaultTargetLanguage)", color = GlowCyan, fontSize = 12.sp) }
-                                }
-                            }
-                        }
-                        if (glossary.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                glossary.forEach { entry ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.04f))
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            "${entry.sourceTerm} → ${entry.targetTerm}",
-                                            color = TextPrimary,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
-                                        IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
-                                            Icon(TablerIcons.X, contentDescription = "Odebrat", tint = TextSecondary, modifier = Modifier.size(13.dp))
-                                        }
-                                    }
-                                }
-                            }
-                        } else if (!showAddGlossaryField) {
-                            Text("Žádné pojmy ve slovníku", color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                // ── Poznámky (#27) ────────────────────────────────────────────
-                item {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Text(text = "POZNÁMKY", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
-                        BasicTextField(
-                            value = noteText,
-                            onValueChange = { noteText = it },
-                            textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                            decorationBox = { inner ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.White.copy(alpha = 0.04f))
-                                        .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                                        .padding(12.dp),
-                                ) {
-                                    if (noteText.isEmpty()) Text("Přidej poznámku k tomuto mangu…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
-                                    inner()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (noteText != (mangaNote?.content ?: "")) {
-                            TextButton(
-                                onClick = { viewModel.saveNote(noteText) },
-                                modifier = Modifier.align(Alignment.End),
-                            ) { Text("Uložit", color = GlowViolet) }
-                        }
-                    }
-                }
-
-                // ── Continue / Start reading ──────────────────────────────────
-                continueChapter?.let { chapter ->
-                    item {
-                        val hasHistory = manga?.lastReadChapterId != null
-                        var showReadMenu by remember { mutableStateOf(false) }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.linearGradient(listOf(GlowViolet.copy(alpha = 0.85f), GlowCyan.copy(alpha = 0.6f)))),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // Hlavní oblast — normální čtení
+                        continueChapter?.let { chapter ->
+                            val hasHistory = manga?.lastReadChapterId != null
+                            var showReadMenu by remember { mutableStateOf(false) }
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable { onOpenChapter(chapter.id) }
-                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Brush.linearGradient(listOf(GlowViolet.copy(alpha = 0.85f), GlowCyan.copy(alpha = 0.6f)))),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                                Column(modifier = Modifier.padding(start = 12.dp)) {
-                                    Text(text = if (hasHistory) "Pokračovat ve čtení" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text(
-                                        text = if (hasHistory) "${chapter.name} · str. ${chapter.lastPageRead + 1}" else chapter.name,
-                                        color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    )
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { onOpenChapter(chapter.id) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Column(modifier = Modifier.padding(start = 10.dp)) {
+                                        Text(text = if (hasHistory) "Pokračovat" else "Začít číst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            text = if (hasHistory) "${chapter.name} · str. ${chapter.lastPageRead + 1}" else chapter.name,
+                                            color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                                Box(modifier = Modifier.width(1.dp).height(36.dp).background(Color.White.copy(alpha = 0.25f)))
+                                Box {
+                                    IconButton(onClick = { showReadMenu = true }, modifier = Modifier.padding(horizontal = 2.dp)) {
+                                        Icon(TablerIcons.ChevronDown, contentDescription = "Možnosti čtení", tint = Color.White)
+                                    }
+                                    DropdownMenu(expanded = showReadMenu, onDismissRequest = { showReadMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Číst normálně") },
+                                            leadingIcon = { Icon(TablerIcons.PlayerPlay, contentDescription = null) },
+                                            onClick = { showReadMenu = false; onOpenChapter(chapter.id) },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Číst anonymně") },
+                                            leadingIcon = { Icon(TablerIcons.EyeOff, contentDescription = null) },
+                                            onClick = { showReadMenu = false; onOpenChapterIncognito(chapter.id) },
+                                        )
+                                    }
                                 }
                             }
-                            // Oddělovač
-                            Box(modifier = Modifier.width(1.dp).height(44.dp).background(Color.White.copy(alpha = 0.25f)))
-                            // Šipka — dropdown s volbami
-                            Box {
-                                IconButton(
-                                    onClick = { showReadMenu = true },
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                ) {
-                                    Icon(TablerIcons.ChevronDown, contentDescription = "Možnosti čtení", tint = Color.White)
-                                }
-                                DropdownMenu(
-                                    expanded = showReadMenu,
-                                    onDismissRequest = { showReadMenu = false },
-                                ) {
+                        }
+
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(statusColor.copy(alpha = 0.15f))
+                                    .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                    .clickable { statusDropdownExpanded = true }
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(statusLabel, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(TablerIcons.ChevronDown, contentDescription = null, tint = statusColor, modifier = Modifier.size(16.dp).padding(start = 2.dp))
+                            }
+                            DropdownMenu(expanded = statusDropdownExpanded, onDismissRequest = { statusDropdownExpanded = false }) {
+                                statusOptions.forEach { (key, label) ->
                                     DropdownMenuItem(
-                                        text = { Text("Číst normálně") },
-                                        leadingIcon = { Icon(TablerIcons.PlayerPlay, contentDescription = null) },
-                                        onClick = { showReadMenu = false; onOpenChapter(chapter.id) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Číst anonymně") },
-                                        leadingIcon = { Icon(TablerIcons.EyeOff, contentDescription = null) },
-                                        onClick = { showReadMenu = false; onOpenChapterIncognito(chapter.id) },
+                                        text = { Text(label) },
+                                        onClick = {
+                                            viewModel.setReadingStatus(if (readingStatus == key) null else key)
+                                            statusDropdownExpanded = false
+                                        },
                                     )
                                 }
                             }
@@ -1116,46 +458,6 @@ fun MangaDetailScreen(
                 // ── Chapters header se sort + bulk download ───────────────────
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                    // Auto-download toggle (#32)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.04f))
-                            .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-                            .clickable { viewModel.toggleAutoDownload() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Auto-stahování nových kapitol", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = autoDownload,
-                            onCheckedChange = { viewModel.toggleAutoDownload() },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
-                        )
-                    }
-
-                    // Vyloučit z aktualizací
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.04f))
-                            .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-                            .clickable { viewModel.toggleExcludeFromUpdates() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Vyloučit z automatických aktualizací", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = excludeFromUpdates,
-                            onCheckedChange = { viewModel.toggleExcludeFromUpdates() },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
-                        )
-                    }
-
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "KAPITOLY",
@@ -1402,7 +704,7 @@ fun MangaDetailScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(com.haise.jiyu.ui.theme.NightBlue)
+                                    .background(NightBlue)
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
                                 Text(
@@ -1447,328 +749,12 @@ fun MangaDetailScreen(
             }
         }
     }
-
-    // ── AniList search bottom sheet ────────────────────────────────────────────
-    if (showAniListSheet) {
-        val aniListSheetColor = Color(0xFF2E51A2)
-        ModalBottomSheet(
-            onDismissRequest = { showAniListSheet = false; aniListSearchQuery = "" },
-            containerColor = NightBlue,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Hledat na AniListu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = aniListSearchQuery,
-                        onValueChange = { aniListSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = aniListSheetColor,
-                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                        ),
-                    )
-                    IconButton(onClick = { viewModel.searchAniList(aniListSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = aniListSheetColor)
-                    }
-                }
-                if (aniListSearchLoading) {
-                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        aniListSearchResults.forEach { am ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.05f))
-                                    .clickable { viewModel.linkAniList(am); showAniListSheet = false }
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                AsyncImage(
-                                    model = am.coverUrl,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Text(am.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            }
-                        }
-                        if (aniListSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Kitsu search bottom sheet ──────────────────────────────────────────────
-    if (showKitsuSheet) {
-        val kitsuSheetColor = Color(0xFF51A351)
-        ModalBottomSheet(
-            onDismissRequest = { showKitsuSheet = false; kitsuSearchQuery = "" },
-            containerColor = NightBlue,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Hledat na Kitsu", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = kitsuSearchQuery,
-                        onValueChange = { kitsuSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = kitsuSheetColor,
-                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                        ),
-                    )
-                    IconButton(onClick = { viewModel.searchKitsu(kitsuSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = kitsuSheetColor)
-                    }
-                }
-                if (kitsuSearchLoading) {
-                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        kitsuSearchResults.forEach { km ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.05f))
-                                    .clickable { viewModel.linkKitsu(km); showKitsuSheet = false }
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                AsyncImage(
-                                    model = km.coverUrl,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(km.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    if (km.score != null) Text("⭐ ${String.format("%.2f", km.score)}", color = Color(0xFFFFD700), fontSize = 12.sp)
-                                }
-                            }
-                        }
-                        if (kitsuSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    // ── MangaUpdates search bottom sheet ──────────────────────────────────────
-    if (showMuSheet) {
-        val muSheetColor = Color(0xFF3B82F6)
-        ModalBottomSheet(
-            onDismissRequest = { showMuSheet = false; muSearchQuery = "" },
-            containerColor = NightBlue,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Hledat na MangaUpdates", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = muSearchQuery,
-                        onValueChange = { muSearchQuery = it },
-                        placeholder = { Text("Název mangy...", color = TextSecondary) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = muSheetColor,
-                            unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                        ),
-                    )
-                    IconButton(onClick = { viewModel.searchMu(muSearchQuery) }) {
-                        Icon(TablerIcons.Search, contentDescription = "Hledat", tint = muSheetColor)
-                    }
-                }
-                if (muSearchLoading) {
-                    JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        muSearchResults.forEach { mu ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.05f))
-                                    .clickable { viewModel.linkMu(mu); showMuSheet = false }
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                AsyncImage(
-                                    model = mu.coverUrl,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(mu.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    if (mu.year != null) Text("Rok: ${mu.year}", color = TextSecondary, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                        if (muSearchResults.isEmpty()) Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    // ── MAL search bottom sheet ────────────────────────────────────────────────
-    if (showMalSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showMalSheet = false; malSearchQuery = "" },
-            containerColor = NightBlue,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Hledat na MyAnimeList", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                if (!viewModel.malHasClientId) {
-                    Text(
-                        "MAL_CLIENT_ID není nastaven. Zaregistruj appku na myanimelist.net/apiconfig a vlož CLIENT ID do local.properties.",
-                        color = Color(0xFFF59E0B),
-                        fontSize = 13.sp,
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OutlinedTextField(
-                            value = malSearchQuery,
-                            onValueChange = { malSearchQuery = it },
-                            placeholder = { Text("Název mangy...", color = TextSecondary) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF2E51A2),
-                                unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
-                                focusedTextColor = TextPrimary,
-                                unfocusedTextColor = TextPrimary,
-                            ),
-                        )
-                        IconButton(onClick = { viewModel.searchMal(malSearchQuery) }) {
-                            Icon(TablerIcons.Search, contentDescription = "Hledat", tint = Color(0xFF2E51A2))
-                        }
-                    }
-                    if (malSearchLoading) {
-                        JiyuLoadingIndicator(
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            malSearchResults.forEach { malManga ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color.White.copy(alpha = 0.05f))
-                                        .clickable {
-                                            viewModel.linkMalId(malManga)
-                                            showMalSheet = false
-                                        }
-                                        .padding(10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    AsyncImage(
-                                        model = malManga.coverUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(malManga.title, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        if (malManga.score != null) {
-                                            Text("⭐ ${String.format("%.2f", malManga.score)}", color = Color(0xFFFFD700), fontSize = 12.sp)
-                                        }
-                                        malManga.status?.let { Text(it.replace("_", " "), color = TextSecondary, fontSize = 11.sp) }
-                                    }
-                                }
-                            }
-                            if (malSearchResults.isEmpty()) {
-                                Text("Žádné výsledky. Zadej název mangy.", color = TextSecondary, fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ── Category chip ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun CategoryToggleChip(category: CategoryEntity, selected: Boolean, onClick: () -> Unit) {
-    val color = remember(category.colorHex) {
-        try { Color(android.graphics.Color.parseColor(category.colorHex)) } catch (_: Exception) { Color(0xFF8B5CF6) }
-    }
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(if (selected) color.copy(alpha = 0.22f) else Color.Transparent)
-            .border(1.dp, if (selected) color else color.copy(alpha = 0.35f), RoundedCornerShape(50))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected) Icon(TablerIcons.CircleCheck, contentDescription = null, tint = color, modifier = Modifier.size(13.dp).padding(end = 4.dp))
-            Text(text = category.name, color = if (selected) color else TextSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-        }
-    }
 }
 
 // ── Chapter row ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun GlassChapterRow(
+internal fun GlassChapterRow(
     chapter: ChapterEntity,
     onOpen: () -> Unit,
     onDownload: () -> Unit,
@@ -1837,39 +823,7 @@ private fun GlassChapterRow(
     }
 }
 
-@Composable
-private fun RelatedMangaCard(manga: SManga, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.width(80.dp).clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, GlowViolet.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
-        ) {
-            AsyncImage(
-                model = manga.coverUrl,
-                contentDescription = manga.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        Text(
-            text = manga.title,
-            color = TextSecondary,
-            fontSize = 10.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-private fun formatReadingTime(ms: Long): String {
+internal fun formatReadingTime(ms: Long): String {
     val totalMin = ms / 60_000L
     val h = totalMin / 60
     val m = totalMin % 60

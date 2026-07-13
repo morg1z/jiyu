@@ -12,6 +12,7 @@ import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.browse.SourceBrowseScreen
 import com.haise.jiyu.ui.community.CommunityScreen
 import com.haise.jiyu.ui.css.CustomCssScreen
+import com.haise.jiyu.ui.detail.MangaDetailInfoScreen
 import com.haise.jiyu.ui.detail.MangaDetailScreen
 import com.haise.jiyu.ui.downloads.DownloadManagerScreen
 import com.haise.jiyu.ui.goals.ReadingGoalsScreen
@@ -47,6 +48,7 @@ internal object Routes {
     const val BROWSE        = "browse"
     const val SOURCE_BROWSE = "source_browse/{sourceId}"
     const val DETAIL        = "detail/{mangaId}"
+    const val DETAIL_INFO   = "detail_info/{mangaId}"
     const val READER        = "reader/{chapterId}?incognito={incognito}"
     const val SETTINGS      = "settings"
     const val DOWNLOADS     = "downloads"
@@ -75,6 +77,7 @@ internal object Routes {
     const val SETTINGS_ABOUT        = "settings_about"
 
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
+    fun detailInfo(mangaId: String) = "detail_info/${android.net.Uri.encode(mangaId)}"
     fun sourceBrowse(sourceId: String) = "source_browse/${android.net.Uri.encode(sourceId)}"
     fun reader(chapterId: String, incognito: Boolean = false) =
         "reader/${android.net.Uri.encode(chapterId)}?incognito=$incognito"
@@ -151,12 +154,24 @@ fun JiyuNavGraph(
             route = Routes.DETAIL,
             arguments = listOf(navArgument("mangaId") { type = NavType.StringType }),
             deepLinks = listOf(navDeepLink { uriPattern = "jiyu://manga?mangaId={mangaId}" }),
-        ) {
+        ) { backStackEntry ->
+            val mangaId = backStackEntry.arguments?.getString("mangaId")
             MangaDetailScreen(
+                onBack = { navController.popBackStack() },
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
                 onOpenChapterIncognito = { chapterId -> navController.navigate(Routes.reader(chapterId, incognito = true)) },
+                onOpenQr = { id, title -> navController.navigate(Routes.qr(id, title)) },
+                onOpenDetails = { mangaId?.let { navController.navigate(Routes.detailInfo(it)) } },
+            )
+        }
+
+        composable(
+            route = Routes.DETAIL_INFO,
+            arguments = listOf(navArgument("mangaId") { type = NavType.StringType }),
+        ) {
+            MangaDetailInfoScreen(
+                onBack = { navController.popBackStack() },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
-                onOpenQr = { mangaId, title -> navController.navigate(Routes.qr(mangaId, title)) },
             )
         }
 
