@@ -60,11 +60,23 @@ private val hotlinkReferers = mapOf(
     "webtoon-phinf.pstatic.net" to "https://www.webtoons.com/",
 )
 
+// Hitomi.La serví thumbnaily (tn.*) i plné stránky (w1.*/w2.*/…) na
+// libovolně pojmenovaných subdoménách gold-usergeneratedcontent.net -
+// match je proto podle přípony domény, ne přesného hostu.
+private val hotlinkRefererSuffixes = mapOf(
+    "gold-usergeneratedcontent.net" to "https://hitomi.la/",
+)
+
 private class HotlinkRefererInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val referer = hotlinkReferers[request.url.host]
-        val finalRequest = if (referer != null && request.header("Referer") == null) {
+        if (request.header("Referer") != null) return chain.proceed(request)
+
+        val host = request.url.host
+        val referer = hotlinkReferers[host]
+            ?: hotlinkRefererSuffixes.entries.find { (suffix, _) -> host == suffix || host.endsWith(".$suffix") }?.value
+
+        val finalRequest = if (referer != null) {
             request.newBuilder().header("Referer", referer).build()
         } else {
             request
