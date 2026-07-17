@@ -50,6 +50,16 @@ class MadaraSource(
     private val client: OkHttpClient,
     private val selectors: MadaraSelectors = MadaraSelectors.DEFAULT,
     private val contentTypeOverride: String = "MANGA",
+    // Vetsina Madara webu pouziva vychozi WordPress permalink strukturu
+    // ("/manga/page/N/?m_orderby=", "/page/N/?s=...&post_type=wp-manga"),
+    // ale nektere weby maji vlastni post-type/taxonomy slug (napr.
+    // manhwaz.com pouziva pro archiv "/genre/manga?page=N" misto
+    // "/manga/page/N/"). Tyhle dvě lambdy jdou pro takove weby přepsat,
+    // vychozi hodnota odpovida standardnimu Madara motivu beze zmeny.
+    private val popularUrl: (root: String, page: Int, orderby: String) -> String =
+        { root, page, orderby -> "$root/manga/page/$page/?m_orderby=$orderby" },
+    private val searchUrl: (root: String, query: String, page: Int) -> String =
+        { root, query, page -> "$root/page/$page/?s=$query&post_type=wp-manga" },
 ) : MangaSource {
 
     override val contentType: String get() = contentTypeOverride
@@ -61,7 +71,7 @@ class MadaraSource(
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
-            val url = "$root/page/$page/?s=$q&post_type=wp-manga"
+            val url = searchUrl(root, q, page)
             parseMangaList(fetchDocument(url))
         }
 
@@ -72,7 +82,7 @@ class MadaraSource(
                 "title"  -> "alphabet"
                 else     -> "views"
             }
-            val url = "$root/manga/page/$page/?m_orderby=$orderby"
+            val url = popularUrl(root, page, orderby)
             parseMangaList(fetchDocument(url))
         }
 

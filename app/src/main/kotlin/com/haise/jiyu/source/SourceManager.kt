@@ -204,6 +204,15 @@ class SourceManager @Inject constructor(
         MadaraSource("mangazin",      "Mangazin",           "https://mangazin.org",         client, contentTypeOverride = "MANHUA"),
         MadaraSource("cocomic",       "Cocomic",            "https://cocomic.co",           client, contentTypeOverride = "MANHWA"),
         MadaraSource("mangagg",       "MangaGG",            "https://mangagg.com",          client, contentTypeOverride = "MANHUA"),
+        // manhwaz.com pouziva vlastni permalinky ("/webtoon/{slug}" misto
+        // "/manga/{slug}", "/genre/manga?page=N" pro archiv, "/search?s=..."
+        // pro hledani) - proto vlastni popularUrl/searchUrl misto vychozich.
+        MadaraSource(
+            "manhwaz", "Manhwaz", "https://manhwaz.com", client,
+            contentTypeOverride = "MANHWA",
+            popularUrl = { root, page, _ -> "$root/genre/manga?page=$page" },
+            searchUrl = { root, query, page -> "$root/search?s=$query&page=$page" },
+        ),
         MadaraSource(
             "aquareader", "Aqua Manga", "https://aquareader.org", client,
             selectors = MadaraSelectors(

@@ -130,4 +130,29 @@ class MadaraSourceTest {
         assertEquals("https://cdn.example.com/one-piece/1092/01.jpg", pages[0].url)
         assertEquals("https://cdn.example.com/one-piece/1092/02.jpg", pages[1].url)
     }
+
+    @Test
+    fun `custom popularUrl and searchUrl override the default WordPress permalink paths`() = runTest {
+        val customSource = MadaraSource(
+            id = "madara:custom",
+            name = "Custom Madara",
+            baseUrl = server.url("/").toString(),
+            client = OkHttpClient(),
+            popularUrl = { root, page, _ -> "$root/genre/manga?page=$page" },
+            searchUrl = { root, query, page -> "$root/search?s=$query&page=$page" },
+        )
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/genre/manga") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/search") -> MockResponse().setBody(listHtml)
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        assertEquals(2, customSource.getPopular(1).size)
+        assertEquals(2, customSource.search("one piece", 1).size)
+    }
 }
