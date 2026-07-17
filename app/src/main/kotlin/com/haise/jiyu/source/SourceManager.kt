@@ -41,6 +41,8 @@ import com.haise.jiyu.source.i18n.TMOSource
 import com.haise.jiyu.source.i18n.InMangaSource
 import com.haise.jiyu.source.i18n.MangaLeerSource
 import com.haise.jiyu.source.i18n.UnionMangasSource
+import com.haise.jiyu.source.mangadotnet.MangaDotNetSource
+import com.haise.jiyu.source.kaliscan.KaliScanSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,6 +101,8 @@ class SourceManager @Inject constructor(
     inMangaSource: InMangaSource,
     mangaLeerSource: MangaLeerSource,
     unionMangasSource: UnionMangasSource,
+    mangaDotNetSource: MangaDotNetSource,
+    kaliScanSource: KaliScanSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -227,6 +231,9 @@ class SourceManager @Inject constructor(
         inMangaSource,
         mangaLeerSource,
         unionMangasSource,
+        // ── Noví kandidáti (jednoduchý vlastní scraping) ─────────────────────
+        mangaDotNetSource,
+        kaliScanSource,
     )
 
     init {
