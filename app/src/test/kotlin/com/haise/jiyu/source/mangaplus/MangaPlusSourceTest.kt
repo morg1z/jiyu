@@ -14,9 +14,12 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * MANGA Plus API vraci raw protobuf (viz MangaPlusProto.kt). Testy si rucne
- * zakoduji minimalni platne zpravy odpovidajici strukture ocekavane
- * v MangaPlusSource.kt (pole 1=success, 25=AllTitlesViewV2, 8=TitleDetailView, 10=MangaViewer).
+ * MANGA Plus API vraci raw protobuf (viz MangaPlusProto.kt). Kazdy pozadavek
+ * (krome /register) vyzaduje predchozi registraci zarizeni a "secret" query
+ * parametr - viz komentar v MangaPlusSource.kt. Testy si rucne zakoduji
+ * minimalni platne zpravy (pole 1=success, 2=registerationData/1=deviceSecret,
+ * 35=SearchView/3=AllTitlesGroup, 8=TitleDetailView s kapitolami na poli 38
+ * (chapterListV2), 10=MangaViewer).
  */
 class MangaPlusSourceTest {
 
@@ -46,18 +49,24 @@ class MangaPlusSourceTest {
         return tag(field, 2) + encodeVarint(value.size.toLong()) + value
     }
 
+    private val registerBytes = run {
+        val registerationData = stringField(1, "test-secret-123")
+        val success = bytesField(2, registerationData)
+        bytesField(1, success)
+    }
+
     private val allTitlesBytes = run {
         val title = varintField(1, 100L) + stringField(2, "One Piece") + stringField(4, "https://cdn.example.com/op.jpg")
         val group = bytesField(2, title)
-        val allTitlesView = bytesField(1, group)
-        val success = bytesField(25, allTitlesView)
+        val searchView = bytesField(3, group)
+        val success = bytesField(35, searchView)
         bytesField(1, success)
     }
 
     private val titleDetailBytes = run {
         val titleMsg = varintField(1, 100L) + stringField(2, "One Piece") + stringField(4, "https://cdn.example.com/op.jpg")
-        val chapterMsg = varintField(2, 1092L) + stringField(3, "Chapter 1092") + varintField(7, 1750000000L)
-        val view = bytesField(1, titleMsg) + bytesField(5, chapterMsg)
+        val chapterMsg = varintField(2, 1092L) + stringField(3, "Chapter 1092") + varintField(6, 1750000000L)
+        val view = bytesField(1, titleMsg) + bytesField(38, chapterMsg)
         val success = bytesField(8, view)
         bytesField(1, success)
     }
@@ -77,8 +86,9 @@ class MangaPlusSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/api/title_list/allV2") -> MockResponse().setBody(Buffer().write(allTitlesBytes))
-                    path.startsWith("/api/title_detail") -> MockResponse().setBody(Buffer().write(titleDetailBytes))
+                    path.startsWith("/api/register") -> MockResponse().setBody(Buffer().write(registerBytes))
+                    path.startsWith("/api/title_list/all_v3") -> MockResponse().setBody(Buffer().write(allTitlesBytes))
+                    path.startsWith("/api/title_detailV3") -> MockResponse().setBody(Buffer().write(titleDetailBytes))
                     path.startsWith("/api/manga_viewer") -> MockResponse().setBody(Buffer().write(mangaViewerBytes))
                     else -> MockResponse().setResponseCode(404)
                 }
