@@ -51,6 +51,7 @@ import com.haise.jiyu.source.novelfire.NovelFireSource
 import com.haise.jiyu.source.wuxiabox.WuxiaBoxSource
 import com.haise.jiyu.source.ranobes.RanobesSource
 import com.haise.jiyu.source.novelcool.NovelCoolSource
+import com.haise.jiyu.source.novelhall.NovelHallSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -119,6 +120,7 @@ class SourceManager @Inject constructor(
     wuxiaBoxSource: WuxiaBoxSource,
     ranobesSource: RanobesSource,
     novelCoolSource: NovelCoolSource,
+    novelHallSource: NovelHallSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -268,6 +270,8 @@ class SourceManager @Inject constructor(
         wuxiaBoxSource,
         ranobesSource,
         novelCoolSource,
+        // Adult zdroj, pridano na vyslovne prani uzivatele (viz konverzace 2026-07-18)
+        novelHallSource,
     )
 
     init {
