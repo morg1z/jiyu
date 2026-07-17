@@ -47,6 +47,7 @@ import com.haise.jiyu.source.mangacloud.MangaCloudSource
 import com.haise.jiyu.source.galaxymanga.GalaxyMangaSource
 import com.haise.jiyu.source.kuramanga.KuraMangaSource
 import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
+import com.haise.jiyu.source.novelfire.NovelFireSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -111,6 +112,7 @@ class SourceManager @Inject constructor(
     galaxyMangaSource: GalaxyMangaSource,
     kuraMangaSource: KuraMangaSource,
     lightNovelWorldSource: LightNovelWorldSource,
+    novelFireSource: NovelFireSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -256,6 +258,7 @@ class SourceManager @Inject constructor(
         kuraMangaSource,
         // ── Novely (nový vlastní scraping) ───────────────────────────────────
         lightNovelWorldSource,
+        novelFireSource,
     )
 
     init {
