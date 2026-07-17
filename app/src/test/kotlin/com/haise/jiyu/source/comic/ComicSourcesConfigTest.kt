@@ -7,18 +7,19 @@ import org.junit.Test
 
 /**
  * Konfiguracni sanity test pro comic zdroje postavene na sdilenem
- * ComicSiteSource enginu (comic/ComicSources.kt, ReadFreeComicsOnlineSource.kt).
+ * ComicSiteSource enginu (ReadFreeComicsOnlineSource.kt).
  * Sdileny parsovaci engine uz je dukladne testovany v ComicSiteSourceTest -
  * tady jen overujeme, ze kazda podtrida ma smysluplnou/unikatni konfiguraci.
  * ComicBookPlusSource neni ComicSiteSource podtrida (vlastni parsovani pro
- * atypickou strukturu webu), proto tu neni.
+ * atypickou strukturu webu), proto tu neni. GetComicsSource byl odstranen
+ * (jen download-agregator na cizi CBR/CBZ hostery, zadny skutecny reader -
+ * viz konverzace 2026-07-18).
  */
 class ComicSourcesConfigTest {
 
     private val client = OkHttpClient()
 
     private val sources: List<ComicSiteSource> = listOf(
-        GetComicsSource(client),
         ReadFreeComicsOnlineSource(client),
     )
 
