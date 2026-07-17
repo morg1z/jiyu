@@ -30,6 +30,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.TlsVersion
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -49,6 +51,29 @@ private class RetryInterceptor(private val maxRetries: Int = 3) : Interceptor {
             }
         }
         throw lastError!!
+    }
+}
+
+/**
+ * Omezuje pocet soubezne rozjetych pozadavku na stejny host - bez toho umi
+ * napr. Hitomi.La zdroj poslat 25 paralelnich pozadavku na stejnou domenu
+ * najednou (getPopular natahuje 25 galleryblock karet soubezne), coz je
+ * presne vzorec, ktery spousti IP-based rate limiting na strane serveru.
+ * Semafor drzi permit po celou dobu chain.proceed() vcetne pripadneho
+ * Cloudflare WebView reseni (ktere je tim padem taky prirozene serializovane
+ * per-host), ale requesty na JINE domeny nijak neomezuje.
+ */
+private class ThrottleInterceptor(private val maxConcurrentPerHost: Int = 5) : Interceptor {
+    private val semaphores = ConcurrentHashMap<String, Semaphore>()
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val semaphore = semaphores.getOrPut(chain.request().url.host) { Semaphore(maxConcurrentPerHost) }
+        semaphore.acquire()
+        try {
+            return chain.proceed(chain.request())
+        } finally {
+            semaphore.release()
+        }
     }
 }
 
@@ -134,6 +159,7 @@ object AppModule {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
+        .addInterceptor(ThrottleInterceptor(maxConcurrentPerHost = 5))
         .addInterceptor(RetryInterceptor(maxRetries = 3))
         .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)

@@ -23,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.settings.ThemeOption
+import com.haise.jiyu.source.interceptor.CloudflareChallengeHost
 import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -108,6 +109,8 @@ class MainActivity : AppCompatActivity() {
                             else
                                 com.haise.jiyu.ui.navigation.Routes.ONBOARDING,
                         )
+                        // Globalni overlay pro interaktivni Cloudflare vyzvy (viz CloudflareInterceptor)
+                        CloudflareChallengeHost()
                     }
                 }
             }

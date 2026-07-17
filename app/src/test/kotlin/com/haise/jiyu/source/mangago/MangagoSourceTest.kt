@@ -63,7 +63,7 @@ class MangagoSourceTest {
         }
         server.start()
         val context = ApplicationProvider.getApplicationContext<Context>()
-        source = MangagoSource(redirectingClient(server), CloudflareInterceptor(context))
+        source = MangagoSource(redirectingClient(server), CloudflareInterceptor(context, com.haise.jiyu.settings.FakeDataStore()))
     }
 
     @After
@@ -106,7 +106,7 @@ class MangagoSourceTest {
         }
         server.start()
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val emptySource = MangagoSource(redirectingClient(server), CloudflareInterceptor(context))
+        val emptySource = MangagoSource(redirectingClient(server), CloudflareInterceptor(context, com.haise.jiyu.settings.FakeDataStore()))
         assertTrue(emptySource.getPopular(1).isEmpty())
     }
 }

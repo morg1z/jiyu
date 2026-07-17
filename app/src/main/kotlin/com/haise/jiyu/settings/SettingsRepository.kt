@@ -61,6 +61,7 @@ object SettingsKeys {
     val NOTIFY_NEW_CHAPTERS    = booleanPreferencesKey("notify_new_chapters")
     val NOTIFY_DOWNLOADS       = booleanPreferencesKey("notify_downloads")
     val BACKUP_FOLDER_URI      = stringPreferencesKey("backup_folder_uri")
+    val CLOUDFLARE_CLEARANCE_CACHE = stringPreferencesKey("cloudflare_clearance_cache")
 }
 
 object ReaderTheme {
