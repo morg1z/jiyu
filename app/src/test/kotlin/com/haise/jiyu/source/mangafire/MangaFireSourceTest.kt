@@ -12,29 +12,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * mangafire.to je cisty JS-rendered SPA shell bez obsahu v HTML - misto
+ * scrapovani se pouziva verejne JSON API objevene pres network tab v
+ * realnem prohlizeci (viz komentar v MangaFireSource.kt).
+ */
 class MangaFireSourceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var source: MangaFireSource
 
-    private val listHtml = """
-        <html><body>
-        <div class="unit"><div class="inner">
-          <a href="/manga/black-clover.abc"><div class="info"><span class="name">Black Clover</span></div><img data-src="https://cdn.example.com/bc.jpg" /></a>
-        </div></div>
-        </body></html>
+    private val listJson = """
+        { "items": [ {"title": "Black Clover", "url": "/title/abc-black-clover", "poster": {"large": "https://cdn.example.com/bc.jpg"}} ] }
     """.trimIndent()
 
-    private val chapterListHtml = """
-        <html><body>
-        <div id="chapter-list">
-          <li data-number="1"><a href="/read/black-clover.abc/en/chapter-1"><span class="name">Chapter 1</span></a></li>
-        </div>
-        </body></html>
+    private val detailJson = """
+        { "data": {
+            "title": "Black Clover", "poster": {"large": "https://cdn.example.com/bc.jpg"},
+            "synopsisHtml": "A <b>farm boy</b> dreams big.",
+            "genres": [{"id": 1, "title": "Action"}],
+            "authors": [{"id": 2, "title": "Tabata Yuki"}]
+        } }
     """.trimIndent()
 
-    private val imagesJson = """
-        {"result": {"images": [["https://cdn.example.com/bc/1/01.jpg", 800, 1200]]}}
+    private val chaptersJson = """
+        { "items": [ {"id": 999, "number": 1, "name": "", "language": "en", "createdAt": 1750000000} ] }
+    """.trimIndent()
+
+    private val pagesJson = """
+        { "data": { "pages": [ {"url": "https://cdn.example.com/bc/1/01.jpg", "width": 800, "height": 1200} ] } }
     """.trimIndent()
 
     @Before
@@ -44,9 +50,10 @@ class MangaFireSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/filter") -> MockResponse().setBody(listHtml)
-                    path == "/manga/black-clover.abc" -> MockResponse().setBody(chapterListHtml)
-                    path.startsWith("/ajax/read/") -> MockResponse().setBody(imagesJson)
+                    path.startsWith("/api/titles/abc/chapters") -> MockResponse().setBody(chaptersJson)
+                    path.startsWith("/api/titles/abc") -> MockResponse().setBody(detailJson)
+                    path.startsWith("/api/titles") -> MockResponse().setBody(listJson)
+                    path.startsWith("/api/chapters/999") -> MockResponse().setBody(pagesJson)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -66,18 +73,29 @@ class MangaFireSourceTest {
         assertEquals(1, result.size)
         assertEquals("Black Clover", result[0].title)
         assertEquals("https://cdn.example.com/bc.jpg", result[0].coverUrl)
+        assertEquals("/title/abc-black-clover", result[0].url)
     }
 
     @Test
-    fun `getChapterList uses data-number attribute for chapter number`() = runTest {
+    fun `getMangaDetails parses genres, author and plain-text synopsis`() = runTest {
+        val manga = source.getPopular(1).first()
+        val details = source.getMangaDetails(manga)
+        assertEquals(listOf("Action"), details.genres)
+        assertEquals("Tabata Yuki", details.author)
+        assertEquals("A farm boy dreams big.", details.description)
+    }
+
+    @Test
+    fun `getChapterList parses chapter number from the number field`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
         assertEquals(1, chapters.size)
         assertEquals(1f, chapters[0].chapterNumber)
+        assertEquals("999", chapters[0].url)
     }
 
     @Test
-    fun `getPageList uses ajax images API when available`() = runTest {
+    fun `getPageList parses page urls from chapters API`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
         val pages = source.getPageList(chapters[0])
@@ -86,7 +104,7 @@ class MangaFireSourceTest {
     }
 
     @Test
-    fun `malformed HTML returns empty list, not an exception`() = runTest {
+    fun `malformed response returns empty list, not an exception`() = runTest {
         server.shutdown()
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
