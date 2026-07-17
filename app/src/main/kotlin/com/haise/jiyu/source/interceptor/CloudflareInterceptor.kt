@@ -10,7 +10,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.Interceptor
+import okhttp3.Request
 import okhttp3.Response
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -23,22 +25,41 @@ class CloudflareInterceptor @Inject constructor(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * cf_clearance vyresene pres WebView se cachuji per-host, jinak by kazdy
+     * dalsi zablokovany pozadavek na tu samou domenu (napr. dalsi stranka
+     * vypisu) znovu spoustel cely WebView flow (~1-15s). TTL je konzervativni
+     * odhad - Cloudflare Managed Challenge clearance obvykle vydrzi rady
+     * desitek minut, presna doba se ale lisi web od webu a nikde se neda
+     * precist z odpovedi predem.
+     */
+    private data class CachedClearance(val cookies: String, val expiresAt: Long)
+    private val clearanceCache = ConcurrentHashMap<String, CachedClearance>()
+    private val clearanceTtlMs = TimeUnit.MINUTES.toMillis(25)
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val response = chain.proceed(request)
+        val host = request.url.host
 
+        val cached = clearanceCache[host]?.takeIf { it.expiresAt > System.currentTimeMillis() }
+        val requestToTry = if (cached != null) request.withClearance(cached.cookies) else request
+
+        val response = chain.proceed(requestToTry)
         if (!isCloudflareBlocked(response)) return response
         response.close()
+        if (cached != null) clearanceCache.remove(host)
 
-        val cookies = solveCloudflareSynchronously(request.url.toString(), request.url.host)
+        val cookies = solveCloudflareSynchronously(request.url.toString(), host)
             ?: return chain.proceed(request)
 
-        val newRequest = request.newBuilder()
-            .header("Cookie", cookies)
-            .header("User-Agent", CHROME_UA)
-            .build()
-        return chain.proceed(newRequest)
+        clearanceCache[host] = CachedClearance(cookies, System.currentTimeMillis() + clearanceTtlMs)
+        return chain.proceed(request.withClearance(cookies))
     }
+
+    private fun Request.withClearance(cookies: String) = newBuilder()
+        .header("Cookie", cookies)
+        .header("User-Agent", CHROME_UA)
+        .build()
 
     private fun isCloudflareBlocked(response: Response): Boolean {
         if (response.code !in listOf(403, 503)) return false

@@ -23,9 +23,12 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import okhttp3.CipherSuite
+import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import okhttp3.TlsVersion
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -67,6 +70,42 @@ private val hotlinkRefererSuffixes = mapOf(
     "gold-usergeneratedcontent.net" to "https://hitomi.la/",
 )
 
+/**
+ * OkHttpovo vychozi ConnectionSpec.MODERN_TLS pouziva uzsi a jinak
+ * seřazenou sadu cipher suites, nez jakou v TLS ClientHello nabizi realny
+ * Chrome na Androidu - anti-bot systemy (Cloudflare aj.) tohle pouzivaji
+ * jako jeden ze signalu ("vypada to jako knihovna, ne prohlizec").
+ * Tahle sada kopiruje poradi cipher suites, ktere Chrome pro Android
+ * skutecne nabizi. POZOR: nejde o plnohodnotny JA3/TLS fingerprint spoofing -
+ * presne poradi TLS extensions a GREASE hodnoty OkHttp/Conscrypt neumoznuje
+ * ovlivnit (na to by bylo potreba vlastni TLS stack, napr. Cronet/BoringSSL),
+ * a moderni Chrome (110+) navic poradi extensions sam nahodne mixuje prave
+ * proto, aby JA3 fingerprinting znejistil. Tohle je tedy jen "co nejlepsi
+ * priblizeni" pres verejne OkHttp API, ne exaktni klon.
+ */
+private val chromeLikeConnectionSpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
+    .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
+    .cipherSuites(
+        CipherSuite.TLS_AES_128_GCM_SHA256,
+        CipherSuite.TLS_AES_256_GCM_SHA384,
+        CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+        CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+        CipherSuite.TLS_RSA_WITH_AES_128_GCM_SHA256,
+        CipherSuite.TLS_RSA_WITH_AES_256_GCM_SHA384,
+        CipherSuite.TLS_RSA_WITH_AES_128_CBC_SHA,
+        CipherSuite.TLS_RSA_WITH_AES_256_CBC_SHA,
+    )
+    .build()
+
 private class HotlinkRefererInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -94,6 +133,7 @@ object AppModule {
     fun provideOkHttpClient(cloudflare: CloudflareInterceptor): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(RetryInterceptor(maxRetries = 3))
         .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)
