@@ -45,6 +45,7 @@ import com.haise.jiyu.source.mangadotnet.MangaDotNetSource
 import com.haise.jiyu.source.kaliscan.KaliScanSource
 import com.haise.jiyu.source.mangacloud.MangaCloudSource
 import com.haise.jiyu.source.galaxymanga.GalaxyMangaSource
+import com.haise.jiyu.source.kuramanga.KuraMangaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -107,6 +108,7 @@ class SourceManager @Inject constructor(
     kaliScanSource: KaliScanSource,
     mangaCloudSource: MangaCloudSource,
     galaxyMangaSource: GalaxyMangaSource,
+    kuraMangaSource: KuraMangaSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -249,6 +251,7 @@ class SourceManager @Inject constructor(
         kaliScanSource,
         mangaCloudSource,
         galaxyMangaSource,
+        kuraMangaSource,
     )
 
     init {
