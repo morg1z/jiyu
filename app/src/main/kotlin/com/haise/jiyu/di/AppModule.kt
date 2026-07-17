@@ -23,6 +23,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.source.mangacloud.MangaCloudSession
+import com.haise.jiyu.source.mangacloud.WebViewMangaCloudSession
 import okhttp3.CipherSuite
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
@@ -216,4 +218,9 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSleepTimerManager(): SleepTimerManager = SleepTimerManager()
+
+    @Provides
+    @Singleton
+    fun provideMangaCloudSession(@ApplicationContext context: Context): MangaCloudSession =
+        WebViewMangaCloudSession(context)
 }
