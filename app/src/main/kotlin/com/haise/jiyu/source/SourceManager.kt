@@ -17,6 +17,7 @@ import com.haise.jiyu.source.mangalek.MangaLekSource
 import com.haise.jiyu.source.rawkuma.RawKumaSource
 import com.haise.jiyu.source.comic.ComicBookPlusSource
 import com.haise.jiyu.source.comic.ReadFreeComicsOnlineSource
+import com.haise.jiyu.source.comicskingdom.ComicsKingdomSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.freewebnovel.FreeWebNovelSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
@@ -93,6 +94,7 @@ class SourceManager @Inject constructor(
     rawKumaSource: RawKumaSource,
     comicBookPlusSource: ComicBookPlusSource,
     readFreeComicsOnlineSource: ReadFreeComicsOnlineSource,
+    comicsKingdomSource: ComicsKingdomSource,
     mangaNatoSource: MangaNatoSource,
     royalRoadSource: RoyalRoadSource,
     scribbleHubSource: ScribbleHubSource,
@@ -148,6 +150,7 @@ class SourceManager @Inject constructor(
         rawKumaSource,
         comicBookPlusSource,
         readFreeComicsOnlineSource,
+        comicsKingdomSource,
         mangaNatoSource,
         royalRoadSource,
         scribbleHubSource,
