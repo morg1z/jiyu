@@ -19,7 +19,7 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override val id = "manganato"
     override val name = "MangaNato"
-    private val base = "https://chapmanganato.to"
+    private val base = "https://www.natomanga.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -31,13 +31,13 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/genre-all/$page?type=topview"))
-            doc.select(".content-genres-item").mapNotNull { el ->
-                val link = el.selectFirst(".genres-item-name a, h3 a") ?: return@mapNotNull null
+            val doc = Jsoup.parse(get("$base/manga-list/hot-manga?page=$page"))
+            // .list-story-item je pouzit i pro banner reklamy - ty maji href mimo /manga/
+            doc.select(".list-story-item[href*=/manga/]").mapNotNull { el ->
                 SManga(
                     sourceId = id,
-                    url = link.attr("href").removePrefix(base),
-                    title = link.text().trim(),
+                    url = el.attr("href").removePrefix(base),
+                    title = el.attr("title").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null,
                     coverUrl = el.selectFirst("img")?.let {
                         it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
                     }?.takeIf { it.startsWith("http") },
@@ -51,13 +51,13 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
             val q = URLEncoder.encode(query.lowercase(), "UTF-8")
                 .replace("+", "_").replace("%20", "_")
             val doc = Jsoup.parse(get("$base/search/story/$q?page=$page"))
-            doc.select(".panel-search-story .search-story-item").mapNotNull { el ->
-                val imgLink = el.selectFirst("a.item-img") ?: return@mapNotNull null
+            doc.select(".story_item").mapNotNull { el ->
+                val link = el.selectFirst("a[href*=/manga/]") ?: return@mapNotNull null
                 SManga(
                     sourceId = id,
-                    url = imgLink.attr("href").removePrefix(base),
-                    title = el.selectFirst(".item-right h3 a, h3")?.text()?.trim()
-                        ?: imgLink.attr("title").trim().takeIf { it.isNotBlank() }
+                    url = link.attr("href").removePrefix(base),
+                    title = el.selectFirst(".story_name a")?.text()?.trim()
+                        ?: link.attr("title").trim().takeIf { it.isNotBlank() }
                         ?: return@mapNotNull null,
                     coverUrl = el.selectFirst("img")?.attr("src")?.takeIf { it.startsWith("http") },
                 )
@@ -68,19 +68,21 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get("$base${manga.url}"))
-            val rows = doc.select(".variations-tableInfo tr")
-            fun rowValue(label: String) = rows.firstOrNull {
-                it.select("td").firstOrNull()?.text()?.contains(label, ignoreCase = true) == true
-            }?.selectFirst("td.table-value")
+            val infoItems = doc.select(".manga-info-text li")
+            fun liText(label: String) = infoItems.firstOrNull {
+                it.text().contains(label, ignoreCase = true)
+            }?.text()?.substringAfter(":")?.trim()
 
             manga.copy(
-                title = doc.selectFirst(".story-info-right h1")?.text()?.trim() ?: manga.title,
-                coverUrl = doc.selectFirst(".story-info-left img")?.attr("src") ?: manga.coverUrl,
-                description = doc.selectFirst(".panel-story-info-description")
-                    ?.text()?.replace(Regex("^Description\\s*:\\s*"), "")?.trim(),
-                author = rowValue("Author")?.select("a")?.joinToString { it.text() },
-                genres = rowValue("Genre")?.select("a")?.map { it.text().trim() } ?: emptyList(),
-                status = rowValue("Status")?.text()?.trim(),
+                title = doc.selectFirst(".manga-info-text h1")?.text()?.trim() ?: manga.title,
+                coverUrl = doc.selectFirst(".manga-info-pic img")?.let {
+                    it.attr("src").takeIf { s -> s.isNotBlank() } ?: it.attr("data-src")
+                }?.takeIf { it.startsWith("http") } ?: manga.coverUrl,
+                description = doc.selectFirst("#contentBox")
+                    ?.text()?.replace(Regex("^.*?summary:\\s*", RegexOption.IGNORE_CASE), "")?.trim(),
+                author = liText("Author"),
+                genres = doc.select(".manga-info-text li.genres a").map { it.text().trim() },
+                status = liText("Status"),
             )
         } catch (_: Exception) { manga }
     }
@@ -88,7 +90,7 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get("$base${manga.url}"))
-            doc.select(".row-content-chapter li a").mapIndexed { i, a ->
+            doc.select(".chapter-list .row a").mapIndexed { i, a ->
                 val name = a.text().trim()
                 SChapter(
                     sourceId = id,

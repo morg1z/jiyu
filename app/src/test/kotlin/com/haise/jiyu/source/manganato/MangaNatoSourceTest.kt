@@ -19,24 +19,26 @@ class MangaNatoSourceTest {
 
     private val listHtml = """
         <html><body>
-        <div class="content-genres-item">
-          <div class="genres-item-name"><a href="/manga-test-series">Test Series</a></div>
-          <img data-src="https://cdn.example.com/test.jpg" />
-        </div>
+        <a class="list-story-item bookmark_check cover" href="/manga/test-series" title="Test Series">
+          <img class="lazy" src="https://cdn.example.com/test.jpg" data-src="https://cdn.example.com/test.jpg" />
+        </a>
+        <a class="list-story-item bookmark_check cover js-banner-ai-list-link" href="https://bit.ly/ad" title="">
+          <img class="lazy" src="https://cdn.example.com/ad.jpg" />
+        </a>
         </body></html>
     """.trimIndent()
 
     private val detailHtml = """
         <html><body>
-        <div class="story-info-right"><h1>Test Series</h1></div>
-        <div class="story-info-left"><img src="https://cdn.example.com/test.jpg" /></div>
-        <div class="panel-story-info-description">Description : A test summary.</div>
-        <table class="variations-tableInfo">
-          <tr><td>Author(s)</td><td class="table-value"><a href="#">Jane Doe</a></td></tr>
-          <tr><td>Genres</td><td class="table-value"><a href="#">Action</a></td></tr>
-          <tr><td>Status</td><td class="table-value">Ongoing</td></tr>
-        </table>
-        <div class="row-content-chapter"><li><a href="/manga-test-series/chapter-1">Chapter 1</a></li></div>
+        <div class="manga-info-pic"><img src="https://cdn.example.com/test.jpg" /></div>
+        <ul class="manga-info-text">
+          <li><h1>Test Series</h1></li>
+          <li>Author(s) : Jane Doe</li>
+          <li>Status : Ongoing</li>
+          <li class="genres"><a href="#">Action</a></li>
+        </ul>
+        <div id="contentBox"><h2>Test Series summary:</h2>A test summary.</div>
+        <div class="chapter-list"><div class="row"><span><a href="/manga/test-series/chapter-1">Chapter 1</a></span></div></div>
         </body></html>
     """.trimIndent()
 
@@ -53,9 +55,9 @@ class MangaNatoSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/genre-all/") -> MockResponse().setBody(listHtml)
-                    path == "/manga-test-series" -> MockResponse().setBody(detailHtml)
-                    path == "/manga-test-series/chapter-1" -> MockResponse().setBody(pagesHtml)
+                    path.startsWith("/manga-list/hot-manga") -> MockResponse().setBody(listHtml)
+                    path == "/manga/test-series" -> MockResponse().setBody(detailHtml)
+                    path == "/manga/test-series/chapter-1" -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
             }

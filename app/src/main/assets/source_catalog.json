@@ -1173,14 +1173,6 @@
     "nsfw": false
   },
   {
-    "id": "mangareader",
-    "name": "MangaReader",
-    "baseUrl": "https://mangareader.to",
-    "language": "en",
-    "description": "Populární manga reader — vlastní engine",
-    "nsfw": false
-  },
-  {
     "id": "mangapark",
     "name": "MangaPark",
     "baseUrl": "https://mangapark.net",

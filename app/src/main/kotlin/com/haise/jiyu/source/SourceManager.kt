@@ -7,7 +7,6 @@ import com.haise.jiyu.source.dynasty.DynastySource
 import com.haise.jiyu.source.hitomi.HitomiSource
 import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangapark.MangaParkSource
-import com.haise.jiyu.source.mangareader.MangaReaderSource
 import com.haise.jiyu.source.evilmanga.EvilMangaSource
 import com.haise.jiyu.source.mangaboomers.MangaBoomersSource
 import com.haise.jiyu.source.mangago.MangagoSource
@@ -72,7 +71,6 @@ class SourceManager @Inject constructor(
     webtoonSource: WebtoonSource,
     dynastySource: DynastySource,
     mangaParkSource: MangaParkSource,
-    mangaReaderSource: MangaReaderSource,
     novelFullSource: NovelFullSource,
     freeWebNovelSource: FreeWebNovelSource,
     evilMangaSource: EvilMangaSource,
@@ -118,7 +116,6 @@ class SourceManager @Inject constructor(
         webtoonSource,
         dynastySource,
         mangaParkSource,
-        mangaReaderSource,
         novelFullSource,
         freeWebNovelSource,
         evilMangaSource,
@@ -150,24 +147,20 @@ class SourceManager @Inject constructor(
         MadaraSource("mangayo",       "MangaYo",            "https://mangayo.com",          client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuarock",    "ManhuaRock",         "https://manhuarock.cc",        client, contentTypeOverride = "MANHUA"),
         // ── Manhwa scanlation skupiny ────────────────────────────────────────
-        MadaraSource("1stkissmanga",  "1st Kiss Manga",     "https://1stkissmanga.io",      client, contentTypeOverride = "MANHWA"),
         MadaraSource("cosmicscans",   "Cosmic Scans",       "https://cosmicscans.org",      client, contentTypeOverride = "MANHWA"),
         MadaraSource("nightscans",    "Night Scans",        "https://nightscans.net",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("manhwatop",     "Manhwatop",          "https://manhwatop.com",        client, contentTypeOverride = "MANHWA"),
         MadaraSource("voidscans",     "Void Scans",         "https://voidscans.net",        client, contentTypeOverride = "MANHWA"),
-        MadaraSource("luminousscans", "Luminous Scans",     "https://luminousscans.com",    client, contentTypeOverride = "MANHWA"),
         MadaraSource("drakescans",    "Drake Scans",        "https://drakescans.com",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("realmscans",    "Realm Scans",        "https://realmscans.xyz",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("leviathanscans","Leviathan Scans",    "https://leviathanscans.com",   client, contentTypeOverride = "MANHWA"),
         MadaraSource("immortalupdates","Immortal Updates",  "https://immortalupdates.com",  client, contentTypeOverride = "MANHWA"),
         MadaraSource("astrascan",     "Astra Scans",        "https://astra-scans.net",      client, contentTypeOverride = "MANHWA"),
-        MadaraSource("resetscans",    "Reset Scans",        "https://resetscans.com",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("mangaeffects",  "MangaEffects",       "https://mangaeffects.com",     client, contentTypeOverride = "MANHWA"),
         MadaraSource("isekaiscan",    "IsekaiScan",         "https://isekaiscan.eu",        client, contentTypeOverride = "MANHWA"),
         MadaraSource("infernalvoid",  "Infernal Void Scans","https://infernalvoidscans.com",client, contentTypeOverride = "MANHWA"),
         MadaraSource("zeroscans",     "Zero Scans",         "https://zeroscans.com",        client, contentTypeOverride = "MANHWA"),
         // ── Manga agregátory a scanlation ────────────────────────────────────
-        MadaraSource("mangaclash",    "MangaClash",         "https://mangaclash.com",       client, contentTypeOverride = "MANGA"),
         MadaraSource("mangatx",       "MangaTx",            "https://mangatx.com",          client, contentTypeOverride = "MANGA"),
         MadaraSource("mangakiss",     "MangaKiss",          "https://mangakiss.net",        client, contentTypeOverride = "MANGA"),
         MadaraSource("manga68",       "Manga68",            "https://manga68.com",          client, contentTypeOverride = "MANGA"),
@@ -177,7 +170,6 @@ class SourceManager @Inject constructor(
         MadaraSource("hostednovel",   "HostedNovel",        "https://hostednovel.com",      client, contentTypeOverride = "NOVEL"),
         MadaraSource("creativenovels","Creative Novels",    "https://creativenovels.com",   client, contentTypeOverride = "NOVEL"),
         // ── Manhwa — další populární scanlace ───────────────────────────────
-        MadaraSource("anigliscans",   "Anigli Scans",       "https://anigliscans.com",      client, contentTypeOverride = "MANHWA"),
         MadaraSource("azuremanga",    "Azure Manga",        "https://azuremanga.com",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("demonscans",    "Demon Scans",        "https://demonscans.net",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("disasterscans", "Disaster Scans",     "https://disasterscans.com",    client, contentTypeOverride = "MANHWA"),
@@ -195,13 +187,17 @@ class SourceManager @Inject constructor(
         MadaraSource("manhuabuddy",   "ManhuaBuddy",        "https://manhuabuddy.com",      client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuacat",     "ManhuaCat",          "https://manhuacat.com",        client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuaonline",  "ManhuaOnline",       "https://manhuaonline.co",      client, contentTypeOverride = "MANHUA"),
-        MadaraSource("freemanga",     "FreeManga",          "https://freemanga.me",         client, contentTypeOverride = "MANHUA"),
         MadaraSource("topmanhua",     "TopManhua",          "https://topmanhua.com",        client, contentTypeOverride = "MANHUA"),
         // ── Manga — další populární weby ─────────────────────────────────────
         MadaraSource("mangarosie",    "MangaRosie",         "https://mangarosie.in",        client, contentTypeOverride = "MANGA"),
         MadaraSource("mangapt",       "MangaPT",            "https://mangapt.com",          client, contentTypeOverride = "MANGA"),
         MadaraSource("mangatoto",     "MangaToto",          "https://mangatoto.com",        client, contentTypeOverride = "MANGA"),
         MadaraSource("woopread",      "WoopRead",           "https://woopread.com",         client, contentTypeOverride = "MANGA"),
+        MadaraSource("toonily",       "Toonily",            "https://toonily.com",          client, contentTypeOverride = "MANHWA"),
+        MadaraSource("madaradex",     "MadaraDex",          "https://madaradex.org",        client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangazin",      "Mangazin",           "https://mangazin.org",         client, contentTypeOverride = "MANHUA"),
+        MadaraSource("cocomic",       "Cocomic",            "https://cocomic.co",           client, contentTypeOverride = "MANHWA"),
+        MadaraSource("mangagg",       "MangaGG",            "https://mangagg.com",          client, contentTypeOverride = "MANHUA"),
         MadaraSource(
             "aquareader", "Aqua Manga", "https://aquareader.org", client,
             selectors = MadaraSelectors(
