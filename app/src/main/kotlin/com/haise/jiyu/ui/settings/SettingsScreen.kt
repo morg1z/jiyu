@@ -78,7 +78,7 @@ fun SettingsScreen(
         SettingsCategory(stringResource(R.string.settings_main_about_title), stringResource(R.string.settings_main_about_subtitle), TablerIcons.InfoCircle, onOpenAbout),
     )
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -63,7 +63,7 @@ fun DownloadsSettingsScreen(
     val parallelDownloads  by viewModel.parallelDownloads.collectAsState()
     val downloadedCount    by viewModel.downloadedCount.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

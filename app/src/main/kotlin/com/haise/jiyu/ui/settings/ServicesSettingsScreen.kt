@@ -60,7 +60,7 @@ fun ServicesSettingsScreen(
     val muLoginLoading      by viewModel.muLoginLoading.collectAsState()
     val muLoginError        by viewModel.muLoginError.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

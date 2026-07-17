@@ -106,6 +106,7 @@ fun BackupSettingsScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHost) },
     ) { innerPadding ->
         Column(

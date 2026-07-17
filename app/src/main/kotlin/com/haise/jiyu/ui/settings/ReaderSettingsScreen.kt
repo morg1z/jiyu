@@ -77,7 +77,7 @@ fun ReaderSettingsScreen(
     val volumeKeysNav      by viewModel.volumeKeysNav.collectAsState()
     val skipReadChapters   by viewModel.skipReadChapters.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

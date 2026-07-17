@@ -32,7 +32,7 @@ fun ReadingSettingsScreen(
     onOpenCommunity: () -> Unit,
     onOpenDuplicates: () -> Unit,
 ) {
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -49,7 +49,7 @@ fun UpdateCheckSettingsScreen(
     val notifyNewChapters by viewModel.notifyNewChapters.collectAsState()
     val notifyDownloads   by viewModel.notifyDownloads.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

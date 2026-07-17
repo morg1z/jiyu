@@ -160,7 +160,7 @@ fun MangaDetailInfoScreen(
     var glossarySourceText by remember { mutableStateOf("") }
     var glossaryTargetText by remember { mutableStateOf("") }
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()

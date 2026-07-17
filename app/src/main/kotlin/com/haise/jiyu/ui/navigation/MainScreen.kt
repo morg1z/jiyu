@@ -6,6 +6,7 @@ import compose.icons.tablericons.*
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
@@ -80,6 +81,11 @@ fun MainScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
+        // Kazda obrazovka uz sama resi status bar padding (statusBarsPadding()
+        // v hlavicce) a bottom nav bar uz sam pocita navigationBars inset -
+        // vychozi Scaffold.contentWindowInsets (systemBars) by to zdvojilo
+        // a vytvorilo velkou prazdnou mezeru nahore na kazde obrazovce.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showNavBar) {
                 NavigationBar(

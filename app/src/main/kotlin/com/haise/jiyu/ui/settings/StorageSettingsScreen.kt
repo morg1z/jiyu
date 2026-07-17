@@ -44,7 +44,7 @@ fun StorageSettingsScreen(
 ) {
     val cacheCount by viewModel.cacheCount.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

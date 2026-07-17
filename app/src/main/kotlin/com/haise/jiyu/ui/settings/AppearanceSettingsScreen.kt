@@ -33,7 +33,7 @@ fun AppearanceSettingsScreen(
     val defaultCategoryId  by viewModel.defaultCategoryId.collectAsState()
     val allCategories      by viewModel.categories.collectAsState()
 
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
