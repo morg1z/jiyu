@@ -49,6 +49,7 @@ import com.haise.jiyu.source.kuramanga.KuraMangaSource
 import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
 import com.haise.jiyu.source.novelfire.NovelFireSource
 import com.haise.jiyu.source.wuxiabox.WuxiaBoxSource
+import com.haise.jiyu.source.ranobes.RanobesSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -115,6 +116,7 @@ class SourceManager @Inject constructor(
     lightNovelWorldSource: LightNovelWorldSource,
     novelFireSource: NovelFireSource,
     wuxiaBoxSource: WuxiaBoxSource,
+    ranobesSource: RanobesSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -262,6 +264,7 @@ class SourceManager @Inject constructor(
         lightNovelWorldSource,
         novelFireSource,
         wuxiaBoxSource,
+        ranobesSource,
     )
 
     init {
