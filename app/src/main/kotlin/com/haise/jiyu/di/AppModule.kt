@@ -89,6 +89,7 @@ private val hotlinkReferers = mapOf(
     "rx.resmk.org" to "https://mangak.io/",
     "webtoon-phinf.pstatic.net" to "https://www.webtoons.com/",
     "comicbookplus.com" to "https://comicbookplus.com/",
+    "cdn.readdetectiveconan.com" to "https://mangapill.com/",
 )
 
 // Hitomi.La serví thumbnaily (tn.*) i plné stránky (w1.*/w2.*/…) na

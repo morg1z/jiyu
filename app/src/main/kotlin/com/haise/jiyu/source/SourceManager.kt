@@ -54,6 +54,7 @@ import com.haise.jiyu.source.novelcool.NovelCoolSource
 import com.haise.jiyu.source.novelhall.NovelHallSource
 import com.haise.jiyu.source.mangakatana.MangaKatanaSource
 import com.haise.jiyu.source.baozimanhua.BaoziManhuaSource
+import com.haise.jiyu.source.mangapill.MangapillSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -125,6 +126,7 @@ class SourceManager @Inject constructor(
     novelHallSource: NovelHallSource,
     mangaKatanaSource: MangaKatanaSource,
     baoziManhuaSource: BaoziManhuaSource,
+    mangapillSource: MangapillSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -296,6 +298,7 @@ class SourceManager @Inject constructor(
         novelHallSource,
         mangaKatanaSource,
         baoziManhuaSource,
+        mangapillSource,
     )
 
     init {
