@@ -90,6 +90,34 @@ class MangaRepository @Inject constructor(
     // ── Manga CRUD ───────────────────────────────────────────────────────────
 
     suspend fun addToLibrary(manga: SManga) {
+        val id = upsertMangaMetadata(manga, forceInLibrary = true)
+        refreshChapters(id, manga)
+    }
+
+    /**
+     * Vytvoří/aktualizuje mangu a její kapitoly v DB, ale NEPŘIDÁ ji do knihovny
+     * (inLibrary zůstává false u nové entity) - pro prohlížení/čtení detailu
+     * zdrojové manga bez závazku ji sledovat. Uživatel ji pak může přidat do
+     * knihovny samostatně tlačítkem v detailu.
+     */
+    suspend fun openPreview(manga: SManga): String {
+        val id = upsertMangaMetadata(manga, forceInLibrary = false)
+        refreshChapters(id, manga)
+        return id
+    }
+
+    /** Přepne již existující (např. dříve jen prohlíženou) mangu do knihovny. */
+    suspend fun addExistingToLibrary(mangaId: String) {
+        val existing = mangaDao.getById(mangaId) ?: return
+        mangaDao.upsert(
+            existing.copy(
+                inLibrary = true,
+                addedAt = if (existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
+            )
+        )
+    }
+
+    private suspend fun upsertMangaMetadata(manga: SManga, forceInLibrary: Boolean): String {
         val id = mangaId(manga.sourceId, manga.url)
         val existing = mangaDao.getById(id)
         if (existing != null) {
@@ -97,7 +125,7 @@ class MangaRepository @Inject constructor(
             // autoDownload, excludeFromUpdates, readingStatus, addedAt, etc.
             mangaDao.upsert(
                 existing.copy(
-                    inLibrary = true,
+                    inLibrary = existing.inLibrary || forceInLibrary,
                     title = manga.title,
                     coverUrl = manga.coverUrl,
                     description = manga.description,
@@ -107,7 +135,7 @@ class MangaRepository @Inject constructor(
                     genres = manga.genres.joinToString(","),
                     year = manga.year,
                     contentType = manga.contentType,
-                    addedAt = if (existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
+                    addedAt = if (forceInLibrary && existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
                 )
             )
         } else {
@@ -120,17 +148,17 @@ class MangaRepository @Inject constructor(
                     coverUrl = manga.coverUrl,
                     description = manga.description,
                     status = manga.status,
-                    inLibrary = true,
+                    inLibrary = forceInLibrary,
                     author = manga.author,
                     artist = manga.artist,
                     genres = manga.genres.joinToString(","),
                     year = manga.year,
                     contentType = manga.contentType,
-                    addedAt = System.currentTimeMillis(),
+                    addedAt = if (forceInLibrary) System.currentTimeMillis() else 0L,
                 )
             )
         }
-        refreshChapters(id, manga)
+        return id
     }
 
     /**

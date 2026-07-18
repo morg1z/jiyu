@@ -5,9 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
-import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
-import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
@@ -20,8 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -30,7 +26,6 @@ import javax.inject.Inject
 class SourceBrowseViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: MangaRepository,
-    private val settings: SettingsRepository,
     private val sourceManager: SourceManager,
     private val networkMonitor: NetworkMonitor,
     @ApplicationContext private val appContext: Context,
@@ -106,59 +101,31 @@ class SourceBrowseViewModel @Inject constructor(
         if (q == null) loadPopular(_activeFilter.value) else search(q, _activeFilter.value)
     }
 
-    fun addToLibrary(manga: SManga, onAdded: (String) -> Unit) {
+    // ── Otevření detailu mangy ze zdroje (bez přidání do knihovny) ──────────────
+    private val _openingManga = MutableStateFlow<SManga?>(null)
+    val openingManga: StateFlow<SManga?> = _openingManga.asStateFlow()
+
+    // Chyba jen tohoto konkrétního otevření - na rozdíl od `error` nesmí schovat
+    // celou už načtenou mřížku výsledků, proto má vlastní stav (zobrazí se jako snackbar).
+    private val _openError = MutableStateFlow<String?>(null)
+    val openError: StateFlow<String?> = _openError.asStateFlow()
+
+    fun openManga(manga: SManga, onOpened: (String) -> Unit) {
+        if (_openingManga.value != null) return
+        _openingManga.value = manga
         viewModelScope.launch {
             try {
-                val matches = repository.findLibraryMatchesByTitle(manga.title, manga.sourceId)
-                if (matches.isNotEmpty()) {
-                    val sourceName = _source.value?.name ?: manga.sourceId
-                    _pendingDuplicateAdd.value = PendingAdd(manga, sourceName, matches, onAdded = onAdded)
-                    launch {
-                        val count = repository.previewChapterCount(manga)
-                        _pendingDuplicateAdd.update { it?.copy(newChapterCount = count) }
-                    }
-                    return@launch
-                }
-                performAdd(manga, onAdded)
+                val id = repository.openPreview(manga)
+                onOpened(id)
             } catch (e: Exception) {
-                _error.value = e.toFriendlyMessage()
+                _openError.value = e.toFriendlyMessage()
+            } finally {
+                _openingManga.value = null
             }
         }
     }
 
-    private fun performAdd(manga: SManga, onAdded: (String) -> Unit) {
-        viewModelScope.launch {
-            try {
-                repository.addToLibrary(manga)
-                val id = repository.mangaId(manga.sourceId, manga.url)
-                val catId = settings.defaultCategoryId.first()
-                if (catId != null) repository.addMangaToCategory(id, catId)
-                onAdded(id)
-            } catch (e: Exception) {
-                _error.value = e.toFriendlyMessage()
-            }
-        }
-    }
-
-    // ── Detekce duplicit při přidávání ──────────────────────────────────────────
-    data class PendingAdd(
-        val manga: SManga,
-        val newSourceName: String,
-        val matches: List<DuplicateMatch>,
-        val newChapterCount: Int? = null,
-        val onAdded: (String) -> Unit,
-    )
-
-    private val _pendingDuplicateAdd = MutableStateFlow<PendingAdd?>(null)
-    val pendingDuplicateAdd: StateFlow<PendingAdd?> = _pendingDuplicateAdd.asStateFlow()
-
-    fun confirmAddDespiteDuplicate() {
-        val pending = _pendingDuplicateAdd.value ?: return
-        _pendingDuplicateAdd.value = null
-        performAdd(pending.manga, pending.onAdded)
-    }
-
-    fun cancelDuplicateAdd() { _pendingDuplicateAdd.value = null }
+    fun clearOpenError() { _openError.value = null }
 
     fun setFilters(filter: MangaFilter) {
         _activeFilter.value = filter
@@ -223,10 +190,4 @@ class SourceBrowseViewModel @Inject constructor(
             }
         }
     }
-
-    private val _previewManga = MutableStateFlow<SManga?>(null)
-    val previewManga: StateFlow<SManga?> = _previewManga.asStateFlow()
-
-    fun showPreview(manga: SManga) { _previewManga.value = manga }
-    fun dismissPreview() { _previewManga.value = null }
 }

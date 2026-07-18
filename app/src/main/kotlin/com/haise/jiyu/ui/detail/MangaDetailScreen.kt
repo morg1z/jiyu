@@ -115,6 +115,7 @@ fun MangaDetailScreen(
     val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
     val isFavorite       by viewModel.isFavorite.collectAsState()
+    val pendingLibraryAdd by viewModel.pendingLibraryAdd.collectAsState()
     val chapterFilter       by viewModel.chapterFilter.collectAsState()
     val statusFilter        by viewModel.statusFilter.collectAsState()
     val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
@@ -207,7 +208,7 @@ fun MangaDetailScreen(
                                 modifier = Modifier.size(22.dp),
                             )
                         }
-                        IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
+                        IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() else viewModel.addToLibrary() }) {
                             Icon(
                                 imageVector = TablerIcons.Bookmark,
                                 contentDescription = if (inLibrary) stringResource(R.string.detail_remove_from_library) else stringResource(R.string.detail_in_library),
@@ -764,6 +765,63 @@ fun MangaDetailScreen(
             }
         }
     }
+
+    pendingLibraryAdd?.let { pending ->
+        LibraryDuplicateDialog(
+            newMangaTitle = manga?.title.orEmpty(),
+            pending = pending,
+            onConfirm = { viewModel.confirmAddDespiteDuplicate() },
+            onDismiss = { viewModel.cancelDuplicateAdd() },
+        )
+    }
+}
+
+@Composable
+private fun LibraryDuplicateDialog(
+    newMangaTitle: String,
+    pending: MangaDetailViewModel.PendingLibraryAdd,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF111B35),
+        title = { Text(stringResource(R.string.source_browse_dup_title), color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.source_browse_dup_desc, newMangaTitle),
+                    color = Color(0xFFB0BEC5),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                pending.matches.forEach { match ->
+                    Text(
+                        stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+                Text(
+                    stringResource(
+                        R.string.source_browse_dup_new,
+                        pending.sourceName,
+                        stringResource(R.string.source_browse_chapters_count, pending.newChapterCount),
+                    ),
+                    color = GlowViolet,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) }
+        },
+    )
 }
 
 // ── Chapter row ───────────────────────────────────────────────────────────────

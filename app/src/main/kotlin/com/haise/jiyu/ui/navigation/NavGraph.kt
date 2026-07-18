@@ -142,11 +142,7 @@ fun JiyuNavGraph(
         ) {
             SourceBrowseScreen(
                 onBack = { navController.popBackStack() },
-                onMangaAdded = { mangaId ->
-                    navController.navigate(Routes.detail(mangaId)) {
-                        popUpTo(Routes.LIBRARY)
-                    }
-                },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
             )
         }
 

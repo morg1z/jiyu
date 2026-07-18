@@ -34,7 +34,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,8 +46,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -76,7 +76,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -98,21 +97,22 @@ import com.haise.jiyu.ui.theme.violetGlow
 @Composable
 fun SourceBrowseScreen(
     onBack: () -> Unit,
-    onMangaAdded: (String) -> Unit,
+    onOpenManga: (String) -> Unit,
     viewModel: SourceBrowseViewModel = hiltViewModel(),
 ) {
     val source            by viewModel.source.collectAsState()
     val results           by viewModel.results.collectAsState()
     val loading           by viewModel.loading.collectAsState()
     val error             by viewModel.error.collectAsState()
-    val previewManga      by viewModel.previewManga.collectAsState()
+    val openingManga      by viewModel.openingManga.collectAsState()
+    val openError         by viewModel.openError.collectAsState()
     val hasMore           by viewModel.hasMore.collectAsState()
     val activeFilter      by viewModel.activeFilter.collectAsState()
     val showLatest        by viewModel.showLatest.collectAsState()
-    val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsState()
     var query by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
     var showFilterSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -125,6 +125,14 @@ fun SourceBrowseScreen(
         if (shouldLoadMore && hasMore) viewModel.loadMore()
     }
 
+    LaunchedEffect(openError) {
+        openError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearOpenError()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
         // ── Top bar ─────────────────────────────────────────────────────────
         Row(
@@ -255,8 +263,9 @@ fun SourceBrowseScreen(
                     state = listState,
                 ) {
                     items(results, key = { it.sourceId + it.url }) { manga ->
-                        BrowseMangaCard(manga = manga) {
-                            viewModel.showPreview(manga)
+                        val isOpening = openingManga?.let { it.sourceId == manga.sourceId && it.url == manga.url } == true
+                        BrowseMangaCard(manga = manga, isLoading = isOpening) {
+                            viewModel.openManga(manga, onOpenManga)
                         }
                     }
                     if (hasMore || loading) {
@@ -269,6 +278,9 @@ fun SourceBrowseScreen(
                 }
             }
         }
+    }
+
+    SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
 
     // ── Filter bottom sheet ──────────────────────────────────────────────────
@@ -284,122 +296,10 @@ fun SourceBrowseScreen(
             },
         )
     }
-
-    // ── Preview bottom sheet ─────────────────────────────────────────────────
-    previewManga?.let { manga ->
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.dismissPreview() },
-            sheetState = sheetState,
-            containerColor = Color(0xFF111B35),
-        ) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
-                AsyncImage(
-                    model = manga.coverUrl,
-                    contentDescription = stringResource(R.string.source_browse_cover_desc, manga.title),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                )
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                    Text(
-                        text = manga.title,
-                        style = TextStyle(color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = source?.name.orEmpty(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFFB0BEC5),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    if (!manga.description.isNullOrBlank()) {
-                        Text(
-                            text = manga.description.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFB0BEC5),
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Brush.linearGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.8f))))
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = {
-                                    viewModel.addToLibrary(manga, onMangaAdded)
-                                    viewModel.dismissPreview()
-                                })
-                            }
-                            .padding(vertical = 14.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(stringResource(R.string.source_browse_add_to_library), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    if (pendingDuplicateAdd != null) {
-        DuplicateWarningDialog(
-            pending = pendingDuplicateAdd!!,
-            onConfirm = { viewModel.confirmAddDespiteDuplicate(); viewModel.dismissPreview() },
-            onDismiss = { viewModel.cancelDuplicateAdd() },
-        )
-    }
 }
 
 @Composable
-private fun DuplicateWarningDialog(
-    pending: SourceBrowseViewModel.PendingAdd,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF111B35),
-        title = { Text(stringResource(R.string.source_browse_dup_title), color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text(
-                    stringResource(R.string.source_browse_dup_desc, pending.manga.title),
-                    color = Color(0xFFB0BEC5),
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-                pending.matches.forEach { match ->
-                    Text(
-                        stringResource(R.string.source_browse_dup_existing, match.sourceName, match.chapterCount),
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    )
-                }
-                val newCountText = pending.newChapterCount?.let { stringResource(R.string.source_browse_chapters_count, it) } ?: stringResource(R.string.source_browse_checking)
-                Text(
-                    stringResource(R.string.source_browse_dup_new, pending.newSourceName, newCountText),
-                    color = GlowViolet,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text(stringResource(R.string.source_browse_add_anyway), color = GlowViolet) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) }
-        },
-    )
-}
-
-@Composable
-private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
+private fun BrowseMangaCard(manga: SManga, isLoading: Boolean = false, onClick: () -> Unit) {
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
@@ -420,7 +320,7 @@ private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                    onTap = { onClick() },
+                    onTap = { if (!isLoading) onClick() },
                 )
             },
     ) {
@@ -472,6 +372,15 @@ private fun BrowseMangaCard(manga: SManga, onClick: () -> Unit) {
                 .align(Alignment.BottomStart)
                 .padding(horizontal = 7.dp, vertical = 6.dp),
         )
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                JiyuLoadingIndicator(size = 28.dp, strokeWidth = 3.dp)
+            }
+        }
     }
 }
 

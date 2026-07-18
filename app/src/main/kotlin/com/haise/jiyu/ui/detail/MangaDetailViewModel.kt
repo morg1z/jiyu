@@ -23,9 +23,11 @@ import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
+import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.util.NetworkMonitor
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -59,6 +62,7 @@ class MangaDetailViewModel @Inject constructor(
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
+    private val sourceManager: SourceManager,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -456,6 +460,44 @@ class MangaDetailViewModel @Inject constructor(
             repository.removeFromLibrary(mangaId)
         }
     }
+
+    // ── Přidání do knihovny (z náhledu mangy ze zdroje, co ještě není přidaná) ──
+    data class PendingLibraryAdd(
+        val sourceName: String,
+        val matches: List<DuplicateMatch>,
+        val newChapterCount: Int,
+    )
+
+    private val _pendingLibraryAdd = MutableStateFlow<PendingLibraryAdd?>(null)
+    val pendingLibraryAdd: StateFlow<PendingLibraryAdd?> = _pendingLibraryAdd.asStateFlow()
+
+    fun addToLibrary() {
+        val m = manga.value ?: return
+        viewModelScope.launch {
+            val matches = repository.findLibraryMatchesByTitle(m.title, m.sourceId)
+            if (matches.isNotEmpty()) {
+                val sourceName = sourceManager.getById(m.sourceId)?.name ?: m.sourceId
+                _pendingLibraryAdd.value = PendingLibraryAdd(sourceName, matches, chapters.value.size)
+                return@launch
+            }
+            performAddToLibrary()
+        }
+    }
+
+    private fun performAddToLibrary() {
+        viewModelScope.launch {
+            repository.addExistingToLibrary(mangaId)
+            val catId = settings.defaultCategoryId.first()
+            if (catId != null) repository.addMangaToCategory(mangaId, catId)
+        }
+    }
+
+    fun confirmAddDespiteDuplicate() {
+        _pendingLibraryAdd.value = null
+        performAddToLibrary()
+    }
+
+    fun cancelDuplicateAdd() { _pendingLibraryAdd.value = null }
 
     fun refreshChapters() {
         val current = manga.value ?: return
