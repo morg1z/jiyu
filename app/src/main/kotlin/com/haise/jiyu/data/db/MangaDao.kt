@@ -112,4 +112,13 @@ interface MangaDao {
 
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND readingStatus = :status ORDER BY title ASC")
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>>
+
+    @Query("UPDATE manga SET isFavorite = :favorite WHERE id = :id")
+    suspend fun setFavorite(id: String, favorite: Boolean)
+
+    @Query("SELECT COUNT(*) FROM manga WHERE inLibrary = 1 AND isFavorite = 1")
+    fun observeFavoriteCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM manga WHERE inLibrary = 1")
+    fun observeLibraryCount(): Flow<Int>
 }

@@ -20,6 +20,8 @@ object SettingsKeys {
     val READING_DIRECTION      = stringPreferencesKey("reading_direction")
     val READING_MODE           = stringPreferencesKey("reading_mode")
     val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
+    val DAILY_READING_TIME     = longPreferencesKey("daily_reading_time_ms")
+    val DAILY_READING_DAY      = stringPreferencesKey("daily_reading_day")
     val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
     val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
@@ -184,7 +186,18 @@ class SettingsRepository @Inject constructor(
     suspend fun addReadingTime(deltaMs: Long) =
         dataStore.edit { prefs ->
             prefs[SettingsKeys.TOTAL_READING_TIME] = (prefs[SettingsKeys.TOTAL_READING_TIME] ?: 0L) + deltaMs
+            val today = java.time.LocalDate.now().toString()
+            val storedDay = prefs[SettingsKeys.DAILY_READING_DAY]
+            val previousToday = if (storedDay == today) prefs[SettingsKeys.DAILY_READING_TIME] ?: 0L else 0L
+            prefs[SettingsKeys.DAILY_READING_DAY] = today
+            prefs[SettingsKeys.DAILY_READING_TIME] = previousToday + deltaMs
         }
+
+    /** Minuty přečtené dnes (resetuje se automaticky při první aktivitě dalšího dne). */
+    val todayReadingTimeMs: Flow<Long> = dataStore.data.map { prefs ->
+        val today = java.time.LocalDate.now().toString()
+        if (prefs[SettingsKeys.DAILY_READING_DAY] == today) prefs[SettingsKeys.DAILY_READING_TIME] ?: 0L else 0L
+    }
 
     suspend fun addPagesRead(count: Long) =
         dataStore.edit { prefs ->

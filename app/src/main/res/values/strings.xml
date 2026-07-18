@@ -354,6 +354,8 @@
     <string name="detail_qr_code">QR kód</string>
     <string name="detail_remove_from_library">Odebrat z knihovny</string>
     <string name="detail_in_library">V knihovně</string>
+    <string name="detail_add_favorite">Přidat do oblíbených</string>
+    <string name="detail_remove_favorite">Odebrat z oblíbených</string>
     <string name="detail_status_ongoing">Vychází</string>
     <string name="detail_status_completed">Dokončeno</string>
     <string name="detail_status_hiatus">Pauza</string>
@@ -474,6 +476,13 @@
     <string name="library_recently_added">NEDÁVNO PŘIDANÉ</string>
     <string name="library_completed">DOKONČENÉ</string>
     <string name="library_show_all">Zobrazit vše</string>
+    <string name="library_stats_books">Knih v knihovně</string>
+    <string name="library_stats_favorites">Oblíbené</string>
+    <string name="library_stats_read_today">Dnes čteno</string>
+    <string name="library_minutes_short">min</string>
+    <string name="library_percent_read">%1$d %% přečteno</string>
+    <string name="library_filter">Filtrovat</string>
+    <string name="library_new_badge">NOVÉ</string>
     <string name="library_refresh_error">Nepodařilo se aktualizovat: %1$s%2$s</string>
     <string name="library_refresh_error_and_more"> a další</string>
 
@@ -492,6 +501,8 @@
     <string name="mylist_add_category">Přidat kategorii</string>
     <string name="mylist_content_manhwa">Manhwa</string>
     <string name="mylist_content_manhua">Manhua</string>
+    <string name="mylist_content_novel">Novel</string>
+    <string name="mylist_content_comic">Komiks</string>
     <string name="mylist_add_to_category">Přidat do kategorie</string>
     <string name="mylist_remove_from_library">Odebrat z knihovny</string>
     <string name="mylist_importing_file">Importuji soubor…</string>

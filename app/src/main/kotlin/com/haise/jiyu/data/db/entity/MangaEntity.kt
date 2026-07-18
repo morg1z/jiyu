@@ -18,6 +18,7 @@ import androidx.room.PrimaryKey
         Index("title"),
         Index("addedAt"),
         Index("lastUpdated"),
+        Index("isFavorite"),
     ],
 )
 data class MangaEntity(
@@ -50,4 +51,5 @@ data class MangaEntity(
     val kitsuScore: Float? = null,
     val mangaUpdatesId: Long? = null,
     val readingTimeMs: Long = 0L,
+    val isFavorite: Boolean = false,
 )

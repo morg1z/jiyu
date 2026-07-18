@@ -41,7 +41,7 @@ class Converters {
         TranslatedNovelEntity::class,
         GlossaryEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -270,6 +270,12 @@ abstract class AppDatabase : RoomDatabase() {
                     )"""
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_glossary_entry_mangaId_targetLanguage` ON `glossary_entry` (`mangaId`, `targetLanguage`)")
+            }
+        }
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_isFavorite` ON `manga` (`isFavorite`)")
             }
         }
     }

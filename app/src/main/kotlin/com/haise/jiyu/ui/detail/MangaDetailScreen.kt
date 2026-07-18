@@ -87,6 +87,7 @@ import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
+import com.haise.jiyu.ui.theme.Pink
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
@@ -113,6 +114,7 @@ fun MangaDetailScreen(
     val errorMessage     by viewModel.errorMessage.collectAsState()
     val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
     val readingStatus    by viewModel.readingStatus.collectAsState()
+    val isFavorite       by viewModel.isFavorite.collectAsState()
     val chapterFilter       by viewModel.chapterFilter.collectAsState()
     val statusFilter        by viewModel.statusFilter.collectAsState()
     val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
@@ -196,6 +198,14 @@ fun MangaDetailScreen(
                             }
                         }) {
                             Icon(TablerIcons.Share, contentDescription = shareLabel, tint = TextSecondary, modifier = Modifier.size(22.dp))
+                        }
+                        IconButton(onClick = { viewModel.toggleFavorite() }) {
+                            Icon(
+                                imageVector = TablerIcons.Heart,
+                                contentDescription = if (isFavorite) stringResource(R.string.detail_remove_favorite) else stringResource(R.string.detail_add_favorite),
+                                tint = if (isFavorite) Pink else TextSecondary,
+                                modifier = Modifier.size(22.dp),
+                            )
                         }
                         IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() }) {
                             Icon(

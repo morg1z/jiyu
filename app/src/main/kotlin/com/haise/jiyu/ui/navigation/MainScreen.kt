@@ -48,10 +48,10 @@ private data class NavTab(
 private fun rememberNavTabs(): List<NavTab> = listOf(
     NavTab(Routes.LIBRARY,  stringResource(R.string.main_screen_tab_library),  TablerIcons.Book,        TablerIcons.Book),
     NavTab(Routes.MY_LIST,  stringResource(R.string.main_screen_tab_list),     TablerIcons.ListCheck,   TablerIcons.ListCheck),
-    NavTab(Routes.UPDATES,  stringResource(R.string.main_screen_tab_updates), TablerIcons.BellRinging, TablerIcons.BellRinging),
+    NavTab(Routes.UPDATES,  stringResource(R.string.main_screen_tab_updates), TablerIcons.Compass,     TablerIcons.Compass),
     NavTab(Routes.BROWSE,   stringResource(R.string.main_screen_tab_browse),  TablerIcons.Search,      TablerIcons.Search),
     NavTab(Routes.HISTORY,  stringResource(R.string.main_screen_tab_history), TablerIcons.History,     TablerIcons.History),
-    NavTab(Routes.SETTINGS, stringResource(R.string.settings_title),          TablerIcons.Settings,    TablerIcons.Settings),
+    NavTab(Routes.SETTINGS, stringResource(R.string.settings_title),          TablerIcons.User,        TablerIcons.User),
 )
 
 @Composable

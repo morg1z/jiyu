@@ -136,6 +136,21 @@ class LibraryViewModel @Inject constructor(
         .map { list -> list.associate { it.mangaId to it.count } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // ── Statistiky pro dashboard hlavičku ────────────────────────────────────
+    val libraryCount: StateFlow<Int> = repository.observeLibraryCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val favoriteCount: StateFlow<Int> = repository.observeFavoriteCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val todayReadingMinutes: StateFlow<Int> = settings.todayReadingTimeMs
+        .map { ms -> (ms / 60_000L).toInt() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    fun toggleFavorite(mangaId: String, current: Boolean) = viewModelScope.launch {
+        repository.setFavorite(mangaId, !current)
+    }
+
     init {
         viewModelScope.launch {
             // Kontrola prázdnosti a insert běží atomicky v jedné DB transakci (viz

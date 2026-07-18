@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +39,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,9 +75,11 @@ import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
+import com.haise.jiyu.ui.theme.Pink
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
+import com.haise.jiyu.ui.theme.Warning
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
 import com.haise.jiyu.ui.theme.violetGlow
@@ -92,6 +99,12 @@ fun LibraryScreen(
     val continueReading   by viewModel.continueReading.collectAsState()
     val recentlyAdded      by viewModel.recentlyAdded.collectAsState()
     val completed           by viewModel.completed.collectAsState()
+    val unreadCounts         by viewModel.unreadCounts.collectAsState()
+    val totalCounts           by viewModel.totalCounts.collectAsState()
+    val libraryCount            by viewModel.libraryCount.collectAsState()
+    val favoriteCount             by viewModel.favoriteCount.collectAsState()
+    val todayReadingMinutes        by viewModel.todayReadingMinutes.collectAsState()
+    val contentTypeFilter            by viewModel.contentTypeFilter.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
         // ── Header ───────────────────────────────────────────────────────────
@@ -115,39 +128,46 @@ fun LibraryScreen(
                 }
             }
 
-            // Vyhledávací pole
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, start = 4.dp, end = 4.dp)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(50.dp))
-                    .background(Color.White.copy(alpha = 0.06f))
-                    .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.setSearchQuery(it) },
-                    singleLine = true,
-                    textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {}),
-                    decorationBox = { inner ->
-                        Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                            if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
-                            inner()
+            // Vyhledávací pole + filtr
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {}),
+                        decorationBox = { inner ->
+                            Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                                inner()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
+                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
-                        Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                     }
                 }
+                Spacer(Modifier.width(8.dp))
+                ContentTypeFilterButton(
+                    selected = contentTypeFilter,
+                    onSelect = { viewModel.setContentTypeFilter(it) },
+                )
             }
         }
 
@@ -203,12 +223,33 @@ fun LibraryScreen(
         } else {
             // ── Karusely ─────────────────────────────────────────────────────
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                val heroItem = continueReading.firstOrNull()
+                if (heroItem != null) {
+                    HeroContinueReadingCard(
+                        item = heroItem,
+                        progressPercent = progressPercentFor(heroItem.manga.id, unreadCounts, totalCounts),
+                        onFavoriteToggle = { viewModel.toggleFavorite(heroItem.manga.id, heroItem.manga.isFavorite) },
+                        onClick = {
+                            val chapterId = heroItem.manga.lastReadChapterId
+                            if (chapterId != null) onOpenChapter(chapterId) else onOpenManga(heroItem.manga.id)
+                        },
+                    )
+                }
+
+                LibraryStatsRow(
+                    libraryCount = libraryCount,
+                    favoriteCount = favoriteCount,
+                    todayReadingMinutes = todayReadingMinutes,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+
                 if (continueReading.isNotEmpty()) {
-                    CarouselSection(title = stringResource(R.string.library_continue_reading)) {
+                    CarouselSection(title = stringResource(R.string.library_continue_reading), count = continueReading.size) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(continueReading, key = { it.manga.id }) { item ->
                                 ContinueReadingCard(
                                     item = item,
+                                    progressPercent = progressPercentFor(item.manga.id, unreadCounts, totalCounts),
                                     onClick = {
                                         val chapterId = item.manga.lastReadChapterId
                                         if (chapterId != null) onOpenChapter(chapterId) else onOpenManga(item.manga.id)
@@ -219,23 +260,69 @@ fun LibraryScreen(
                     }
                 }
                 if (recentlyAdded.isNotEmpty()) {
-                    CarouselSection(title = stringResource(R.string.library_recently_added)) {
+                    CarouselSection(title = stringResource(R.string.library_recently_added), count = recentlyAdded.size) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(recentlyAdded, key = { it.id }) { manga ->
-                                SimpleMangaCard(manga = manga, onClick = { onOpenManga(manga.id) })
+                                SimpleMangaCard(manga = manga, showNewBadge = true, onClick = { onOpenManga(manga.id) })
                             }
                         }
                     }
                 }
                 if (completed.isNotEmpty()) {
-                    CarouselSection(title = stringResource(R.string.library_completed)) {
+                    CarouselSection(title = stringResource(R.string.library_completed), count = completed.size) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(completed, key = { it.id }) { manga ->
-                                SimpleMangaCard(manga = manga, onClick = { onOpenManga(manga.id) })
+                                SimpleMangaCard(manga = manga, showNewBadge = false, onClick = { onOpenManga(manga.id) })
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun progressPercentFor(mangaId: String, unreadCounts: Map<String, Int>, totalCounts: Map<String, Int>): Int {
+    val total = totalCounts[mangaId] ?: 0
+    if (total <= 0) return 0
+    val unread = unreadCounts[mangaId] ?: 0
+    val read = (total - unread).coerceAtLeast(0)
+    return ((read.toFloat() / total.toFloat()) * 100f).toInt().coerceIn(0, 100)
+}
+
+@Composable
+private fun contentTypeLabel(type: String): String = when (type) {
+    "MANHWA" -> stringResource(R.string.mylist_content_manhwa)
+    "MANHUA" -> stringResource(R.string.mylist_content_manhua)
+    "NOVEL"  -> stringResource(R.string.mylist_content_novel)
+    "COMIC"  -> stringResource(R.string.mylist_content_comic)
+    else     -> stringResource(R.string.browse_filter_manga)
+}
+
+@Composable
+private fun ContentTypeFilterButton(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val isActive = selected != "ALL"
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.06f))
+                .border(1.dp, if (isActive) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+        ) {
+            Icon(TablerIcons.AdjustmentsHorizontal, contentDescription = stringResource(R.string.library_filter), tint = if (isActive) GlowViolet else TextSecondary, modifier = Modifier.size(19.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            listOf("ALL" to stringResource(R.string.common_all), "MANGA" to stringResource(R.string.browse_filter_manga),
+                "MANHWA" to stringResource(R.string.mylist_content_manhwa), "MANHUA" to stringResource(R.string.mylist_content_manhua),
+                "NOVEL" to stringResource(R.string.mylist_content_novel), "COMIC" to stringResource(R.string.mylist_content_comic),
+            ).forEach { (key, label) ->
+                DropdownMenuItem(
+                    text = { Text(label, color = if (selected == key) GlowViolet else TextPrimary) },
+                    onClick = { onSelect(key); expanded = false },
+                )
             }
         }
     }
@@ -254,7 +341,157 @@ private fun DashboardEmptyState(text: String, subtitle: String) {
 }
 
 @Composable
-private fun CarouselSection(title: String, content: @Composable () -> Unit) {
+private fun HeroContinueReadingCard(
+    item: ContinueReadingItem,
+    progressPercent: Int,
+    onFavoriteToggle: () -> Unit,
+    onClick: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 14.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(TablerIcons.Flame, contentDescription = null, tint = Violet, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = stringResource(R.string.library_continue_reading),
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+                color = Violet,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onFavoriteToggle, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    imageVector = TablerIcons.Bookmark,
+                    contentDescription = if (item.manga.isFavorite) stringResource(R.string.detail_remove_favorite) else stringResource(R.string.detail_add_favorite),
+                    tint = if (item.manga.isFavorite) Pink else TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(NightBlue)
+                .border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+                .clickable(onClick = onClick)
+                .padding(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(100.dp)
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+            ) {
+                AsyncImage(model = item.manga.coverUrl, contentDescription = item.manga.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .background(GlowViolet.copy(alpha = 0.18f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(contentTypeLabel(item.manga.contentType), color = GlowViolet, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(item.manga.title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Kapitola ${formatChapterNumber(item.lastChapterNumber)}",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.weight(1f))
+                Box(modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressPercent / 100f)
+                            .fillMaxHeight()
+                            .background(Brush.horizontalGradient(listOf(GlowViolet, GlowCyan)), RoundedCornerShape(50)),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.library_percent_read, progressPercent), color = TextSecondary, fontSize = 11.sp)
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Brush.horizontalGradient(listOf(GlowViolet, GlowCyan)))
+                        .clickable(onClick = onClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.detail_continue_short), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryStatsRow(libraryCount: Int, favoriteCount: Int, todayReadingMinutes: Int, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        StatBox(
+            icon = TablerIcons.Book,
+            tint = Violet,
+            value = "$libraryCount",
+            label = stringResource(R.string.library_stats_books),
+            modifier = Modifier.weight(1f),
+        )
+        StatBox(
+            icon = TablerIcons.Heart,
+            tint = Pink,
+            value = "$favoriteCount",
+            label = stringResource(R.string.library_stats_favorites),
+            modifier = Modifier.weight(1f),
+        )
+        StatBox(
+            icon = TablerIcons.Clock,
+            tint = Warning,
+            value = "$todayReadingMinutes",
+            unit = stringResource(R.string.library_minutes_short),
+            label = stringResource(R.string.library_stats_read_today),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun StatBox(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    value: String,
+    label: String,
+    unit: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(NightBlue)
+            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            if (unit != null) {
+                Spacer(Modifier.width(3.dp))
+                Text(unit, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 1.dp))
+            }
+        }
+        Text(label, color = TextSecondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CarouselSection(title: String, count: Int, content: @Composable () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -264,16 +501,25 @@ private fun CarouselSection(title: String, content: @Composable () -> Unit) {
                 text = title,
                 style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
                 color = Violet,
-                modifier = Modifier.weight(1f),
             )
-            Icon(TablerIcons.ChevronRight, contentDescription = stringResource(R.string.library_show_all), tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .background(GlowViolet, RoundedCornerShape(50))
+                    .padding(horizontal = 7.dp, vertical = 1.dp),
+            ) {
+                Text("$count", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.weight(1f))
+            Text(stringResource(R.string.library_show_all), color = TextSecondary, fontSize = 12.sp)
+            Icon(TablerIcons.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
         }
         content()
     }
 }
 
 @Composable
-private fun ContinueReadingCard(item: ContinueReadingItem, onClick: () -> Unit) {
+private fun ContinueReadingCard(item: ContinueReadingItem, progressPercent: Int, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .width(130.dp)
@@ -303,16 +549,27 @@ private fun ContinueReadingCard(item: ContinueReadingItem, onClick: () -> Unit) 
             )
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(Alignment.TopStart)
                     .padding(6.dp)
-                    .background(GlowViolet, RoundedCornerShape(50))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .background(GlowViolet, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(TablerIcons.PlayerPlay, contentDescription = null, tint = Color.White, modifier = Modifier.size(11.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.detail_continue_short), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
+                Text(formatChapterNumber(item.lastChapterNumber), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                text = "$progressPercent %",
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 7.dp, bottom = 11.dp),
+            )
+            Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color.White.copy(alpha = 0.15f))) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progressPercent / 100f)
+                        .fillMaxHeight()
+                        .background(Brush.horizontalGradient(listOf(GlowViolet, GlowCyan))),
+                )
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -324,15 +581,13 @@ private fun ContinueReadingCard(item: ContinueReadingItem, onClick: () -> Unit) 
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (item.lastChapterName != null) {
-            Text(
-                text = "Kapitola ${formatChapterNumber(item.lastChapterNumber)} · ${item.lastChapterName}",
-                color = TextSecondary,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = "Kapitola ${formatChapterNumber(item.lastChapterNumber)}",
+            color = TextSecondary,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -342,7 +597,7 @@ private fun formatChapterNumber(number: Float?): String {
 }
 
 @Composable
-private fun SimpleMangaCard(manga: MangaEntity, onClick: () -> Unit) {
+private fun SimpleMangaCard(manga: MangaEntity, showNewBadge: Boolean, onClick: () -> Unit) {
     Column(modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
@@ -358,6 +613,17 @@ private fun SimpleMangaCard(manga: MangaEntity, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+            if (showNewBadge) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                        .background(GlowViolet, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(stringResource(R.string.library_new_badge), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(

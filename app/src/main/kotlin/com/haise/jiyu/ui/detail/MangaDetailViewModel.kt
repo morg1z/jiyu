@@ -153,6 +153,14 @@ class MangaDetailViewModel @Inject constructor(
         repository.setExcludeFromUpdates(mangaId, !excludeFromUpdates.value)
     }
 
+    // ── Oblíbené ──────────────────────────────────────────────────────────────
+    val isFavorite: StateFlow<Boolean> = manga.map { it?.isFavorite ?: false }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun toggleFavorite() = viewModelScope.launch {
+        repository.setFavorite(mangaId, !isFavorite.value)
+    }
+
     // ── Poznámky (#27) ────────────────────────────────────────────────────────
     val mangaNote: StateFlow<MangaNoteEntity?> = mangaNoteDao.observeForManga(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
