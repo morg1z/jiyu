@@ -97,6 +97,10 @@ private val hotlinkReferers = mapOf(
 // match je proto podle přípony domény, ne přesného hostu.
 private val hotlinkRefererSuffixes = mapOf(
     "gold-usergeneratedcontent.net" to "https://hitomi.la/",
+    // MangaTown obrazky bezi na ruznych CDN subdomenach mangahere sit (zjcdn.mangahere.org,
+    // fmcdn.mangahere.com, ...) - suffix match pokryje obe TLD varianty.
+    "mangahere.org" to "https://www.mangatown.com/",
+    "mangahere.com" to "https://www.mangatown.com/",
 )
 
 /**
