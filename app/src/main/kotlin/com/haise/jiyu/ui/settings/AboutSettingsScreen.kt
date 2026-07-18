@@ -14,6 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -35,6 +37,7 @@ import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
+import com.haise.jiyu.update.UpdateDownloadState
 
 @Composable
 fun AboutSettingsScreen(
@@ -44,6 +47,7 @@ fun AboutSettingsScreen(
     val updateCheckLoading by viewModel.updateCheckLoading.collectAsState()
     val updateInfo by viewModel.updateInfo.collectAsState()
     val updateCheckedNone by viewModel.updateCheckedAndNoneFound.collectAsState()
+    val downloadState by viewModel.updateDownloadState.collectAsState()
     val updateCtx = LocalContext.current
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
@@ -89,11 +93,51 @@ fun AboutSettingsScreen(
                             }
                         }
                         if (updateInfo!!.apkUrl != null) {
-                            Button(
-                                onClick = { viewModel.downloadUpdate() },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = GlowViolet),
-                            ) { Text(stringResource(R.string.settings_about_download_install)) }
+                            when (val state = downloadState) {
+                                is UpdateDownloadState.Downloading -> {
+                                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                        Text(stringResource(R.string.settings_about_downloading), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+                                        if (state.progress >= 0) {
+                                            LinearProgressIndicator(
+                                                progress = { state.progress / 100f },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = GlowViolet,
+                                            )
+                                            Text("${state.progress} %", color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                                        } else {
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = GlowViolet)
+                                        }
+                                    }
+                                }
+                                UpdateDownloadState.ReadyToInstall -> {
+                                    Text(
+                                        stringResource(R.string.settings_about_ready_to_install),
+                                        color = GlowViolet,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                                UpdateDownloadState.Failed -> {
+                                    Text(
+                                        stringResource(R.string.settings_about_download_failed),
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    )
+                                    Button(
+                                        onClick = { viewModel.downloadUpdate() },
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = GlowViolet),
+                                    ) { Text(stringResource(R.string.settings_about_download_install)) }
+                                }
+                                UpdateDownloadState.Idle -> {
+                                    Button(
+                                        onClick = { viewModel.downloadUpdate() },
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = GlowViolet),
+                                    ) { Text(stringResource(R.string.settings_about_download_install)) }
+                                }
+                            }
                         }
                         OutlinedButton(
                             onClick = {

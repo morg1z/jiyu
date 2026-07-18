@@ -29,6 +29,7 @@ import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.update.ApkUpdateInstaller
 import com.haise.jiyu.update.UpdateChecker
+import com.haise.jiyu.update.UpdateDownloadState
 import com.haise.jiyu.update.UpdateInfo
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
@@ -595,8 +596,13 @@ class SettingsViewModel @Inject constructor(
         _updateCheckLoading.value = false
     }
 
+    private val _updateDownloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
+    val updateDownloadState: StateFlow<UpdateDownloadState> = _updateDownloadState.asStateFlow()
+
     /**
-     * Stáhne a nabídne instalaci aktualizace přes systémový DownloadManager.
+     * Stáhne aktualizaci přes systémový DownloadManager a průběžně hlásí postup do
+     * [updateDownloadState], aby appka mohla ukázat progress bar přímo v UI místo
+     * spoléhání na systémovou notifikaci. Po dokončení rovnou otevře instalátor balíčků.
      * Pokud appka ještě nemá povolení instalovat balíčky (Android 8+), místo stažení
      * otevře systémové nastavení, kde to uživatel povolí - musí to zkusit znovu poté.
      */
@@ -611,11 +617,15 @@ class SettingsViewModel @Inject constructor(
             updateInstaller.requestInstallPermission(context)
             return
         }
-        updateInstaller.downloadUpdate(context, apkUrl, _updateInfo.value?.version ?: appVersion)
-        android.widget.Toast.makeText(
-            context,
-            context.getString(R.string.settings_about_download_started),
-            android.widget.Toast.LENGTH_SHORT,
-        ).show()
+        viewModelScope.launch {
+            _updateDownloadState.value = UpdateDownloadState.Downloading(0)
+            val downloadId = updateInstaller.enqueueDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion)
+            updateInstaller.observeProgress(context, downloadId).collect { state ->
+                _updateDownloadState.value = state
+                if (state is UpdateDownloadState.ReadyToInstall) {
+                    updateInstaller.installDownloaded(context, downloadId)
+                }
+            }
+        }
     }
 }

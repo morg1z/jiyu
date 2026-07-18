@@ -285,6 +285,9 @@
     <string name="settings_about_check_updates">Zkontrolovat aktualizace</string>
     <string name="settings_about_grant_install_permission">Povol prosím instalaci z Jiyu a zkus stažení znovu</string>
     <string name="settings_about_download_started">Stahování zahájeno - sleduj lištu oznámení</string>
+    <string name="settings_about_downloading">Stahuji aktualizaci…</string>
+    <string name="settings_about_download_failed">Stažení se nezdařilo</string>
+    <string name="settings_about_ready_to_install">Staženo - potvrď instalaci v systémovém dialogu</string>
 
     <!-- Settings: Katalog zdrojů -->
     <string name="settings_source_catalog_add_source_fab">Přidat zdroj</string>
