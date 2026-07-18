@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -1790,8 +1791,13 @@ private fun WebtoonPage(
                             // .coerceAtLeast(0.dp) - viz TranslationOverlay níže: záporná šířka/výška
                             // z neobvyklého OCR boxu by jinak spadla na IllegalArgumentException
                             // přímo v Compose layout fázi (mimo dosah try/catch kolem překladu).
+                            //
+                            // heightIn(min=) místo height(): přeložený text (čeština) bývá delší
+                            // než originál, do výšky původní OCR bubliny by se nevešel a Text by
+                            // ho s overflow=Ellipsis tvrdě uřízl. Necháváme box růst dolů podle
+                            // skutečné potřeby textu, jen šířku držíme podle bubliny v originále.
                             .width((size.width * (block.rightF - block.leftF)).toInt().toDp().coerceAtLeast(0.dp))
-                            .height((size.height * (block.bottomF - block.topF)).toInt().toDp().coerceAtLeast(0.dp))
+                            .heightIn(min = (size.height * (block.bottomF - block.topF)).toInt().toDp().coerceAtLeast(0.dp))
                             .background(Color.Black.copy(alpha = 0.82f))
                             .padding(2.dp),
                         contentAlignment = Alignment.Center,
@@ -1801,7 +1807,6 @@ private fun WebtoonPage(
                             color = Color.White,
                             fontSize = (10 * textScale).sp,
                             lineHeight = (13 * textScale).sp,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -1871,11 +1876,15 @@ private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, t
     val w    = (maxWidth  * (block.rightF  - block.leftF)).coerceAtLeast(0.dp)
     val h    = (maxHeight * (block.bottomF - block.topF)).coerceAtLeast(0.dp)
 
+    // heightIn(min=) místo height(): přeložený text (čeština) bývá delší než originál,
+    // do výšky původní OCR bubliny by se nevešel a Text by ho s overflow=Ellipsis
+    // tvrdě uřízl. Necháváme box růst dolů podle skutečné potřeby textu, jen šířku
+    // držíme podle bubliny v originále.
     Box(
         modifier = Modifier
             .offset(x = left, y = top)
             .width(w)
-            .height(h)
+            .heightIn(min = h)
             .background(Color.Black.copy(alpha = 0.82f))
             .padding(2.dp),
         contentAlignment = Alignment.Center,
@@ -1885,7 +1894,6 @@ private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, t
             color = Color.White,
             fontSize = (10 * textScale).sp,
             lineHeight = (13 * textScale).sp,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
