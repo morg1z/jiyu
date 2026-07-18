@@ -52,6 +52,8 @@ import com.haise.jiyu.source.wuxiabox.WuxiaBoxSource
 import com.haise.jiyu.source.ranobes.RanobesSource
 import com.haise.jiyu.source.novelcool.NovelCoolSource
 import com.haise.jiyu.source.novelhall.NovelHallSource
+import com.haise.jiyu.source.mangakatana.MangaKatanaSource
+import com.haise.jiyu.source.baozimanhua.BaoziManhuaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -121,6 +123,8 @@ class SourceManager @Inject constructor(
     ranobesSource: RanobesSource,
     novelCoolSource: NovelCoolSource,
     novelHallSource: NovelHallSource,
+    mangaKatanaSource: MangaKatanaSource,
+    baoziManhuaSource: BaoziManhuaSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -191,6 +195,8 @@ class SourceManager @Inject constructor(
         MadaraSource("foxaholic",     "Foxaholic",          "https://foxaholic.com",        client, contentTypeOverride = "NOVEL"),
         MadaraSource("hostednovel",   "HostedNovel",        "https://hostednovel.com",      client, contentTypeOverride = "NOVEL"),
         MadaraSource("creativenovels","Creative Novels",    "https://creativenovels.com",   client, contentTypeOverride = "NOVEL"),
+        MadaraSource("wuxiaworldsite","Wuxiaworld.site",    "https://wuxiaworld.site",      client, contentTypeOverride = "NOVEL"),
+        MadaraSource("ranovel",       "Ranovel",            "https://ranovel.com",          client, contentTypeOverride = "NOVEL"),
         // ── Manhwa — další populární scanlace ───────────────────────────────
         MadaraSource("azuremanga",    "Azure Manga",        "https://azuremanga.com",       client, contentTypeOverride = "MANHWA"),
         MadaraSource("demonscans",    "Demon Scans",        "https://demonscans.net",       client, contentTypeOverride = "MANHWA"),
@@ -207,19 +213,35 @@ class SourceManager @Inject constructor(
         MadaraSource("xcalibrscans",  "Xcalibr Scans",      "https://xcalibrscans.com",     client, contentTypeOverride = "MANHWA"),
         // ── Manhua — další ────────────────────────────────────────────────────
         MadaraSource("manhuabuddy",   "ManhuaBuddy",        "https://manhuabuddy.com",      client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuahot",     "Manhua Hot",         "https://manhuahot.com",        client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuacat",     "ManhuaCat",          "https://manhuacat.com",        client, contentTypeOverride = "MANHUA"),
         MadaraSource("manhuaonline",  "ManhuaOnline",       "https://manhuaonline.co",      client, contentTypeOverride = "MANHUA"),
         MadaraSource("topmanhua",     "TopManhua",          "https://topmanhua.com",        client, contentTypeOverride = "MANHUA"),
+        // Manhuarm - MTL (strojově přeložené) manhua, ale standardní Madara šablona.
+        MadaraSource("manhuarm",      "Manhuarm",           "https://manhuarmtl.com",       client, contentTypeOverride = "MANHUA"),
         // ── Manga — další populární weby ─────────────────────────────────────
         MadaraSource("mangarosie",    "MangaRosie",         "https://mangarosie.in",        client, contentTypeOverride = "MANGA"),
         MadaraSource("mangapt",       "MangaPT",            "https://mangapt.com",          client, contentTypeOverride = "MANGA"),
         MadaraSource("mangatoto",     "MangaToto",          "https://mangatoto.com",        client, contentTypeOverride = "MANGA"),
-        MadaraSource("woopread",      "WoopRead",           "https://woopread.com",         client, contentTypeOverride = "MANGA"),
+        // WoopRead je textový light-novel web (ověřeno: kapitoly obsahují
+        // odstavce textu, ne obrázky) - contentType byl chybně "MANGA".
+        MadaraSource("woopread",      "WoopRead",           "https://woopread.com",         client, contentTypeOverride = "NOVEL"),
         MadaraSource("toonily",       "Toonily",            "https://toonily.com",          client, contentTypeOverride = "MANHWA"),
         MadaraSource("madaradex",     "MadaraDex",          "https://madaradex.org",        client, contentTypeOverride = "MANGA"),
         MadaraSource("mangazin",      "Mangazin",           "https://mangazin.org",         client, contentTypeOverride = "MANHUA"),
         MadaraSource("cocomic",       "Cocomic",            "https://cocomic.co",           client, contentTypeOverride = "MANHWA"),
         MadaraSource("mangagg",       "MangaGG",            "https://mangagg.com",          client, contentTypeOverride = "MANHUA"),
+        MadaraSource("mangaread",     "MangaRead",          "https://www.mangaread.org",    client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangablaze",    "MangaBlaze",         "https://mangablaze.com",       client, contentTypeOverride = "MANGA"),
+        MadaraSource("coffeemanga",   "CoffeManga",         "https://coffeemanga.ink",      client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangasushi",    "Mangasushi",         "https://mangasushi.org",       client, contentTypeOverride = "MANGA"),
+        MadaraSource("manhwatoon",    "Manhwatoon",         "https://www.manhwatoon.me",    client, contentTypeOverride = "MANHWA"),
+        // mangalink.site vraci Cloudflare 522 (origin nedostupny) - mrtvy web, nepridavat.
+        MadaraSource("pawmanga",      "PAWMANGA",           "https://pawmanga.com",         client, contentTypeOverride = "MANGA"),
+        // LikeManga (mgread.io) NENÍ Madara - "madara207" v HTML je jen jméno
+        // uploadera, web běží na jiném WP pluginu (wp-theme-init-manga).
+        // Vyžadovalo by vlastní MangaSource, viz project_jiyu_american_comics_audit
+        // / manga source audit poznámky - zatím nepřidáno.
         // manhwaz.com pouziva vlastni permalinky ("/webtoon/{slug}" misto
         // "/manga/{slug}", "/genre/manga?page=N" pro archiv, "/search?s=..."
         // pro hledani) - proto vlastni popularUrl/searchUrl misto vychozich.
@@ -272,6 +294,8 @@ class SourceManager @Inject constructor(
         novelCoolSource,
         // Adult zdroj, pridano na vyslovne prani uzivatele (viz konverzace 2026-07-18)
         novelHallSource,
+        mangaKatanaSource,
+        baoziManhuaSource,
     )
 
     init {
