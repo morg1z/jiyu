@@ -25,6 +25,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -108,7 +110,9 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.settings.ReadingStats
 import com.haise.jiyu.ui.settings.SettingsViewModel
 import com.haise.jiyu.ui.theme.CyanLight
+import com.haise.jiyu.ui.theme.Danger
 import com.haise.jiyu.ui.theme.DeepSpace
+import com.haise.jiyu.ui.theme.Pink
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.CardBorder
@@ -118,7 +122,6 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.VioletLight
 import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
-import com.haise.jiyu.ui.theme.titleGradient
 import com.haise.jiyu.ui.theme.violetGlow
 
 /** Celá filtrovaná knihovna (dřív hlavní Knihovna) - vlastní tab, dashboard Knihovna teď žije v LibraryScreen.kt. */
@@ -177,12 +180,13 @@ fun MyListScreen(
 
     var showManageDialog          by remember { mutableStateOf(false) }
     var showStatsDialog           by remember { mutableStateOf(false) }
-    var sortMenuExpanded          by remember { mutableStateOf(false) }
     var headerMenuExpanded        by remember { mutableStateOf(false) }
     var contextMenuManga          by remember { mutableStateOf<MangaEntity?>(null) }
     var showCategoryAssignDialog  by remember { mutableStateOf(false) }
     var showBulkCategoryDialog    by remember { mutableStateOf(false) }
     var showMarkAllReadDialog     by remember { mutableStateOf(false) }
+    var showFilterSheet           by remember { mutableStateOf(false) }
+    var searchExpanded            by remember { mutableStateOf(false) }
 
     val pullToRefreshState = rememberPullToRefreshState()
 
@@ -233,46 +237,25 @@ fun MyListScreen(
                 // Title row
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(text = stringResource(R.string.mylist_title), style = TextStyle(brush = titleGradient, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold), maxLines = 1)
+                        Text(text = stringResource(R.string.mylist_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                         Text(text = stringResource(R.string.mylist_title_count, library.size), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
                     }
-                    if (gridMode) {
-                        androidx.compose.material3.TextButton(
-                            onClick = {
-                                if (gridColumns >= 4) viewModel.toggleGridMode()
-                                else viewModel.cycleGridColumns()
-                            },
-                        ) {
-                            Text("${gridColumns}×", color = TextSecondary, fontSize = 13.sp)
-                        }
-                    }
-                    IconButton(onClick = {
-                        if (!gridMode) viewModel.toggleGridMode()
-                        else viewModel.toggleGridMode()
-                    }) {
-                        Icon(
-                            imageVector = if (gridMode) TablerIcons.LayoutList else TablerIcons.LayoutGrid,
-                            contentDescription = if (gridMode) stringResource(R.string.mylist_switch_to_list) else stringResource(R.string.mylist_switch_to_grid),
-                            tint = TextSecondary,
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { sortMenuExpanded = true }) {
-                            Icon(TablerIcons.ArrowsSort, contentDescription = stringResource(R.string.mylist_sort), tint = TextSecondary)
-                        }
-                        SortMenu(
-                            expanded = sortMenuExpanded,
-                            sortOption = sortOption,
-                            ascending = sortAscending,
-                            onSelect = { viewModel.setSortOption(it) },
-                            onDismiss = { sortMenuExpanded = false },
-                        )
+                    IconButton(onClick = { searchExpanded = !searchExpanded }) {
+                        Icon(TablerIcons.Search, contentDescription = stringResource(R.string.mylist_search), tint = if (searchExpanded) GlowViolet else TextSecondary)
                     }
                     Box {
                         IconButton(onClick = { headerMenuExpanded = true }) {
                             Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary)
                         }
                         DropdownMenu(expanded = headerMenuExpanded, onDismissRequest = { headerMenuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.mylist_manage_categories)) },
+                                leadingIcon = { Icon(TablerIcons.Folder, contentDescription = null) },
+                                onClick = {
+                                    headerMenuExpanded = false
+                                    showManageDialog = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.mylist_open_cbz)) },
                                 leadingIcon = { Icon(TablerIcons.Folder, contentDescription = null) },
@@ -301,110 +284,111 @@ fun MyListScreen(
                     }
                 }
 
-                // Always-visible search bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, start = 4.dp, end = 4.dp)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(Color.White.copy(alpha = 0.06f))
-                        .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.setSearchQuery(it) },
-                        singleLine = true,
-                        textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {}),
-                        decorationBox = { inner ->
-                            Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
-                                inner()
+                // Search bar - jen když je rozbalený (ikonka lupy v title row)
+                if (searchExpanded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, start = 4.dp, end = 4.dp)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            singleLine = true,
+                            textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {}),
+                            decorationBox = { inner ->
+                                Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                    if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                                    inner()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
+                                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
-                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
                 }
             }
         }
 
-        // ── Kategorie filter ─────────────────────────────────────────────────
-        if (!selectionMode) {
-            if (categories.isNotEmpty()) {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    item { CategoryChip(label = stringResource(R.string.common_all), colorHex = "#8B5CF6", selected = selectedCategoryId == null, onClick = { viewModel.selectCategory(null) }) }
-                    items(categories, key = { it.id }) { cat ->
-                        CategoryChip(label = cat.name, colorHex = cat.colorHex, selected = selectedCategoryId == cat.id, onClick = { viewModel.selectCategory(cat.id) })
-                    }
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .clip(RoundedCornerShape(50))
-                                .border(1.dp, GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(50))
-                                .pointerInput(Unit) { detectTapGestures(onTap = { showManageDialog = true }) }
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.mylist_manage_categories), tint = TextSecondary, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            } else {
-                TextButton(onClick = { showManageDialog = true }, modifier = Modifier.padding(horizontal = 12.dp)) {
-                    Icon(TablerIcons.Plus, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.mylist_add_category), color = GlowViolet, fontSize = 13.sp)
-                }
-            }
-        }
-
-        // ── Content type filter ──────────────────────────────────────────────
-        if (!selectionMode) {
-            val types = listOf(
-                "ALL" to stringResource(R.string.common_all),
-                "MANGA" to stringResource(R.string.browse_filter_manga),
-                "MANHWA" to stringResource(R.string.mylist_content_manhwa),
-                "MANHUA" to stringResource(R.string.mylist_content_manhua),
-            )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                items(types) { (key, label) ->
-                    ContentTypeChip(label = label, selected = contentTypeFilter == key, onClick = { viewModel.setContentTypeFilter(key) })
-                }
-            }
-        }
-
-        // ── Reading status filter ────────────────────────────────────────────
+        // ── Stav čtení filter ────────────────────────────────────────────────
         if (!selectionMode) {
             val readingStatuses = listOf(
                 "ALL" to stringResource(R.string.common_all),
                 "READING" to stringResource(R.string.detail_reading_status_reading),
                 "COMPLETED" to stringResource(R.string.detail_status_completed),
-                "ON_HOLD" to stringResource(R.string.detail_reading_status_on_hold),
+                "ON_HOLD" to stringResource(R.string.mylist_filter_on_hold),
+                "PLAN_TO_READ" to stringResource(R.string.mylist_filter_plan_to_read),
                 "DROPPED" to stringResource(R.string.detail_reading_status_dropped),
-                "PLAN_TO_READ" to stringResource(R.string.stats_status_plan_to_read),
             )
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 items(readingStatuses) { (key, label) ->
-                    ContentTypeChip(label = label, selected = readingStatusFilter == key, onClick = { viewModel.setReadingStatusFilter(key) })
+                    ReadingStatusChip(label = label, selected = readingStatusFilter == key, onClick = { viewModel.setReadingStatusFilter(key) })
+                }
+            }
+        }
+
+        // ── Filtrovat a řadit bar ────────────────────────────────────────────
+        if (!selectionMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(NightBlue)
+                    .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
+                    .clickable { showFilterSheet = true }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(TablerIcons.Filter, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.mylist_filter_and_sort), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.05f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (!gridMode) GlowViolet else Color.Transparent)
+                            .clickable { if (gridMode) viewModel.toggleGridMode() }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(TablerIcons.List, contentDescription = stringResource(R.string.mylist_switch_to_list), tint = if (!gridMode) Color.White else TextSecondary, modifier = Modifier.size(15.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (gridMode) GlowViolet else Color.Transparent)
+                            .clickable { if (!gridMode) viewModel.toggleGridMode() }
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(TablerIcons.LayoutGrid, contentDescription = stringResource(R.string.mylist_switch_to_grid), tint = if (gridMode) Color.White else TextSecondary, modifier = Modifier.size(15.dp))
+                    }
                 }
             }
         }
@@ -478,20 +462,49 @@ fun MyListScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(library, key = { it.id }) { manga ->
-                        LibraryListRow(
-                            manga = manga,
-                            isSelected = manga.id in selectedIds,
-                            onClick = {
-                                if (selectionMode) viewModel.toggleSelection(manga.id)
-                                else onOpenManga(manga.id)
-                            },
-                            onLongPress = {
-                                if (selectionMode) viewModel.selectAll()
-                                else viewModel.enterSelectionMode(manga.id)
-                            },
-                            unreadCount = unreadCounts[manga.id] ?: 0,
-                            hasDownloads = (downloadedPerManga[manga.id] ?: 0) > 0,
-                        )
+                        var dropdownExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            LibraryListRow(
+                                manga = manga,
+                                isSelected = manga.id in selectedIds,
+                                onClick = {
+                                    if (selectionMode) viewModel.toggleSelection(manga.id)
+                                    else onOpenManga(manga.id)
+                                },
+                                onLongPress = {
+                                    if (selectionMode) viewModel.selectAll()
+                                    else viewModel.enterSelectionMode(manga.id)
+                                },
+                                onMoreClick = { dropdownExpanded = true },
+                                unreadCount = unreadCounts[manga.id] ?: 0,
+                                totalCount = totalCounts[manga.id] ?: 0,
+                                hasDownloads = (downloadedPerManga[manga.id] ?: 0) > 0,
+                            )
+                            if (!selectionMode) {
+                                DropdownMenu(expanded = dropdownExpanded, onDismissRequest = { dropdownExpanded = false }) {
+                                    manga.lastReadChapterId?.let { chapterId ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.action_continue_reading)) },
+                                            onClick = { onOpenChapter(chapterId); dropdownExpanded = false },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.detail_download_all)) },
+                                        onClick = { viewModel.downloadAllChapters(manga.id); dropdownExpanded = false },
+                                    )
+                                    if (categories.isNotEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.mylist_add_to_category)) },
+                                            onClick = { contextMenuManga = manga; showCategoryAssignDialog = true; dropdownExpanded = false },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.mylist_remove_from_library), color = MaterialTheme.colorScheme.error) },
+                                        onClick = { viewModel.removeFromLibrary(manga.id); dropdownExpanded = false },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -536,21 +549,27 @@ fun MyListScreen(
         }
         AnimatedVisibility(
             visible = !selectionMode,
-            modifier = Modifier.align(Alignment.BottomEnd),
+            modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(),
             exit = fadeOut(),
         ) {
             Box(
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .padding(20.dp)
+                    .padding(bottom = 20.dp)
+                    .size(56.dp)
                     .violetGlow()
-                    .background(Brush.linearGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.8f))), RoundedCornerShape(16.dp))
-                    .clip(RoundedCornerShape(16.dp))
-                    .pointerInput(Unit) { detectTapGestures(onTap = { onOpenBrowse() }) }
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .background(Brush.linearGradient(listOf(GlowViolet, GlowCyan.copy(alpha = 0.8f))), CircleShape)
+                    .clip(CircleShape)
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onOpenBrowse() }) },
+                contentAlignment = Alignment.Center,
             ) {
-                Text(stringResource(R.string.mylist_add_fab), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Icon(
+                    TablerIcons.Plus,
+                    contentDescription = stringResource(R.string.mylist_add_fab),
+                    tint = Color.White,
+                    modifier = Modifier.size(26.dp),
+                )
             }
         }
     }
@@ -561,6 +580,20 @@ fun MyListScreen(
         onDismiss = { showStatsDialog = false },
         onOpenExtended = { showStatsDialog = false; onOpenStats() },
     )
+    if (showFilterSheet) {
+        FilterSortBottomSheet(
+            categories = categories,
+            selectedCategoryId = selectedCategoryId,
+            contentTypeFilter = contentTypeFilter,
+            sortOption = sortOption,
+            sortAscending = sortAscending,
+            onSelectCategory = { viewModel.selectCategory(it) },
+            onSelectContentType = { viewModel.setContentTypeFilter(it) },
+            onSelectSort = { viewModel.setSortOption(it) },
+            onManageCategories = { showFilterSheet = false; showManageDialog = true },
+            onDismiss = { showFilterSheet = false },
+        )
+    }
     if (showManageDialog) ManageCategoriesDialog(categories = categories, viewModel = viewModel, onDismiss = { showManageDialog = false })
     if (showCategoryAssignDialog) {
         contextMenuManga?.let { manga ->
@@ -736,89 +769,219 @@ private fun BulkAction(
 
 // ── Composables ───────────────────────────────────────────────────────────────
 
+private fun contentTypeBadgeColor(contentType: String): Color = when (contentType) {
+    "MANHWA" -> GlowViolet
+    "MANHUA" -> GlowCyan
+    "NOVEL"  -> Danger
+    "COMIC"  -> Pink
+    else     -> Color(0xFF6B7280) // MANGA a neznámé typy - neutrální šedá
+}
+
+@Composable
+private fun readingStatusLabel(status: String?): String = when (status) {
+    "READING"      -> stringResource(R.string.detail_reading_status_reading)
+    "COMPLETED"    -> stringResource(R.string.detail_status_completed)
+    "ON_HOLD"      -> stringResource(R.string.mylist_filter_on_hold)
+    "PLAN_TO_READ" -> stringResource(R.string.mylist_filter_plan_to_read)
+    "DROPPED"      -> stringResource(R.string.detail_reading_status_dropped)
+    else           -> stringResource(R.string.mylist_status_unset)
+}
+
+private fun formatReadingHours(ms: Long): String {
+    val hours = ms / 3_600_000L
+    return if (hours < 1) "<1 h" else "$hours h"
+}
+
 @Composable
 private fun LibraryListRow(
     manga: MangaEntity,
     isSelected: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
+    onMoreClick: () -> Unit,
     unreadCount: Int,
+    totalCount: Int,
     hasDownloads: Boolean,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .background(if (isSelected) GlowViolet.copy(alpha = 0.15f) else Color.Transparent)
-            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() }) }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    val readCount = (totalCount - unreadCount).coerceAtLeast(0)
+    val progress = if (totalCount > 0) readCount.toFloat() / totalCount.toFloat() else 0f
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (isSelected) GlowViolet.copy(alpha = 0.15f) else Color.Transparent)
+                .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() }) }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(modifier = Modifier.width(64.dp).height(92.dp).clip(RoundedCornerShape(10.dp))) {
+                AsyncImage(
+                    model = manga.coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .background(contentTypeBadgeColor(manga.contentType), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                ) {
+                    Text(manga.contentType, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, lineHeight = 9.sp)
+                }
+                if (isSelected) {
+                    Box(modifier = Modifier.fillMaxSize().background(GlowViolet.copy(alpha = 0.35f)))
+                    Icon(
+                        TablerIcons.CircleCheck, contentDescription = stringResource(R.string.mylist_selected_desc), tint = Color.White,
+                        modifier = Modifier.align(Alignment.Center).size(24.dp),
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(manga.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(readingStatusLabel(manga.readingStatus), color = TextSecondary, fontSize = 12.sp)
+                    if (manga.readingTimeMs > 0) {
+                        Text(" • ${formatReadingHours(manga.readingTimeMs)}", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    if (hasDownloads) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(TablerIcons.CloudDownload, contentDescription = stringResource(R.string.mylist_downloaded_offline), tint = GlowCyan, modifier = Modifier.size(12.dp))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
+                    Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(GlowViolet, RoundedCornerShape(50)))
+                }
+            }
+            if (totalCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, GlowViolet.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Row {
+                        Text("$readCount", color = GlowViolet, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(" / $totalCount", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            IconButton(onClick = onMoreClick, modifier = Modifier.size(28.dp)) {
+                Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary, modifier = Modifier.size(18.dp))
+            }
+        }
+        HorizontalDivider(color = CardBorder, thickness = 1.dp, modifier = Modifier.padding(start = 16.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun FilterSortBottomSheet(
+    categories: List<CategoryEntity>,
+    selectedCategoryId: String?,
+    contentTypeFilter: String,
+    sortOption: LibrarySortOption,
+    sortAscending: Boolean,
+    onSelectCategory: (String?) -> Unit,
+    onSelectContentType: (String) -> Unit,
+    onSelectSort: (LibrarySortOption) -> Unit,
+    onManageCategories: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState()
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111B35),
     ) {
-        AsyncImage(
-            model = manga.coverUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.width(38.dp).fillMaxHeight().clip(RoundedCornerShape(6.dp)),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(manga.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (manga.author != null) {
-                Text(manga.author, color = TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Text(stringResource(R.string.mylist_filter_and_sort), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(16.dp))
+
+            Text(stringResource(R.string.mylist_category_section), color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CategoryChip(label = stringResource(R.string.common_all), colorHex = "#8B5CF6", selected = selectedCategoryId == null, onClick = { onSelectCategory(null) })
+                categories.forEach { cat ->
+                    CategoryChip(label = cat.name, colorHex = cat.colorHex, selected = selectedCategoryId == cat.id, onClick = { onSelectCategory(cat.id) })
+                }
+                TextButton(onClick = onManageCategories) {
+                    Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.mylist_manage_categories), tint = GlowViolet, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(stringResource(R.string.mylist_manage_categories), color = GlowViolet, fontSize = 12.sp)
+                }
             }
-        }
-        if (hasDownloads) {
-            Icon(TablerIcons.CloudDownload, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(14.dp))
-        }
-        if (unreadCount > 0) {
-            Box(
-                modifier = Modifier.background(GlowViolet, CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(unreadCount.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+            Spacer(Modifier.height(20.dp))
+            Text(stringResource(R.string.mylist_content_type_section), color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            val types = listOf(
+                "ALL" to stringResource(R.string.common_all),
+                "MANGA" to stringResource(R.string.browse_filter_manga),
+                "MANHWA" to stringResource(R.string.mylist_content_manhwa),
+                "MANHUA" to stringResource(R.string.mylist_content_manhua),
+                "NOVEL" to stringResource(R.string.mylist_content_novel),
+                "COMIC" to stringResource(R.string.mylist_content_comic),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                types.forEach { (key, label) ->
+                    ContentTypeChip(label = label, selected = contentTypeFilter == key, onClick = { onSelectContentType(key) })
+                }
             }
-        }
-        if (isSelected) {
-            Icon(TablerIcons.CircleCheck, contentDescription = null, tint = GlowViolet, modifier = Modifier.size(18.dp))
+
+            Spacer(Modifier.height(20.dp))
+            Text(stringResource(R.string.mylist_sort_by), color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            val sortOptions = listOf(
+                LibrarySortOption.TITLE        to stringResource(R.string.source_browse_sort_title),
+                LibrarySortOption.LAST_UPDATED to stringResource(R.string.mylist_sort_last_updated),
+                LibrarySortOption.UNREAD_COUNT to stringResource(R.string.detail_filter_unread),
+                LibrarySortOption.DATE_ADDED   to stringResource(R.string.mylist_sort_date_added),
+                LibrarySortOption.RANDOM       to stringResource(R.string.mylist_sort_random),
+            )
+            sortOptions.forEach { (option, label) ->
+                val selected = option == sortOption
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelectSort(option) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, color = if (selected) GlowViolet else TextPrimary, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    if (selected) {
+                        Icon(
+                            if (sortAscending) TablerIcons.ArrowUp else TablerIcons.ArrowDown,
+                            contentDescription = if (sortAscending) stringResource(R.string.mylist_ascending) else stringResource(R.string.mylist_descending),
+                            tint = GlowViolet,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun SortMenu(
-    expanded: Boolean,
-    sortOption: LibrarySortOption,
-    ascending: Boolean,
-    onSelect: (LibrarySortOption) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val options = listOf(
-        LibrarySortOption.TITLE        to stringResource(R.string.source_browse_sort_title),
-        LibrarySortOption.LAST_UPDATED to stringResource(R.string.mylist_sort_last_updated),
-        LibrarySortOption.UNREAD_COUNT to stringResource(R.string.detail_filter_unread),
-        LibrarySortOption.DATE_ADDED   to stringResource(R.string.mylist_sort_date_added),
-        LibrarySortOption.RANDOM       to stringResource(R.string.mylist_sort_random),
-    )
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        options.forEach { (option, label) ->
-            val selected = option == sortOption
-            DropdownMenuItem(
-                text = { Text(label, color = if (selected) GlowViolet else TextPrimary) },
-                leadingIcon = {
-                    if (selected) {
-                        Icon(
-                            if (ascending) TablerIcons.ArrowUp else TablerIcons.ArrowDown,
-                            contentDescription = if (ascending) stringResource(R.string.mylist_ascending) else stringResource(R.string.mylist_descending),
-                            tint = GlowViolet,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    } else {
-                        Spacer(Modifier.size(18.dp))
-                    }
-                },
-                onClick = { onSelect(option); onDismiss() },
-            )
-        }
+private fun ReadingStatusChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) GlowViolet else NightBlue)
+            .border(1.dp, if (selected) GlowViolet else CardBorder, RoundedCornerShape(50))
+            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, color = if (selected) Color.White else TextSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 

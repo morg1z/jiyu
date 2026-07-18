@@ -503,6 +503,14 @@
     <string name="mylist_content_manhua">Manhua</string>
     <string name="mylist_content_novel">Novel</string>
     <string name="mylist_content_comic">Komiks</string>
+    <string name="mylist_filter_on_hold">Odloženo</string>
+    <string name="mylist_filter_plan_to_read">Plánuji číst</string>
+    <string name="mylist_filter_and_sort">Filtrovat a řadit</string>
+    <string name="mylist_status_unset">V knihovně</string>
+    <string name="mylist_search">Hledat</string>
+    <string name="mylist_sort_by">Řadit podle</string>
+    <string name="mylist_category_section">Kategorie</string>
+    <string name="mylist_content_type_section">Typ obsahu</string>
     <string name="mylist_add_to_category">Přidat do kategorie</string>
     <string name="mylist_remove_from_library">Odebrat z knihovny</string>
     <string name="mylist_importing_file">Importuji soubor…</string>
