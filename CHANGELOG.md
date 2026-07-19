@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.3
+
+### Nové funkce
+- Stahování aktualizace teď zobrazuje celoobrazovkovou animaci - stylizovaný "skleněný květ" se otevírá a fialové srdce uprostřed sílí podle skutečného procenta stažení, místo prostého progress baru v Nastavení. Lze schovat tlačítkem X (stahování běží dál na pozadí).
+
 ## v0.3.2
 
 ### Opravené chyby
