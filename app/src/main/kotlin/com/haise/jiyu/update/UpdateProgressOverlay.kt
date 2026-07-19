@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -155,21 +156,18 @@ private fun GlassFlowerProgress(progress: Float, modifier: Modifier = Modifier) 
             center = center,
         )
 
-        val shardCount = 14
-        for (i in 0 until shardCount) {
-            val isLong = i % 2 == 0
-            val angleDeg = (360f / shardCount) * i + rotationDeg
+        fun drawShard(angleDeg: Float, lengthFactor: Float, widthFactor: Float) {
             val angleRad = Math.toRadians(angleDeg.toDouble())
             val dir = Offset(cos(angleRad).toFloat(), sin(angleRad).toFloat())
             val perp = Offset(-sin(angleRad).toFloat(), cos(angleRad).toFloat())
 
-            val baseLen = maxRadius * 0.22f
-            val fullLen = maxRadius * (if (isLong) 0.98f else 0.60f)
+            val baseLen = maxRadius * 0.18f
+            val fullLen = maxRadius * lengthFactor
             val len = baseLen + (fullLen - baseLen) * openness
 
-            val innerPoint = center + dir * (maxRadius * 0.06f)
-            val shoulderDist = len * 0.32f
-            val shoulderWidth = len * (if (isLong) 0.045f else 0.035f)
+            val innerPoint = center + dir * (maxRadius * 0.05f)
+            val shoulderDist = len * 0.30f
+            val shoulderWidth = len * widthFactor
             val shoulderCenter = center + dir * shoulderDist
             val tip = center + dir * len
             val p1 = shoulderCenter + perp * shoulderWidth
@@ -183,42 +181,72 @@ private fun GlassFlowerProgress(progress: Float, modifier: Modifier = Modifier) 
                 close()
             }
 
+            // Tmave sklo osvetlene fialovym jadrem u zakladny, mizici do tmy u spicky -
+            // ne bily hrot, ale tmavy stin s fialovym podsvicenim (viz reference).
             drawPath(
                 path = shardPath,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.10f),
-                        Color.White.copy(alpha = 0.65f + 0.2f * openness),
+                        GlowViolet.copy(alpha = 0.55f * glowStrength + 0.12f),
+                        Color(0xFF1A1420).copy(alpha = 0.55f),
+                        Color.Transparent,
                     ),
                     start = innerPoint,
                     end = tip,
                 ),
             )
+            // Tenka svetla hrana - sklo chytajici svetlo
             drawPath(
                 path = shardPath,
-                color = AccentLight.copy(alpha = 0.45f),
-                style = Stroke(width = 1.2f),
+                color = Color.White.copy(alpha = 0.30f + 0.15f * glowStrength),
+                style = Stroke(width = 1f),
             )
         }
 
-        // Fialove "srdce" uprostred - roste a jasni s postupem
-        val coreRadius = maxRadius * (0.05f + 0.16f * glowStrength)
+        val shardCount = 18
+        for (i in 0 until shardCount) {
+            val angleDeg = (360f / shardCount) * i + rotationDeg
+            val lengthFactor = when (i % 3) {
+                0 -> 0.95f
+                1 -> 0.55f
+                else -> 0.72f
+            }
+            val widthFactor = 0.03f + 0.015f * (i % 3)
+            drawShard(angleDeg, lengthFactor, widthFactor)
+        }
+        // Dva vyrazne delsi "osove" hroty nahoru/dolu, typicke pro referencni animaci
+        drawShard(rotationDeg + 90f, 1.35f, 0.02f)
+        drawShard(rotationDeg - 90f, 1.35f, 0.02f)
+
+        // Protazeny svitici "drahokam"/srdce uprostred - roste a jasni s postupem
+        val coreHeight = maxRadius * (0.10f + 0.30f * glowStrength)
+        val coreWidth = coreHeight * 0.62f
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    GlowViolet.copy(alpha = 0.9f * glowStrength),
+                    GlowViolet.copy(alpha = 0.85f * glowStrength),
                     GlowViolet.copy(alpha = 0f),
                 ),
                 center = center,
-                radius = maxRadius * (0.18f + 0.35f * glowStrength),
+                radius = maxRadius * (0.20f + 0.38f * glowStrength),
             ),
-            radius = maxRadius * (0.18f + 0.35f * glowStrength),
+            radius = maxRadius * (0.20f + 0.38f * glowStrength),
             center = center,
         )
-        drawCircle(
-            color = Color.White.copy(alpha = 0.85f * glowStrength),
-            radius = coreRadius * 0.5f,
-            center = center,
-        )
+        scale(scaleX = coreWidth / coreHeight, scaleY = 1f, pivot = center) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.9f * glowStrength),
+                        AccentLight.copy(alpha = 0.85f * glowStrength),
+                        GlowViolet.copy(alpha = 0.6f * glowStrength),
+                    ),
+                    center = center,
+                    radius = coreHeight * 0.5f,
+                ),
+                radius = coreHeight * 0.5f,
+                center = center,
+            )
+        }
     }
 }
