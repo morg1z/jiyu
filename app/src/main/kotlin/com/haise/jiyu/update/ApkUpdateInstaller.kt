@@ -6,9 +6,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import androidx.core.net.toUri
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,9 +33,53 @@ sealed interface UpdateDownloadState {
  * Stažení a instalace aktualizace přes systémový DownloadManager - appka není na Play
  * Storu, takže update musí projít stejnou cestou jako ruční sideload: uživatel musí
  * povolit instalaci z tohoto zdroje a stažené APK potvrdit v systémovém instalátoru.
+ *
+ * Stav stahování ([downloadState]) žije tady, ne ve SettingsViewModelu - Singleton
+ * (ne ViewModel vázaný na jednu obrazovku), aby ho mohl sledovat i globální overlay
+ * (viz [com.haise.jiyu.update.UpdateProgressOverlay] v MainActivity) a stahování se
+ * dál sledovalo i po odchodu z Nastavení.
  */
 @Singleton
 class ApkUpdateInstaller @Inject constructor() {
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var downloadJob: Job? = null
+
+    private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
+    val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
+
+    /**
+     * Nezávislé na [downloadState] - uživatel může celoobrazovkový overlay schovat
+     * (viz [dismissOverlay]), i když stahování na pozadí dál běží (DownloadManager na
+     * app procesu nezávisí). Nastavení pak dál ukazuje skutečný postup přes [downloadState].
+     */
+    private val _overlayVisible = MutableStateFlow(false)
+    val overlayVisible: StateFlow<Boolean> = _overlayVisible.asStateFlow()
+
+    /**
+     * Zařadí stažení do DownloadManageru, sleduje postup do [downloadState] a po
+     * dokončení rovnou otevře systémový instalátor balíčků.
+     */
+    fun startDownload(context: Context, apkUrl: String, version: String) {
+        if (_downloadState.value is UpdateDownloadState.Downloading) return
+        downloadJob?.cancel()
+        _downloadState.value = UpdateDownloadState.Downloading(0)
+        _overlayVisible.value = true
+        downloadJob = scope.launch {
+            val downloadId = enqueueDownload(context, apkUrl, version)
+            observeProgress(context, downloadId).collect { state ->
+                _downloadState.value = state
+                if (state is UpdateDownloadState.ReadyToInstall) {
+                    installDownloaded(context, downloadId)
+                }
+            }
+        }
+    }
+
+    /** Skryje overlay bez zrušení stahování (to dál běží v systémovém DownloadManageru). */
+    fun dismissOverlay() {
+        _overlayVisible.value = false
+    }
 
     /** false = uživatel ještě nepovolil appce instalovat balíčky (Android 8+). */
     fun canInstallPackages(context: Context): Boolean =

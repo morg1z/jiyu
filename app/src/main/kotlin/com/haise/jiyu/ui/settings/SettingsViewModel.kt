@@ -596,15 +596,15 @@ class SettingsViewModel @Inject constructor(
         _updateCheckLoading.value = false
     }
 
-    private val _updateDownloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
-    val updateDownloadState: StateFlow<UpdateDownloadState> = _updateDownloadState.asStateFlow()
+    /** Skutečný stav teď žije v ApkUpdateInstaller (singleton), ne tady - viz jeho dokumentace proč. */
+    val updateDownloadState: StateFlow<UpdateDownloadState> = updateInstaller.downloadState
 
     /**
-     * Stáhne aktualizaci přes systémový DownloadManager a průběžně hlásí postup do
-     * [updateDownloadState], aby appka mohla ukázat progress bar přímo v UI místo
-     * spoléhání na systémovou notifikaci. Po dokončení rovnou otevře instalátor balíčků.
-     * Pokud appka ještě nemá povolení instalovat balíčky (Android 8+), místo stažení
-     * otevře systémové nastavení, kde to uživatel povolí - musí to zkusit znovu poté.
+     * Stáhne aktualizaci přes systémový DownloadManager - postup se hlásí do
+     * [updateDownloadState] (a globálního overlaye, viz ApkUpdateInstaller.overlayVisible)
+     * místo pouhého spoléhání na systémovou notifikaci. Po dokončení rovnou otevře
+     * instalátor balíčků. Pokud appka ještě nemá povolení instalovat balíčky (Android 8+),
+     * místo stažení otevře systémové nastavení, kde to uživatel povolí - musí to zkusit znovu poté.
      */
     fun downloadUpdate() {
         val apkUrl = _updateInfo.value?.apkUrl ?: return
@@ -617,15 +617,6 @@ class SettingsViewModel @Inject constructor(
             updateInstaller.requestInstallPermission(context)
             return
         }
-        viewModelScope.launch {
-            _updateDownloadState.value = UpdateDownloadState.Downloading(0)
-            val downloadId = updateInstaller.enqueueDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion)
-            updateInstaller.observeProgress(context, downloadId).collect { state ->
-                _updateDownloadState.value = state
-                if (state is UpdateDownloadState.ReadyToInstall) {
-                    updateInstaller.installDownloaded(context, downloadId)
-                }
-            }
-        }
+        updateInstaller.startDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion)
     }
 }

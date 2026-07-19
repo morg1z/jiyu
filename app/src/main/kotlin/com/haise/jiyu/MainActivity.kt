@@ -26,6 +26,8 @@ import com.haise.jiyu.settings.ThemeOption
 import com.haise.jiyu.source.interceptor.CloudflareChallengeHost
 import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
+import com.haise.jiyu.update.ApkUpdateInstaller
+import com.haise.jiyu.update.UpdateProgressOverlay
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -35,6 +37,7 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var settings: SettingsRepository
+    @Inject lateinit var updateInstaller: ApkUpdateInstaller
 
     private val _pendingDeepLink = MutableStateFlow<Intent?>(null)
 
@@ -111,6 +114,8 @@ class MainActivity : AppCompatActivity() {
                         )
                         // Globalni overlay pro interaktivni Cloudflare vyzvy (viz CloudflareInterceptor)
                         CloudflareChallengeHost()
+                        // Globalni overlay pro postup stahovani aktualizace (viz ApkUpdateInstaller)
+                        UpdateProgressOverlay(installer = updateInstaller)
                     }
                 }
             }
