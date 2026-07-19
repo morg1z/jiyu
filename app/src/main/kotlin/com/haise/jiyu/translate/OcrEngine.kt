@@ -57,17 +57,75 @@ class OcrEngine @Inject constructor(
                 .addOnFailureListener { cont.resumeWithException(it) }
         }
 
-        result.textBlocks.mapNotNull { block ->
-            val box = block.boundingBox ?: return@mapNotNull null
-            if (block.text.isBlank()) return@mapNotNull null
+        // ML Kit "textBlocks" jsou odstavcová seskupení odladěná na fotky dokumentů/účtenek,
+        // ne na manga bubliny - běžně buď slijí dvě sousední bubliny do jednoho bloku, nebo
+        // naopak rozseknou jednu bublinu na víc bloků. Jdeme proto o úroveň níž na "lines"
+        // (řádky) a slučujeme je vlastní geometrickou heuristikou (mergeNearbyLines), která
+        // lépe odpovídá tomu, co člověk vnímá jako jednu bublinu.
+        val lines = result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
+            val box = line.boundingBox ?: return@mapNotNull null
+            if (line.text.isBlank()) return@mapNotNull null
             RawTextBlock(
-                text = block.text,
+                text = line.text,
                 leftF = (box.left / w).coerceIn(0f, 1f),
                 topF = (box.top / h).coerceIn(0f, 1f),
                 rightF = (box.right / w).coerceIn(0f, 1f),
                 bottomF = (box.bottom / h).coerceIn(0f, 1f),
             )
         }
+        mergeNearbyLines(lines)
+    }
+
+    /**
+     * Spojí OCR řádky, které leží blízko sebe (malá svislá mezera vůči výšce písma a
+     * vodorovné překrytí/blízkost), do jednoho bloku - to bývá jedna bublina s víc řádky.
+     * Union-Find nad dvojicovým testem [shouldMerge]: O(n²), ale n (řádků na stránku)
+     * bývá v řádu jednotek až nízkých desítek, takže to není problém výkonu.
+     */
+    private fun mergeNearbyLines(lines: List<RawTextBlock>): List<RawTextBlock> {
+        if (lines.isEmpty()) return emptyList()
+        val parent = IntArray(lines.size) { it }
+        fun find(x: Int): Int {
+            var r = x
+            while (parent[r] != r) r = parent[r]
+            var c = x
+            while (parent[c] != r) { val next = parent[c]; parent[c] = r; c = next }
+            return r
+        }
+        fun union(a: Int, b: Int) {
+            val ra = find(a); val rb = find(b)
+            if (ra != rb) parent[ra] = rb
+        }
+
+        for (i in lines.indices) {
+            for (j in i + 1 until lines.size) {
+                if (shouldMerge(lines[i], lines[j])) union(i, j)
+            }
+        }
+
+        return lines.indices.groupBy { find(it) }.map { (_, idxs) ->
+            val group = idxs.map { lines[it] }.sortedWith(compareBy({ it.topF }, { it.leftF }))
+            RawTextBlock(
+                text = group.joinToString(" ") { it.text },
+                leftF = group.minOf { it.leftF },
+                topF = group.minOf { it.topF },
+                rightF = group.maxOf { it.rightF },
+                bottomF = group.maxOf { it.bottomF },
+            )
+        }
+    }
+
+    private fun shouldMerge(a: RawTextBlock, b: RawTextBlock): Boolean {
+        val avgHeight = ((a.bottomF - a.topF) + (b.bottomF - b.topF)) / 2f
+        if (avgHeight <= 0f) return false
+
+        val verticalGap = maxOf(0f, maxOf(a.topF, b.topF) - minOf(a.bottomF, b.bottomF))
+        val horizontalOverlap = minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF)
+        val horizontalGap = maxOf(0f, maxOf(a.leftF, b.leftF) - minOf(a.rightF, b.rightF))
+
+        // Řádky stejné bubliny mívají mezeru mnohem menší než výška písma; mezi bublinami
+        // bývá mezera srovnatelná s výškou písma nebo větší (okraj bubliny, kresba).
+        return verticalGap < avgHeight * 0.9f && (horizontalOverlap > 0f || horizontalGap < avgHeight * 1.8f)
     }
 
     private fun loadBitmap(url: String): Bitmap? = try {

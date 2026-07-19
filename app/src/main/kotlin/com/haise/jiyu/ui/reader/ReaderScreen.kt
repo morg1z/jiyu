@@ -30,11 +30,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -103,7 +103,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -115,7 +118,9 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.haise.jiyu.R
 import com.haise.jiyu.settings.ReadingMode
+import com.haise.jiyu.translate.PositionedTranslationBlock
 import com.haise.jiyu.translate.TranslatedBlock
+import com.haise.jiyu.translate.layoutTranslationBlocks
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -1592,7 +1597,11 @@ private fun MangaReader(
                             ),
                     )
                     if (translateMode) {
-                        translatedPages[indices[0]]?.forEach { block -> TranslationOverlay(block, textScale) }
+                        val blocks = translatedPages[indices[0]]
+                        if (!blocks.isNullOrEmpty()) {
+                            val positioned = remember(blocks) { layoutTranslationBlocks(blocks) }
+                            positioned.forEach { pos -> TranslationOverlay(pos, textScale) }
+                        }
                     }
                 } else {
                     val ordered = if (reverseLayout) indices.reversed() else indices
@@ -1615,7 +1624,11 @@ private fun MangaReader(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (translateMode) {
-                                    translatedPages[idx]?.forEach { block -> TranslationOverlay(block, textScale) }
+                                    val blocks = translatedPages[idx]
+                                    if (!blocks.isNullOrEmpty()) {
+                                        val positioned = remember(blocks) { layoutTranslationBlocks(blocks) }
+                                        positioned.forEach { pos -> TranslationOverlay(pos, textScale) }
+                                    }
                                 }
                             }
                         }
@@ -1780,33 +1793,30 @@ private fun WebtoonPage(
                 .onSizeChanged { size = it },
         )
         if (translateMode && translatedBlocks.isNotEmpty() && size != IntSize.Zero) {
-            translatedBlocks.forEach { block ->
+            val positioned = remember(translatedBlocks) { layoutTranslationBlocks(translatedBlocks) }
+            positioned.forEach { pos ->
                 with(density) {
+                    // .coerceAtLeast(0.dp): záporná šířka/výška z neobvyklého OCR boxu by jinak
+                    // spadla na IllegalArgumentException přímo v Compose layout fázi (mimo dosah
+                    // try/catch kolem překladu).
+                    val boxWidth = (size.width * (pos.rightF - pos.leftF)).toInt().toDp().coerceAtLeast(0.dp)
+                    val maxHeight = (size.height * (pos.maxBottomF - pos.topF)).toInt().toDp().coerceAtLeast(0.dp)
                     Box(
                         modifier = Modifier
                             .offset(
-                                x = (size.width * block.leftF).toInt().toDp(),
-                                y = (size.height * block.topF).toInt().toDp(),
+                                x = (size.width * pos.leftF).toInt().toDp(),
+                                y = (size.height * pos.topF).toInt().toDp(),
                             )
-                            // .coerceAtLeast(0.dp) - viz TranslationOverlay níže: záporná šířka/výška
-                            // z neobvyklého OCR boxu by jinak spadla na IllegalArgumentException
-                            // přímo v Compose layout fázi (mimo dosah try/catch kolem překladu).
-                            //
-                            // heightIn(min=) místo height(): přeložený text (čeština) bývá delší
-                            // než originál, do výšky původní OCR bubliny by se nevešel a Text by
-                            // ho s overflow=Ellipsis tvrdě uřízl. Necháváme box růst dolů podle
-                            // skutečné potřeby textu, jen šířku držíme podle bubliny v originále.
-                            .width((size.width * (block.rightF - block.leftF)).toInt().toDp().coerceAtLeast(0.dp))
-                            .heightIn(min = (size.height * (block.bottomF - block.topF)).toInt().toDp().coerceAtLeast(0.dp))
-                            .background(Color.Black.copy(alpha = 0.82f))
-                            .padding(2.dp),
+                            .widthIn(max = boxWidth)
+                            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(3.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = block.translatedText,
-                            color = Color.White,
-                            fontSize = (10 * textScale).sp,
-                            lineHeight = (13 * textScale).sp,
+                        AutoFitTranslatedText(
+                            text = pos.block.translatedText,
+                            boxWidth = boxWidth,
+                            maxHeight = maxHeight,
+                            textScale = textScale,
                         )
                     }
                 }
@@ -1866,36 +1876,74 @@ private fun RetryableAsyncImage(
 // ── Translation overlay ──────────────────────────────────────────────────────
 
 @Composable
-private fun BoxWithConstraintsScope.TranslationOverlay(block: TranslatedBlock, textScale: Float = 1f) {
+private fun BoxWithConstraintsScope.TranslationOverlay(pos: PositionedTranslationBlock, textScale: Float = 1f) {
     // OCR bounding box je v zásadě vždy leftF<=rightF/topF<=bottomF, ale nejde o zaručený
     // invariant (různé OCR modely, rotace/mirror snímků atd.) - záporná šířka/výška předaná
     // do Modifier.width()/height() spadne na IllegalArgumentException přímo v Compose layout
     // fázi, mimo dosah jakéhokoliv try/catch kolem překladu, a appka tvrdě spadne.
-    val left = maxWidth  * block.leftF
-    val top  = maxHeight * block.topF
-    val w    = (maxWidth  * (block.rightF  - block.leftF)).coerceAtLeast(0.dp)
-    val h    = (maxHeight * (block.bottomF - block.topF)).coerceAtLeast(0.dp)
+    val left = maxWidth  * pos.leftF
+    val top  = maxHeight * pos.topF
+    val w    = (maxWidth  * (pos.rightF     - pos.leftF)).coerceAtLeast(0.dp)
+    val maxH = (maxHeight * (pos.maxBottomF - pos.topF)).coerceAtLeast(0.dp)
 
-    // heightIn(min=) místo height(): přeložený text (čeština) bývá delší než originál,
-    // do výšky původní OCR bubliny by se nevešel a Text by ho s overflow=Ellipsis
-    // tvrdě uřízl. Necháváme box růst dolů podle skutečné potřeby textu, jen šířku
-    // držíme podle bubliny v originále.
     Box(
         modifier = Modifier
             .offset(x = left, y = top)
-            .width(w)
-            .heightIn(min = h)
-            .background(Color.Black.copy(alpha = 0.82f))
-            .padding(2.dp),
+            .widthIn(max = w)
+            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(3.dp))
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = block.translatedText,
-            color = Color.White,
-            fontSize = (10 * textScale).sp,
-            lineHeight = (13 * textScale).sp,
+        AutoFitTranslatedText(
+            text = pos.block.translatedText,
+            boxWidth = w,
+            maxHeight = maxH,
+            textScale = textScale,
         )
     }
+}
+
+/**
+ * Přeložený text (čeština) bývá delší než originál (JP/KR/EN) - bez úpravy velikosti
+ * písma by buď přetekl přes sousední bublinu, nebo by ho Text s overflow=Ellipsis tvrdě
+ * uřízl. Místo pevné velikosti fontu tady najdeme největší velikost, která se ještě
+ * vejde do [maxHeight] při dané [boxWidth] (měřeno přes TextMeasurer), a teprve tu
+ * vykreslíme - box tak roste/mrští se podle skutečné potřeby textu, ne naopak.
+ */
+@Composable
+private fun AutoFitTranslatedText(
+    text: String,
+    boxWidth: androidx.compose.ui.unit.Dp,
+    maxHeight: androidx.compose.ui.unit.Dp,
+    textScale: Float,
+) {
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val baseFontSp = 11f * textScale
+    val minFontSp = 6f * textScale
+    val widthPx = with(density) { boxWidth.roundToPx() }.coerceAtLeast(1)
+    val maxHeightPx = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
+
+    val fontSp = remember(text, widthPx, maxHeightPx, baseFontSp) {
+        var fs = baseFontSp
+        while (fs > minFontSp) {
+            val measured = textMeasurer.measure(
+                text = text,
+                style = TextStyle(fontSize = fs.sp, lineHeight = (fs * 1.25f).sp),
+                constraints = Constraints(maxWidth = widthPx),
+            )
+            if (measured.size.height <= maxHeightPx) break
+            fs -= 0.5f
+        }
+        fs.coerceAtLeast(minFontSp)
+    }
+
+    Text(
+        text = text,
+        color = Color.Black,
+        fontSize = fontSp.sp,
+        lineHeight = (fontSp * 1.25f).sp,
+    )
 }
 
 private suspend fun saveBitmapToGallery(context: android.content.Context, url: String) {
