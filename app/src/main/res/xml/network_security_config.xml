@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Žádný cleartext traffic (HTTP) není povolen nikde -->
+    <!-- manga18fx.com - TLS handshake na Androidu (OkHttp/Conscrypt bez AIA chasing)
+         selhává i když web v běžném prohlížeči jede přes HTTPS bez problémů (typický
+         příznak neúplného cert řetězce ze serveru) - web navíc zůstává plně funkční
+         přes obyčejné HTTP. Výjimka platí jen pro tuhle doménu, zbytek appky je
+         nadále striktně HTTPS-only. Domain-config MUSÍ být před base-config. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">manga18fx.com</domain>
+    </domain-config>
+    <!-- Žádný cleartext traffic (HTTP) není povolen nikde jinde -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <!-- Důvěřujeme pouze systémovým CA certifikátům, ne uživatelsky instalovaným -->

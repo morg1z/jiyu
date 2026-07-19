@@ -61,6 +61,8 @@ import com.haise.jiyu.source.mangahome.MangaHomeSource
 import com.haise.jiyu.source.nihonkuni.NihonKuniSource
 import com.haise.jiyu.source.hachirumi.HachirumiSource
 import com.haise.jiyu.source.kingofshojo.KingofshojoSource
+import com.haise.jiyu.source.manga18fx.Manga18fxSource
+import com.haise.jiyu.source.hentai20.Hentai20Source
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -139,6 +141,8 @@ class SourceManager @Inject constructor(
     nihonKuniSource: NihonKuniSource,
     hachirumiSource: HachirumiSource,
     kingofshojoSource: KingofshojoSource,
+    manga18fxSource: Manga18fxSource,
+    hentai20Source: Hentai20Source,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
 ) {
@@ -317,6 +321,19 @@ class SourceManager @Inject constructor(
         nihonKuniSource,
         hachirumiSource,
         kingofshojoSource,
+        // Adult davka #2, pridano na vyslovne prani uzivatele (viz konverzace 2026-07-19).
+        // Nezavisle overeno pres Chrome pred implementaci - zadny malvertising redirect
+        // na chapter readeru (na rozdil od trvale zamitnutych ComicLand/VyManga).
+        manga18fxSource,
+        hentai20Source,
+        MadaraSource(
+            "webtoonxyz", "Webtoon XYZ", "https://www.webtoon.xyz", client,
+            contentTypeOverride = "MANHWA",
+            // Standardni Madara archiv je na "/manga/page/N/", ale tenhle web ma
+            // permalinky pod "/read/{slug}/" a i archiv je tam presunuty na
+            // "/read/page/N/" (overeno primo - "/manga/page/1/" vraci 404).
+            popularUrl = { root, page, orderby -> "$root/read/page/$page/?m_orderby=$orderby" },
+        ),
     )
 
     init {
