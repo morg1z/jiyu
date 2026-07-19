@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.1
+
+### Opravené chyby
+- Přeložený text v čtečce se už nepřekrýval sám se sebou ani nepřetékal mimo bublinu - OCR teď slučuje textové řádky do bublin přesněji, box pro překlad dostane jen tolik místa, kolik je volné k nejbližší sousední bublině, a velikost písma se automaticky zmenší, aby se text vešel. Styl překladu změněn z černého boxu s bílým textem na bílý štítek s tmavým textem (méně ruší kresbu).
+
+### Nové zdroje
+- Přidány Manga18fx, Hentai20.io a Webtoon XYZ.
+
 ## v0.2.2
 
 ### Bezpečnost
