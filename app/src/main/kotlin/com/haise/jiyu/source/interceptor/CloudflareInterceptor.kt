@@ -52,6 +52,20 @@ class CloudflareInterceptor @Inject constructor(
     private val clearanceCache = ConcurrentHashMap<String, CachedClearance>()
     private val clearanceTtlMs = TimeUnit.MINUTES.toMillis(25)
 
+    /**
+     * Kdyz reseni (tiche i interaktivni) pro host selze - typicky trvaly "Sorry,
+     * you have been blocked" misto resitelne vyzvy - nema smysl to zkouset znovu
+     * pro kazdy dalsi pozadavek na stejnou domenu (dalsi obalka v knihovne, dalsi
+     * stranka kapitoly...). Bez tehle cache by se interaktivni dialog objevoval
+     * znovu a znovu hned po zavreni predchoziho, prakticky bez moznosti appku
+     * pouzivat. Po vyprseni cooldownu se zkusi znovu (treba uz block pominul).
+     */
+    private val failureCache = ConcurrentHashMap<String, Long>()
+    private val failureCooldownMs = TimeUnit.MINUTES.toMillis(10)
+
+    /** Soubezne pozadavky na stejny host cekaji na JEDNO reseni, ne kazdy spousti vlastni WebView/dialog. */
+    private val hostLocks = ConcurrentHashMap<String, Any>()
+
     init {
         loadPersistedCache()
     }
@@ -97,16 +111,41 @@ class CloudflareInterceptor @Inject constructor(
         response.close()
         if (cached != null) clearanceCache.remove(host)
 
-        // Tichy pokus resi jen bezinterakcni "Managed Challenge". Kdyz selze
-        // (typicky skutecna interaktivni Turnstile CAPTCHA), zkusime jeste
-        // ukazat WebView viditelne uzivateli (viz CloudflareChallengeBridge).
-        val cookies = solveCloudflareSynchronously(request.url.toString(), host)
-            ?: CloudflareChallengeBridge.awaitUserSolve(request.url.toString(), host, timeoutSeconds = 90)
-            ?: return chain.proceed(request)
+        if (isInFailureCooldown(host)) return chain.proceed(request)
 
-        clearanceCache[host] = CachedClearance(cookies, System.currentTimeMillis() + clearanceTtlMs)
-        persistCacheAsync()
-        return chain.proceed(request.withClearance(cookies))
+        val lock = hostLocks.getOrPut(host) { Any() }
+        synchronized(lock) {
+            // Mezitim uz mohlo jine (souběžné) vlakno pro tenhle host uspet nebo
+            // selhat - pokud ano, staci pouzit vysledek, ne spoustet dalsi WebView/dialog.
+            clearanceCache[host]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let {
+                return chain.proceed(request.withClearance(it.cookies))
+            }
+            if (isInFailureCooldown(host)) return chain.proceed(request)
+
+            // Tichy pokus resi jen bezinterakcni "Managed Challenge". Kdyz selze
+            // (typicky skutecna interaktivni Turnstile CAPTCHA nebo trvaly block),
+            // zkusime jeste ukazat WebView viditelne uzivateli (CloudflareChallengeBridge).
+            val cookies = solveCloudflareSynchronously(request.url.toString(), host)
+                ?: CloudflareChallengeBridge.awaitUserSolve(request.url.toString(), host, timeoutSeconds = 90)
+
+            if (cookies == null) {
+                failureCache[host] = System.currentTimeMillis()
+                return chain.proceed(request)
+            }
+
+            clearanceCache[host] = CachedClearance(cookies, System.currentTimeMillis() + clearanceTtlMs)
+            persistCacheAsync()
+            return chain.proceed(request.withClearance(cookies))
+        }
+    }
+
+    private fun isInFailureCooldown(host: String): Boolean {
+        val failedAt = failureCache[host] ?: return false
+        if (System.currentTimeMillis() - failedAt >= failureCooldownMs) {
+            failureCache.remove(host)
+            return false
+        }
+        return true
     }
 
     private fun Request.withClearance(cookies: String) = newBuilder()
