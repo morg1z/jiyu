@@ -19,6 +19,7 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
 
     override val id   = "mangafreak"
     override val name = "MangaFreak"
+    override val homepageUrl get() = base
     private val base  = "https://mangafreak.net"
 
     private fun get(url: String): String {

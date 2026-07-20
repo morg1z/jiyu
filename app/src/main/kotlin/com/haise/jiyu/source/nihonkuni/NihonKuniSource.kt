@@ -25,6 +25,7 @@ class NihonKuniSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "nihonkuni"
     override val name = "NihonKuni (Raw)"
     override val language = "ja"
+    override val homepageUrl get() = base
     private val base = "https://nihonkuni.com"
 
     private fun get(url: String): String {

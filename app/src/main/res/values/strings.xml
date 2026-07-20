@@ -601,6 +601,7 @@
     <string name="reader_page_load_failed">Stránka se nenačetla</string>
     <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
     <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>
+    <string name="reader_error_rate_limited">Denní limit AI překladů vyčerpán, zkus to prosím později</string>
 
     <!-- Procházet -->
     <string name="browse_title">Procházet</string>
@@ -610,6 +611,11 @@
     <string name="browse_filter_comics">Komiksy</string>
     <string name="browse_lang_all">🌐 Vše</string>
     <string name="browse_no_sources_match">Žádné zdroje neodpovídají filtru</string>
+    <string name="browse_source_type_manga">Manga</string>
+    <string name="browse_source_type_manhwa">Manhwa</string>
+    <string name="browse_source_type_manhua">Manhua</string>
+    <string name="browse_source_type_novel">Novel</string>
+    <string name="browse_source_type_comic">Komiks</string>
 
     <!-- Procházet zdroj -->
     <string name="source_browse_filters">Filtry</string>

@@ -26,6 +26,7 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
     override val name = "Baozi Manhua (Raw)"
     override val contentType = "MANHUA"
     override val language = "zh"
+    override val homepageUrl get() = base
     private val base = "https://www.baozimh.com"
 
     private fun get(url: String): String {

@@ -24,6 +24,7 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
     base = "https://readfreecomicsonline.com",
     client = client,
 ) {
+    override val homepageUrl get() = base
     override val popularPath = "/"
     override val comicItemSelector = "div.ultp-block-item, article.ultp-block-item"
     override val comicLinkSelector = "h3.ultp-block-title a, h2.entry-title a"

@@ -35,6 +35,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
     override val id = "comicskingdom"
     override val name = "Comics Kingdom"
     override val contentType = "COMIC"
+    override val homepageUrl get() = "https://comicskingdom.com"
     private val api = "https://wp.comicskingdom.com/wp-json/wp/v2"
 
     private fun get(url: String): String {

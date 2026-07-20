@@ -329,6 +329,12 @@ class ReaderViewModel @Inject constructor(
                     _translationError.value = context.getString(R.string.reader_error_translation_failed)
                     _novelTranslateMode.value = false
                 }
+            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
+                _translationError.value = context.getString(R.string.reader_error_rate_limited)
+                _novelTranslateMode.value = false
+            } catch (_: Exception) {
+                _translationError.value = context.getString(R.string.reader_error_translation_failed)
+                _novelTranslateMode.value = false
             } finally {
                 _novelTranslating.value = false
             }
@@ -741,8 +747,12 @@ class ReaderViewModel @Inject constructor(
             val lang = _targetLanguage.value
             val chapterId = currentChapter?.id ?: run { _batchTranslating.value = false; return@launch }
 
+            // isNullOrEmpty(), ne == null: dřívější neúspěšný pokus (přechodná chyba,
+            // rate limit...) nechává v mapě prázdný seznam, ne null - bez týhle podmínky
+            // by se taková stránka při dalším "Přeložit vše" navždy přeskakovala jako
+            // "už hotovo", i když ve skutečnosti nikdy nedostala překlad.
             pages.forEachIndexed { index, _ ->
-                if (_translatedPages.value[index] == null) {
+                if (_translatedPages.value[index].isNullOrEmpty()) {
                     val cached = translateRepository.getCachedPage(chapterId, index, lang, _sourceLanguage.value)
                     if (cached != null) {
                         _translatedPages.value = _translatedPages.value + (index to cached)
@@ -750,12 +760,14 @@ class ReaderViewModel @Inject constructor(
                 }
             }
 
-            val uncached = pages.indices.filter { _translatedPages.value[it] == null }
+            val uncached = pages.indices.filter { _translatedPages.value[it].isNullOrEmpty() }
             var done = pages.size - uncached.size
             _batchProgress.value = TranslationProgress(done, pages.size)
 
-            uncached.forEachIndexed { i, pageIndex ->
-                if (i > 0) delay(2_000L)
+            var isFirstAttempt = true
+            for (pageIndex in uncached) {
+                if (!isFirstAttempt) delay(2_000L)
+                isFirstAttempt = false
                 try {
                     val blocks = translateRepository.translatePage(
                         pageUrl = pages[pageIndex],
@@ -766,7 +778,14 @@ class ReaderViewModel @Inject constructor(
                         sourceLanguage = _sourceLanguage.value,
                     )
                     _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
-                } catch (_: Exception) { /* stránka selhala, pokračuj dál */ }
+                } catch (_: com.haise.jiyu.translate.RateLimitedException) {
+                    // Dalsi pokusy by stejne selhaly na stejnem limitu - nema smysl
+                    // prohanet zbytek davky, jen ukazat srozumitelnou hlasku.
+                    _translationError.value = context.getString(R.string.reader_error_rate_limited)
+                    break
+                } catch (_: Exception) {
+                    // stránka selhala, pokračuj dál
+                }
                 done++
                 _batchProgress.value = TranslationProgress(done, pages.size)
             }

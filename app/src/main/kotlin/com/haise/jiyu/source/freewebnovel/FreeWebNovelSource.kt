@@ -21,6 +21,7 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
     override val id = "freewebnovel"
     override val name = "FreeWebNovel"
     override val contentType = "NOVEL"
+    override val homepageUrl get() = base
     private val base = "https://freewebnovel.com"
 
     private fun get(url: String): String {

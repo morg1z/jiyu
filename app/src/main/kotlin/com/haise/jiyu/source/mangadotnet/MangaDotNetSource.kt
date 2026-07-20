@@ -27,6 +27,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "mangadotnet"
     override val name = "Mangadotnet"
+    override val homepageUrl get() = base
     private val base = "https://mangadot.net"
 
     private fun getHtml(url: String): String {

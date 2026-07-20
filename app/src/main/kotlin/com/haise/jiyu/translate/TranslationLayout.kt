@@ -3,6 +3,13 @@ package com.haise.jiyu.translate
 /**
  * Vypočtená pozice přeloženého bloku po expanzi směrem k okolnímu volnému
  * prostoru - viz [layoutTranslationBlocks].
+ *
+ * [minTopF]: horní hranice vykreslovaného boxu - zatím vždy rovna [topF]
+ * (žádná expanze nahoru). Připraveno pro budoucí opravu OCR boxů u
+ * víceřádkových bublin, kde ML Kit občas nahlásí boundingBox kratší, než je
+ * skutečná výška textu (chybí horní řádky bubliny) - dokud tahle expanze
+ * nebude pořádně ověřená (riziko: bez blízkého souseda nahoře by se mohl
+ * roztáhnout i běžný jednořádkový box zbytečně vysoko), zůstává no-op.
  */
 data class PositionedTranslationBlock(
     val block: TranslatedBlock,
@@ -10,6 +17,7 @@ data class PositionedTranslationBlock(
     val topF: Float,
     val rightF: Float,
     val maxBottomF: Float,
+    val minTopF: Float = topF,
 )
 
 /**

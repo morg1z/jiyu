@@ -21,6 +21,7 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id   = "mangahub"
     override val name = "MangaHub"
+    override val homepageUrl get() = base
     private val base  = "https://mangahub.io"
     private val api   = "https://api.mghubcdn.com/graphql"
     private val cdn   = "https://img.mghubcdn.com/file/imghub"

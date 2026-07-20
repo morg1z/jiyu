@@ -62,6 +62,15 @@ class OcrEngine @Inject constructor(
         // naopak rozseknou jednu bublinu na víc bloků. Jdeme proto o úroveň níž na "lines"
         // (řádky) a slučujeme je vlastní geometrickou heuristikou (mergeNearbyLines), která
         // lépe odpovídá tomu, co člověk vnímá jako jednu bublinu.
+        //
+        // (Zkoušeno i slučování na úrovni slov/elements - u ručně psaného komiksového písma
+        // ML Kit občas vrátí boundingBox jednoho "Line" objektu kratší, než je skutečná výška
+        // víceřádkového textu, ale jednotlivá slova mají stejně chybné souřadnice, takže to
+        // problém neřešilo, a navíc to rozbilo slučování slov na stejném řádku - viz [shouldMerge]
+        // dole, jehož práh je odvozený z výšky vstupu, a slova jsou o řád nižší než řádky.
+        // Oprava chybějící výšky (box zakryje jen spodek víceřádkové bubliny) zatím čeká -
+        // viz [PositionedTranslationBlock.minTopF] v TranslationLayout.kt, kde je připravené
+        // pole pro budoucí opravu, ale zatím jako no-op.)
         val lines = result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
             val box = line.boundingBox ?: return@mapNotNull null
             if (line.text.isBlank()) return@mapNotNull null

@@ -29,6 +29,7 @@ import javax.inject.Singleton
 class MangaKSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "mangak"
     override val name = "MangaK"
+    override val homepageUrl get() = base
     private val base = "https://mangak.io"
 
     private fun get(url: String): String {

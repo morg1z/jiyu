@@ -27,6 +27,7 @@ class Hentai20Source @Inject constructor(private val client: OkHttpClient) : Man
     override val id = "hentai20"
     override val name = "Hentai20.io"
     override val contentType = "MANHWA"
+    override val homepageUrl get() = base
 
     private val base = "https://hentai20.io"
 

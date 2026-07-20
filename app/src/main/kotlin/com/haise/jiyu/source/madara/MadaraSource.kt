@@ -63,6 +63,7 @@ class MadaraSource(
 ) : MangaSource {
 
     override val contentType: String get() = contentTypeOverride
+    override val homepageUrl: String get() = baseUrl
 
     private val root get() = baseUrl.trimEnd('/')
 

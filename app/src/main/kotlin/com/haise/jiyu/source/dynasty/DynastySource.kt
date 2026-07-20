@@ -22,6 +22,7 @@ class DynastySource @Inject constructor(
 
     override val id = "dynasty"
     override val name = "Dynasty Scans"
+    override val homepageUrl get() = base
 
     private val base = "https://dynasty-scans.com"
 

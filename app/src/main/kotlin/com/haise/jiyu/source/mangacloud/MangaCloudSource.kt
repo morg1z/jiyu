@@ -112,6 +112,7 @@ class MangaCloudSource @Inject constructor(
 
     override val id = "mangacloud"
     override val name = "MangaCloud"
+    override val homepageUrl get() = "https://mangacloud.org"
 
     private val apiBase = "https://api.mangacloud.org"
     private val cdnBase = "https://pika.mangacloud.org"

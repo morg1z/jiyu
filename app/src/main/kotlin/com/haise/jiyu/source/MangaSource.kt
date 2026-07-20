@@ -67,6 +67,9 @@ interface MangaSource {
     /** Kód jazyka dle BCP-47 (en, cs, fr, es, pt, ja, ko, zh, …). Výchozí = en. */
     val language: String get() = "en"
 
+    /** Doménová URL webu zdroje (bez cesty) - použije se pro načtení favicony v UI. Výchozí = null (spadne na barevný monogram). */
+    val homepageUrl: String? get() = null
+
     /** Fulltextové hledání podle názvu. */
     suspend fun search(query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>
 

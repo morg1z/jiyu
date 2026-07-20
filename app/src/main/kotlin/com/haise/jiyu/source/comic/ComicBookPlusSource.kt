@@ -26,6 +26,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
     override val id = "comicbookplus"
     override val name = "ComicBookPlus"
     override val contentType = "COMIC"
+    override val homepageUrl get() = base
     private val base = "https://comicbookplus.com"
 
     private fun get(url: String): String {

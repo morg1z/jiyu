@@ -34,6 +34,7 @@ class MangaFireSource @Inject constructor(
 
     override val id = "mangafire"
     override val name = "MangaFire"
+    override val homepageUrl get() = base
 
     private val base = "https://mangafire.to"
     private val apiBase = "$base/api"

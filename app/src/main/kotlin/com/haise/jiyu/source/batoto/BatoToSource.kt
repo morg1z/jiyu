@@ -22,6 +22,7 @@ class BatoToSource @Inject constructor(
 
     override val id = "batoto"
     override val name = "Bato.to"
+    override val homepageUrl get() = "https://bato.to"
 
     private val api = "https://bato.to/apo/"
 

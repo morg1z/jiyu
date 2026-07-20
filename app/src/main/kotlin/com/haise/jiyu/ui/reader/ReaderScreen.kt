@@ -1799,16 +1799,20 @@ private fun WebtoonPage(
                     // .coerceAtLeast(0.dp): záporná šířka/výška z neobvyklého OCR boxu by jinak
                     // spadla na IllegalArgumentException přímo v Compose layout fázi (mimo dosah
                     // try/catch kolem překladu).
-                    val boxWidth = (size.width * (pos.rightF - pos.leftF)).toInt().toDp().coerceAtLeast(0.dp)
-                    val maxHeight = (size.height * (pos.maxBottomF - pos.topF)).toInt().toDp().coerceAtLeast(0.dp)
+                    //
+                    // TRANSLATION_BOX_BLEED: OCR box je občas o chlup těsnější než skutečný
+                    // vizuální rozsah textu (antialiasing, mírně pootočené písmo v bublině) -
+                    // bez malého přesahu pak po stranách prosvítal kousek originálu.
+                    val boxWidth = (size.width * (pos.rightF - pos.leftF)).toInt().toDp().coerceAtLeast(0.dp) + TRANSLATION_BOX_BLEED * 2
+                    val maxHeight = (size.height * (pos.maxBottomF - pos.minTopF)).toInt().toDp().coerceAtLeast(0.dp) + TRANSLATION_BOX_BLEED * 2
                     Box(
                         modifier = Modifier
                             .offset(
-                                x = (size.width * pos.leftF).toInt().toDp(),
-                                y = (size.height * pos.topF).toInt().toDp(),
+                                x = (size.width * pos.leftF).toInt().toDp() - TRANSLATION_BOX_BLEED,
+                                y = (size.height * pos.minTopF).toInt().toDp() - TRANSLATION_BOX_BLEED,
                             )
                             .widthIn(max = boxWidth)
-                            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(3.dp))
+                            .background(TRANSLATION_BOX_COLOR, RoundedCornerShape(3.dp))
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1875,22 +1879,28 @@ private fun RetryableAsyncImage(
 
 // ── Translation overlay ──────────────────────────────────────────────────────
 
+/** Malý přesah kolem přeloženého boxu, aby nikde neprosvítal kousek originálu za okrajem OCR boxu. */
+private val TRANSLATION_BOX_BLEED = 2.dp
+
+/** Téměř neprůhledné (ne 100%, kvůli měkčímu vzhledu štítku) - vyšší než dřívějších 92 % kvůli viditelnému "duchu" originálu skrz box. */
+private val TRANSLATION_BOX_COLOR = Color.White.copy(alpha = 0.98f)
+
 @Composable
 private fun BoxWithConstraintsScope.TranslationOverlay(pos: PositionedTranslationBlock, textScale: Float = 1f) {
     // OCR bounding box je v zásadě vždy leftF<=rightF/topF<=bottomF, ale nejde o zaručený
     // invariant (různé OCR modely, rotace/mirror snímků atd.) - záporná šířka/výška předaná
     // do Modifier.width()/height() spadne na IllegalArgumentException přímo v Compose layout
     // fázi, mimo dosah jakéhokoliv try/catch kolem překladu, a appka tvrdě spadne.
-    val left = maxWidth  * pos.leftF
-    val top  = maxHeight * pos.topF
-    val w    = (maxWidth  * (pos.rightF     - pos.leftF)).coerceAtLeast(0.dp)
-    val maxH = (maxHeight * (pos.maxBottomF - pos.topF)).coerceAtLeast(0.dp)
+    val left = maxWidth  * pos.leftF - TRANSLATION_BOX_BLEED
+    val top  = maxHeight * pos.minTopF - TRANSLATION_BOX_BLEED
+    val w    = (maxWidth  * (pos.rightF     - pos.leftF)).coerceAtLeast(0.dp) + TRANSLATION_BOX_BLEED * 2
+    val maxH = (maxHeight * (pos.maxBottomF - pos.minTopF)).coerceAtLeast(0.dp) + TRANSLATION_BOX_BLEED * 2
 
     Box(
         modifier = Modifier
             .offset(x = left, y = top)
             .widthIn(max = w)
-            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(3.dp))
+            .background(TRANSLATION_BOX_COLOR, RoundedCornerShape(3.dp))
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {

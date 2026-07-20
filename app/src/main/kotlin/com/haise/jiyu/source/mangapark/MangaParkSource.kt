@@ -33,6 +33,7 @@ class MangaParkSource @Inject constructor(
 
     override val id = "mangapark"
     override val name = "MangaPark"
+    override val homepageUrl get() = base
 
     private val base = "https://mangapark.page"
 

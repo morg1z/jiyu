@@ -48,6 +48,7 @@ class MangaPlusSource @Inject constructor(
 
     override val id = "mangaplus"
     override val name = "MANGA Plus"
+    override val homepageUrl get() = "https://mangaplus.shueisha.co.jp"
 
     private val apiBase = "https://jumpg-api.tokyo-cdn.com/api"
     private val appVersion = 237

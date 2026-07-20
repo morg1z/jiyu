@@ -28,6 +28,7 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "kuramanga"
     override val name = "KuraManga"
     override val contentType: String get() = "MANHWA"
+    override val homepageUrl get() = base
     private val base = "https://kuramanga.com"
 
     private fun get(url: String): String {

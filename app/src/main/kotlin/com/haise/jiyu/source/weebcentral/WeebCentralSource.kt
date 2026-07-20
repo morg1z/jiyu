@@ -29,6 +29,7 @@ import javax.inject.Singleton
 class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "weebcentral"
     override val name = "Weeb Central"
+    override val homepageUrl get() = base
     private val base = "https://weebcentral.com"
 
     private fun get(url: String): String {

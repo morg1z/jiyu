@@ -32,6 +32,7 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "manga18fx"
     override val name = "Manga18fx"
     override val contentType = "MANHWA"
+    override val homepageUrl get() = base
 
     // http, ne https - viz network_security_config.xml pro duvod (nekonzistentni
     // TLS handshake na Androidu, web funguje spolehlive pres obycejne HTTP).

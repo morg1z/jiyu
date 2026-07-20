@@ -39,6 +39,7 @@ class ComicKSource @Inject constructor(
 
     override val id   = "comick"
     override val name = "ComicK"
+    override val homepageUrl get() = "https://comick.io"
 
     private val apiBase   = "https://api.comick.dev"
     private val coverBase = "https://meo.comick.pictures"

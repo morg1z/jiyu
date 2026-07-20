@@ -29,6 +29,7 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id = "kaliscan"
     override val name = "KaliScan"
+    override val homepageUrl get() = base
     private val base = "https://kaliscan.io"
 
     private fun getHtml(url: String): String {

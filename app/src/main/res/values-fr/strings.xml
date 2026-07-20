@@ -576,6 +576,7 @@
     <string name="reader_page_load_failed">Échec du chargement de la page</string>
     <string name="reader_error_missing_supabase_url">SUPABASE_URL manquant dans local.properties - la traduction n\'a nulle part où appeler</string>
     <string name="reader_error_translation_failed">Échec de la traduction du chapitre, réessayez</string>
+    <string name="reader_error_rate_limited">Limite quotidienne de traduction IA atteinte, réessayez plus tard</string>
 
     <!-- Parcourir -->
     <string name="browse_title">Parcourir</string>
@@ -585,6 +586,11 @@
     <string name="browse_filter_comics">Comics</string>
     <string name="browse_lang_all">🌐 Tous</string>
     <string name="browse_no_sources_match">Aucune source ne correspond au filtre</string>
+    <string name="browse_source_type_manga">Manga</string>
+    <string name="browse_source_type_manhwa">Manhwa</string>
+    <string name="browse_source_type_manhua">Manhua</string>
+    <string name="browse_source_type_novel">Roman</string>
+    <string name="browse_source_type_comic">Comics</string>
 
     <!-- Parcourir une source -->
     <string name="source_browse_filters">Filtres</string>

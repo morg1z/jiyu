@@ -31,6 +31,7 @@ import javax.inject.Singleton
 class VortexScansSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "vortexscans"
     override val name = "Vortex Scans"
+    override val homepageUrl get() = base
     private val base = "https://vortexscans.org"
     private val apiBase = "https://api.vortexscans.org"
 

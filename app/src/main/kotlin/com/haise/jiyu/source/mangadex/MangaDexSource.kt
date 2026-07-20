@@ -41,6 +41,7 @@ class MangaDexSource @Inject constructor(
 
     override val id = "mangadex"
     override val name = "MangaDex"
+    override val homepageUrl get() = "https://mangadex.org"
 
     private val apiBase = "https://api.mangadex.org"
     private val coverBase = "https://uploads.mangadex.org/covers"

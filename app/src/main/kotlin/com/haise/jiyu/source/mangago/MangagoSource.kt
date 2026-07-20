@@ -22,6 +22,7 @@ class MangagoSource @Inject constructor(
 ) : MangaSource {
     override val id = "mangago"
     override val name = "Mangago"
+    override val homepageUrl get() = base
     private val base = "https://www.mangago.me"
 
     private val client: OkHttpClient = baseClient.newBuilder()

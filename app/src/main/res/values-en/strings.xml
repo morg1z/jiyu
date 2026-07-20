@@ -579,6 +579,7 @@
     <string name="reader_page_load_failed">Page failed to load</string>
     <string name="reader_error_missing_supabase_url">Missing SUPABASE_URL in local.properties - translation has nowhere to call</string>
     <string name="reader_error_translation_failed">Chapter translation failed, try again</string>
+    <string name="reader_error_rate_limited">Daily AI translation limit reached, please try again later</string>
 
     <!-- Browse -->
     <string name="browse_title">Browse</string>
@@ -588,6 +589,11 @@
     <string name="browse_filter_comics">Comics</string>
     <string name="browse_lang_all">🌐 All</string>
     <string name="browse_no_sources_match">No sources match the filter</string>
+    <string name="browse_source_type_manga">Manga</string>
+    <string name="browse_source_type_manhwa">Manhwa</string>
+    <string name="browse_source_type_manhua">Manhua</string>
+    <string name="browse_source_type_novel">Novel</string>
+    <string name="browse_source_type_comic">Comic</string>
 
     <!-- Browse source -->
     <string name="source_browse_filters">Filters</string>

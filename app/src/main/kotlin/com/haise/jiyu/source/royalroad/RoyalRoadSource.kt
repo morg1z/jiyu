@@ -22,6 +22,7 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "royalroad"
     override val name = "Royal Road"
     override val contentType = "NOVEL"
+    override val homepageUrl get() = base
     private val base = "https://www.royalroad.com"
 
     private fun get(url: String): String {

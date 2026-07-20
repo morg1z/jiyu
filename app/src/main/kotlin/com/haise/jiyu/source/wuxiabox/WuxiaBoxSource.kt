@@ -26,6 +26,7 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
     override val id = "wuxiabox"
     override val name = "Wuxia Box"
     override val contentType: String get() = "NOVEL"
+    override val homepageUrl get() = base
     private val base = "https://www.wuxiabox.com"
 
     private fun get(url: String): String {

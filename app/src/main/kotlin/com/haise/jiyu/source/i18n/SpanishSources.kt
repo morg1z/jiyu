@@ -20,6 +20,7 @@ class TMOSource @Inject constructor(private val client: OkHttpClient) : MangaSou
     override val id       = "tmo"
     override val name     = "TuMangaOnline 🇪🇸"
     override val language = "es"
+    override val homepageUrl get() = base
     private val base      = "https://lectortmo.com"
 
     private fun get(url: String) = client.newCall(
@@ -109,6 +110,7 @@ class InMangaSource @Inject constructor(private val client: OkHttpClient) : Mang
     override val id       = "inmanga"
     override val name     = "InManga 🇪🇸"
     override val language = "es"
+    override val homepageUrl get() = base
     private val base      = "https://inmanga.com"
 
     private fun get(url: String) = client.newCall(
@@ -186,6 +188,7 @@ class MangaLeerSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id       = "mangaleer"
     override val name     = "MangaLeer 🇪🇸"
     override val language = "es"
+    override val homepageUrl get() = base
     private val base  = "https://mangaleer.com"
 
     private fun get(url: String) = client.newCall(
@@ -262,6 +265,7 @@ class UnionMangasSource @Inject constructor(private val client: OkHttpClient) : 
     override val id       = "unionmangas"
     override val language = "pt"
     override val name = "Union Mangás 🇧🇷"
+    override val homepageUrl get() = base
     private val base  = "https://unionmangas.xyz"
 
     private fun get(url: String) = client.newCall(

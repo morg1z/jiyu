@@ -2,6 +2,7 @@ package com.haise.jiyu.translate
 
 import com.haise.jiyu.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -11,6 +12,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Proxy vrátila 429 (denní/uživatelský limit počtu požadavků na translate-proxy) -
+ * na rozdíl od běžné síťové chyby nemá smysl to zkoušet znovu (viz [GroqTranslateClient]),
+ * volající (ReaderViewModel) by měl místo tichého selhání ukázat uživateli konkrétní
+ * hlášku a přestat rozjíždět další stránky dávky.
+ */
+class RateLimitedException : Exception("Translation rate limit exceeded")
 
 /**
  * Volá Supabase Edge Function "translate-proxy", která teprve server-side volá Groq.
@@ -63,6 +72,10 @@ class GroqTranslateClient @Inject constructor(
         mode = "novel",
     )
 
+    /**
+     * @throws RateLimitedException pokud proxy vrátí 429 - volající by to nemel tise
+     *   spolknout jako "žádný text na stránce", ale ukázat konkrétní hlášku.
+     */
     private suspend fun translateViaProxy(
         texts: List<String>,
         targetLanguage: String,
@@ -88,15 +101,27 @@ class GroqTranslateClient @Inject constructor(
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        try {
-            val responseText = httpClient.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
-                resp.body?.string() ?: return@withContext emptyList()
+        // Jednotlivé stránky/dávky občas selžou na přechodné síťové chybě nebo timeoutu
+        // proxy/Groq - bez retry to dřív znamenalo natrvalo nepřeloženou bublinu, i když
+        // druhý pokus o pár set ms později běžně projde. Rate limit (429) naopak retry
+        // nezachrání, tam se propaguje okamžitě jako RateLimitedException.
+        repeat(3) { attempt ->
+            try {
+                val result = httpClient.newCall(request).execute().use { resp ->
+                    if (resp.code == 429) throw RateLimitedException()
+                    if (!resp.isSuccessful) return@use null
+                    val responseText = resp.body?.string() ?: return@use null
+                    val arr = JSONObject(responseText).getJSONArray("translations")
+                    List(arr.length()) { arr.getString(it) }
+                }
+                if (result != null) return@withContext result
+            } catch (e: RateLimitedException) {
+                throw e
+            } catch (_: Exception) {
+                // zkusime to znovu, viz delay nize; po vycerpani pokusu spadneme na emptyList()
             }
-            val arr = JSONObject(responseText).getJSONArray("translations")
-            List(arr.length()) { arr.getString(it) }
-        } catch (e: Exception) {
-            emptyList()
+            if (attempt < 2) delay(800L * (attempt + 1))
         }
+        emptyList()
     }
 }

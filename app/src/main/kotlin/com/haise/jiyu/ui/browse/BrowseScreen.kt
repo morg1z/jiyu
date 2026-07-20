@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,12 +38,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,14 +55,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaSource
+import com.haise.jiyu.ui.theme.Accent
 import com.haise.jiyu.ui.theme.CardBorder
+import com.haise.jiyu.ui.theme.Danger
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.NightBlue
+import com.haise.jiyu.ui.theme.Pink
+import com.haise.jiyu.ui.theme.Success
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
+import com.haise.jiyu.ui.theme.Warning
 import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
@@ -160,14 +170,14 @@ fun BrowseScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
+                columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 16.dp + navBottom),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(sources, key = { it.id }) { source ->
-                    SourceTile(source = source, onClick = { onOpenSource(source.id) })
+                    SourceCard(source = source, onClick = { onOpenSource(source.id) })
                 }
             }
         }
@@ -210,49 +220,157 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Dlaždice zdroje - monogram (zdroje nemají bundlované logo), ne emoji. */
+/**
+ * Paleta pro monogramy zdrojů - zdroje nemají bundlované logo, takže barvu
+ * odvozujeme stabilně z `source.id` (hash), aby stejný zdroj měl vždy stejnou
+ * barvu napříč rekompozicemi/relaunchi. Zámerná výjimka z "jedna akcentní
+ * barva" pravidla appky (viz Color.kt) - tady jde o rozlišení desítek zdrojů
+ * v mřížce, ne o soupeřící duotone dekoraci.
+ */
+private val sourceAccentPalette = listOf(
+    Accent, Pink, Success, Warning, Danger,
+    Color(0xFF3B9EFF), // modrá
+    Color(0xFFFF8A3B), // oranžová
+    Color(0xFF2DD4BF), // tyrkysová
+    Color(0xFFE05CFF), // fuchsiová
+    Color(0xFFEAB308), // žlutá
+)
+
+private fun accentFor(sourceId: String): Color =
+    sourceAccentPalette[(sourceId.hashCode().let { if (it < 0) -it else it }) % sourceAccentPalette.size]
+
 @Composable
-private fun SourceTile(source: MangaSource, onClick: () -> Unit) {
+private fun contentTypeLabel(contentType: String): String = when (contentType) {
+    "MANHWA" -> stringResource(R.string.browse_source_type_manhwa)
+    "MANHUA" -> stringResource(R.string.browse_source_type_manhua)
+    "NOVEL"  -> stringResource(R.string.browse_source_type_novel)
+    "COMIC"  -> stringResource(R.string.browse_source_type_comic)
+    else     -> stringResource(R.string.browse_source_type_manga)
+}
+
+/** Vlaječka podle BCP-47 kódu jazyka zdroje; neznámý kód -> 🌐 + kód velkými písmeny. */
+private fun languageFlag(code: String): String = when (code.lowercase()) {
+    "en" -> "🇺🇸"
+    "ja" -> "🇯🇵"
+    "ko" -> "🇰🇷"
+    "zh", "zh-hk" -> "🇨🇳"
+    "fr" -> "🇫🇷"
+    "es" -> "🇪🇸"
+    "pt", "pt-br" -> "🇧🇷"
+    "de" -> "🇩🇪"
+    "it" -> "🇮🇹"
+    "tr" -> "🇹🇷"
+    "ar" -> "🇸🇦"
+    "id" -> "🇮🇩"
+    "ru" -> "🇷🇺"
+    "pl" -> "🇵🇱"
+    "cs" -> "🇨🇿"
+    else -> "🌐"
+}
+
+/** URL veřejné favicon služby pro doménu webu zdroje - appka žádná loga zdrojů nebundluje. */
+private fun faviconUrlFor(homepageUrl: String): String {
+    val domain = homepageUrl.removePrefix("https://").removePrefix("http://").substringBefore("/")
+    return "https://www.google.com/s2/favicons?domain=$domain&sz=64"
+}
+
+/** Karta zdroje - monogram (barevně odlišený, viz [accentFor]), název, typ obsahu a jazyk. */
+@Composable
+private fun SourceCard(source: MangaSource, onClick: () -> Unit) {
     val initials = remember(source.name) {
         source.name.trim().split(" ")
             .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar() }
             .take(2)
             .joinToString("")
     }
+    val accent = remember(source.id) { accentFor(source.id) }
+
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick,
-        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(NightBlue)
+            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(10.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(NightBlue)
-                .border(1.dp, CardBorder, RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = initials.ifBlank { "?" },
-                color = Violet,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+        // Ikona a "…" menu na společném řádku (samostatně, ne vedle názvu) - u úzkého
+        // 3-sloupcového gridu by název vedle ikony neměl dost místa a lámal by se
+        // uprostřed slova (zdroje typu "MangaDex"/"nhentai" nemají mezeru, kam
+        // zalomit).
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(accent.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = initials.ifBlank { "?" },
+                    color = accent,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                // Favicona webu zdroje přes veřejnou službu (zdroje nemají bundlované
+                // logo) - dokud se nenačte (nebo web faviconu nemá/blokuje), zůstává
+                // vidět barevný monogram pod ní, žádné bliknutí prázdného místa.
+                source.homepageUrl?.let { homepage ->
+                    var showFavicon by remember(source.id) { mutableStateOf(false) }
+                    AsyncImage(
+                        model = faviconUrlFor(homepage),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .padding(6.dp)
+                            .alpha(if (showFavicon) 1f else 0f),
+                        onState = { state -> showFavicon = state is AsyncImagePainter.State.Success },
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            // Zatím jen vizuální placeholder (bez funkce) - viz zadání redesignu.
+            Icon(
+                TablerIcons.DotsVertical,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(14.dp),
             )
         }
         Spacer(Modifier.height(6.dp))
         Text(
             text = source.name,
             color = TextPrimary,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            lineHeight = 13.sp,
+            lineHeight = 14.sp,
         )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = contentTypeLabel(source.contentType),
+            color = TextSecondary,
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(DeepSpace.copy(alpha = 0.5f))
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+        ) {
+            Text(
+                text = "${languageFlag(source.language)} ${source.language.uppercase()}",
+                color = TextSecondary,
+                fontSize = 10.sp,
+            )
+        }
     }
 }

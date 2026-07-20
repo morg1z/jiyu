@@ -19,6 +19,7 @@ class RawKumaSource @Inject constructor(private val client: OkHttpClient) : Mang
     override val id       = "rawkuma"
     override val name     = "RawKuma (Raw)"
     override val language = "ja"
+    override val homepageUrl get() = base
     private val base = "https://rawkuma.com"
 
     private fun get(url: String): String {

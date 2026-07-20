@@ -30,6 +30,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
     override val id = "novelbuddy"
     override val name = "NovelBuddy"
     override val contentType = "NOVEL"
+    override val homepageUrl get() = base
     private val base = "https://novelbuddy.me"
     private val api = "https://api.novelbuddy.me"
 

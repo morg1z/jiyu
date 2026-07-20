@@ -27,6 +27,7 @@ class GalaxyMangaSource @Inject constructor(private val client: OkHttpClient) : 
     override val id = "galaxymanga"
     override val name = "Galaxy Manga"
     override val contentType: String get() = "MANHWA"
+    override val homepageUrl get() = base
     private val base = "https://galaxymanga.io"
 
     private fun get(url: String): String {
