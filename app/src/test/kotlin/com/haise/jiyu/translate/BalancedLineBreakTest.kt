@@ -162,6 +162,7 @@ class BalancedLineBreakTest {
         pageWidthPx: Float = 1000f,
         pageHeightPx: Float = 1000f,
         preferredFontSp: Float? = null,
+        onCapProbe: (preferredFontSp: Float, roomToGrow: Boolean) -> Unit = { _, _ -> },
     ) =
         fitTextToShape(
             words = text.split(" ").filter { it.isNotBlank() },
@@ -177,6 +178,7 @@ class BalancedLineBreakTest {
             spaceWidth = { fontSp -> fontSp * 0.6f },
             lineHeightPx = { fontSp -> fontSp * 1.25f },
             preferredFontSp = preferredFontSp,
+            onCapProbe = onCapProbe,
         )
 
     @Test
@@ -289,6 +291,62 @@ class BalancedLineBreakTest {
         val layout = fitOval("AHOJ")
         assertNotNull(layout)
         assertTrue("expected the old maximize behavior when preferredFontSp is null, got ${layout!!.fontSp}", layout.fontSp > 20f)
+    }
+
+    // ── fitTextToShape: onCapProbe (viz estimateNativeFontPx audit) ──
+
+    @Test
+    fun `onCapProbe reports room to grow when the oval has plenty of space left`() {
+        var probedPreferred: Float? = null
+        var probedRoomToGrow: Boolean? = null
+        val layout = fitOval(
+            "AHOJ",
+            preferredFontSp = 10f,
+            onCapProbe = { preferred, roomToGrow -> probedPreferred = preferred; probedRoomToGrow = roomToGrow },
+        )
+        assertNotNull(layout)
+        assertEquals(10f, layout!!.fontSp, 0.01f)
+        assertEquals(10f, probedPreferred)
+        assertEquals(true, probedRoomToGrow)
+    }
+
+    @Test
+    fun `onCapProbe reports no room to grow when the preferred size is the true limit`() {
+        // Plochy obdelnik (ne oval) drzi sirku radku konstantni napric celou vyskou, takze jde
+        // spocitat presnou hranici: slovo "AHOJ" (4 znaky) sirokr 2.4*fontSp - pri 10sp 24px,
+        // pri 10.25sp 24.6px. Sirka tvaru 24.3px je schvalne mezi nimi.
+        val rectShape = listOf(
+            BubbleShapePoint(0.0f, 0.5f - 0.1215f, 0.5f + 0.1215f),
+            BubbleShapePoint(1.0f, 0.5f - 0.1215f, 0.5f + 0.1215f),
+        )
+        var probedRoomToGrow: Boolean? = null
+        val layout = fitTextToShape(
+            words = listOf("AHOJ"),
+            minFontSp = 6f,
+            maxFontSp = 36f,
+            shape = rectShape,
+            centerF = 0.5f,
+            shapeTopF = 0f,
+            shapeBottomF = 1f,
+            pageWidthPx = 100f,
+            pageHeightPx = 1000f,
+            measureWord = { word, fontSp -> word.length * fontSp * 0.6f },
+            spaceWidth = { fontSp -> fontSp * 0.6f },
+            lineHeightPx = { fontSp -> fontSp * 1.25f },
+            preferredFontSp = 10f,
+            onCapProbe = { _, roomToGrow -> probedRoomToGrow = roomToGrow },
+        )
+        assertNotNull(layout)
+        assertEquals(10f, layout!!.fontSp, 0.01f)
+        assertEquals(false, probedRoomToGrow)
+    }
+
+    @Test
+    fun `onCapProbe is not called when the result shrinks below the preferred size`() {
+        var called = false
+        val longText = (1..60).joinToString(" ") { "SLOVOSLOVO$it" }
+        fitOval(longText, preferredFontSp = 30f, onCapProbe = { _, _ -> called = true })
+        assertEquals(false, called)
     }
 
     // ── maxLineWidthPx (strop podle skutečného boxu, do kterého se text kreslí) ──

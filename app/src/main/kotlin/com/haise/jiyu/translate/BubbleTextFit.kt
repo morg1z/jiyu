@@ -163,6 +163,13 @@ private const val FINE_STEP_SP = 0.25f
  *   lettering, ne na uměle nafouknuté maximum, co se do bubliny vejde) a teprve když se
  *   nevejde, zmenšuje - ale NIKDY nezvětší nad tuhle hodnotu, i kdyby v bublině zbylo místo.
  *   Null = dřívější chování (hledej rovnou největší velikost, co se vejde).
+ * @param onCapProbe pozorovací hák: zavolá se právě jednou, KDYŽ výsledná velikost narazila
+ *   přesně na [preferredFontSp] (odhad z [estimateNativeFontPx] byl skutečný limitující
+ *   faktor, ne obecné [maxFontSp] ani nedostatek místa) - s jedním levným extra měřením
+ *   (`fits(strop + krok)`), jestli by se vešla i o krok větší velikost. `roomToGrow = true`
+ *   znamená, že odhad nechal na stole nevyužité místo - sbírá se, aby šlo časem posoudit,
+ *   jestli se [estimateNativeFontPx] má ladit výš, místo dalšího odhadu. Nic v návratové
+ *   hodnotě nemění, čistě observabilita.
  */
 fun fitFontSizeToBox(
     minFontSp: Float,
@@ -171,6 +178,7 @@ fun fitFontSizeToBox(
     maxHeightPx: Float,
     measure: (fontSp: Float, maxWidthPx: Float) -> TextMeasurement,
     preferredFontSp: Float? = null,
+    onCapProbe: (preferredFontSp: Float, roomToGrow: Boolean) -> Unit = { _, _ -> },
 ): ShapeFitResult {
     fun fits(fontSp: Float): Boolean {
         val measured = measure(fontSp, boxWidthPx)
@@ -192,5 +200,15 @@ fun fitFontSizeToBox(
     while (fine + FINE_STEP_SP <= searchCeiling && fits(fine + FINE_STEP_SP)) {
         fine += FINE_STEP_SP
     }
-    return ShapeFitResult(fine.coerceIn(minFontSp, maxFontSp), boxWidthPx)
+    val chosen = fine.coerceIn(minFontSp, maxFontSp)
+
+    // preferredFontSp byl skutecny limitujici faktor, jen kdyz je PRISNEJSI nez maxFontSp -
+    // jinak dosazeni stropu nic nerika o tom, jestli odhad nechal misto na stole.
+    if (preferredFontSp != null && searchCeiling < maxFontSp && chosen >= searchCeiling) {
+        val probeSp = searchCeiling + FINE_STEP_SP
+        val roomToGrow = probeSp <= maxFontSp && fits(probeSp)
+        onCapProbe(searchCeiling, roomToGrow)
+    }
+
+    return ShapeFitResult(chosen, boxWidthPx)
 }

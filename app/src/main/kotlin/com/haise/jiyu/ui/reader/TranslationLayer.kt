@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.reader
 
+import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
@@ -442,6 +443,16 @@ private val ComicNeueBold = FontFamily(Font(R.font.comic_neue_bold, FontWeight.B
 private val ComicNeueItalic = FontFamily(Font(R.font.comic_neue_italic, FontWeight.Normal, FontStyle.Italic))
 private val ComicNeueBoldItalic = FontFamily(Font(R.font.comic_neue_bold_italic, FontWeight.Bold, FontStyle.Italic))
 
+/**
+ * Loguje, kdyz odhad nativni velikosti pisma ([estimateNativeFontPx]) narazil na strop sazby
+ * a jestli pri tom v bublině zbylo nevyuzite misto (viz onCapProbe parametr [fitFontSizeToBox]/
+ * [fitTextToShape]). Zatim cistě observabilita: `adb logcat -s NativeFontCap` pri beznem
+ * cteni nasbira realnou distribuci, podle ktere se pomer box/font casem dolaci na datech.
+ */
+private fun logNativeFontCap(preferredFontSp: Float, roomToGrow: Boolean) {
+    Log.d("NativeFontCap", "preferred=%.1fsp roomToGrow=%s".format(preferredFontSp, roomToGrow))
+}
+
 private fun fontFamilyFor(bubbleType: BubbleType): FontFamily = when (bubbleType) {
     BubbleType.SHOUT -> ComicNeueBold
     BubbleType.THOUGHT, BubbleType.WHISPER -> ComicNeueItalic
@@ -567,6 +578,7 @@ private fun AutoFitTranslatedText(
                 maxLineWidthPx = renderableWidthPx,
                 preferredFontSp = preferredFontSp,
                 centerYF = shapeCenterYF,
+                onCapProbe = ::logNativeFontCap,
             )
         }
     } else {
@@ -654,6 +666,7 @@ private fun AutoFitTranslatedText(
                     longestWordWidthPx = longestWordWidthPx + strokeReservePx,
                 )
             },
+            onCapProbe = ::logNativeFontCap,
         )
     }
 

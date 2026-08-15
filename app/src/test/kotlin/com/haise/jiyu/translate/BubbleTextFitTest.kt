@@ -302,6 +302,59 @@ class BubbleTextFitTest {
         )
     }
 
+    // ── fitFontSizeToBox: onCapProbe (viz estimateNativeFontPx audit) ──
+
+    @Test
+    fun `onCapProbe reports room to grow when the box has plenty of space left`() {
+        var probedPreferred: Float? = null
+        var probedRoomToGrow: Boolean? = null
+        val result = fitFontSizeToBox(
+            minFontSp = 6f,
+            maxFontSp = 36f,
+            boxWidthPx = 600f,
+            maxHeightPx = 600f,
+            preferredFontSp = 10f,
+            measure = { fontSp, maxW -> fakeMeasure("UZ JDOU", fontSp, maxW) },
+            onCapProbe = { preferred, roomToGrow -> probedPreferred = preferred; probedRoomToGrow = roomToGrow },
+        )
+        assertEquals(10f, result.fontSp, 0.01f)
+        assertEquals(10f, probedPreferred)
+        assertEquals(true, probedRoomToGrow)
+    }
+
+    @Test
+    fun `onCapProbe reports no room to grow when the preferred size is the true limit`() {
+        // Vyska boxu (12.6px) je schvalne mezi vyskou pri 10sp (12.5px, vejde se) a 10.25sp
+        // (12.8125px, nevejde se) - preferovana velikost je tedy skutecny strop, ne jen
+        // nahodou dosazeny.
+        var probedRoomToGrow: Boolean? = null
+        fitFontSizeToBox(
+            minFontSp = 6f,
+            maxFontSp = 36f,
+            boxWidthPx = 600f,
+            maxHeightPx = 12.6f,
+            preferredFontSp = 10f,
+            measure = { fontSp, maxW -> fakeMeasure("UZ JDOU", fontSp, maxW) },
+            onCapProbe = { _, roomToGrow -> probedRoomToGrow = roomToGrow },
+        )
+        assertEquals(false, probedRoomToGrow)
+    }
+
+    @Test
+    fun `onCapProbe is not called when the result shrinks below the preferred size`() {
+        var called = false
+        fitFontSizeToBox(
+            minFontSp = 6f,
+            maxFontSp = 36f,
+            boxWidthPx = 120f,
+            maxHeightPx = 60f,
+            preferredFontSp = 24f,
+            measure = { fontSp, maxW -> fakeMeasure("TOHLE JE DLOUHY PREKLAD CO SE MUSI VEJIT DO MALE BUBLINY", fontSp, maxW) },
+            onCapProbe = { _, _ -> called = true },
+        )
+        assertEquals(false, called)
+    }
+
     @Test
     fun `omitting preferredFontSp keeps the old maximize behavior`() {
         val result = fitFontSizeToBox(

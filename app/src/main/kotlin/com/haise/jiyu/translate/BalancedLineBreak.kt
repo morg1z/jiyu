@@ -144,6 +144,11 @@ private const val SHAPED_FINE_STEP_SP = 0.25f
  *   by znamenalo sázet podle jiného místa, než kam se text nakonec vykreslí.
  * @return null, když se text nevejde ani při [minFontSp] - volající pak spadne na jednodušší
  *   sazbu do vepsaného obdélníku.
+ * @param onCapProbe pozorovací hák: zavolá se právě jednou, KDYŽ výsledná velikost narazila
+ *   přesně na [preferredFontSp] (odhad z `estimateNativeFontPx` byl skutečný limitující faktor,
+ *   ne obecné [maxFontSp]) - s jedním levným extra pokusem o krok větší velikost, jestli by se
+ *   vešla i ta. `roomToGrow = true` znamená, že odhad nechal na stole nevyužité místo - viz
+ *   stejný hák u [fitFontSizeToBox]. Nic v návratové hodnotě nemění, čistě observabilita.
  */
 fun fitTextToShape(
     words: List<String>,
@@ -162,6 +167,7 @@ fun fitTextToShape(
     maxLineWidthPx: Float = Float.MAX_VALUE,
     preferredFontSp: Float? = null,
     centerYF: Float? = null,
+    onCapProbe: (preferredFontSp: Float, roomToGrow: Boolean) -> Unit = { _, _ -> },
 ): ShapedTextLayout? {
     if (words.isEmpty() || shape.size < 2 || pageHeightPx <= 0f) return null
     val shapeHeightF = shapeBottomF - shapeTopF
@@ -214,6 +220,16 @@ fun fitTextToShape(
         fine += SHAPED_FINE_STEP_SP
         best = next
     }
+
+    // preferredFontSp byl skutecny limitujici faktor, jen kdyz je PRISNEJSI nez maxFontSp -
+    // jinak dosazeni stropu nic nerika o tom, jestli odhad nechal misto na stole (viz stejna
+    // uvaha u fitFontSizeToBox).
+    if (preferredFontSp != null && searchCeiling < maxFontSp && fine >= searchCeiling) {
+        val probeSp = searchCeiling + SHAPED_FINE_STEP_SP
+        val roomToGrow = probeSp <= maxFontSp && attempt(probeSp) != null
+        onCapProbe(searchCeiling, roomToGrow)
+    }
+
     return ShapedTextLayout(fontSp = fine, lines = best.first, centerYF = best.second)
 }
 
