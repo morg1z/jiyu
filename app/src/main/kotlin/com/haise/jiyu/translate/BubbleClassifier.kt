@@ -126,21 +126,18 @@ object BubbleClassifier {
     private val domainPattern = Regex("[A-Z0-9]{2,}\\.(COM|NET|ORG|INFO|IO|TO|CC|ME)")
 
     /**
-     * Smí se použít pravidlo "krátký text velkými písmeny bez mezer = zvuk"?
+     * Rozhoduje, jestli je blok textu zvukový efekt (SFX), ne replika - SFX bublina se
+     * nikdy nepřekládá ani nevykresluje překladovou vrstvou, takže omyl tímhle směrem
+     * nechá na stránce originál.
      *
-     * To pravidlo je nebezpečné samo o sobě - stejně jako "BOOM" ho splňuje i spousta
-     * skutečných krátkých replik. Jedinou pojistkou proti tomu je [shortWordsNotSfx], jenže
-     * ten seznam je čistě ANGLICKÝ. U španělského, francouzského nebo indonéského komiksu
-     * tedy pravidlo platí bez sítě a běžné krátké repliky označí za zvuk - a SFX bublina se
-     * nikdy nepřekládá ani nevykresluje, takže na stránce prostě zůstane originál.
-     *
-     * Kde seznam neplatí, se pravidlo raději vynechá. Nejhorší, co se pak stane, je že se
-     * přeloží i opravdový zvuk ("BOOM" -> "BUM") - o řád menší škoda než spolykaná replika.
-     * Skutečné zvuky navíc pořád chytá [sfxWords] a u CJK pravidlo o opakovaném vzoru.
-     *
-     * Omezení: pod "Auto" se latinkové jazyky od sebe rozeznat nedají (všechny čte jeden
-     * model, viz [AUTO_CANDIDATE_LANGUAGES]), takže tam zůstává anglické chování. Rozhoduje
-     * to, co má uživatel NASTAVENÉ.
+     * Žádné z pravidel níže nestojí na seznamu slov konkrétního jazyka - fungují nad PÍSMEM
+     * (latinka/CJK), ne nad nastaveným jazykem, takže platí stejně pro angličtinu,
+     * španělštinu, francouzštinu i češtinu (viz "zvuk nemá samohlásku" a [LATIN_VOWELS]
+     * níže - tohle dřív bývalo pravidlo "krátký text velkými písmeny = zvuk" pojištěné
+     * čistě anglickým seznamem běžných slov, který byl otevřená množina a vždycky
+     * neúplný). Výjimka: písma mimo latinku i CJK (cyrilice, řečtina, ...) tahle pravidla
+     * přeskočí - viz [MAX_LATIN_CODE] - takže tam krátké SFX bez uzavřeného seznamu
+     * [sfxWords] neodhalí, ale ani nehrozí spolknutí běžné repliky.
      */
     private fun detectSfx(raw: RawTextBlock, trimmed: String, letters: String): Boolean {
         if (trimmed.isEmpty()) return false
