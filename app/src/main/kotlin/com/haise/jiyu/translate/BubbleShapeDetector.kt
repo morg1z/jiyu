@@ -70,6 +70,12 @@ object BubbleShapeDetector {
      *
      * @param textAreaPx plocha OCR boxu textu v pixelech; > 0 zapne kontrolu
      *   [MAX_SHAPE_TO_TEXT_AREA_RATIO] (viz tam), 0 ji vypne
+     * @param onRatioMeasured pozorovací hák: zavolá se právě jednou, KDYŽ [textAreaPx] > 0
+     *   a nalezený obrys má platný obalový obdélník - s reálným poměrem tvar/text a tím, jestli
+     *   prošel [MAX_SHAPE_TO_TEXT_AREA_RATIO]. Slouží k nasbírání reálné distribuce poměru z
+     *   běžného čtení (volající zaloguje), aby šel práh 30x časem doladit na datech, ne na
+     *   dalším odhadu - viz komentář u [MAX_SHAPE_TO_TEXT_AREA_RATIO]. Nic v návratové hodnotě
+     *   nemění, čistě observabilita.
      * @return null když detekce selhala/vypadá nedůvěryhodně (žádný platný seed,
      *   navštívená plocha přesáhla [maxAreaFraction] celé stránky - typicky text přímo
      *   na kresbě/SFX bez uzavřeného pozadí - nebo je nalezený obrys nesmyslně velký proti
@@ -84,6 +90,7 @@ object BubbleShapeDetector {
         colorDistanceThreshold: Int = 40,
         maxAreaFraction: Float = 0.25f,
         textAreaPx: Long = 0,
+        onRatioMeasured: (ratio: Double, accepted: Boolean) -> Unit = { _, _ -> },
     ): List<BubbleShapePoint>? {
         if (width <= 0 || height <= 0) return null
         val totalPixels = width.toLong() * height.toLong()
@@ -189,7 +196,9 @@ object BubbleShapeDetector {
                 if (rowMax[y] > maxX) maxX = rowMax[y]
             }
             val boundsArea = (maxX - minX + 1).toLong() * (bottomY - topY + 1).toLong()
-            if (boundsArea > textAreaPx * MAX_SHAPE_TO_TEXT_AREA_RATIO) return null
+            val accepted = boundsArea <= textAreaPx * MAX_SHAPE_TO_TEXT_AREA_RATIO
+            onRatioMeasured(boundsArea.toDouble() / textAreaPx, accepted)
+            if (!accepted) return null
         }
 
         return (0 until SAMPLE_COUNT).map { i ->

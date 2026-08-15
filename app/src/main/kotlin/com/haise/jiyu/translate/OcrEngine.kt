@@ -1,6 +1,7 @@
 package com.haise.jiyu.translate
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -87,6 +88,16 @@ internal fun textAreaPx(leftF: Float, topF: Float, rightF: Float, bottomF: Float
     val width = ((rightF - leftF) * w).toLong().coerceAtLeast(0)
     val height = ((bottomF - topF) * h).toLong().coerceAtLeast(0)
     return width * height
+}
+
+/**
+ * Loguje reálný poměr tvar/text naměřený u [BubbleShapeDetector.detectShape] (viz tam
+ * MAX_SHAPE_TO_TEXT_AREA_RATIO = 30x). Zatím čistě observabilita: `adb logcat -s BubbleShapeRatio`
+ * při běžném čtení nasbírá reálnou distribuci, podle které se práh časem doladí na datech
+ * misto dalšího odhadu.
+ */
+private fun logShapeRatio(ratio: Double, accepted: Boolean) {
+    Log.d("BubbleShapeRatio", "ratio=%.1fx accepted=%s".format(ratio, accepted))
 }
 
 /** Hodnota zdrojového jazyka, která znamená "zjisti si to sám" - viz [resolveAutoLanguage]. */
@@ -243,6 +254,7 @@ class OcrEngine @Inject constructor() {
                 // gradient - průměr obou polovin je pro tenhle účel dost přesný.
                 bgColorArgb = averageArgb(bgSample.topArgb, bgSample.bottomArgb),
                 textAreaPx = textAreaPx(block.leftF, block.topF, block.rightF, block.bottomF, bitmap.width, bitmap.height),
+                onRatioMeasured = ::logShapeRatio,
             )
             // Kaskadova replika byva nakreslena jako dve PREKRYVAJICI SE bublinky, ktere tvori
             // jednu spojitou bilou plochu - flood-fill se pres ten pas prelije do sousedniho
@@ -320,6 +332,7 @@ class OcrEngine @Inject constructor() {
                 seeds = ringSeeds(tb.leftF, tb.topF, tb.rightF, tb.bottomF, w, h),
                 bgColorArgb = tb.bgColorArgb,
                 textAreaPx = textAreaPx(tb.leftF, tb.topF, tb.rightF, tb.bottomF, w, h),
+                onRatioMeasured = ::logShapeRatio,
             )
             tb.copy(shape = shape)
         }

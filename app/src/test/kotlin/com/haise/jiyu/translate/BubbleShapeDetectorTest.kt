@@ -216,4 +216,72 @@ class BubbleShapeDetectorTest {
 
         assertNull("obalovy obdelnik krize je 380x260, tedy 247x plocha textu", shape)
     }
+
+    // ── pozorovaci callback pro pomer tvar/text (viz MAX_SHAPE_TO_TEXT_AREA_RATIO) ──
+
+    @Test
+    fun `onRatioMeasured reports the ratio and acceptance for a real bubble`() {
+        val canvas = FakeCanvas(400, 300, ART)
+        canvas.fillRect(120, 90, 279, 209, BG) // bublina 160x120 = 19200 px
+        val textArea = 19200L / 16 // ~1200 px, tedy pomer 16x
+        var reportedRatio: Double? = null
+        var reportedAccepted: Boolean? = null
+
+        BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 400,
+            height = 300,
+            seeds = listOf(200 to 150),
+            bgColorArgb = BG,
+            textAreaPx = textArea,
+            onRatioMeasured = { ratio, accepted -> reportedRatio = ratio; reportedAccepted = accepted },
+        )
+
+        assertNotNull("callback se musi zavolat, kdyz je textAreaPx > 0", reportedRatio)
+        assertEquals(16.0, reportedRatio!!, 0.5)
+        assertEquals(true, reportedAccepted)
+    }
+
+    @Test
+    fun `onRatioMeasured reports the ratio and rejection for an escaped fill`() {
+        val canvas = FakeCanvas(400, 300, ART)
+        canvas.fillRect(10, 145, 389, 154, BG) // vodorovne rameno
+        canvas.fillRect(195, 20, 204, 279, BG) // svisle rameno
+        val textArea = 400L // maly text
+        var reportedRatio: Double? = null
+        var reportedAccepted: Boolean? = null
+
+        BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 400,
+            height = 300,
+            seeds = listOf(200 to 150),
+            bgColorArgb = BG,
+            textAreaPx = textArea,
+            onRatioMeasured = { ratio, accepted -> reportedRatio = ratio; reportedAccepted = accepted },
+        )
+
+        assertNotNull("callback se musi zavolat i kdyz se tvar nakonec zamitne", reportedRatio)
+        assertEquals(247.0, reportedRatio!!, 1.0)
+        assertEquals(false, reportedAccepted)
+    }
+
+    @Test
+    fun `onRatioMeasured is not called when textAreaPx is not supplied`() {
+        val canvas = FakeCanvas(100, 60, ART)
+        canvas.fillRect(20, 10, 80, 50, BG)
+        var called = false
+
+        BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 100,
+            height = 60,
+            seeds = listOf(50 to 30),
+            bgColorArgb = BG,
+            maxAreaFraction = 0.5f,
+            onRatioMeasured = { _, _ -> called = true },
+        )
+
+        assertEquals(false, called)
+    }
 }
