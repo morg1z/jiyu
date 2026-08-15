@@ -112,6 +112,19 @@ private fun logShapeCoverage(total: Int, withShape: Int) {
     Log.d("ShapeCoverage", "total=$total shape=$withShape fallback=$fallback (%.0f%%)".format(100.0 * fallback / total))
 }
 
+/**
+ * Loguje confidence, kterou ML Kit vraci u kazdeho rozpoznaneho radku, ale appka ji dosud
+ * nikdy necetla ani nikam nezapisovala. `OcrPreprocessOnDeviceTest` zmerila na SYNTETICKEM
+ * (strojove vykresenem) textu, ze confidence nepredikuje spolehlive spatne cteni - ale sama
+ * priznava, ze se to da rozhodnout jen na SKUTECNYCH skenlacich s rucnim letteringem, kde
+ * OCR chybuje samo od sebe. Cistě observabilita: `adb logcat -s OcrConfidence` pri beznem
+ * cteni da presne tahle data - text se da vizualne porovnat s confidence a videt, jestli
+ * nizka hodnota skutecne odpovida spatnemu cteni na realnych strankach.
+ */
+private fun logOcrConfidence(language: String, confidence: Float, text: String) {
+    Log.d("OcrConfidence", "lang=$language conf=%.3f text=\"%s\"".format(confidence, text.take(40)))
+}
+
 /** Hodnota zdrojového jazyka, která znamená "zjisti si to sám" - viz [resolveAutoLanguage]. */
 internal const val AUTO_LANGUAGE = "Auto"
 
@@ -316,6 +329,7 @@ class OcrEngine @Inject constructor() {
         return result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
             val box = line.boundingBox ?: return@mapNotNull null
             if (line.text.isBlank()) return@mapNotNull null
+            logOcrConfidence(language, line.confidence, line.text)
             RawTextBlock(
                 text = line.text,
                 leftF = (box.left / w).coerceIn(0f, 1f),
