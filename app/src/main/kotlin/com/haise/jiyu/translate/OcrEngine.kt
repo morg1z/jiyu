@@ -100,6 +100,18 @@ private fun logShapeRatio(ratio: Double, accepted: Boolean) {
     Log.d("BubbleShapeRatio", "ratio=%.1fx accepted=%s".format(ratio, accepted))
 }
 
+/**
+ * Loguje, jaky podil bloku jedne stranky dostal skutecny tvar bubliny vs. spadl na
+ * heuristicky fallback ([layoutHeuristic] v TranslationLayout.kt - nejkrehcejsi cast
+ * vykreslovaciho pipeline, viz audit). Cistě observabilita: `adb logcat -s ShapeCoverage`
+ * pri beznem cteni ukaze, jak casto se na fallback v realnem provozu vubec sahne.
+ */
+private fun logShapeCoverage(total: Int, withShape: Int) {
+    if (total == 0) return
+    val fallback = total - withShape
+    Log.d("ShapeCoverage", "total=$total shape=$withShape fallback=$fallback (%.0f%%)".format(100.0 * fallback / total))
+}
+
 /** Hodnota zdrojového jazyka, která znamená "zjisti si to sám" - viz [resolveAutoLanguage]. */
 internal const val AUTO_LANGUAGE = "Auto"
 
@@ -243,7 +255,7 @@ class OcrEngine @Inject constructor() {
             // četl repliky pozpátku.
             rightToLeft = isRightToLeftScript(resolvedLanguage),
         )
-        merged.mapIndexed { index, block ->
+        val result = merged.mapIndexed { index, block ->
             val bgSample = sampleBackgroundColor(bitmap, block)
             val detected = BubbleShapeDetector.detectShape(
                 source = pixelSource,
@@ -274,6 +286,8 @@ class OcrEngine @Inject constructor() {
                 shape = shape,
             )
         }
+        logShapeCoverage(result.size, result.count { it.shape != null })
+        result
     }
 
     /**
