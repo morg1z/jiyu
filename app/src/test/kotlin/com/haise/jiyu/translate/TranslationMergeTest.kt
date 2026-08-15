@@ -220,4 +220,41 @@ class TranslationMergeTest {
         val retry = GeminiTranslationResponse(bubbles = listOf(bubble(9, "mimo")))
         assertEquals(emptyMap<Int, GeminiBubbleTranslation>(), mergeRetry(emptyMap(), listOf(0), retry, classified))
     }
+
+    // ── isSuspiciousVerbatimCopy (viz self-check audit) ──
+
+    @Test
+    fun `an untranslated sentence copied verbatim is suspicious`() {
+        assertTrue(isSuspiciousVerbatimCopy("I would never sign that contract.", "I would never sign that contract."))
+    }
+
+    @Test
+    fun `a real czech translation is not suspicious`() {
+        assertFalse(isSuspiciousVerbatimCopy("I would never sign that contract.", "Tu smlouvu bych nikdy nepodepsal."))
+    }
+
+    @Test
+    fun `only leading or trailing whitespace differing still counts as verbatim`() {
+        assertTrue(isSuspiciousVerbatimCopy("Welcome.", "  Welcome.  "))
+    }
+
+    @Test
+    fun `a short digit or symbol only bubble is not flagged`() {
+        // Kratke/nepismenne bubliny (cislo stranky, "...", "!") se legitimne shoduji
+        // bez ohledu na jazyk - nejde o znamku nedokonceneho prekladu.
+        assertFalse(isSuspiciousVerbatimCopy("12", "12"))
+        assertFalse(isSuspiciousVerbatimCopy("...", "..."))
+    }
+
+    @Test
+    fun `a short name that happens to be identical in both languages is not flagged`() {
+        // "Frodo" -> "Frodo" (jmena se neprekladaji, viz GeminiUltraPrompt) je legitimni
+        // shoda, ne znamka zkopirovaneho textu - prah delky ji vyfiltruje.
+        assertFalse(isSuspiciousVerbatimCopy("OK", "OK"))
+    }
+
+    @Test
+    fun `case differences still count as verbatim`() {
+        assertTrue(isSuspiciousVerbatimCopy("WATCH OUT!", "watch out!"))
+    }
 }

@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import android.util.Log
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.ManualTranslationDao
@@ -388,6 +389,7 @@ class TranslateRepository @Inject constructor(
             // vazba ("NOT LIKE THAT." zobrazila překlad patřící jiné bublině na jiné stránce).
             val isUntranslated = !isUsableTranslation(t, c.raw.text)
             val translatedText = if (isUntranslated) c.raw.text else t!!.translated
+            if (!isUntranslated) logIfSuspiciousVerbatimCopy(c.raw.text, translatedText)
             // Model syllable_breaks se použije JEN, když opravdu odpovídá translatedText po
             // odstranění rozdělovníků (viz isValidSyllableBreaks) - jinak by poškozený/
             // neshodující se výstup modelu potichu nahradil správný překlad viditelně
@@ -464,6 +466,7 @@ class TranslateRepository @Inject constructor(
                 val usable = raw?.takeIf { it.isNotEmpty() && it != GeminiUltraPrompt.UNTRANSLATED_MARKER }
                 val isUntranslated = usable == null
                 val translated = usable ?: c.raw.text
+                if (!isUntranslated) logIfSuspiciousVerbatimCopy(c.raw.text, translated)
                 TranslatedBlock(
                     originalText = c.raw.text,
                     translatedText = translated,
@@ -487,6 +490,19 @@ class TranslateRepository @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Loguje, kdyz "preklad" vysel (az na velikost pismen) doslova stejny jako original -
+     * viz [isSuspiciousVerbatimCopy]. Prompt ma sekci "KONTROLA PRED ODESLANIM" (zaporky,
+     * zadna vymyslena slova...), ale nic v kodu drive neoverovalo, jestli ji model doopravdy
+     * dodrzel - tohle je jediny spolehlivy, jazykove nezavisly signal, ktery se z odpovedi
+     * da mechanicky vycist. Cistě observabilita: `adb logcat -s VerbatimCopy` pri beznem
+     * cteni ukaze, jak casto k tomu dochazi.
+     */
+    private fun logIfSuspiciousVerbatimCopy(original: String, translated: String) {
+        if (!isSuspiciousVerbatimCopy(original, translated)) return
+        Log.d("VerbatimCopy", "original=\"$original\"")
     }
 
     /** SFX bublina se nikdy nepřekládá (viz [BubbleClassifier]) - originál zůstává, jen si nese klasifikaci pro render. */

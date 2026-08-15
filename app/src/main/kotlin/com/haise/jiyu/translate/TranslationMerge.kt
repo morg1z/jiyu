@@ -63,6 +63,26 @@ internal fun isUsableTranslation(translation: GeminiBubbleTranslation?, expected
 }
 
 /**
+ * "Přeložený" text je (až na velikost písmen/okrajové mezery) doslova stejný jako originál -
+ * u českého cíle to skoro nikdy neni skutečný překlad, spíš znamka, že model text jen
+ * zkopíroval, aniž by dodržel "PĚT PRAVIDEL" z promptu (viz GeminiUltraPrompt sekce
+ * "KONTROLA PŘED ODESLÁNÍM" - nic v kódu dřív neověřovalo, jestli je vůbec dodržená).
+ *
+ * Cistě informativní signál (nemění [isUsableTranslation]/isUntranslated) - u krátkých
+ * vlastních jmen, citoslovcí nebo interpunkce může být shoda legitimní (jména se
+ * nepřekládají), proto je pod [MIN_VERBATIM_LENGTH] vždycky false.
+ */
+internal fun isSuspiciousVerbatimCopy(original: String, translated: String): Boolean {
+    val o = original.trim()
+    val t = translated.trim()
+    if (o.length < MIN_VERBATIM_LENGTH) return false
+    if (!o.any { it.isLetter() }) return false
+    return o.equals(t, ignoreCase = true)
+}
+
+private const val MIN_VERBATIM_LENGTH = 4
+
+/**
  * Indexy bublin, na které model neodpověděl použitelně a má smysl se na ně doptat znovu.
  *
  * SFX se vynechávají - ty se schválně nepřekládají vůbec (viz [BubbleClassifier]), takže
