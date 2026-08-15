@@ -105,18 +105,24 @@ class GroqTranslateClient @Inject constructor(
     /**
      * Překlad odstavců light novel kapitoly - proxy použije odlišný prompt od manga
      * bublin (zachovává tón a odstavcovou strukturu prózy).
+     *
+     * @param provider "groq" (výchozí) nebo "openrouter" - viz [translateBatch], stejný
+     *   parametr, jen dřív u novel cesty chyběl a volalo se natvrdo jen "groq" (viz
+     *   [TranslateRepository.translateNovelChapter], kde teď při selhání zkusí i tenhle).
      */
     suspend fun translateNovelBatch(
         paragraphs: List<String>,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
         glossary: Map<String, String> = emptyMap(),
+        provider: String = "groq",
     ): List<String> = translateViaProxy(
         texts = paragraphs,
         targetLanguage = targetLanguage,
         sourceLanguage = sourceLanguage,
         glossary = glossary,
         mode = "novel",
+        provider = provider,
     )
 
     /**

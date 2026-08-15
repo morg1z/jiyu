@@ -771,7 +771,15 @@ class TranslateRepository @Inject constructor(
         val chunks = chunkUnits(units)
         val translatedUnits = mutableListOf<String>()
         for (chunk in chunks) {
-            val translated = groqClient.translateNovelBatch(chunk.map { it.text }, targetLanguage, sourceLanguage, glossary)
+            val texts = chunk.map { it.text }
+            // Na rozdíl od manga cesty tu dřív nebyl ŽÁDNÝ fallback - vyčerpaná denní kvóta
+            // Groq free tieru (přesně scénář, pro který vznikla ProviderHealth) rovnou
+            // shodila celý překlad novely, i kdyby byl OpenRouter volný. Stejný dvoustupňový
+            // vzor jako poslední dva kroky manga řetězce (translateWithGroq "groq"->"openrouter").
+            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq")
+            if (translated.size != chunk.size) {
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter")
+            }
             if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
             translatedUnits += translated
         }
