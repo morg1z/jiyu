@@ -48,9 +48,10 @@ class GeminiTranslateClient @Inject constructor(
      * do requestu vůbec nezahrnují - filtruje [GeminiUltraPrompt.buildUserPrompt].
      *
      * @param provider "gemini" (výchozí), "groq" nebo "openrouter" - viz komentář u třídy. Groq i
-     *   OpenRouter model se nastavují server-side (Groq: "llama-3.3-70b-versatile" jako
-     *   [GroqTranslateClient]; OpenRouter: free-tier model, viz OPENROUTER_MODEL v translate-proxy),
-     *   appka je nemusí posílat.
+     *   OpenRouter model se nastavují server-side (Groq: "openai/gpt-oss-120b" jako
+     *   [GroqTranslateClient] - dřív "llama-3.3-70b-versatile", to Groq k 16.8.2026 vyřadil;
+     *   OpenRouter: free-tier model, viz OPENROUTER_MODEL v translate-proxy), appka je nemusí
+     *   posílat.
      * @return null při selhání (síť, vyčerpaná kvóta upstreamu, neparsovatelná odpověď) i tehdy,
      *   když je provider zrovna odstavený v [ProviderHealth] - v tom případě se neposílá vůbec
      *   žádný požadavek a volající rovnou pokračuje dalším krokem řetězce.

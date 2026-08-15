@@ -295,7 +295,7 @@ async function handleGroqApi(system: string, user: string): Promise<Response> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       temperature: 0.1,
       max_tokens: 4096,
       messages: [
@@ -486,7 +486,7 @@ async function callChatCompletion(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       temperature: 0.1,
       max_tokens: 4096,
       messages: [
