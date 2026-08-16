@@ -801,6 +801,10 @@ class TranslateRepository @Inject constructor(
         if (paragraphs.isEmpty()) return null
 
         val glossary = glossaryFor(mangaId, targetLanguage)
+        // Stejný kontext (název/typ/žánry) jako manga cesta - novely jsou v mangaDao vedené
+        // stejně (contentType = "NOVEL"), jen se odsud dřív nikdy neposílal, takže si model
+        // musel domýšlet, jestli překládá temné fantasy nebo komedii. Viz mediumRules("NOVEL").
+        val mangaContext = mangaContextFor(mangaId)
         // Odstavce se nikdy nedělí NAPŘÍČ dávkami (viz chunkUnits) - jediná výjimka je jeden
         // odstavec delší než limit sám o sobě, ten se rozseká na věty (viz toTranslationUnits),
         // nikdy uprostřed věty.
@@ -813,9 +817,9 @@ class TranslateRepository @Inject constructor(
             // Groq free tieru (přesně scénář, pro který vznikla ProviderHealth) rovnou
             // shodila celý překlad novely, i kdyby byl OpenRouter volný. Stejný dvoustupňový
             // vzor jako poslední dva kroky manga řetězce (translateWithGroq "groq"->"openrouter").
-            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq")
+            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext)
             if (translated.size != chunk.size) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter")
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext)
             }
             if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
             translatedUnits += translated

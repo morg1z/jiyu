@@ -109,6 +109,10 @@ class GroqTranslateClient @Inject constructor(
      * @param provider "groq" (výchozí) nebo "openrouter" - viz [translateBatch], stejný
      *   parametr, jen dřív u novel cesty chyběl a volalo se natvrdo jen "groq" (viz
      *   [TranslateRepository.translateNovelChapter], kde teď při selhání zkusí i tenhle).
+     * @param mangaContext krátký kontext o díle (název/typ/žánry, viz
+     *   [GeminiUltraPrompt.buildMangaContext]) - proxy ho uměla přijmout od začátku
+     *   (sdílený [buildProxyRequestBody] s manga cestou), jen se odsud nikdy neposílal,
+     *   takže pravidlo pro "NOVEL" v [GeminiUltraPrompt.mediumRules] bylo fakticky nedosažitelné.
      */
     suspend fun translateNovelBatch(
         paragraphs: List<String>,
@@ -116,6 +120,7 @@ class GroqTranslateClient @Inject constructor(
         sourceLanguage: String = "Auto",
         glossary: Map<String, String> = emptyMap(),
         provider: String = "groq",
+        mangaContext: String = "",
     ): List<String> = translateViaProxy(
         texts = paragraphs,
         targetLanguage = targetLanguage,
@@ -123,6 +128,7 @@ class GroqTranslateClient @Inject constructor(
         glossary = glossary,
         mode = "novel",
         provider = provider,
+        mangaContext = mangaContext,
     )
 
     /**
