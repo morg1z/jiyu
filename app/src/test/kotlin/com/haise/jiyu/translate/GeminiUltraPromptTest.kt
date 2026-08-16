@@ -324,4 +324,45 @@ class GeminiUltraPromptTest {
             assertTrue("$type má $length znaků, což je nad rozpočtem", length <= 260)
         }
     }
+
+    // ── demographicToneRule (žánrové tón-pravidlo, viz mediumRules pro původ vs. tohle pro cílovku) ──
+
+    @Test
+    fun `shounen genre gets action-oriented tone guidance`() {
+        val rule = GeminiUltraPrompt.demographicToneRule(listOf("Action", "Shounen"))
+        assertTrue(rule.contains("shónen") || rule.contains("Shónen"))
+    }
+
+    @Test
+    fun `shoujo genre gets emotional tone guidance, not shounen`() {
+        val rule = GeminiUltraPrompt.demographicToneRule(listOf("Romance", "Shoujo"))
+        assertTrue(rule.contains("šódžo") || rule.contains("Šódžo"))
+        assertFalse(rule.contains("shónen"))
+    }
+
+    @Test
+    fun `seinen and josei get distinct adult-oriented guidance`() {
+        assertTrue(GeminiUltraPrompt.demographicToneRule(listOf("Seinen")).contains("seinen"))
+        assertTrue(GeminiUltraPrompt.demographicToneRule(listOf("Josei")).contains("džosei"))
+    }
+
+    @Test
+    fun `matching is case insensitive and tolerant of surrounding tag text`() {
+        // Zdroje formátují štítky různě ("shounen", "Shounen manga", "SHOUNEN"...).
+        assertTrue(GeminiUltraPrompt.demographicToneRule(listOf("shounen manga")).contains("shónen"))
+        assertTrue(GeminiUltraPrompt.demographicToneRule(listOf("SEINEN")).contains("seinen"))
+    }
+
+    @Test
+    fun `no demographic tag among the genres is a safe no-op`() {
+        assertEquals("", GeminiUltraPrompt.demographicToneRule(listOf("Action", "Isekai")))
+        assertEquals("", GeminiUltraPrompt.demographicToneRule(emptyList()))
+    }
+
+    @Test
+    fun `the demographic tone rule reaches the context block`() {
+        // Stejná pojistka proti odpojení jako u mediumRules výš.
+        val context = GeminiUltraPrompt.buildMangaContext("Berserk", "MANGA", listOf("Seinen"))
+        assertTrue(context.contains("seinen"))
+    }
 }

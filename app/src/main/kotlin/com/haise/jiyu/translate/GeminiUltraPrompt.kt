@@ -71,6 +71,32 @@ object GeminiUltraPrompt {
     }
 
     /**
+     * Tón podle demografického cílení díla (shónen/šódžo/seinen/džosei), pokud ho appka
+     * zná ze žánrových štítků. Na rozdíl od [mediumRules] (odkud dílo POCHÁZÍ - japonské/
+     * korejské/čínské) tohle říká, PRO KOHO je psané - ovlivňuje formálnost a přímočarost
+     * dialogu nezávisle na původu.
+     *
+     * Funguje jen u zdrojů, které demografii dávají přímo mezi žánrové štítky (běžné u
+     * generických Madara webů) - MangaDex ji má v odděleném poli API
+     * (`attributes.publicationDemographic`), které appka zatím nestahuje do `genres`, takže
+     * tam se pravidlo neuplatní. Prázdný řetězec je bezpečný no-op, ne chyba.
+     */
+    internal fun demographicToneRule(genres: List<String>): String {
+        val normalized = genres.map { it.trim().lowercase() }
+        return when {
+            normalized.any { "shounen" in it || "shonen" in it } ->
+                "Cílovka shónen: akční, přímočará mluva, krátké průbojné repliky."
+            normalized.any { "shoujo" in it || "shojo" in it } ->
+                "Cílovka šódžo: emocionální, jemnější odstíny citu, méně drsný slovník."
+            normalized.any { "seinen" in it } ->
+                "Cílovka seinen: komplexnější témata, formálnější/dospělejší jazyk, kde to sedí."
+            normalized.any { "josei" in it } ->
+                "Cílovka džosei: realistický, dospělý tón, méně dětinský slovník."
+            else -> ""
+        }
+    }
+
+    /**
      * Složí blok "KONTEXT DÍLA" z toho, co appka o díle ví.
      *
      * Je to čistá funkce a ne pár řádků přímo v [TranslateRepository] schválně: bez ní by
@@ -81,6 +107,10 @@ object GeminiUltraPrompt {
         append("Název: \"$title\" (${contentType.lowercase()})")
         if (genres.isNotEmpty()) append(", žánry: ${genres.joinToString(", ")}")
         mediumRules(contentType).takeIf { it.isNotBlank() }?.let {
+            append("\n")
+            append(it)
+        }
+        demographicToneRule(genres).takeIf { it.isNotBlank() }?.let {
             append("\n")
             append(it)
         }
