@@ -181,4 +181,27 @@ class TranslationLayoutTest {
         assertTrue("heuristic must still expand a shape-less block beyond its own OCR bounds", plainPositioned.leftF < plain.leftF)
         assertTrue(plainPositioned.leftF >= 0f)
     }
+
+    @Test
+    fun `heuristic block does not expand across an adjacent shape-based bubble`() {
+        // Reprodukce nahlášeného bugu: tvarová bublina ("Budeme se učit spolu") vedle
+        // heuristické bubliny ("C'mon"/"No tak"), o které heuristika vůbec nevěděla a
+        // klidně skrz ni (a přes kresbu za ní) protáhla svůj bílý box - viz uživatelský
+        // screenshot, bílý pruh z "NO TAK." přes sousední bublinu i do obrázku.
+        val shape = listOf(
+            BubbleShapePoint(0.40f, 0.50f, 0.62f),
+            BubbleShapePoint(0.45f, 0.48f, 0.64f),
+            BubbleShapePoint(0.50f, 0.50f, 0.62f),
+        )
+        val heuristic = block(0.20f, 0.48f, 0.30f, 0.55f) // bgUniform=true (výchozí) => expandFactor 3x
+
+        val positioned = layoutTranslationBlocks(listOf(blockWithShape(shape), heuristic))
+        val heuristicPos = positioned.first { it.block === heuristic }
+        val shapePos = positioned.first { it.block.shape != null }
+
+        assertTrue(
+            "heuristic block must not expand past the shape block's left edge (${heuristicPos.rightF} vs ${shapePos.leftF})",
+            heuristicPos.rightF <= shapePos.leftF + 1e-4f,
+        )
+    }
 }

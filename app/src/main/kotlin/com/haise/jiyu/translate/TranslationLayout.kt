@@ -55,16 +55,39 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
         )
     }
 
-    return shapePositioned + layoutHeuristic(heuristicBased)
+    return shapePositioned + layoutHeuristic(heuristicBased, shapePositioned)
 }
 
-private fun layoutHeuristic(blocks: List<TranslatedBlock>): List<PositionedTranslationBlock> {
-    fun verticallyOverlaps(a: TranslatedBlock, b: TranslatedBlock) = a.topF < b.bottomF && a.bottomF > b.topF
+/** Ohraničující obdélník - společný tvar pro sousedy z [layoutHeuristic] i z pevných tvarových bublin. */
+private data class NeighborRect(val leftF: Float, val topF: Float, val rightF: Float, val bottomF: Float)
+
+private fun TranslatedBlock.toRect() = NeighborRect(leftF, topF, rightF, bottomF)
+
+/** Vykreslovaný (ne obalový) obdélník tvarové bubliny - přesně to, co [layoutHeuristic] nesmí přejet. */
+private fun PositionedTranslationBlock.toObstacleRect() = NeighborRect(leftF, minTopF, rightF, maxBottomF)
+
+/**
+ * @param shapeObstacles bubliny s detekovaným tvarem (viz [layoutTranslationBlocks]) - jejich box
+ *   je přesný a NIKDY se nezmenšuje, jen heuristické bloky kolem nich musí "obcházet". Dřív o
+ *   nich tahle funkce vůbec nevěděla (sousedství se hledalo jen mezi bloky BEZ tvaru), takže
+ *   heuristický box klidně expandoval skrz sousední tvarovou bublinu i kresbu za ní - viz
+ *   uživatelská zpětná vazba (bílý pruh z "NO TAK." přes sousední bublinu).
+ */
+private fun layoutHeuristic(
+    blocks: List<TranslatedBlock>,
+    shapeObstacles: List<PositionedTranslationBlock> = emptyList(),
+): List<PositionedTranslationBlock> {
+    fun verticallyOverlaps(a: NeighborRect, b: NeighborRect) = a.topF < b.bottomF && a.bottomF > b.topF
+
+    val obstacleRects = shapeObstacles.map { it.toObstacleRect() }
 
     val positioned = blocks.map { b ->
-        val leftNeighbor = blocks.filter { it !== b && verticallyOverlaps(it, b) && it.rightF <= b.leftF + 0.001f }
+        val bRect = b.toRect()
+        val peerRects = blocks.filter { it !== b }.map { it.toRect() } + obstacleRects
+
+        val leftNeighbor = peerRects.filter { verticallyOverlaps(it, bRect) && it.rightF <= b.leftF + 0.001f }
             .maxByOrNull { it.rightF }
-        val rightNeighbor = blocks.filter { it !== b && verticallyOverlaps(it, b) && it.leftF >= b.rightF - 0.001f }
+        val rightNeighbor = peerRects.filter { verticallyOverlaps(it, bRect) && it.leftF >= b.rightF - 0.001f }
             .minByOrNull { it.leftF }
 
         // Bez souseda by expandLimit spadl na 0f/1f (okraj celé stránky) - box teď fyzicky
@@ -93,8 +116,8 @@ private fun layoutHeuristic(blocks: List<TranslatedBlock>): List<PositionedTrans
         val finalLeft = (center - halfWidth).coerceIn(0f, b.leftF)
         val finalRight = (center + halfWidth).coerceIn(b.rightF, 1f)
 
-        fun horizontallyOverlaps(o: TranslatedBlock) = o.leftF < finalRight && o.rightF > finalLeft
-        val belowNeighbor = blocks.filter { it !== b && horizontallyOverlaps(it) && it.topF >= b.bottomF - 0.001f }
+        fun horizontallyOverlaps(o: NeighborRect) = o.leftF < finalRight && o.rightF > finalLeft
+        val belowNeighbor = peerRects.filter { horizontallyOverlaps(it) && it.topF >= b.bottomF - 0.001f }
             .minByOrNull { it.topF }
         // Strop odvozený z výšky JEDNOHO řádku (ne z celé výšky bloku) - u bloku sloučeného
         // z 5 OCR řádků by "3x vlastní výška" znamenalo 15 řádků volného místa, což je
@@ -109,7 +132,7 @@ private fun layoutHeuristic(blocks: List<TranslatedBlock>): List<PositionedTrans
         // Jen víceřádkové bloky (viz doc komentář [PositionedTranslationBlock.minTopF]) -
         // jednořádkový box se nikdy neroztáhne nahoru, i kdyby měl nad sebou volný prostor.
         val minTop = if (b.lineCount > 1) {
-            val aboveNeighbor = blocks.filter { it !== b && horizontallyOverlaps(it) && it.bottomF <= b.topF + 0.001f }
+            val aboveNeighbor = peerRects.filter { horizontallyOverlaps(it) && it.bottomF <= b.topF + 0.001f }
                 .maxByOrNull { it.bottomF }
             val expandLimitTop = aboveNeighbor?.let { (b.topF + it.bottomF) / 2f } ?: 0f
             val avgLineHeight = (b.bottomF - b.topF) / b.lineCount
@@ -161,6 +184,29 @@ private fun layoutHeuristic(blocks: List<TranslatedBlock>): List<PositionedTrans
                 }
             }
         }
+    }
+
+    // Stejná oprava jako výše, ale proti tvarovým bublinám (viz [shapeObstacles]) - ty se
+    // NIKDY nezmenšují (jejich obrys je přesný z flood-fillu), takže ustupuje jen heuristický
+    // box, a jen na tolik, kolik dovolí jeho vlastní OCR rozsah (aby si nezakryl vlastní text).
+    for (idx in positioned.indices) {
+        var a = positioned[idx]
+        for (obstacle in obstacleRects) {
+            val overlapX = minOf(a.rightF, obstacle.rightF) - maxOf(a.leftF, obstacle.leftF)
+            val overlapY = minOf(a.maxBottomF, obstacle.bottomF) - maxOf(a.minTopF, obstacle.topF)
+            if (overlapX <= 0f || overlapY <= 0f) continue
+
+            val aIsAbove = a.minTopF <= obstacle.topF
+            val shrunkBottom = obstacle.topF - 0.003f
+            val shrunkTop = obstacle.bottomF + 0.003f
+            a = when {
+                aIsAbove && shrunkBottom >= a.block.bottomF -> a.copy(maxBottomF = shrunkBottom)
+                !aIsAbove && shrunkTop <= a.block.topF -> a.copy(minTopF = shrunkTop)
+                a.leftF <= obstacle.leftF -> a.copy(rightF = ((a.rightF + obstacle.leftF) / 2f).coerceAtLeast(a.block.rightF).coerceAtMost(a.rightF))
+                else -> a.copy(leftF = ((a.leftF + obstacle.rightF) / 2f).coerceAtMost(a.block.leftF).coerceAtLeast(a.leftF))
+            }
+        }
+        positioned[idx] = a
     }
 
     return positioned
