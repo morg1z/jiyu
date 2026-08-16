@@ -104,19 +104,27 @@ class TranslateRepository @Inject constructor(
         // pravidla mají české příklady) - pro jiný cílový jazyk zůstáváme na obecném
         // Groq promptu (translate-proxy mode="manga"), který jazyk dostává jako parametr.
         val blocks = if (targetLanguage == "Czech") {
-            // 1) Gemini. 2) Stejný "ultra" prompt (komprese/sylabické dělení), ale přes Groq
-            //    jako upstream - viz GeminiTranslateClient.translateBubbles(provider="groq") -
-            //    zachytí Gemini-specifické selhání (deprekovaný model, jeho vlastní výpadek)
-            //    beze ztráty kvality. 3) Stejný "ultra" prompt, ale přes OpenRouter free-tier
-            //    model (provider="openrouter") - čtvrtá (resp. třetí přes stejný prompt) záchrana,
-            //    než klesneme na 4) holý Groq překlad bez komprese jako poslední záchranu.
+            // 1) Gemini. 2) Stejný "ultra" prompt (komprese/sylabické dělení), ale přes OpenRouter
+            //    free-tier model (provider="openrouter") - zachytí Gemini-specifické selhání
+            //    (deprekovaný model, jeho vlastní výpadek) beze ztráty kvality. 3) Holý Groq
+            //    překlad bez komprese jako záchrana, 4) stejně přes OpenRouter.
+            //
+            // "Ultra" prompt přes Groq (provider="groq") se SCHVÁLNĚ VYNECHÁVÁ - Groq po
+            // vyřazení llama-3.3-70b-versatile (viz [GeminiTranslateClient] komentář u třídy)
+            // zbyl jen na gpt-oss-120b, kterému free tier dává jen ~200K tokenů/den. Celý
+            // "ultra" prompt (pravidla/příklady/glosář) má přes 2000 tokenů SÁM O SOBĚ - jedna
+            // kapitola tak dokázala vyčerpat celý denní rozpočet Groq účtu na pár desítkách
+            // bublin, než se appka vůbec dostala k levnému [translateWithGroq] níž (viz
+            // uživatelská zpětná vazba - "denní limit vyčerpán" po jedné přeložené kapitole).
+            // Groq má teď v řetězci jen ten levný, holý mód (mode="manga", jen texty/glosář/
+            // kontext, žádná pravidla ani příklady) - ten samý malý rozpočet vydrží mnohem déle.
+            //
             // RateLimitedException z JEDNOHO kroku už neznamená konec (viz translateChain) -
             // Gemini/Groq/OpenRouter jsou tři nezávislé komerční služby s vlastní kvótou,
             // 429 na proxy je jen jeho VLASTNÍ limit počtu požadavků (viz komentář u
             // RateLimitedException), ne nutně důkaz, že mají vyčerpáno i ostatní dva.
             translateChain(
                 { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
-                { translateWithGemini(classified, glossary, mangaContext, provider = "groq", mangaId, targetLanguage, recentLines) },
                 { translateWithGemini(classified, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
@@ -256,15 +264,16 @@ class TranslateRepository @Inject constructor(
             if (providerHealth.allUnavailable()) throw RateLimitedException()
             val flatBubbles = chunk.flatMap { bubblesByPage.getValue(it) }
 
-            // Stejný fallback řetězec jako translatePage - viz komentář tam. Volá se přes
-            // sdílené translateWithGemini/translateWithGroq beze změny: obě funkce už dnes
-            // vždy vrací seznam přesně dlouhý jako vstupní "flatBubbles" (chybějící "id" v
-            // odpovědi se doplní originálem, nikdy se nezahodí), takže rozdělení jedné
-            // odpovědi zpátky po stránkách podle počtu bublin níž je bezpečné.
+            // Stejný fallback řetězec jako translatePage - viz komentář tam ("ultra" prompt
+            // přes Groq schválně vynechaný kvůli malému dennímu tokenovému rozpočtu
+            // gpt-oss-120b). Volá se přes sdílené translateWithGemini/translateWithGroq beze
+            // změny: obě funkce už dnes vždy vrací seznam přesně dlouhý jako vstupní
+            // "flatBubbles" (chybějící "id" v odpovědi se doplní originálem, nikdy se
+            // nezahodí), takže rozdělení jedné odpovědi zpátky po stránkách podle počtu
+            // bublin níž je bezpečné.
             val blocks = if (targetLanguage == "Czech") {
                 translateChain(
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
-                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "groq", mangaId, targetLanguage, recentLines) },
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
