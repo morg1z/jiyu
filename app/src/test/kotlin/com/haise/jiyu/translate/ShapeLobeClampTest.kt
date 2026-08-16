@@ -157,4 +157,51 @@ class ShapeLobeClampTest {
 
         assertEquals(narrow, clampShapeToOwnLobe(narrow, own = own, others = listOf(faraway)))
     }
+
+    // ── Laloky vedle sebe, ne nad/pod (treti nahlaseni) ─────────────────────────
+    //
+    // "Spojena" (peanut) bublina se dvema replikami VEDLE SEBE na stejne vysce, ne nad
+    // sebou - viz uzivatelska zpetna vazba (dvouhrba bublina "WE NEED TO HURRY THE HARVEST!"
+    // / "THE FOOD WON'T LAST MUCH LONGER..." se v prekladu objevila jen s jednou vetou,
+    // uprostred cele spojene plochy). Puvodni clampShapeToOwnLobe resil jen soused nad/pod
+    // (other.bottomF <= own.topF / other.topF >= own.bottomF) - pro souseda, ktery se svisle
+    // PREKRYVA (vedle sebe), obe podminky selzou a smycka souseda proste preskoci beze zmeny
+    // limitu, takze tvar zustane roztazeny pres oba laloky neopraveny.
+
+    @Test
+    fun `a shape leaking sideways over a bubble next to it is cut at the horizontal midpoint`() {
+        val left = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.10f, rightF = 0.35f)
+        val right = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.45f, rightF = 0.70f)
+        val whole = wideShape(0.28f, 0.42f, leftF = 0.05f, rightF = 0.75f)
+
+        val clamped = clampShapeToOwnLobe(whole, own = right, others = listOf(left))
+
+        val (leftEdge, _) = shapeBoundsAtYF(clamped, 0.35f)
+        assertTrue("tvar prave bubliny nesmi sahat na levy text, sahal na $leftEdge", leftEdge > left.rightF)
+    }
+
+    @Test
+    fun `the other side of a sideways pair is clamped as well`() {
+        val left = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.10f, rightF = 0.35f)
+        val right = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.45f, rightF = 0.70f)
+        val whole = wideShape(0.28f, 0.42f, leftF = 0.05f, rightF = 0.75f)
+
+        val clamped = clampShapeToOwnLobe(whole, own = left, others = listOf(right))
+
+        val (_, rightEdge) = shapeBoundsAtYF(clamped, 0.35f)
+        assertTrue("tvar leve bubliny nesmi sahat na pravy text, sahal na $rightEdge", rightEdge < right.leftF)
+    }
+
+    @Test
+    fun `a sideways clamp still keeps its own bubble fully covered`() {
+        val left = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.10f, rightF = 0.35f)
+        val right = box(topF = 0.30f, bottomF = 0.40f, leftF = 0.45f, rightF = 0.70f)
+        val whole = wideShape(0.28f, 0.42f, leftF = 0.05f, rightF = 0.75f)
+
+        val clamped = clampShapeToOwnLobe(whole, own = right, others = listOf(left))
+
+        val (leftEdge, rightEdge) = shapeBoundsAtYF(clamped, 0.35f)
+        assertTrue("vlastni bublina musi zustat cela zakryta", leftEdge <= right.leftF)
+        assertTrue(rightEdge >= right.rightF)
+    }
 }
