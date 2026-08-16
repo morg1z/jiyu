@@ -257,4 +257,44 @@ class TranslationMergeTest {
     fun `case differences still count as verbatim`() {
         assertTrue(isSuspiciousVerbatimCopy("WATCH OUT!", "watch out!"))
     }
+
+    // ── likelyDroppedSentence (viz "spojena bublina ztratila vetu" report) ──
+
+    @Test
+    fun `a real user report where a whole sentence vanished is flagged`() {
+        assertTrue(
+            likelyDroppedSentence(
+                "WE NEED TO HURRY THE HARVEST! THE FOOD WON'T LAST MUCH LONGER...",
+                "Jídlo už dlouho vydržet nebude...",
+            ),
+        )
+    }
+
+    @Test
+    fun `a two-sentence translation of a two-sentence original is not flagged`() {
+        assertFalse(
+            likelyDroppedSentence(
+                "We need to hurry the harvest! The food won't last much longer...",
+                "Musíme uspíšit sklizeň! Jídlo už dlouho vydržet nebude...",
+            ),
+        )
+    }
+
+    @Test
+    fun `a single sentence original is never flagged even if heavily compressed`() {
+        // Komprese jedne vety do kratsi je legitimni a cekana (viz prompt "PRIROZENA CESTINA"),
+        // ne znamka ztracene informace.
+        assertFalse(likelyDroppedSentence("I would try every magic spell I have instantly.", "Zkusim kouzla."))
+    }
+
+    @Test
+    fun `an ellipsis counts as a single sentence boundary, not one per dot`() {
+        assertEquals(1, countSentenceBoundaries("Wait..."))
+        assertEquals(1, countSentenceBoundaries("Počkej…"))
+    }
+
+    @Test
+    fun `translation with the same sentence count as the original is not flagged`() {
+        assertFalse(likelyDroppedSentence("Stop it! Please.", "Přestaň! Prosím."))
+    }
 }

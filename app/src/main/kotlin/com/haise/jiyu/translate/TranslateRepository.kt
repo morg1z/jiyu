@@ -389,7 +389,10 @@ class TranslateRepository @Inject constructor(
             // vazba ("NOT LIKE THAT." zobrazila překlad patřící jiné bublině na jiné stránce).
             val isUntranslated = !isUsableTranslation(t, c.raw.text)
             val translatedText = if (isUntranslated) c.raw.text else t!!.translated
-            if (!isUntranslated) logIfSuspiciousVerbatimCopy(c.raw.text, translatedText)
+            if (!isUntranslated) {
+                logIfSuspiciousVerbatimCopy(c.raw.text, translatedText)
+                logIfLikelyDroppedSentence(c.raw.text, translatedText)
+            }
             // Model syllable_breaks se použije JEN, když opravdu odpovídá translatedText po
             // odstranění rozdělovníků (viz isValidSyllableBreaks) - jinak by poškozený/
             // neshodující se výstup modelu potichu nahradil správný překlad viditelně
@@ -466,7 +469,10 @@ class TranslateRepository @Inject constructor(
                 val usable = raw?.takeIf { it.isNotEmpty() && it != GeminiUltraPrompt.UNTRANSLATED_MARKER }
                 val isUntranslated = usable == null
                 val translated = usable ?: c.raw.text
-                if (!isUntranslated) logIfSuspiciousVerbatimCopy(c.raw.text, translated)
+                if (!isUntranslated) {
+                    logIfSuspiciousVerbatimCopy(c.raw.text, translated)
+                    logIfLikelyDroppedSentence(c.raw.text, translated)
+                }
                 TranslatedBlock(
                     originalText = c.raw.text,
                     translatedText = translated,
@@ -503,6 +509,17 @@ class TranslateRepository @Inject constructor(
     private fun logIfSuspiciousVerbatimCopy(original: String, translated: String) {
         if (!isSuspiciousVerbatimCopy(original, translated)) return
         Log.d("VerbatimCopy", "original=\"$original\"")
+    }
+
+    /**
+     * Loguje, kdyz preklad vicevetne bubliny (slouceny OCR blok nebo "POKRACUJE Z" navazujici
+     * bublina) zjevne zahodil celou vetu - viz [likelyDroppedSentence]. Cistě observabilita:
+     * `adb logcat -s DroppedSentence` u nahlaseneho "spojena bublina ztratila vetu" ukaze, jak
+     * casto k tomu dochazi a jestli se to tyka konkretniho providera/typu bubliny.
+     */
+    private fun logIfLikelyDroppedSentence(original: String, translated: String) {
+        if (!likelyDroppedSentence(original, translated)) return
+        Log.d("DroppedSentence", "original=\"$original\" translated=\"$translated\"")
     }
 
     /** SFX bublina se nikdy nepřekládá (viz [BubbleClassifier]) - originál zůstává, jen si nese klasifikaci pro render. */

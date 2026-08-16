@@ -83,6 +83,35 @@ internal fun isSuspiciousVerbatimCopy(original: String, translated: String): Boo
 private const val MIN_VERBATIM_LENGTH = 4
 
 /**
+ * Kolik vět text obsahuje, odhadnuto z koncové interpunkce (běh `.`/`!`/`?` nebo výpustka
+ * `…` se počítá jako JEDNA hranice, ne za každý znak zvlášť).
+ */
+internal fun countSentenceBoundaries(text: String): Int = SENTENCE_BOUNDARY.findAll(text).count()
+
+private val SENTENCE_BOUNDARY = Regex("[.!?]+|…")
+
+/**
+ * Podezření, že model při překladu VÍCEVĚTNÉ bubliny (sloučené OCR řádky nebo "POKRAČUJE Z"
+ * navazující bublina, viz [GeminiUltraPrompt] sekce "VĚTY PŘES VÍC BUBLIN") jednu nebo víc vět
+ * zahodil, místo aby je všechny přeložil.
+ *
+ * Nahlášeno se srovnávací dvojicí snímků: bublina se dvěma větami "WE NEED TO HURRY THE
+ * HARVEST! THE FOOD WON'T LAST MUCH LONGER..." se v češtině objevila jen jako "JÍDLO UŽ DLOUHO
+ * VYDRŽET NEBUDE..." - první věta zmizela beze stopy. Prompt to výslovně zakazuje ("Žádnou
+ * bublinu nenechávej prázdnou", "nikdy neztrácej informaci"), ale nic v kódu dřív neověřovalo,
+ * jestli to model doopravdy dodržel - stejná mezera jako u [isSuspiciousVerbatimCopy].
+ *
+ * Čistě informativní heuristika (nic nemění, jen loguje) - u textu s jedinou větou (< 2 hranice)
+ * se nevyhodnocuje vůbec, protože komprese jedné věty do kratší je legitimní a čekaná (viz
+ * prompt "PŘIROZENÁ ČEŠTINA").
+ */
+internal fun likelyDroppedSentence(originalText: String, translatedText: String): Boolean {
+    val originalBoundaries = countSentenceBoundaries(originalText)
+    if (originalBoundaries < 2) return false
+    return countSentenceBoundaries(translatedText) < originalBoundaries
+}
+
+/**
  * Indexy bublin, na které model neodpověděl použitelně a má smysl se na ně doptat znovu.
  *
  * SFX se vynechávají - ty se schválně nepřekládají vůbec (viz [BubbleClassifier]), takže
