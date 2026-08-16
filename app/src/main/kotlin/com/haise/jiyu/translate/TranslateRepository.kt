@@ -728,8 +728,19 @@ class TranslateRepository @Inject constructor(
          * pro [translateChapter]/[chunkPages] - nižší než [NOVEL_CHUNK_CHAR_LIMIT], protože
          * odpověď na jednu bublinu nese original+translated+syllable_breaks+notes (několik
          * násobků vstupní délky) plus JSON obálku, ne jen jeden přeložený odstavec.
+         *
+         * Zvednuto z 1200 (odhad: JSON obálka ~105 znaků/bublinu + cca 3x vstupní délka na
+         * obsah bubliny dává při 1800 znacích originálu kolem 1700 tokenů výstupu - pořád
+         * bezpečně pod nejnižším max_tokens stropem v proxy, 4096 u Groq/OpenRouter). Cíl:
+         * míň API volání na stejný obsah kapitoly, tedy míň opakovaně placené ~3000tokenové
+         * "daně" za systémový prompt (viz [GeminiUltraPrompt.buildSystemPrompt]) - ten se
+         * posílá znovu při KAŽDÉM volání bez ohledu na velikost dávky, takže se draze
+         * amortizuje jen tím, kolik bublin/stránek se do jedné dávky vejde. Pokud by odhad
+         * byl moc optimistický a odpověď modelu se začala řezat, appka to odhalí přes
+         * existující Crashlytics hlášení neparsovatelné odpovědi (viz
+         * [GeminiTranslateClient.translateBubbles] `e.report(...)`), ne tichým selháním.
          */
-        private const val CHAPTER_CHUNK_CHAR_LIMIT = 1200
+        private const val CHAPTER_CHUNK_CHAR_LIMIT = 1800
 
         /** Kolik stránek smí [translateChapter] OCR-ovat souběžně - ML Kit recognizery jsou
          *  sdílené instance a plné rozlišení víc stránek najednou v paměti by zbytečně
