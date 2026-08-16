@@ -132,7 +132,7 @@ class ProviderHealthTest {
 
     @Test
     fun `counts every provider the chain can use`() {
-        assertEquals(listOf("gemini", "groq", "openrouter"), ProviderHealth.ALL_PROVIDERS)
+        assertEquals(listOf("gemini", "groq", "openrouter", "cerebras", "mistral"), ProviderHealth.ALL_PROVIDERS)
     }
 
     // ── knownRetryAfterSeconds (viz translate-proxy retryDelaySecondsFrom*) ──

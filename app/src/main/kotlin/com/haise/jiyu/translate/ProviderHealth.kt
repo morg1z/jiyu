@@ -116,6 +116,6 @@ class ProviderHealth internal constructor(
         /** Ochrana proti přetečení při posunu (2^8 * 60s je dávno nad stropem). */
         private const val MAX_BACKOFF_SHIFT = 8
 
-        internal val ALL_PROVIDERS = listOf("gemini", "groq", "openrouter")
+        internal val ALL_PROVIDERS = listOf("gemini", "groq", "openrouter", "cerebras", "mistral")
     }
 }

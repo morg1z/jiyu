@@ -4,6 +4,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+// Cerebras a Mistral - dva další nezávislé free-tier provideři přidaní kvůli kapacitě
+// (Groq po vyřazení llama-3.3-70b-versatile zbyl jen na gpt-oss-120b s malým denním
+// rozpočtem, viz PR #13). Cerebras servíruje TENTÝŽ gpt-oss-120b, ale s ~5x větším
+// free-tier stropem (1M tokenů/den vs. Groqových ~200K) - stejná kvalita, víc kapacity.
+const CEREBRAS_API_KEY = Deno.env.get("CEREBRAS_API_KEY") ?? "";
+const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -480,10 +486,78 @@ async function handleGemini(payload: Record<string, unknown>): Promise<Response>
  *   stejném slovníku jako [UpstreamErrorCode] - viz tam, proč to appka potřebuje vědět.
  */
 async function callChatCompletion(
-  provider: "groq" | "openrouter",
+  provider: "groq" | "openrouter" | "cerebras" | "mistral",
   system: string,
   userContent: string,
 ): Promise<{ content: string | null; error?: string; retryAfterSeconds?: number }> {
+  if (provider === "cerebras") {
+    if (!CEREBRAS_API_KEY) {
+      console.error("CEREBRAS_API_KEY secret není nastavený na tomto projektu");
+      return { content: null, error: "upstream_error" };
+    }
+    // Stejný model jako Groq (gpt-oss-120b), jiný upstream - Cerebras má ~5x větší
+    // free-tier denní rozpočet (1M tokenů/den vs. Groqových ~200K), viz komentář u konstant.
+    const resp = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${CEREBRAS_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-oss-120b",
+        temperature: 0.1,
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      console.error("cerebras call failed", resp.status, await resp.text());
+      return {
+        content: null,
+        error: upstreamErrorCode(resp.status),
+        retryAfterSeconds: retryDelaySecondsFromHeader(resp),
+      };
+    }
+    const data = await resp.json();
+    return { content: data?.choices?.[0]?.message?.content ?? "" };
+  }
+
+  if (provider === "mistral") {
+    if (!MISTRAL_API_KEY) {
+      console.error("MISTRAL_API_KEY secret není nastavený na tomto projektu");
+      return { content: null, error: "upstream_error" };
+    }
+    const resp = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${MISTRAL_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "mistral-small-latest",
+        temperature: 0.1,
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      console.error("mistral call failed", resp.status, await resp.text());
+      return {
+        content: null,
+        error: upstreamErrorCode(resp.status),
+        retryAfterSeconds: retryDelaySecondsFromHeader(resp),
+      };
+    }
+    const data = await resp.json();
+    return { content: data?.choices?.[0]?.message?.content ?? "" };
+  }
+
   if (provider === "openrouter") {
     if (!OPENROUTER_API_KEY) {
       console.error("OPENROUTER_API_KEY secret není nastavený na tomto projektu");
@@ -552,7 +626,11 @@ async function callChatCompletion(
 }
 
 async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "novel"): Promise<Response> {
-  const provider: "groq" | "openrouter" = payload.provider === "openrouter" ? "openrouter" : "groq";
+  const provider: "groq" | "openrouter" | "cerebras" | "mistral" =
+    payload.provider === "openrouter" ? "openrouter"
+    : payload.provider === "cerebras" ? "cerebras"
+    : payload.provider === "mistral" ? "mistral"
+    : "groq";
 
   const texts: unknown = payload.texts;
   const targetLanguage: string = (payload.targetLanguage as string) ?? "Czech";

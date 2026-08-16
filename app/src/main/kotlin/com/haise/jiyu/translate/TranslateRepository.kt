@@ -123,20 +123,29 @@ class TranslateRepository @Inject constructor(
             // Gemini/Groq/OpenRouter jsou tři nezávislé komerční služby s vlastní kvótou,
             // 429 na proxy je jen jeho VLASTNÍ limit počtu požadavků (viz komentář u
             // RateLimitedException), ne nutně důkaz, že mají vyčerpáno i ostatní dva.
+            // Cerebras/Mistral - dva další nezávislé free-tier provideři přidaní kvůli
+            // kapacitě, jen tenhle levný holý mód (bez "ultra" promptu, stejný důvod jako
+            // u Groq výš). Cerebras servíruje TENTÝŽ gpt-oss-120b jako Groq, ale s ~5x
+            // větším denním rozpočtem - viz translate-proxy/index.ts komentář u konstant.
             translateChain(
                 { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
                 { translateWithGemini(classified, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
             )
         } else {
             // GeminiUltraPrompt je psaný natvrdo pro češtinu, takže pro jiné cílové jazyky
             // nemá smysl - ale i tak appka dřív měla jen JEDNU cestu (holý Groq) bez jakékoli
-            // zálohy. Teď zkusí Groq a při selhání OpenRouter (stejný obecný "manga"/"novel"
-            // prompt parametrizovaný cílovým jazykem, viz translate-proxy systemPromptFor).
+            // zálohy. Teď zkusí Groq a při selhání OpenRouter/Cerebras/Mistral (stejný obecný
+            // "manga"/"novel" prompt parametrizovaný cílovým jazykem, viz translate-proxy
+            // systemPromptFor).
             translateChain(
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
             )
         }
         if (blocks.isEmpty()) return emptyList()
@@ -277,11 +286,15 @@ class TranslateRepository @Inject constructor(
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
                 )
             } else {
                 translateChain(
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "groq", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
                 )
             }
 
@@ -815,11 +828,18 @@ class TranslateRepository @Inject constructor(
             val texts = chunk.map { it.text }
             // Na rozdíl od manga cesty tu dřív nebyl ŽÁDNÝ fallback - vyčerpaná denní kvóta
             // Groq free tieru (přesně scénář, pro který vznikla ProviderHealth) rovnou
-            // shodila celý překlad novely, i kdyby byl OpenRouter volný. Stejný dvoustupňový
-            // vzor jako poslední dva kroky manga řetězce (translateWithGroq "groq"->"openrouter").
+            // shodila celý překlad novely, i kdyby byl OpenRouter volný. Stejný vzor jako
+            // poslední čtyři kroky manga řetězce (translateWithGroq "groq"->"openrouter"->
+            // "cerebras"->"mistral").
             var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext)
             if (translated.size != chunk.size) {
                 translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext)
+            }
+            if (translated.size != chunk.size) {
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "cerebras", mangaContext = mangaContext)
+            }
+            if (translated.size != chunk.size) {
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext)
             }
             if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
             translatedUnits += translated
