@@ -65,10 +65,12 @@ import com.haise.jiyu.translate.PositionedTranslationBlock
 import com.haise.jiyu.translate.TextMeasurement
 import com.haise.jiyu.translate.TranslatedBlock
 import com.haise.jiyu.translate.averageArgb
+import com.haise.jiyu.translate.bubbleSkipReason
 import com.haise.jiyu.translate.estimateNativeFontPx
 import com.haise.jiyu.translate.fitFontSizeToBox
 import com.haise.jiyu.translate.hasTranslatableLetters
 import com.haise.jiyu.translate.fitTextToShape
+import com.haise.jiyu.translate.isSuspiciouslyTinyBubbleBox
 import com.haise.jiyu.translate.largestInscribedRect
 import com.haise.jiyu.translate.layoutTranslationBlocks
 import com.haise.jiyu.translate.matchOriginalCase
@@ -196,7 +198,22 @@ fun BubbleOverlayLayer(
                     onEditBubble(pageIndex, pos.block.originalText, pos.block.translatedText)
                 },
             )
+        } else {
+            logBubbleSkipped(pos.block.originalText, pos.block.isSfx, pos.block.isUntranslated, hasTranslatableLetters(pos.block.displayText))
         }
+    }
+}
+
+/**
+ * Loguje, PROČ [BubbleOverlayLayer] tuhle bublinu vůbec nevykreslil (originál zůstane
+ * prosvítat) - viz [com.haise.jiyu.translate.bubbleSkipReason]. Zatím čistě observabilita:
+ * `adb logcat -s BubbleSkip` u nahlášeného "zmizelo YAH!" ukáže, jestli appka bublinu
+ * schválně přeskočila (a proč), nebo se ztratila až při vykreslení (viz [logTinyBubbleBox]).
+ */
+private fun logBubbleSkipped(originalText: String, isSfx: Boolean, isUntranslated: Boolean, hasLetters: Boolean) {
+    val reason = bubbleSkipReason(isSfx, isUntranslated, hasLetters)
+    if (reason != null) {
+        Log.d("BubbleSkip", "reason=$reason original=\"$originalText\"")
     }
 }
 
@@ -277,6 +294,9 @@ fun TranslationOverlay(
     val effectiveMinBottomF = pos.block.shape?.let { pos.maxBottomF } ?: pos.block.bottomF
     val minH = (imageRect.height * (effectiveMinBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
     val maxH = (imageRect.height * (pos.maxBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
+    if (isSuspiciouslyTinyBubbleBox(w.value, maxH.value)) {
+        logTinyBubbleBox(pos.block.originalText, w.value, minH.value, maxH.value, pos.block.shape != null)
+    }
     val clipShape = pos.block.shape?.let { BubbleClipShape(it, pos.minTopF, pos.maxBottomF) } ?: RoundedCornerShape(3.dp)
     // Svislý gradient (horní/dolní polovina vzorkovaného prstence, viz OcrEngine.sampleBackgroundColor)
     // místo jednolité barvy - obě strany se "přichytí" na bílou/černou nezávisle (snapBubbleBg),
@@ -451,6 +471,17 @@ private val ComicNeueBoldItalic = FontFamily(Font(R.font.comic_neue_bold_italic,
  */
 private fun logNativeFontCap(preferredFontSp: Float, roomToGrow: Boolean) {
     Log.d("NativeFontCap", "preferred=%.1fsp roomToGrow=%s".format(preferredFontSp, roomToGrow))
+}
+
+/**
+ * Loguje bublinu, jejíž vypočtený box vyšel podezřele malý (viz [isSuspiciouslyTinyBubbleBox]) -
+ * kandidát na "text zmizel, i když se technicky vykreslil" (nahlášeno na natěsno namačkaném
+ * trsu bublin - "YAH!" vedle "STOP IT, HATSU!!"/dvou SFX/dlouhé bubliny). `hasShape` rozlišuje,
+ * jestli šlo o tvarovou bublinu (obrys sám vyšel malý) nebo heuristickou (kolize se sousedy
+ * ji zmáčkla) - viz [com.haise.jiyu.translate.layoutTranslationBlocks].
+ */
+private fun logTinyBubbleBox(originalText: String, widthDp: Float, minHeightDp: Float, maxHeightDp: Float, hasShape: Boolean) {
+    Log.d("TinyBubbleBox", "w=%.1fdp minH=%.1fdp maxH=%.1fdp shape=%s original=\"%s\"".format(widthDp, minHeightDp, maxHeightDp, hasShape, originalText))
 }
 
 private fun fontFamilyFor(bubbleType: BubbleType): FontFamily = when (bubbleType) {
