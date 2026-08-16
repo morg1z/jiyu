@@ -176,6 +176,42 @@ function upstreamErrorCode(status: number): Exclude<UpstreamErrorCode, "upstream
 }
 
 /**
+ * Sekundy, po kterých má smysl providera zkusit znovu - přímo z jeho standardní
+ * Retry-After hlavičky, místo slepého odhadu appky (viz ProviderHealth.kt). Groq i
+ * OpenRouter ji posílají na 429/503. undefined = provider ji nedal, appka spadne na
+ * vlastní exponenciální odhad jako dřív.
+ */
+function retryDelaySecondsFromHeader(resp: Response): number | undefined {
+  const header = resp.headers.get("retry-after");
+  if (!header) return undefined;
+  const seconds = Number(header);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+/**
+ * Gemini na rozdíl od Groq/OpenRouteru neposílá Retry-After hlavičku - navržené čekání
+ * nese TĚLO 429 odpovědi (`error.details[].retryDelay`, např. "34s"). Krátká hodnota
+ * znamená přechodný limit "na minutu", dlouhá (řádu hodin) skutečně vyčerpanou denní
+ * kvótu - appka obojí teď umí rozlišit místo pevného 15minutového stropu.
+ */
+function retryDelaySecondsFromGeminiBody(bodyText: string): number | undefined {
+  try {
+    const data = JSON.parse(bodyText);
+    const details = data?.error?.details;
+    if (!Array.isArray(details)) return undefined;
+    const retryInfo = details.find((d: Record<string, unknown>) =>
+      typeof d["@type"] === "string" && d["@type"].includes("RetryInfo")
+    );
+    const delay = retryInfo?.retryDelay;
+    if (typeof delay !== "string") return undefined;
+    const seconds = Number(delay.replace(/s$/, ""));
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Denní strop. ZÁMĚRNĚ globální (jedna řádka na den za celý projekt), ne per-uživatel -
  * funkce běží s verify_jwt=false a appka je osobní, takže tu není koho identifikovat.
  *
@@ -263,8 +299,10 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
   );
 
   if (!geminiResp.ok) {
-    console.error("gemini call failed", geminiResp.status, await geminiResp.text());
-    return json({ text: "", error: upstreamErrorCode(geminiResp.status) }, 200);
+    const bodyText = await geminiResp.text();
+    console.error("gemini call failed", geminiResp.status, bodyText);
+    const retryAfterSeconds = retryDelaySecondsFromGeminiBody(bodyText);
+    return json({ text: "", error: upstreamErrorCode(geminiResp.status), retryAfterSeconds }, 200);
   }
 
   const data = await geminiResp.json();
@@ -315,7 +353,8 @@ async function handleGroqApi(system: string, user: string): Promise<Response> {
 
   if (!groqResp.ok) {
     console.error("groq chat call failed", groqResp.status, await groqResp.text());
-    return json({ text: "", error: upstreamErrorCode(groqResp.status) }, 200);
+    const retryAfterSeconds = retryDelaySecondsFromHeader(groqResp);
+    return json({ text: "", error: upstreamErrorCode(groqResp.status), retryAfterSeconds }, 200);
   }
 
   const data = await groqResp.json();
@@ -382,7 +421,8 @@ async function handleOpenRouterApi(system: string, user: string): Promise<Respon
 
   if (!orResp.ok) {
     console.error("openrouter call failed", orResp.status, await orResp.text());
-    return json({ text: "", error: upstreamErrorCode(orResp.status) }, 200);
+    const retryAfterSeconds = retryDelaySecondsFromHeader(orResp);
+    return json({ text: "", error: upstreamErrorCode(orResp.status), retryAfterSeconds }, 200);
   }
 
   const data = await orResp.json();
@@ -443,7 +483,7 @@ async function callChatCompletion(
   provider: "groq" | "openrouter",
   system: string,
   userContent: string,
-): Promise<{ content: string | null; error?: string }> {
+): Promise<{ content: string | null; error?: string; retryAfterSeconds?: number }> {
   if (provider === "openrouter") {
     if (!OPENROUTER_API_KEY) {
       console.error("OPENROUTER_API_KEY secret není nastavený na tomto projektu");
@@ -469,7 +509,11 @@ async function callChatCompletion(
     });
     if (!resp.ok) {
       console.error("openrouter call failed", resp.status, await resp.text());
-      return { content: null, error: upstreamErrorCode(resp.status) };
+      return {
+        content: null,
+        error: upstreamErrorCode(resp.status),
+        retryAfterSeconds: retryDelaySecondsFromHeader(resp),
+      };
     }
     const data = await resp.json();
     return { content: data?.choices?.[0]?.message?.content ?? "" };
@@ -497,7 +541,11 @@ async function callChatCompletion(
   });
   if (!resp.ok) {
     console.error("groq call failed", resp.status, await resp.text());
-    return { content: null, error: upstreamErrorCode(resp.status) };
+    return {
+      content: null,
+      error: upstreamErrorCode(resp.status),
+      retryAfterSeconds: retryDelaySecondsFromHeader(resp),
+    };
   }
   const data = await resp.json();
   return { content: data?.choices?.[0]?.message?.content ?? "" };
@@ -545,10 +593,10 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
   // Status 200 i při selhání upstreamu (dřív se u Groqu vracelo 500) - jinak by appka
   // odpověď zahodila jako "server chyba, zkus znovu" a k poli "error", ve kterém stojí
   // "tenhle provider má vyčerpanou kvótu", by se vůbec nedostala. Viz [UpstreamErrorCode].
-  const { content, error } = await callChatCompletion(provider, systemPrompt, JSON.stringify(texts));
+  const { content, error, retryAfterSeconds } = await callChatCompletion(provider, systemPrompt, JSON.stringify(texts));
   if (content === null) {
     if (shouldRefund(error)) await refundQuota(charCount);
-    return json({ translations: [], error }, 200);
+    return json({ translations: [], error, retryAfterSeconds }, 200);
   }
   if (!content.trim()) return json({ translations: [], error: "upstream_empty" }, 200);
 

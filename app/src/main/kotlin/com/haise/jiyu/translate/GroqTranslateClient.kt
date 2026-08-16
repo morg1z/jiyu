@@ -190,7 +190,10 @@ class GroqTranslateClient @Inject constructor(
                     val json = JSONObject(responseText)
                     val error = json.optString("error").takeIf { it.isNotBlank() }
                     if (error != null && error != UPSTREAM_EMPTY) {
-                        providerHealth.markUnavailable(provider)
+                        // retryAfterSeconds = skutečné navržené čekání ze samotné odpovědi
+                        // providera - viz ProviderHealth.markUnavailable a GeminiTranslateClient.
+                        val retryAfterSeconds = json.optDouble("retryAfterSeconds", Double.NaN).takeIf { !it.isNaN() }
+                        providerHealth.markUnavailable(provider, retryAfterSeconds)
                         return@use null
                     }
                     val arr = json.optJSONArray("translations") ?: return@use null

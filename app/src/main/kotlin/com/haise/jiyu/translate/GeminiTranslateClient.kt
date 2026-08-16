@@ -141,7 +141,11 @@ class GeminiTranslateClient @Inject constructor(
                     // translate-proxy/index.ts) a ten se dřív beze stopy zahodil - přitom je
                     // to jediné, podle čeho jde poznat "došla kvóta" od "upstream je rozbitý".
                     Log.w(LOG_TAG, "proxy odmítla providera $provider: $error")
-                    providerHealth.markUnavailable(provider)
+                    // retryAfterSeconds = skutečné navržené čekání ze samotné odpovědi
+                    // providera (Retry-After/RetryInfo), viz ProviderHealth.markUnavailable -
+                    // chybí (NaN), když ho provider tentokrát nedal, appka pak hádá jako dřív.
+                    val retryAfterSeconds = jsonBody.optDouble("retryAfterSeconds", Double.NaN).takeIf { !it.isNaN() }
+                    providerHealth.markUnavailable(provider, retryAfterSeconds)
                     ProxyOutcome.ProviderDown
                 }
             }

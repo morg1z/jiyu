@@ -134,4 +134,62 @@ class ProviderHealthTest {
     fun `counts every provider the chain can use`() {
         assertEquals(listOf("gemini", "groq", "openrouter"), ProviderHealth.ALL_PROVIDERS)
     }
+
+    // ── knownRetryAfterSeconds (viz translate-proxy retryDelaySecondsFrom*) ──
+
+    @Test
+    fun `a known retry delay is honored exactly instead of the guessed base cooldown`() {
+        val clock = FakeClock()
+        val health = healthWith(clock)
+        health.markUnavailable("gemini", knownRetryAfterSeconds = 5.0)
+
+        clock.advance(4_999)
+        assertFalse("known delay is 5s, not the guessed 1min base cooldown", health.isAvailable("gemini"))
+        clock.advance(1)
+        assertTrue(health.isAvailable("gemini"))
+    }
+
+    @Test
+    fun `a long known delay outlasts the guessed cooldown cap`() {
+        // Presne pripad, kvuli kteremu tohle vzniklo: Gemini rekne "cekej hodiny", ne minuty -
+        // hadany strop 15 min by providera pustil zpatky mnohem driv, nez ma smysl.
+        val clock = FakeClock()
+        val health = healthWith(clock)
+        val twoHoursInSeconds = 2 * 60 * 60.0
+        health.markUnavailable("gemini", knownRetryAfterSeconds = twoHoursInSeconds)
+
+        clock.advance(15 * minute)
+        assertFalse("15 min guessed cap must not apply when we know the real delay is longer", health.isAvailable("gemini"))
+
+        clock.advance((2 * 60 - 15) * minute)
+        assertTrue(health.isAvailable("gemini"))
+    }
+
+    @Test
+    fun `a known delay resets the escalation ladder for the next guessed failure`() {
+        val clock = FakeClock()
+        val health = healthWith(clock)
+        health.markUnavailable("gemini", knownRetryAfterSeconds = 5.0)
+        clock.advance(5_000)
+
+        // Dalsi selhani uz bez znameho signalu - musi zacit od zakladni prodlevy (1 min),
+        // ne pokracovat v eskalaci, jako by predchozi znamy pokus byl hadany.
+        health.markUnavailable("gemini")
+        clock.advance(minute - 1)
+        assertFalse(health.isAvailable("gemini"))
+        clock.advance(1)
+        assertTrue(health.isAvailable("gemini"))
+    }
+
+    @Test
+    fun `a null or zero known delay falls back to the guessed cooldown`() {
+        val clock = FakeClock()
+        val health = healthWith(clock)
+        health.markUnavailable("gemini", knownRetryAfterSeconds = 0.0)
+
+        clock.advance(minute - 1)
+        assertFalse("zero/invalid delay must not be treated as immediately available", health.isAvailable("gemini"))
+        clock.advance(1)
+        assertTrue(health.isAvailable("gemini"))
+    }
 }

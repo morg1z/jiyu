@@ -47,9 +47,23 @@ class ProviderHealth internal constructor(
     /**
      * Provider odmítl obsluhu (vyčerpaná kvóta upstreamu, výpadek, deprekovaný model) -
      * odstaví se na stupňovitou prodlevu, viz komentář u třídy.
+     *
+     * @param knownRetryAfterSeconds skutečné navržené čekání ze samotné odpovědi providera
+     *   (Retry-After hlavička u Groq/OpenRouteru, `RetryInfo.retryDelay` z těla u Gemini -
+     *   viz [translate-proxy/index.ts] `retryDelaySecondsFromHeader`/`retryDelaySecondsFromGeminiBody`).
+     *   Když appka tohle dostane, NENÍ důvod dál hádat - použije se přímo, žebříček
+     *   opakovaných selhání se resetuje (další neúspěch dostane novou, taky přesnou hodnotu,
+     *   ne eskalaci nad starým odhadem). Null (výchozí) = provider signál nedal, spadne se na
+     *   stupňovité hádání níž - to platí i pro krátkodobé přechodné chyby (5xx, síť), kde
+     *   Retry-After typicky vůbec nepřijde.
      */
     @Synchronized
-    fun markUnavailable(provider: String) {
+    fun markUnavailable(provider: String, knownRetryAfterSeconds: Double? = null) {
+        if (knownRetryAfterSeconds != null && knownRetryAfterSeconds > 0) {
+            val delayMillis = (knownRetryAfterSeconds * 1000).toLong().coerceIn(0L, MAX_KNOWN_COOLDOWN_MILLIS)
+            strikes[provider] = Strike(availableAtMillis = nowMillis() + delayMillis, consecutiveFailures = 0)
+            return
+        }
         val previousFailures = strikes[provider]?.consecutiveFailures ?: 0
         val failures = previousFailures + 1
         // shl místo pow - prodleva roste 1x, 2x, 4x... a strop drží posun v rozumném rozsahu.
@@ -90,8 +104,14 @@ class ProviderHealth internal constructor(
         /** Prodleva po prvním selhání - pokrývá free-tier limit "na minutu". */
         private const val BASE_COOLDOWN_MILLIS = 60_000L
 
-        /** Strop prodlevy - déle než tohle už providera držet stranou nemá smysl. */
+        /** Strop prodlevy PŘI HÁDANÉM odhadu - déle než tohle už providera držet stranou nemá smysl. */
         private const val MAX_COOLDOWN_MILLIS = 15 * 60_000L
+
+        /**
+         * Strop prodlevy, i když provider sám řekne delší čekání - jen pojistka proti
+         * nesmyslné hodnotě (chyba parsování), reálná denní kvóta se do 24 hodin vejde vždycky.
+         */
+        private const val MAX_KNOWN_COOLDOWN_MILLIS = 24 * 60 * 60_000L
 
         /** Ochrana proti přetečení při posunu (2^8 * 60s je dávno nad stropem). */
         private const val MAX_BACKOFF_SHIFT = 8
