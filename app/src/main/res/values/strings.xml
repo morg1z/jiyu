@@ -709,9 +709,8 @@
     <string name="reader_stop_translation_desc">Zastavit překlad</string>
     <string name="reader_hide_translation_desc">Skrýt překlad</string>
     <string name="reader_translate_chapter_action_desc">Přeložit kapitolu</string>
+    <string name="reader_prev_chapter_desc">Předchozí kapitola</string>
     <string name="reader_next_chapter_desc">Další kapitola</string>
-    <string name="reader_first_page_desc">První stránka</string>
-    <string name="reader_last_page_desc">Poslední stránka</string>
     <string name="reader_brightness_desc">Jas</string>
     <string name="reader_translate_settings_desc">Nastavení překladu</string>
     <string name="reader_translation_label">Překlad:</string>

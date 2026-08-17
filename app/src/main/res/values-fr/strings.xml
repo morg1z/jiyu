@@ -671,9 +671,8 @@
     <string name="reader_stop_translation_desc">Arrêter la traduction</string>
     <string name="reader_hide_translation_desc">Masquer la traduction</string>
     <string name="reader_translate_chapter_action_desc">Traduire le chapitre</string>
+    <string name="reader_prev_chapter_desc">Chapitre précédent</string>
     <string name="reader_next_chapter_desc">Chapitre suivant</string>
-    <string name="reader_first_page_desc">Première page</string>
-    <string name="reader_last_page_desc">Dernière page</string>
     <string name="reader_brightness_desc">Luminosité</string>
     <string name="reader_translate_settings_desc">Paramètres de traduction</string>
     <string name="reader_translation_label">Traduction :</string>

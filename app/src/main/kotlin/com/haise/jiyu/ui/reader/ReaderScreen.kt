@@ -259,6 +259,7 @@ fun ReaderScreen(
                 chapterTitle = chapterTitle,
                 mangaTitle = mangaTitle,
                 onOpenManga = { mangaId?.let(onOpenManga) },
+                hasPrevChapter = hasPrevChapter,
                 hasNextChapter = hasNextChapter,
                 controlsVisible = controlsVisible,
                 onToggleControlsVisible = { viewModel.toggleControlsVisible() },

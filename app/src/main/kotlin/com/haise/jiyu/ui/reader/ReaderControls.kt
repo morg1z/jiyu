@@ -60,6 +60,7 @@ import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.source.LanguageMap
 import compose.icons.TablerIcons
+import compose.icons.tablericons.ArrowLeft
 import compose.icons.tablericons.ArrowRight
 import compose.icons.tablericons.Check
 import compose.icons.tablericons.Eye
@@ -68,8 +69,6 @@ import compose.icons.tablericons.Language
 import compose.icons.tablericons.LayoutRows
 import compose.icons.tablericons.Menu2
 import compose.icons.tablericons.Moon
-import compose.icons.tablericons.PlayerSkipBack
-import compose.icons.tablericons.PlayerSkipForward
 import compose.icons.tablericons.Sun
 import compose.icons.tablericons.WifiOff
 import compose.icons.tablericons.X
@@ -291,6 +290,8 @@ fun ReaderBottomPanel(
     onTranslateAll: () -> Unit,
     onCancelBatch: () -> Unit,
     translationProgress: TranslationProgress?,
+    hasPrevChapter: Boolean,
+    onNavigatePrev: () -> Unit,
     hasNextChapter: Boolean,
     onNavigateNext: () -> Unit,
     // Presunuto sem z horni listy (uzivatelsky pozadavek) - zit ted v sheetu za
@@ -306,7 +307,6 @@ fun ReaderBottomPanel(
     var showBrightness by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     LaunchedEffect(showMore) { onAdvancedSheetVisibilityChanged(showMore) }
-    val canJumpPage = pageCount > 1
     val dimTint = Color.White.copy(alpha = 0.25f)
     val liveTint = Color.White.copy(alpha = 0.9f)
     // Tmava namornicka karta stejne barvy jako ostatni sheety v ctecce (Color(0xFF111B35)),
@@ -361,11 +361,13 @@ fun ReaderBottomPanel(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { onJumpToPage(0) }, enabled = canJumpPage, modifier = Modifier.size(40.dp)) {
+            // Predchozi kapitola - stejny vizualni styl jako "dalsi kapitola" vpravo
+            // (uzivatelsky pozadavek - drivejsi ikona skakala jen na prvni stranku).
+            IconButton(onClick = onNavigatePrev, enabled = hasPrevChapter, modifier = Modifier.size(40.dp)) {
                 Icon(
-                    TablerIcons.PlayerSkipBack,
-                    contentDescription = stringResource(R.string.reader_first_page_desc),
-                    tint = if (canJumpPage) liveTint else dimTint,
+                    TablerIcons.ArrowLeft,
+                    contentDescription = stringResource(R.string.reader_prev_chapter_desc),
+                    tint = if (hasPrevChapter) liveTint else dimTint,
                     modifier = Modifier.size(21.dp),
                 )
             }
@@ -381,14 +383,6 @@ fun ReaderBottomPanel(
                         translateMode -> Color(0xFF4FC3F7)
                         else          -> liveTint
                     },
-                    modifier = Modifier.size(21.dp),
-                )
-            }
-            IconButton(onClick = { onJumpToPage(pageCount - 1) }, enabled = canJumpPage, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    TablerIcons.PlayerSkipForward,
-                    contentDescription = stringResource(R.string.reader_last_page_desc),
-                    tint = if (canJumpPage) liveTint else dimTint,
                     modifier = Modifier.size(21.dp),
                 )
             }
