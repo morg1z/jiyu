@@ -106,6 +106,7 @@ import com.haise.jiyu.source.evascans.EvaScansSource
 import com.haise.jiyu.source.scythescans.ScytheScansSource
 import com.haise.jiyu.source.vcomics.VComicsSource
 import com.haise.jiyu.source.hadesscans.HadesScansSource
+import com.haise.jiyu.source.astratoons.AstraToonsSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -229,6 +230,7 @@ class SourceManager @Inject constructor(
     evaScansSource: EvaScansSource,
     scytheScansSource: ScytheScansSource,
     hadesScansSource: HadesScansSource,
+    astraToonsSource: AstraToonsSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -689,6 +691,10 @@ class SourceManager @Inject constructor(
             "dragontea", "Dragon Tea", "https://dragontea.ink", client,
             contentTypeOverride = "NOVEL",
         ),
+        // AstraToons (astratoons.com, pt-BR) - overeno zive: cisty Laravel JSON API
+        // pro katalog/hledani/detail (/api/comics), jen seznam kapitol je HTML
+        // fragment z Alpine.js sablony (viz komentar ve tride).
+        astraToonsSource,
     )
 
     init {
