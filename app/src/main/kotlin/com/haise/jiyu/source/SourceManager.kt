@@ -107,6 +107,7 @@ import com.haise.jiyu.source.scythescans.ScytheScansSource
 import com.haise.jiyu.source.vcomics.VComicsSource
 import com.haise.jiyu.source.hadesscans.HadesScansSource
 import com.haise.jiyu.source.astratoons.AstraToonsSource
+import com.haise.jiyu.source.utoon.UtoonSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -231,6 +232,7 @@ class SourceManager @Inject constructor(
     scytheScansSource: ScytheScansSource,
     hadesScansSource: HadesScansSource,
     astraToonsSource: AstraToonsSource,
+    utoonSource: UtoonSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -695,6 +697,21 @@ class SourceManager @Inject constructor(
         // pro katalog/hledani/detail (/api/comics), jen seznam kapitol je HTML
         // fragment z Alpine.js sablony (viz komentar ve tride).
         astraToonsSource,
+        // Utoon (utoon.us) - overeno zive: vlastni "mangaverse" WP motiv (ne Madara),
+        // "Nacist dalsi" pres AJAX s WP nonce (viz komentar ve tride).
+        utoonSource,
+        // Hunters Scans - domena huntersscan.xyz mezitim EXPIROVALA a byla znovu
+        // prodana/obsazena uplne cizim webem ("Holy City Fishing Charters", GoDaddy
+        // Website Builder) - overeno zive, NEPOUZIVAT. Skutecny web tymu je
+        // readhunters.xyz (pt-BR, "ReadHunter"), genuine nezmeneny Madara motiv
+        // (wp-manga/page-item-detail potvrzeno), jen vlastni permalink "/comics/"
+        // misto vychoziho "/manga/" (ten vraci zavrenou/resetnutou spojeni misto
+        // 404 - vypada jako WAF pravidlo na neexistujici cestu, ne technicka
+        // prekazka zdroje samotneho).
+        MadaraSource(
+            "readhunters", "Hunters Scans", "https://readhunters.xyz", client,
+            popularUrl = { root, page, orderby -> "$root/comics/page/$page/?m_orderby=$orderby" },
+        ),
     )
 
     init {
