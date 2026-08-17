@@ -78,6 +78,7 @@ import com.haise.jiyu.translate.minTranslationFontSp
 import com.haise.jiyu.translate.renderBoxRect
 import dagger.hilt.android.EntryPointAccessors
 import com.haise.jiyu.translate.snapBubbleBg
+import com.haise.jiyu.translate.tidyFrenchStyleSpacing
 import com.haise.jiyu.translate.tidyStrandedPunctuation
 
 // ── Translation overlay - sdíleno mezi MangaReader (ReaderPager.kt) a WebtoonReader.kt ──
@@ -306,8 +307,13 @@ fun TranslationOverlay(
     val snappedBgBottom = snapBubbleBg(pos.block.bgColorBottomArgb)
     // tidyStrandedPunctuation: mezera před koncovou tečkou nabízí zalamovači zlom, po kterém
     // tečka zůstane sama na řádku - viz [tidyStrandedPunctuation] a nahlášené "ODLÉTÁME" + tečka.
-    val displayText = tidyStrandedPunctuation(
-        matchOriginalCase(pos.block.displayText, pos.block.originalText),
+    // tidyFrenchStyleSpacing: model si někdy plete interpunkční styl se zdrojovým jazykem a
+    // nechá mezeru před "?"/"!" i uprostřed textu (viz jeho doc komentář a nahlášené
+    // "CO DĚLÁŠ ?").
+    val displayText = tidyFrenchStyleSpacing(
+        tidyStrandedPunctuation(
+            matchOriginalCase(pos.block.displayText, pos.block.originalText),
+        ),
     )
 
     // Bezpečná plocha pro text uvnitř tvaru bubliny (viz [largestInscribedRect]) - největší

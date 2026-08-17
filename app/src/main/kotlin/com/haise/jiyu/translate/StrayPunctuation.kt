@@ -33,6 +33,23 @@ package com.haise.jiyu.translate
 fun tidyStrandedPunctuation(text: String): String = SPACE_BEFORE_TRAILING_PUNCTUATION.replace(text, "")
 
 /**
+ * Odstraní mezeru před "?", "!", ":" nebo ";" KDEKOLI v textu, ne jen na konci.
+ *
+ * Na rozdíl od [tidyStrandedPunctuation] (jen osamocená koncová interpunkce, viz její doc
+ * komentář proč zůstává úzký) je tohle bezpečné použít všude: čeština mezeru před těmihle
+ * znaky nikdy nemá (na rozdíl od francouzštiny), takže žádný legitimní případ, kdy by se
+ * měla zachovat, neexistuje. Nahlášeno se stránkou Vagabonda: "CO DĚLÁŠ ?", "...TAKEZŌ ?" -
+ * model si zjevně někdy plete interpunkční styl se zdrojovým jazykem (viz prompt sekce
+ * "ČESKÁ TYPOGRAFIE" v [GeminiUltraPrompt]), tenhle úklid je záchranná síť pro případ, že
+ * pravidlo v promptu nedodrží.
+ *
+ * Tečka a čárka se SCHVÁLNĚ vynechávají - ty řeší [tidyStrandedPunctuation] jen pro osamocený
+ * konec věty, protože mezera před nimi uprostřed věty může být legitimní (desetinná čárka,
+ * citace) a nechceme přepisovat text nad rámec nahlášené chyby.
+ */
+fun tidyFrenchStyleSpacing(text: String): String = SPACE_BEFORE_QUESTION_EXCLAMATION_COLON.replace(text, "")
+
+/**
  * Nese blok vůbec nějaké písmeno?
  *
  * Blok bez jediného písmene (samotná tečka, uvozovka, hvězdička z rastru) nemá co překládat -
@@ -57,3 +74,7 @@ fun hasTranslatableLetters(text: String): Boolean = text.any { it.isLetter() }
  */
 private val SPACE_BEFORE_TRAILING_PUNCTUATION =
     Regex("[\\s\\p{Zs}\\u00A0\\u200B\\uFEFF]+(?=[.,!?:;\\u2026]+[\\s\\p{Zs}\\u00A0\\u200B\\uFEFF]*$)")
+
+/** Mezera (jakéhokoli druhu, viz [SPACE_BEFORE_TRAILING_PUNCTUATION]) bezprostředně před "?"/"!"/":"/";". */
+private val SPACE_BEFORE_QUESTION_EXCLAMATION_COLON =
+    Regex("[\\s\\p{Zs}\\u00A0\\u200B\\uFEFF]+(?=[?!:;])")

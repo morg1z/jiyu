@@ -90,6 +90,37 @@ class StrayPunctuationTest {
     }
 
     @Test
+    fun `a space before a question or exclamation mark is removed anywhere in the text`() {
+        // Nahlášeno se stránkou Vagabonda: "CO DĚLÁŠ ?", "...TAKEZŌ ?" - na rozdíl od
+        // tidyStrandedPunctuation smí sáhnout KAMKOLI v textu (viz doc komentář u
+        // tidyFrenchStyleSpacing), ne jen na osamocený konec věty.
+        assertEquals("CO DĚLÁŠ?", tidyFrenchStyleSpacing("CO DĚLÁŠ ?"))
+        assertEquals("UTÍKEJ!", tidyFrenchStyleSpacing("UTÍKEJ !"))
+        assertEquals("TAKEZŌ?", tidyFrenchStyleSpacing("TAKEZŌ ?"))
+        assertEquals("CO DĚLÁŠ? PROČ?", tidyFrenchStyleSpacing("CO DĚLÁŠ ? PROČ ?"))
+    }
+
+    @Test
+    fun `a space before a colon or semicolon is removed too`() {
+        assertEquals("POSLOUCHEJ: TOHLE JE DŮLEŽITÉ.", tidyFrenchStyleSpacing("POSLOUCHEJ : TOHLE JE DŮLEŽITÉ."))
+        assertEquals("POČKEJ; JEŠTĚ NE.", tidyFrenchStyleSpacing("POČKEJ ; JEŠTĚ NE."))
+    }
+
+    @Test
+    fun `a unicode or zero-width space before a question mark is removed too`() {
+        val emSpace = 0x2003.toChar()
+        val zeroWidthSpace = 0x200B.toChar()
+        assertEquals("CO DĚLÁŠ?", tidyFrenchStyleSpacing("CO DĚLÁŠ${emSpace}?"))
+        assertEquals("CO DĚLÁŠ?", tidyFrenchStyleSpacing("CO DĚLÁŠ${zeroWidthSpace}?"))
+    }
+
+    @Test
+    fun `a period or comma mid-sentence is not touched`() {
+        // Tečka/čárka schválně vynechané - viz doc komentář u tidyFrenchStyleSpacing.
+        assertEquals("ANO , JISTĚ.", tidyFrenchStyleSpacing("ANO , JISTĚ."))
+    }
+
+    @Test
     fun `a block without a single letter carries nothing translatable`() {
         assertFalse(hasTranslatableLetters("."))
         assertFalse(hasTranslatableLetters("..."))

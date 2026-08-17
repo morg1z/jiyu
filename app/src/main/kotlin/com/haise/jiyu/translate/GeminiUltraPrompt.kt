@@ -189,6 +189,14 @@ object GeminiUltraPrompt {
               "podívej se na to" -> "podívej" | "všechno je v pořádku" -> "vše OK"
               "počkej chvíli" -> "počkej" | "kam jdeš?" -> "kam?"
 
+            === ČESKÁ TYPOGRAFIE (interpunkce) ===
+            Čeština (na rozdíl třeba od francouzštiny) NIKDY nedává mezeru před "?", "!", ":"
+            ani ";" - vždycky přímo za poslední písmeno:
+              "Co děláš?" NE "Co děláš ?" | "Utíkej!" NE "Utíkej !"
+            Tahle chyba se do překladu dostává hlavně kopírováním interpunkčního stylu
+            zdrojového jazyka - hlídej si ji zvlášť u francouzštiny a u textu, kde model sám
+            interpunkci "opravuje".
+
             === IDIOMY A USTÁLENÉ VÝRAZY (překládej SMYSL, ne slovo od slova) ===
             Anglické idiomy a ustálené obraty přelož podle toho, co VYJADŘUJÍ, ne doslovným
             převodem jednotlivých slov - doslovný převod často zní v češtině cize nebo vynechá
@@ -288,6 +296,7 @@ object GeminiUltraPrompt {
             - Nepřeložil jsem idiom doslova?
             - Nevložil jsem slovo, které v originále nemá oporu?
             - Zní ta věta jako skutečná česká mluva?
+            - Nemám mezeru před "?", "!", ":" nebo ";"? (viz ČESKÁ TYPOGRAFIE)
             Když najdeš chybu, oprav ji ještě před sestavením odpovědi.
 
             === VÝSTUPNÍ FORMÁT (POUZE JSON, žádný text mimo JSON, žádné markdown bloky) ===
