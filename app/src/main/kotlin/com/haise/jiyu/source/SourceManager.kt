@@ -108,6 +108,7 @@ import com.haise.jiyu.source.vcomics.VComicsSource
 import com.haise.jiyu.source.hadesscans.HadesScansSource
 import com.haise.jiyu.source.astratoons.AstraToonsSource
 import com.haise.jiyu.source.utoon.UtoonSource
+import com.haise.jiyu.source.kscans.KScansSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -233,6 +234,7 @@ class SourceManager @Inject constructor(
     hadesScansSource: HadesScansSource,
     astraToonsSource: AstraToonsSource,
     utoonSource: UtoonSource,
+    kScansSource: KScansSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -712,6 +714,10 @@ class SourceManager @Inject constructor(
             "readhunters", "Hunters Scans", "https://readhunters.xyz", client,
             popularUrl = { root, page, orderby -> "$root/comics/page/$page/?m_orderby=$orderby" },
         ),
+        // kScans (kscans.xyz) - misto "SacIND" (nedohledatelne, uzivatel nemel presnou
+        // URL) najit uzivatelem misto toho tenhle NOVEL zdroj - overeno zive, vlastni
+        // bespoke motiv, viz komentar ve tride.
+        kScansSource,
     )
 
     init {
