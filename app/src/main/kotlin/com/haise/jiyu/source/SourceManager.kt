@@ -109,6 +109,8 @@ import com.haise.jiyu.source.hadesscans.HadesScansSource
 import com.haise.jiyu.source.astratoons.AstraToonsSource
 import com.haise.jiyu.source.utoon.UtoonSource
 import com.haise.jiyu.source.kscans.KScansSource
+import com.haise.jiyu.source.lagoonscans.LagoonScansSource
+import com.haise.jiyu.source.meowingtoons.MeowingToonsSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -235,6 +237,7 @@ class SourceManager @Inject constructor(
     astraToonsSource: AstraToonsSource,
     utoonSource: UtoonSource,
     kScansSource: KScansSource,
+    lagoonScansSource: LagoonScansSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -718,6 +721,28 @@ class SourceManager @Inject constructor(
         // URL) najit uzivatelem misto toho tenhle NOVEL zdroj - overeno zive, vlastni
         // bespoke motiv, viz komentar ve tride.
         kScansSource,
+        // Lagoon Scans - MangaThemesia jako Thunderscans, jen jina info-karta
+        // (table.infotable misto div.imptdt), viz komentar ve tride.
+        lagoonScansSource,
+        // ManhuaNext - genuine nezmeneny Madara, zadny prepis netreba.
+        MadaraSource("manhuanext", "ManhuaNext", "https://manhuanext.com", client, contentTypeOverride = "MANHUA"),
+        // Timeless Toons a Genz Toons bezi na stejne sdilene komercni sablone (CDN
+        // "cdn.meowing.org", identicka struktura) - overeno zive na obou, proto
+        // spolecna generic trida MeowingToonsSource. ManhwaFreak (v seznamu pozadavku)
+        // NEPRIDAN ZVLAST - puvodni domena manhwafreak.com uz vubec neexistuje
+        // (rebranding potvrzen i mimo appku), skupina ted zije pod Utoon (utoon.us),
+        // ktery uz appka ma.
+        MeowingToonsSource("timelesstoons", "Timeless Toons", "https://timelesstoons.org", client),
+        MeowingToonsSource("genztoons", "Genz Toons", "https://genztoons.org", client),
+        // Dusk Scans (duskscans.com) VYNECHÁN - plne klientsky renderovana Next.js
+        // App Router aplikace (React Server Components), zadny obsah ani API
+        // endpoint viditelny ve staticky stazenem HTML (overeno zive) - vyzadovalo
+        // by hlubsi rozbor minifikovanych JS bundlu, nez je pro tuhle davku unosne.
+        //
+        // brainrotcomics.com VYNECHÁN - blokuje opravdove interaktivni Cloudflare
+        // Managed Challenge (Cf-Mitigated: challenge, overeno zive) a appka nema
+        // zadny strukturalni naznak sablony (na rozdil od Dragon Tea), takze by
+        // pridani bylo cistě naslepo bez zakladu.
     )
 
     init {
