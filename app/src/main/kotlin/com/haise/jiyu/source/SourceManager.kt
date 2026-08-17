@@ -12,6 +12,7 @@ import com.haise.jiyu.source.woopread.WoopReadSource
 import com.haise.jiyu.source.dynasty.DynastySource
 import com.haise.jiyu.source.hitomi.HitomiSource
 import com.haise.jiyu.source.mangapark.MangaParkSource
+import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangago.MangagoSource
 import com.haise.jiyu.source.asurascans.AsuraScansSource
 import com.haise.jiyu.source.flamecomics.FlameComicsSource
@@ -134,6 +135,7 @@ class SourceManager @Inject constructor(
     webtoonSource: WebtoonSource,
     dynastySource: DynastySource,
     mangaParkSource: MangaParkSource,
+    mangaFireSource: MangaFireSource,
     novelFullSource: NovelFullSource,
     freeWebNovelSource: FreeWebNovelSource,
     mangagoSource: MangagoSource,
@@ -249,16 +251,16 @@ class SourceManager @Inject constructor(
         comicKSource,
         hitomiSource,
         nhentaiSource,
-        // MangaFire odstraněno 2026-07-27 (čtvrté kolo) - API (mangafire.to/api/titles)
-        // je od pohledu bez autentizace, ale vrací {"message":"Missing token."} (403).
-        // Analýza staženého JS bundlu (main-tit729-*.js) odhalila vzor axios
-        // withXSRFToken - klient musí poslat hlavičku X-XSRF-TOKEN podle hodnoty
-        // cookie XSRF-TOKEN, tu ale server nikdy nenastavuje přes Set-Cookie;
-        // v bundlu je i odkaz na "turnstile" - cookie se zjevně nastavuje až
-        // klientským JS po vyřešení neviditelné Cloudflare Turnstile výzvy, stejný
-        // architektonický limit jako u evilmanga/kunmanga/atd. (viz sekce 8b v
-        // docs/source-audit-2026-07-26.md). Viz MangaFireSource.kt (ponecháno pro
-        // případ, že by appka v budoucnu směrovala requesty přes WebView).
+        // MangaFire ZNOVU PŘIDÁNO 2026-08-17 - původně odstraněno 2026-07-27 (viz
+        // docs/source-audit-2026-07-26.md sekce 8b), protože /api/titles vracelo 403
+        // s vlastním XSRF-TOKEN mechanismem řešeným až klientským JS po neviditelné
+        // Cloudflare Turnstile výzvě. Ověřeno živě (2026-08-17): teď je to standardní
+        // Cloudflare "Managed Challenge" (hlavička "Cf-Mitigated: challenge", cType:
+        // 'managed') přímo na úrovni Cloudflare, ne vlastní aplikační vrstva navíc -
+        // přesně to, co CloudflareInterceptor (mezitím přidaný do appky) umí řešit
+        // automaticky přes WebView. Samotná MangaFireSource.kt (API parsing) beze
+        // změny, jen znovu zaregistrována.
+        mangaFireSource,
         // Bato.to odstraněno 2026-07-27 - z vývojářského stroje šlo jen o "connection
         // timed out" (možná blokace datacenter IP), ale uživatel potvrdil, že appka na
         // reálném telefonu Bato.to taky nenačte. Viz BatoToSource.kt (ponecháno pro
