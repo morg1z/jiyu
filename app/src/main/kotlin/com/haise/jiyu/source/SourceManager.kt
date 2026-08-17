@@ -103,7 +103,8 @@ import com.haise.jiyu.source.oppaistream.OppaiStreamSource
 import com.haise.jiyu.source.thunderscans.ThunderscansSource
 import com.haise.jiyu.source.evascans.EvaScansSource
 import com.haise.jiyu.source.scythescans.ScytheScansSource
-import com.haise.jiyu.source.kaynscan.KaynScanSource
+import com.haise.jiyu.source.vcomics.VComicsSource
+import com.haise.jiyu.source.hadesscans.HadesScansSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -225,7 +226,7 @@ class SourceManager @Inject constructor(
     thunderscansSource: ThunderscansSource,
     evaScansSource: EvaScansSource,
     scytheScansSource: ScytheScansSource,
-    kaynScanSource: KaynScanSource,
+    hadesScansSource: HadesScansSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -661,12 +662,17 @@ class SourceManager @Inject constructor(
         // Skutečný/anglický mirror skupiny je en-thunderscans.com (WordPress "mangareader"
         // téma, viz ThunderscansSource) - tu appka používá.
         thunderscansSource,
-        // Davka 2026-08-17 (Eva Scans / Scythe Scans / Kayn Scan) - overeno zive
-        // (PowerShell Invoke-WebRequest + rucni rozbor markupu), viz komentare
-        // primo v jednotlivych tridach.
+        // Davka 2026-08-17 (Eva Scans / Scythe Scans / Kayn Scan / Ken Scans / Hades
+        // Scans) - overeno zive (PowerShell Invoke-WebRequest + rucni rozbor markupu),
+        // viz komentare primo v jednotlivych tridach.
         evaScansSource,
         scytheScansSource,
-        kaynScanSource,
+        // Kayn Scan a Ken Scans bezi na stejne sdilene komercni Astro sablone "vcomics"
+        // (build cesta /_vcomics/..., identicka struktura dat) - overeno zive na obou,
+        // proto spolecna generic trida VComicsSource misto dvou skoro identickych kopii.
+        VComicsSource("kaynscan", "Kayn Scan", "https://kaynscan.org", client),
+        VComicsSource("kenscans", "Ken Scans", "https://kenscans.org", client),
+        hadesScansSource,
     )
 
     init {

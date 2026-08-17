@@ -1,4 +1,4 @@
-package com.haise.jiyu.source.kaynscan
+package com.haise.jiyu.source.vcomics
 
 import com.haise.jiyu.source.bodyOrThrow
 
@@ -16,29 +16,38 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * kaynscan.org - NENI Madara ani MangaThemesia. Beží na Astro s "islands" architekturou
- * (build cesta `/_vcomics/...`) - katalog i detail se renderuji server-side, ale data pro
- * hydrataci JS komponent jsou schovana v `props="..."` atributu `<astro-island>` tagu jako
- * HTML-entity-escapovany JSON ve zvlastnim tvaru `["typ", hodnota]` (kazde pole je pár).
- * Misto psani plneho dekoderu tohoto formatu appka cilene regexuje jen pole, ktera
- * potrebuje (slug/postTitle/featuredImage/seriesType pro seznam, id/number/slug/title/
- * createdAt pro kapitoly) - overeno zive (PowerShell), viz project memory
- * "project_jiyu_..." poznamky k teto davce zdroju.
+ * Generický zdroj pro weby na sdílené komerční Astro šabloně "vcomics" (build cesta
+ * `/_vcomics/...`, "vastro" navigace) - potvrzeno živě na Kayn Scan (kaynscan.org) i
+ * Ken Scans (kenscans.org), obě mají identickou strukturu dat, jen jinou CDN doménu
+ * pro obrázky.
  *
- * Vyhledavani NEMA funkcni server-side filtr (`/series?q=...`/`?search=...` vraci vzdy
- * stejny nefiltrovany seznam - overeno zive) - misto toho appka stahne nekolik prvnich
- * stranek katalogu a filtruje podle titulku sama (best-effort, ne kompletni katalog).
+ * Katalog i detail se renderují server-side, ale data pro hydrataci JS komponent jsou
+ * schovaná v `props="..."` atributu `<astro-island>` tagů jako HTML-entity-escapovaný
+ * JSON ve zvláštním tvaru `["typ", hodnota]` (devalue-like serializace). Místo psaní
+ * plného dekodéru tohoto formátu appka cíleně regexuje jen pole, která potřebuje
+ * (slug/postTitle/featuredImage/seriesType pro seznam, id/number/slug/title/createdAt
+ * pro kapitoly).
  *
- * Obrazky stranek kapitoly NEJSOU v `props` blobu, ale primo jako obycejne absolutni URL
- * (`<link rel="preload">` a nasledne `<img>`) na CDN `storage.kaynscan.org/.../page-NNNN...`
- * - jednoduchy regex na cele URL v poradi vyskytu v dokumentu staci, zadne parsovani JSON.
+ * Vyhledávání NEMÁ funkční server-side filtr (`/series?q=...`/`?search=...` vrací vždy
+ * stejný nefiltrovaný seznam - ověřeno živě na obou webech) - místo něj appka stáhne
+ * několik prvních stránek katalogu a filtruje podle titulku sama (best-effort, ne
+ * kompletní katalog).
+ *
+ * Obrázky stránek kapitoly NEJSOU v `props` blobu, ale přímo jako obyčejné absolutní
+ * URL (`<link rel="preload">` a následně `<img>`) na CDN `storage.{doména}/.../series/...`
+ * - jednoduchý regex na tyhle URL v pořadí výskytu v dokumentu stačí, žádné parsování
+ * JSON. Nové/prémiové kapitoly bývají uzamčené (`isLocked`) - appka to nijak zvlášť
+ * neřeší (žádný chapter má "locked" stav), takže se u takové kapitoly prostě nenajdou
+ * žádné stránky, stejně jako u jiných nedostupných kapitol.
  */
-@Singleton
-class KaynScanSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
-    override val id = "kaynscan"
-    override val name = "Kayn Scan"
-    override val homepageUrl get() = base
-    private val base = "https://kaynscan.org"
+class VComicsSource(
+    override val id: String,
+    override val name: String,
+    private val baseUrl: String,
+    private val client: OkHttpClient,
+) : MangaSource {
+    override val homepageUrl get() = baseUrl
+    private val root get() = baseUrl.trimEnd('/')
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -67,7 +76,7 @@ class KaynScanSource @Inject constructor(private val client: OkHttpClient) : Man
             val cover = m.groupValues[3].ifBlank { null }?.let { unescape(it) }
             SManga(
                 sourceId = id,
-                url = "$base/series/$slug",
+                url = "$root/series/$slug",
                 title = title,
                 coverUrl = cover,
                 contentType = normalizeContentType(m.groupValues[4]),
@@ -76,19 +85,19 @@ class KaynScanSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/series" else "$base/series?page=$page"
+            val url = if (page <= 1) "$root/series" else "$root/series?page=$page"
             parseListing(get(url))
         } catch (_: Exception) { emptyList() }
     }
 
-    // Server-side filtr na "/series" nefunguje (overeno zive) - misto nej se prohleda
-    // prvnich par stranek katalogu a filtruje se podle titulku primo v appce.
+    // Server-side filtr na "/series" nefunguje (ověřeno živě) - místo něj se prohledá
+    // prvních pár stránek katalogu a filtruje se podle titulku přímo v appce.
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
             val q = query.trim()
             (1..5).flatMap { p ->
-                val url = if (p <= 1) "$base/series" else "$base/series?page=$p"
+                val url = if (p <= 1) "$root/series" else "$root/series?page=$p"
                 try { parseListing(get(url)) } catch (_: Exception) { emptyList() }
             }.distinctBy { it.url }.filter { it.title.contains(q, ignoreCase = true) }
         } catch (_: Exception) { emptyList() }
@@ -144,7 +153,7 @@ class KaynScanSource @Inject constructor(private val client: OkHttpClient) : Man
         System.currentTimeMillis()
     }
 
-    private val pageImageRegex = Regex("""https://storage\.kaynscan\.org/[^"'\s]+?\.(?:jpg|jpeg|png|webp)""", RegexOption.IGNORE_CASE)
+    private val pageImageRegex = Regex("""https://storage\.[a-zA-Z0-9.-]+/[^"'\s]+?\.(?:jpg|jpeg|png|webp)""", RegexOption.IGNORE_CASE)
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
