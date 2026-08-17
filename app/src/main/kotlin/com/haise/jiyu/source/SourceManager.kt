@@ -101,6 +101,9 @@ import com.haise.jiyu.source.eahentai.EAHentaiSource
 import com.haise.jiyu.source.simplyhentai.SimplyHentaiSource
 import com.haise.jiyu.source.oppaistream.OppaiStreamSource
 import com.haise.jiyu.source.thunderscans.ThunderscansSource
+import com.haise.jiyu.source.evascans.EvaScansSource
+import com.haise.jiyu.source.scythescans.ScytheScansSource
+import com.haise.jiyu.source.kaynscan.KaynScanSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -220,6 +223,9 @@ class SourceManager @Inject constructor(
     simplyHentaiSource: SimplyHentaiSource,
     oppaiStreamSource: OppaiStreamSource,
     thunderscansSource: ThunderscansSource,
+    evaScansSource: EvaScansSource,
+    scytheScansSource: ScytheScansSource,
+    kaynScanSource: KaynScanSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -655,6 +661,12 @@ class SourceManager @Inject constructor(
         // Skutečný/anglický mirror skupiny je en-thunderscans.com (WordPress "mangareader"
         // téma, viz ThunderscansSource) - tu appka používá.
         thunderscansSource,
+        // Davka 2026-08-17 (Eva Scans / Scythe Scans / Kayn Scan) - overeno zive
+        // (PowerShell Invoke-WebRequest + rucni rozbor markupu), viz komentare
+        // primo v jednotlivych tridach.
+        evaScansSource,
+        scytheScansSource,
+        kaynScanSource,
     )
 
     init {
