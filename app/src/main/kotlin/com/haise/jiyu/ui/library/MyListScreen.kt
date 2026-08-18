@@ -21,6 +21,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -202,7 +204,14 @@ fun MyListScreen(
         // jineho typu kontejneru. Driv stala mimo scroll a zustavala viset nahore, takze
         // obsah jezdil pod ni. statusBarsPadding je proto na obalu vys: na hlavicce by
         // odscrolovalo pryc s ni a obsah by vjel pod stavovou listu.
+        // Cely obsah hlavicky MUSI byt zabaleny v JEDNOM korenovem Composable - LazyColumn
+        // (list rezim) vice korenovych uzlu v jedne item{} sice poskladalo pod sebe, ale
+        // LazyVerticalGrid (grid rezim) stejnou item(span=...){} misto skladani PREKRYVA
+        // (kazdy koren se polozi na stejnou pozici) - overeno zive na emulatoru (nadpis,
+        // filtry cteni i "Filtrovat a radit" se vykreslovaly pres sebe). Vnejsi Column tenhle
+        // rozdil vyrusi - dovnitr jde jen jediny uzel bez ohledu na typ kontejneru.
         val header: @Composable () -> Unit = {
+        Column {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -331,12 +340,18 @@ fun MyListScreen(
                 "PLAN_TO_READ" to stringResource(R.string.mylist_filter_plan_to_read),
                 "DROPPED" to stringResource(R.string.detail_reading_status_dropped),
             )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            // Obyčejný scrollovatelný Row misto LazyRow - jde jen o 6 pevnych polozek a
+            // LazyRow vnořené uvnitř LazyVerticalGrid/LazyColumn span-header polozky (viz
+            // `header` niz) zpusobovalo, ze se cast hlavicky (nadpis, tenhle radek) v grid
+            // rezimu vubec nevykreslila/spatne zmerila - overeno zive na emulatoru.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
             ) {
-                items(readingStatuses) { (key, label) ->
+                readingStatuses.forEach { (key, label) ->
                     ReadingStatusChip(label = label, selected = readingStatusFilter == key, onClick = { viewModel.setReadingStatusFilter(key) })
                 }
             }
@@ -389,6 +404,7 @@ fun MyListScreen(
                     }
                 }
             }
+        }
         }
 
         // ── Grid / empty + pull-to-refresh ───────────────────────────────────
