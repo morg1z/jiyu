@@ -112,6 +112,7 @@ import com.haise.jiyu.source.kscans.KScansSource
 import com.haise.jiyu.source.lagoonscans.LagoonScansSource
 import com.haise.jiyu.source.meowingtoons.MeowingToonsSource
 import com.haise.jiyu.source.valirscans.ValirScansSource
+import com.haise.jiyu.source.coloredmanga.ColoredMangaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -240,6 +241,7 @@ class SourceManager @Inject constructor(
     kScansSource: KScansSource,
     lagoonScansSource: LagoonScansSource,
     valirScansSource: ValirScansSource,
+    coloredMangaSource: ColoredMangaSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -774,6 +776,11 @@ class SourceManager @Inject constructor(
         // Quegna Traduction Team VYNECHÁN - nema vlastni ctecku, jen obecne ForumFree
         // forum (qtt.forumcommunity.net), navic potvrzeno neaktivni (>6 mesicu bez
         // vydani) - neni co strukturovane scrapovat.
+        //
+        // Colored Manga (colorizedmangas.com) - na vyslovne uzivatelovo prani pridano i
+        // presto, ze neni klasicka scanlation skupina (jen obarveny mainstream, ~50
+        // titulu). Detail kapitol/stranky viz komentar ve tride.
+        coloredMangaSource,
     )
 
     init {
