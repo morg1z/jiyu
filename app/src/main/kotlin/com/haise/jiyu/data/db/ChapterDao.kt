@@ -71,10 +71,32 @@ interface ChapterDao {
 
     // ── Counts per manga ──────────────────────────────────────────────────────
 
-    @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE read = 0 GROUP BY mangaId")
+    // Agregátorské zdroje (ComicK) ukládají zvlášť řádek za KAŽDOU skupinu, co danou
+    // kapitolu přeložila - stejné chapterNumber tak může mít v tabulce víc řádků.
+    // COUNT(*) by proto sčítal kapitoly přes všechny skupiny místo unikátních čísel
+    // (např. "434" místo skutečných ~156) - group by mangaId+chapterNumber napřed
+    // sjednotí duplicity, teprve pak se počítá. Nemá vliv na zdroje s 1:1 kapitolami
+    // (tam je group by no-op).
+    @Query(
+        """
+        SELECT mangaId, COUNT(*) as count FROM (
+            SELECT mangaId, chapterNumber FROM chapter
+            GROUP BY mangaId, chapterNumber
+            HAVING SUM(CASE WHEN read = 1 THEN 1 ELSE 0 END) = 0
+        )
+        GROUP BY mangaId
+        """
+    )
     fun observeUnreadCounts(): Flow<List<MangaUnreadCount>>
 
-    @Query("SELECT mangaId, COUNT(*) as count FROM chapter GROUP BY mangaId")
+    @Query(
+        """
+        SELECT mangaId, COUNT(*) as count FROM (
+            SELECT DISTINCT mangaId, chapterNumber FROM chapter
+        )
+        GROUP BY mangaId
+        """
+    )
     fun observeTotalCounts(): Flow<List<MangaTotalCount>>
 
     @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE downloadStatus = 'DOWNLOADED' GROUP BY mangaId")
