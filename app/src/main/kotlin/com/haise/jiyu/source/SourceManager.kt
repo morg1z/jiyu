@@ -113,6 +113,7 @@ import com.haise.jiyu.source.lagoonscans.LagoonScansSource
 import com.haise.jiyu.source.meowingtoons.MeowingToonsSource
 import com.haise.jiyu.source.valirscans.ValirScansSource
 import com.haise.jiyu.source.coloredmanga.ColoredMangaSource
+import com.haise.jiyu.source.kiryuu.KiryuuSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -242,6 +243,7 @@ class SourceManager @Inject constructor(
     lagoonScansSource: LagoonScansSource,
     valirScansSource: ValirScansSource,
     coloredMangaSource: ColoredMangaSource,
+    kiryuuSource: KiryuuSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -781,6 +783,25 @@ class SourceManager @Inject constructor(
         // presto, ze neni klasicka scanlation skupina (jen obarveny mainstream, ~50
         // titulu). Detail kapitol/stranky viz komentar ve tride.
         coloredMangaSource,
+        // Kiryuu - kiryuu.id/.co/.io jsou jen anti-adblock "brana" (zadny skutecny obsah
+        // ve statickem HTML), skutecne aktualni zrcadlo zjisteno pres jejich vlastni
+        // "/domain" stranku - overeno zive, viz komentar ve tride.
+        kiryuuSource,
+        // Manga Inferno VYNECHÁN - jen Facebook stranka, zadny vlastni ctecka web.
+        //
+        // Newbie VYNECHÁN - prilis obecny nazev, nedohledatelna konkretni skupina (jen
+        // titulz s "Newbie" v nazvu od jinych skupin, zadna skupina primo tak jmenovana).
+        //
+        // Jaimini's~box~ VYNECHÁN - tym ukoncil cinnost 2020, puvodni jaiminisbox.com ted
+        // divne servíruje nesouvisejici obsah Google Play (overeno zive) - domena zjevne
+        // znovu vyuzita/spatne nasmerovana.
+        //
+        // Assley Team VYNECHÁN - rusky prekladatelsky tym bez vlastniho webu, publikuje
+        // jen pres cizi agregatory (manga-books.com, seimanga.me, inkstory.net).
+        //
+        // Bossque Scans VYNECHÁN - bossquescans.blogspot.com zije, ale sam nehostuje
+        // obsah (jen par odkazu na CIZI blogspot ucty s kapitolami) - neni co
+        // strukturovane scrapovat z jednoho zdroje.
     )
 
     init {
