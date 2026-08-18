@@ -421,10 +421,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setShowAdultSources(enabled: Boolean) = viewModelScope.launch { settings.setShowAdultSources(enabled) }
 
-    // Výchozí "sources" (Klasický režim) - musí sedět s SettingsRepository.appMode, jinak by
+    // Výchozí "comick" (Agregovaný režim) - musí sedět s SettingsRepository.appMode, jinak by
     // přepínač po startu na okamžik ukázal špatný stav, než dorazí hodnota z DataStore.
     val appMode: StateFlow<String> = settings.appMode
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AppMode.SOURCES)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppMode.COMICK)
 
     fun setAppMode(mode: String) = viewModelScope.launch { settings.setAppMode(mode) }
 
@@ -515,11 +515,10 @@ class SettingsViewModel @Inject constructor(
     fun setDownloadFolderUri(uri: String?) = viewModelScope.launch { settings.setDownloadFolderUri(uri) }
 
     // ── Jazyk aplikace ────────────────────────────────────────────────────────
-    fun setLanguage(tag: String) {
-        androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(
-            androidx.core.os.LocaleListCompat.forLanguageTags(tag)
-        )
-    }
+    val appLanguage: StateFlow<String> = settings.appLanguage
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "cs")
+
+    fun setLanguage(tag: String) = viewModelScope.launch { settings.setAppLanguage(tag) }
 
     // ── Ořez okrajů stránek ───────────────────────────────────────────────────
     val cropBorders: StateFlow<Boolean> = settings.cropBorders

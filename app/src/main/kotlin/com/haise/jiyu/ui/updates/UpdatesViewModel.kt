@@ -31,7 +31,10 @@ class UpdatesViewModel @Inject constructor(
         viewModelScope.launch { settings.clearNewChapters() }
     }
 
-    val updates: StateFlow<List<UpdateItem>> = chapterDao.observeUpdates()
+    // Novinky: pouze kapitoly za posledních 30 dní — starší kapitoly už nejsou "novinky".
+    private val cutoffMs = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+
+    val updates: StateFlow<List<UpdateItem>> = chapterDao.observeUpdates(cutoffMs)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isRefreshing = MutableStateFlow(false)

@@ -76,6 +76,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaSource
+import com.haise.jiyu.ui.components.JiyuWordmark
 import com.haise.jiyu.ui.theme.Accent
 import com.haise.jiyu.ui.theme.CardBorder
 import com.haise.jiyu.ui.theme.Danger
@@ -89,7 +90,7 @@ import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.Warning
 import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
-import com.haise.jiyu.ui.theme.titleGradient
+
 
 /** Hlavní obrazovka Procházet - mřížka zdrojů. Obsah konkrétního zdroje viz [SourceBrowseScreen]. */
 @Composable
@@ -143,10 +144,7 @@ fun BrowseScreen(
                         // v contentPadding, takže výsledek zůstává na původních 16.dp.
                         .padding(horizontal = 4.dp, vertical = 12.dp),
                 ) {
-                    Text(
-                        text = stringResource(R.string.browse_title),
-                        style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
-                    )
+                    JiyuWordmark()
 
                     // Přepínač režimu hledání - viz komentář u [searchBySourceName].
                     Row(

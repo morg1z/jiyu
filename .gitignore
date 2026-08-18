@@ -31,3 +31,8 @@ relnotes.tmp
 
 # Superpowers brainstorming companion - dočasné mockupy, ne zdrojový kód
 .superpowers/
+
+# Screenshoty z emulátoru používané během ladění — neveřejný obsah.
+screen*.png
+s*.png
+*.png

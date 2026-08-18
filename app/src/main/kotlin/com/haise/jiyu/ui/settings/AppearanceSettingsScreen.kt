@@ -32,6 +32,7 @@ fun AppearanceSettingsScreen(
     val libraryGridColumns by viewModel.libraryGridColumns.collectAsState()
     val defaultCategoryId  by viewModel.defaultCategoryId.collectAsState()
     val allCategories      by viewModel.categories.collectAsState()
+    val appLanguage        by viewModel.appLanguage.collectAsState()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -56,12 +57,9 @@ fun AppearanceSettingsScreen(
                         "es" to "🇪🇸  Español",
                     )
                     appLanguages.forEach { (tag, label) ->
-                        val currentTag = androidx.appcompat.app.AppCompatDelegate
-                            .getApplicationLocales().toLanguageTags()
-                            .split(",").firstOrNull()?.take(2) ?: "cs"
                         GlassRadioRow(
                             label = label,
-                            selected = currentTag == tag,
+                            selected = appLanguage == tag,
                             onClick = { viewModel.setLanguage(tag) },
                         )
                     }

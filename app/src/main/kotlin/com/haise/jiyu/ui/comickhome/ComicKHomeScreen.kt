@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImagePainter
+import kotlinx.coroutines.delay
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.haise.jiyu.R
@@ -76,6 +77,7 @@ import com.haise.jiyu.source.comick.ChapterUpdate
 import com.haise.jiyu.source.comick.ReviewItem
 import com.haise.jiyu.source.comick.TopFeed
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+import com.haise.jiyu.ui.components.JiyuWordmark
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -119,6 +121,12 @@ fun ComicKHomeScreen(
     val searchFocusRequester = remember { FocusRequester() }
 
     val searchQuery by searchViewModel.query.collectAsState()
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            delay(450)
+            searchViewModel.search()
+        }
+    }
     val searchResults by searchViewModel.results.collectAsState()
     val searchLoading by searchViewModel.loading.collectAsState()
     val searchError by searchViewModel.error.collectAsState()
@@ -468,11 +476,7 @@ private fun ComicKHomeHeader(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "ComicK",
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
+                JiyuWordmark(
                     modifier = Modifier
                         .weight(1f)
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { onTitleLongPress() }) },

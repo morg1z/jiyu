@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImagePainter
+import kotlinx.coroutines.delay
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.haise.jiyu.R
@@ -112,6 +113,14 @@ fun SourceBrowseScreen(
     val activeFilter      by viewModel.activeFilter.collectAsState()
     val showLatest        by viewModel.showLatest.collectAsState()
     var query by remember { mutableStateOf("") }
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            viewModel.search(query)
+        } else {
+            delay(450)
+            viewModel.search(query)
+        }
+    }
     val listState = rememberLazyGridState()
     var showFilterSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -144,7 +153,7 @@ fun SourceBrowseScreen(
             activeFilter = activeFilter,
             onOpenFilterSheet = { showFilterSheet = true },
             query = query,
-            onQueryChange = { query = it; viewModel.search(it) },
+            onQueryChange = { query = it },
             onSearchSubmit = { viewModel.search(query) },
             showLatest = showLatest,
             onSetShowLatest = { viewModel.setShowLatest(it) },

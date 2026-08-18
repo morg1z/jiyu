@@ -87,6 +87,9 @@ class ReaderViewModel @Inject constructor(
     private val _comickUnavailable = MutableStateFlow(false)
     val comickUnavailable: StateFlow<Boolean> = _comickUnavailable.asStateFlow()
 
+    /** true pokud je nastavený Supabase/Groq/Gemini klíč - jinak překlad jede jen přes on-device ML Kit. */
+    val isApiKeyConfigured = translateRepository.isApiKeyConfigured
+
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -602,6 +605,13 @@ class ReaderViewModel @Inject constructor(
         updateNavState()
 
         val mangaForDir = repository.getManga(chapter.mangaId)
+        mangaForDir?.let { manga ->
+            if (!manga.inLibrary) {
+                repository.addExistingToLibrary(manga.id)
+                repository.setReadingStatus(manga.id, "READING")
+                settings.defaultCategoryId.first()?.let { repository.addMangaToCategory(manga.id, it) }
+            }
+        }
         currentManga = mangaForDir
         _currentMangaId.value = mangaForDir?.id
         _mangaTitle.value = mangaForDir?.title ?: ""
@@ -921,11 +931,8 @@ class ReaderViewModel @Inject constructor(
                 _translationProgress.value = null
             }
             !_translateMode.value -> {
-                if (!translateRepository.isApiKeyConfigured) {
-                    _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
-                    return
-                }
                 _translateMode.value = true
+                _translationError.value = null
                 startChapterTranslation()
             }
             else -> _translateMode.value = false
@@ -970,10 +977,6 @@ class ReaderViewModel @Inject constructor(
 
     fun translateAllPages() {
         if (_batchTranslating.value) return
-        if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
-            return
-        }
         _batchTranslating.value = true
         _showOriginal.value = false
         // Vycistit predchozi hlasku - jinak by ji nize v `finally` mohla omylem "prezit" i

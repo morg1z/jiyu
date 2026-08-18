@@ -16,14 +16,16 @@ object GeminiUltraPrompt {
 
     /**
      * Free tier model na Google AI Studio - rychlý a dost kvalitní na literární kompresi.
-     * "-latest" alias místo pevné verze (např. "gemini-2.5-flash") záměrně - konkrétní
-     * verzované modely Google postupně vyřazuje z free tieru pro nové klíče (ověřeno
-     * 2026-07-24: "gemini-2.5-flash" vracelo 404 "no longer available to new users",
-     * zatímco "gemini-2.0-flash"/"gemini-2.5-pro" mají na free tieru nulovou kvótu -
-     * 429 RESOURCE_EXHAUSTED). Alias Google průběžně přesměruje na aktuální podporovaný
-     * model, takže appka nemusí čekat na ruční update při každé rotaci modelů.
+     *
+     * Dřív se používal "gemini-flash-latest" alias, ale ten se ukázal jako nespolehlivý:
+     * občas repointuje na model, který buď 404kne, nebo má zapnuté "thinking" a spotřebuje
+     * výstupní tokeny, takže místo JSON odpovědi vrátí prázdný text (nahlášeno "překlad
+     * nefunguje"). Pevný model s vypnutým thinking je proto stabilnější.
+     *
+     * Proxy (supabase/functions/translate-proxy/index.ts) má záložní modely, kdyby tento
+     * nebyl pro daný klíč dostupný.
      */
-    const val MODEL = "gemini-flash-latest"
+    const val MODEL = "gemini-2.5-flash-lite"
 
     /**
      * Sentinel, který model vrátí místo hádaného překladu, když OCR text nedává smysl

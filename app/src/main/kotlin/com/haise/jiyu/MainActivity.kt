@@ -1,10 +1,13 @@
 package com.haise.jiyu
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
+import java.util.Locale
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,10 +15,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -80,6 +86,7 @@ class MainActivity : AppCompatActivity() {
             val theme by settings.theme.collectAsState(initial = ThemeOption.SYSTEM)
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit
             val onboardingCompleted by settings.onboardingCompleted.collectAsState(initial = null)
+            val appLanguage by settings.appLanguage.collectAsState(initial = "cs")
             val isDark = when (theme) {
                 ThemeOption.DARK, ThemeOption.TRUE_BLACK -> true
                 ThemeOption.LIGHT                        -> false
@@ -93,6 +100,15 @@ class MainActivity : AppCompatActivity() {
                 controller.isAppearanceLightNavigationBars = !isDark
             }
 
+            // Lokální překlad bez restartu celé aplikace — vytvoříme Context s nastaveným locale.
+            val context = LocalContext.current
+            val localizedContext = remember(appLanguage) {
+                val config = Configuration(context.resources.configuration)
+                config.setLocale(Locale.forLanguageTag(appLanguage))
+                context.createConfigurationContext(config)
+            }
+
+            CompositionLocalProvider(LocalContext provides localizedContext) {
             JiyuTheme(mode = theme) {
                 // Počkáme na načtení onboarding statusu — zobrazíme prázdnou plochu
                 if (onboardingCompleted != null) {
@@ -117,6 +133,7 @@ class MainActivity : AppCompatActivity() {
                         UpdateProgressOverlay(installer = updateInstaller)
                     }
                 }
+            }
             }
         }
     }

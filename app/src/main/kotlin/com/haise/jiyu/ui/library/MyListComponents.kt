@@ -346,8 +346,22 @@ internal fun LibraryListRow(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Box(modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
-                    Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(GlowViolet, RoundedCornerShape(50)))
+                // Dual progress: reálný progress čtení (violet) + "finished" indikátor
+                // (cyan checkmark) když uživatel označil titul jako COMPLETED. Progress bar
+                // vždy ukazuje skutečný počet přečtených kapitol, ne 100 % jen kvůli statusu.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
+                        Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(GlowViolet, RoundedCornerShape(50)))
+                    }
+                    if (manga.readingStatus == "COMPLETED") {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            TablerIcons.CircleCheck,
+                            contentDescription = stringResource(R.string.detail_status_completed),
+                            tint = GlowCyan,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
             if (totalCount > 0) {

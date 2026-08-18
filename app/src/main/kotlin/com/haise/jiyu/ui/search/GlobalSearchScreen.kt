@@ -43,11 +43,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,6 +93,14 @@ fun GlobalSearchScreen(
     val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsState()
     var inputText by remember { mutableStateOf(initialQuery) }
     val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(inputText) {
+        val trimmed = inputText.trim()
+        if (trimmed.isNotBlank() && trimmed != query) {
+            delay(450)
+            viewModel.search(trimmed)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
         Row(

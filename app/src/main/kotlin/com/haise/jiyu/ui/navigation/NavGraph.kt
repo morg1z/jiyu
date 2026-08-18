@@ -172,6 +172,15 @@ fun JiyuNavGraph(
             UpdatesScreen(
                 onOpenChapter = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenBrowse = { navController.navigate(Routes.browseRoute(appMode)) },
+            )
+        }
+
+        // History route kept for deep links, but tab is merged into Updates.
+        composable(Routes.HISTORY) {
+            HistoryScreen(
+                onResumeReading = { chapterId -> navController.navigate(Routes.reader(chapterId)) },
+                onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
             )
         }
 

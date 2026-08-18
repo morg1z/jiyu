@@ -103,6 +103,9 @@ private const val TRANSLATION_BOX_ALPHA = 1.0f
 /** Horizontální padding uvnitř přeloženého boxu - sdíleno mezi voláním `.padding(horizontal = ...)` a [AutoFitTranslatedText], aby fitter měřil text proti stejné šířce, jakou Text ve skutečnosti dostane. */
 private val TRANSLATION_TEXT_HORIZONTAL_PADDING = 4.dp
 
+/** Svislý padding uvnitř přeloženého boxu - text nesmí sahat až na horní/dolní okraj, jinak ho obrys bubliny ořízne. */
+private val TRANSLATION_TEXT_VERTICAL_PADDING = 2.dp
+
 /**
  * Jak velký podíl vepsaného obdélníku (viz [largestInscribedRect]) se skutečně použije na text.
  * Obrys bubliny bývá nakreslený znatelně tlustou linkou a text nalepený těsně na ni vypadá
@@ -293,7 +296,12 @@ fun TranslationOverlay(
     // spoustu prázdného pozadí) - použít ho jako MINIMUM by box nutilo vyplnit i prázdný
     // prostor, kde žádný originál nebyl. Skutečné minimum je vlastní OCR rozsah bubliny
     // (block.bottomF, ne maxBottomF) - to jediné je potřeba zakrýt, aby nikde neprosvítal originál.
-    val effectiveMinBottomF = pos.block.shape?.let { pos.maxBottomF } ?: pos.block.bottomF
+    //
+    // Výjimka: u bublin s rovnoměrným pozadím (či se známým tvarem) můžeme bezpečně použít
+    // maxBottomF, protože jednolitá výplň plynule splyne s bublinou a pokrývá celou oblast,
+    // ne jen písmena. U textu přes kresbu naopak zůstáváme na vlastním OCR rozsahu, aby
+    // záplata/pozadí nezakrývalo víc kresby, než je nutné.
+    val effectiveMinBottomF = if (pos.block.shape != null || pos.block.bgUniform) pos.maxBottomF else pos.block.bottomF
     val minH = (imageRect.height * (effectiveMinBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
     val maxH = (imageRect.height * (pos.maxBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
     if (isSuspiciouslyTinyBubbleBox(w.value, maxH.value)) {
@@ -331,6 +339,12 @@ fun TranslationOverlay(
     val textAreaHeight = inscribed
         ?.let { (imageRect.height * it.heightF * INSCRIBED_TEXT_AREA_FACTOR).dp }
         ?: maxH
+    // Skutečné maximum pro text musí respektovat svislý padding vnějšího Boxu - jinak by
+    // fitter mohl vybrat písmo, které zaplní celou výšku, ale Text dostane o padding menší
+    // prostor a poslední řádek se uřízne (viz uživatelská zpětná vazba).
+    val contentMaxHeight = textAreaHeight.coerceAtMost(
+        maxH - TRANSLATION_TEXT_VERTICAL_PADDING * 2
+    ).coerceAtLeast(0.dp)
     // Vepsaný obdélník nemusí být uprostřed bubliny (u složeného tvaru bývá posunutý k té
     // prostornější části) - text se musí posunout s ním, jinak by se vysázel doprostřed
     // celého tvaru, tedy mimo tu bezpečnou plochu.
@@ -414,7 +428,7 @@ fun TranslationOverlay(
                 .pointerInput(onTap, onLongPress) {
                     detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
                 }
-                .padding(horizontal = TRANSLATION_TEXT_HORIZONTAL_PADDING, vertical = 2.dp),
+                .padding(horizontal = TRANSLATION_TEXT_HORIZONTAL_PADDING, vertical = TRANSLATION_TEXT_VERTICAL_PADDING),
             contentAlignment = Alignment.Center,
         ) {
             AnimatedContent(
@@ -431,7 +445,7 @@ fun TranslationOverlay(
                     // průměr obou stran je dost přesný odhad pro čitelnost přes celou bublinu.
                     bgColorArgb = averageArgb(snappedBgTop, snappedBgBottom),
                     boxWidth = textAreaWidth,
-                    maxHeight = textAreaHeight,
+                    maxHeight = contentMaxHeight,
                     // Šířka VNĚJŠÍHO boxu - text se do ní musí vejít bez ohledu na to, jak
                     // široký je obrys bubliny (viz [fitTextToShape] parametr maxLineWidthPx).
                     renderWidth = w,
@@ -578,6 +592,13 @@ private fun AutoFitTranslatedText(
     val renderableWidthPx = with(density) {
         (renderWidth - TRANSLATION_TEXT_HORIZONTAL_PADDING * 2).toPx()
     }.coerceAtLeast(1f)
+    val pageHeightPx = with(density) { imageHeightDp.dp.toPx() }.coerceAtLeast(1f)
+    // Tvarovou sazbu zúžíme o svislý padding vnějšího Boxu - jinak fitter myslí, že má k
+    // dispozici celou výšku obrysu, ale Text dostane od Compose o padding míň a poslední řádek
+    // se uřízne.
+    val verticalPaddingF = if (shape != null) with(density) { (TRANSLATION_TEXT_VERTICAL_PADDING * 2).toPx() } / pageHeightPx else 0f
+    val fitShapeTopF = if (shape != null) (shapeTopF + verticalPaddingF / 2).coerceAtMost(shapeBottomF) else shapeTopF
+    val fitShapeBottomF = if (shape != null) (shapeBottomF - verticalPaddingF / 2).coerceAtLeast(shapeTopF) else shapeBottomF
 
     // ── Sazba do skutečného tvaru bubliny (vyvážené řádky, viz [fitTextToShape]) ──
     // Tohle je hlavní cesta pro bubliny se známým obrysem: každý řádek dostane šířku podle
@@ -586,19 +607,19 @@ private fun AutoFitTranslatedText(
     // než u prostého vepsaného obdélníku. Řádky jdou do JEDNOHO Textu oddělené \n, takže
     // řádkování i centrování řeší Compose (žádné vykreslování řádek po řádku, které dřív
     // způsobovalo překrývající se řádky).
-    val shapedLayout = if (shape != null && shapeCenterF != null && imageHeightDp > 0f) {
+    val shapedLayout = if (shape != null && shapeCenterF != null && imageHeightDp > 0f && fitShapeBottomF > fitShapeTopF) {
         val words = remember(text) { text.split(' ', '\n').filter { it.isNotBlank() } }
-        remember(text, shape, shapeCenterF, shapeCenterYF, shapeTopF, shapeBottomF, imageWidthDp, imageHeightDp, maxFontSp, fontFamily, renderableWidthPx, preferredFontSp) {
+        remember(text, shape, shapeCenterF, shapeCenterYF, fitShapeTopF, fitShapeBottomF, imageWidthDp, imageHeightDp, maxFontSp, fontFamily, renderableWidthPx, preferredFontSp) {
             fitTextToShape(
                 words = words,
                 minFontSp = minFontSp,
                 maxFontSp = maxFontSp,
                 shape = shape,
                 centerF = shapeCenterF,
-                shapeTopF = shapeTopF,
-                shapeBottomF = shapeBottomF,
+                shapeTopF = fitShapeTopF,
+                shapeBottomF = fitShapeBottomF,
                 pageWidthPx = with(density) { imageWidthDp.dp.toPx() },
-                pageHeightPx = with(density) { imageHeightDp.dp.toPx() },
+                pageHeightPx = pageHeightPx,
                 measureWord = { word, fontSp ->
                     val style = TextStyle(fontSize = fontSp.sp, fontFamily = fontFamily)
                     val strokeReserve = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
@@ -633,7 +654,7 @@ private fun AutoFitTranslatedText(
         // Posouvá se o rozdíl proti středu, který si zvolila SAZBA (ne proti tomu, o co se
         // žádalo): u zúženého obrysu si ho mohla zarazit zpátky dovnitř, a šířky řádků platí
         // pro to místo, kde blok doopravdy leží.
-        val shapedOffsetY = ((shapedLayout.centerYF - (shapeTopF + shapeBottomF) / 2f) * imageHeightDp).dp
+        val shapedOffsetY = ((shapedLayout.centerYF - (fitShapeTopF + fitShapeBottomF) / 2f) * imageHeightDp).dp
         Box(
             modifier = Modifier.offset(x = offsetX, y = shapedOffsetY),
             contentAlignment = Alignment.Center,
@@ -648,17 +669,14 @@ private fun AutoFitTranslatedText(
         }
         return
     }
-    // boxWidth je šířka VNĚJŠÍHO Boxu (viz volající) - Text uvnitř má reálně k dispozici
-    // o horizontal padding Boxu (4.dp na každé straně) míň. Bez týhle korekce fitter vybíral
-    // velikost písma, která se vejde do PLNÉ šířky boxu, ale skutečný Text dostal od Compose
-    // užší constraint - řádek, co se těsně vešel do měření, se pak u reálného vykreslení
-    // zalomil jinam a poslední slovo bylo uříznuté o okraj bubliny.
-    // Strop [renderableWidthPx] je tu potřeba i navíc: u bubliny s tvarem, kde tvarová sazba
-    // neuspěla a spadlo se sem, je boxWidth odvozené z vepsaného obdélníku OBRYSU, který může
-    // být širší než skutečný box bubliny.
-    val widthPx = (with(density) { boxWidth.roundToPx() } - with(density) { (TRANSLATION_TEXT_HORIZONTAL_PADDING * 2).roundToPx() })
-        .coerceAtMost(renderableWidthPx.toInt())
-        .coerceAtLeast(1)
+    // Skutečná šířka dostupná pro Text je menší z boxWidth a vnějšího boxu minus jeho
+    // horizontální padding. U obdélníkové bubliny je boxWidth == vnější šířka, takže
+    // limitujícím faktorem je padding; u tvarové bubliny, která spadne do obdélníkové
+    // náhrady, je boxWidth odvozené z vepsaného obdélníku a může být užší než vnější box.
+    val widthPx = minOf(
+        with(density) { boxWidth.roundToPx() },
+        renderableWidthPx.toInt()
+    ).coerceAtLeast(1)
     val maxHeightPx = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
 
     val fitResult = remember(text, widthPx, maxHeightPx, maxFontSp, fontFamily, preferredFontSp) {

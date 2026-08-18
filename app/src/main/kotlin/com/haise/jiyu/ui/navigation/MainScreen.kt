@@ -56,7 +56,6 @@ private fun rememberNavTabs(appMode: String): List<NavTab> = listOf(
     NavTab(Routes.MY_LIST,  stringResource(R.string.main_screen_tab_list),     TablerIcons.ListCheck,   TablerIcons.ListCheck),
     NavTab(Routes.UPDATES,  stringResource(R.string.main_screen_tab_updates), TablerIcons.Compass,     TablerIcons.Compass),
     NavTab(Routes.browseRoute(appMode), stringResource(R.string.main_screen_tab_browse),  TablerIcons.Search,      TablerIcons.Search),
-    NavTab(Routes.HISTORY,  stringResource(R.string.main_screen_tab_history), TablerIcons.History,     TablerIcons.History),
     NavTab(Routes.SETTINGS, stringResource(R.string.settings_title),          TablerIcons.User,        TablerIcons.User),
 )
 
@@ -156,6 +155,7 @@ fun MainScreen(
                                 }
                             },
                             label = { Text(tab.label, fontSize = 10.sp) },
+                            alwaysShowLabel = false,
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Violet,
                                 selectedTextColor = Violet,

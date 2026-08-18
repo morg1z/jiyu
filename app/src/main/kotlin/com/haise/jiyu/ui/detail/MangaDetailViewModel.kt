@@ -221,8 +221,14 @@ class MangaDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Řazení + filtrování kapitol ───────────────────────────────────────────
-    private val _sortAscending = MutableStateFlow(false)
+    private val _sortAscending = MutableStateFlow(true)
     val sortAscending: StateFlow<Boolean> = _sortAscending.asStateFlow()
+
+    // Řazení od aktuální pozice čtení — aktuální/následující kapitola nahoře,
+    // pak zbytek vzestupně. Vypíná se, když uživatel ručně přepne sort.
+    private val _sortByProgress = MutableStateFlow(true)
+    val sortByProgress: StateFlow<Boolean> = _sortByProgress.asStateFlow()
+    fun disableProgressSort() { _sortByProgress.value = false }
 
     private val _chapterFilter = MutableStateFlow("")
     val chapterFilter: StateFlow<String> = _chapterFilter.asStateFlow()
@@ -247,7 +253,18 @@ class MangaDetailViewModel @Inject constructor(
         _chapterFilter,
         _statusFilter,
         _selectedScanlator,
-    ) { list, asc, textFilter, statusFilter, scanlator ->
+        manga,
+        _sortByProgress,
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val list = args[0] as List<ChapterEntity>
+        val asc = args[1] as Boolean
+        val textFilter = args[2] as String
+        val statusFilter = args[3] as String
+        val scanlator = args[4] as String?
+        @Suppress("UNCHECKED_CAST")
+        val m = args[5] as MangaEntity?
+        val byProgress = args[6] as Boolean
         var result = list
         if (textFilter.isNotBlank()) {
             result = result.filter { it.name.contains(textFilter, ignoreCase = true) }
@@ -261,7 +278,21 @@ class MangaDetailViewModel @Inject constructor(
         if (scanlator != null) {
             result = result.filter { it.scanlationGroup == scanlator }
         }
-        if (asc) result.sortedBy { it.chapterNumber }
+        // Progress-based sort: najdi aktuální kapitolu (lastReadChapterId nebo
+        // první nepřečtená) a seřaď tak, aby byla nahoře, pak následující vzestupně.
+        if (byProgress && m != null) {
+            val anchorId = m.lastReadChapterId
+            val anchor = anchorId?.let { id -> result.find { it.id == id } }
+                ?: result.filter { !it.read }.minByOrNull { it.chapterNumber }
+            if (anchor != null) {
+                val anchorNum = anchor.chapterNumber
+                // Kapitoly >= anchorNum vzestupně (anchor, anchor+1, ...), pak zbytek.
+                val fromAnchor = result.filter { it.chapterNumber >= anchorNum }.sortedBy { it.chapterNumber }
+                val before = result.filter { it.chapterNumber < anchorNum }.sortedByDescending { it.chapterNumber }
+                fromAnchor + before
+            } else if (asc) result.sortedBy { it.chapterNumber }
+            else result.sortedByDescending { it.chapterNumber }
+        } else if (asc) result.sortedBy { it.chapterNumber }
         else result.sortedByDescending { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -578,7 +609,7 @@ class MangaDetailViewModel @Inject constructor(
 
     // ── Akce ──────────────────────────────────────────────────────────────────
 
-    fun toggleSort() { _sortAscending.value = !_sortAscending.value }
+    fun toggleSort() { _sortByProgress.value = false; _sortAscending.value = !_sortAscending.value }
 
     fun setChapterFilter(query: String) { _chapterFilter.value = query }
 

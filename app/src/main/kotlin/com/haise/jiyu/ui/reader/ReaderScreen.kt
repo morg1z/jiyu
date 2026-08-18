@@ -98,6 +98,7 @@ fun ReaderScreen(
     val tapZoneGrid          by viewModel.tapZoneGrid.collectAsState()
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsState()
     val isNovelSource        by viewModel.isNovelSource.collectAsState()
+    val isApiKeyConfigured = viewModel.isApiKeyConfigured
     val novelText            by viewModel.novelText.collectAsState()
     val novelTranslateMode   by viewModel.novelTranslateMode.collectAsState()
     val novelTranslatedText  by viewModel.novelTranslatedText.collectAsState()
@@ -321,6 +322,7 @@ fun ReaderScreen(
                 onEditBubble = { pageIndex, originalText, currentText ->
                     bubbleEdit = Triple(pageIndex, originalText, currentText)
                 },
+                onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
             )
         }
 

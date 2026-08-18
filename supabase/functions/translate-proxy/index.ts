@@ -278,10 +278,49 @@ function shouldRefund(error: unknown): boolean {
   return error === "upstream_rate_limited" || error === "upstream_error";
 }
 
+/**
+ * Záložní Gemini modely, které se zkusí, když primární model z payloadu neprojde
+ * (404, deprekace, regionální nedostupnost). Uchovává se v tomto pořadí: nejprve
+ * levný 2.5 Flash Lite (nevypíná thinking, protože ho defaultně neprovádí), pak 3.5
+ * Flash s minimal thinking, pak 2.5 Flash s vypnutým thinking.
+ */
+const GEMINI_FALLBACK_MODELS = [
+  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash",
+];
+
+/**
+ * Konfigurace thinking pro daný Gemini model.
+ * - Gemini 3.x používá thinkingLevel; "minimal" minimalizuje skryté reasoning tokeny,
+ *   které jinak mohou vyčerpat output a vrátit prázdný JSON.
+ * - Gemini 2.5.x používá thinkingBudget; 0 ho vypne.
+ * - Starší modely thinking nemají, vracíme undefined.
+ */
+function geminiThinkingConfig(model: string): Record<string, unknown> | undefined {
+  if (model.startsWith("gemini-3")) {
+    return { thinkingLevel: "minimal" };
+  }
+  if (model.startsWith("gemini-2.5") || model.startsWith("gemini-2.0")) {
+    return { thinkingBudget: 0 };
+  }
+  return undefined;
+}
+
 async function handleGeminiApi(system: string, user: string, model: string): Promise<Response> {
   if (!GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY secret není nastavený na tomto projektu");
     return json({ text: "" }, 500);
+  }
+
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0.2,
+    maxOutputTokens: 8192,
+    responseMimeType: "application/json",
+  };
+  const thinking = geminiThinkingConfig(model);
+  if (thinking) {
+    generationConfig.thinkingConfig = thinking;
   }
 
   const geminiResp = await fetch(
@@ -295,11 +334,7 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-        },
+        generationConfig,
       }),
     },
   );
@@ -442,7 +477,7 @@ async function handleGemini(payload: Record<string, unknown>): Promise<Response>
   const user = typeof payload.user === "string" ? payload.user : "";
   const model = typeof payload.model === "string" && payload.model.length > 0
     ? payload.model
-    : "gemini-flash-latest";
+    : "gemini-2.5-flash-lite";
   const provider = payload.provider === "groq"
     ? "groq"
     : payload.provider === "openrouter"
@@ -466,11 +501,35 @@ async function handleGemini(payload: Record<string, unknown>): Promise<Response>
   if (errored) return json({ text: "" }, 500);
   if (!allowed) return json({ text: "", error: "daily_quota_exceeded" }, 429);
 
-  const resp = provider === "groq"
-    ? await handleGroqApi(system, user)
-    : provider === "openrouter"
-    ? await handleOpenRouterApi(system, user)
-    : await handleGeminiApi(system, user, model);
+  let resp: Response;
+  if (provider === "groq") {
+    resp = await handleGroqApi(system, user);
+  } else if (provider === "openrouter") {
+    resp = await handleOpenRouterApi(system, user);
+  } else {
+    // Gemini: zkusíme primární model a při "upstream_error" (včetně 404/403 deprekace)
+    // postupně záložní modely. "upstream_rate_limited" a "daily_quota_exceeded" zastaví
+    // okamžitě - další model by stejně neprošel kvótou. "upstream_empty" vrátíme rovnou,
+    // protože model běžel, jen vrátil prázdný text.
+    const tryModels = [model, ...GEMINI_FALLBACK_MODELS].filter((m, i, a) => a.indexOf(m) === i);
+    let lastResp: Response | undefined;
+    for (const m of tryModels) {
+      lastResp = await handleGeminiApi(system, user, m);
+      const body = await lastResp.clone().json().catch(() => null);
+      if (body?.text) {
+        return lastResp;
+      }
+      if (body?.error === "upstream_rate_limited" || body?.error === "daily_quota_exceeded") {
+        return lastResp;
+      }
+      if (body?.error === "upstream_error") {
+        console.error(`gemini model ${m} odmítl, zkouším záložní`);
+        continue;
+      }
+      return lastResp;
+    }
+    resp = lastResp ?? json({ text: "", error: "upstream_error" }, 200);
+  }
 
   // Důvod selhání nesou handlery v těle odpovědi, ne v návratovém typu. Přečíst si ho z
   // KLONU je tady levnější a bezpečnější než přestavovat všechny tři cesty tak, aby místo

@@ -37,6 +37,10 @@ class TranslateRepository @Inject constructor(
 ) {
     val isApiKeyConfigured: Boolean get() = groqClient.isConfigured
 
+    // ML Kit translator is created lazily; in unit tests it cannot be instantiated
+    // because it needs Android Google Play Services.
+    private val onDeviceTranslator by lazy { OnDeviceTranslator() }
+
     private suspend fun glossaryFor(mangaId: String, targetLanguage: String): Map<String, String> =
         glossaryRepository.getMap(mangaId, targetLanguage)
 
@@ -71,9 +75,9 @@ class TranslateRepository @Inject constructor(
         sourceLanguage: String = "Auto",
     ): List<TranslatedBlock> {
         getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage, pageUrl)?.let { return it }
-        // Když jsou odstavení všichni provideři, nemá smysl stahovat bitmapu ani pouštět OCR -
-        // překlad z toho stejně nevznikne. Viz [ProviderHealth.allUnavailable].
-        if (providerHealth.allUnavailable()) throw RateLimitedException()
+        // Když jsou odstavení všichni cloud provideři, nemá smysl volat jejich řetězec,
+        // ale on-device překlad (ML Kit) se zkusí jako poslední možnost, když je k dispozici.
+        if (providerHealth.allUnavailable() && groqClient.isConfigured) throw RateLimitedException()
 
         // Stejný strop jako v translateChapter - bez něj by jedna zaseklá síťová odpověď
         // (viz komentář tam, až 180s na jeden obrázek) nechala appku bez zpětné vazby
@@ -103,7 +107,12 @@ class TranslateRepository @Inject constructor(
         // GeminiUltraPrompt je napsaný natvrdo pro češtinu (znakové limity a kompresní
         // pravidla mají české příklady) - pro jiný cílový jazyk zůstáváme na obecném
         // Groq promptu (translate-proxy mode="manga"), který jazyk dostává jako parametr.
-        val blocks = if (targetLanguage == "Czech") {
+        //
+        // Pokud není nakonfigurovaný žádný cloudový provider (Supabase/Groq/Gemini),
+        // rovnou zkusíme on-device ML Kit překlad, aby uživatel viděl alespoň náhled.
+        val blocks = if (!groqClient.isConfigured) {
+            translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) ?: emptyList()
+        } else if (targetLanguage == "Czech") {
             // 1) Gemini. 2) Stejný "ultra" prompt (komprese/sylabické dělení), ale přes OpenRouter
             //    free-tier model (provider="openrouter") - zachytí Gemini-specifické selhání
             //    (deprekovaný model, jeho vlastní výpadek) beze ztráty kvality. 3) Holý Groq
@@ -134,6 +143,7 @@ class TranslateRepository @Inject constructor(
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
+                { translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) },
             )
         } else {
             // GeminiUltraPrompt je psaný natvrdo pro češtinu, takže pro jiné cílové jazyky
@@ -146,6 +156,7 @@ class TranslateRepository @Inject constructor(
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
+                { translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) },
             )
         }
         if (blocks.isEmpty()) return emptyList()
@@ -270,7 +281,7 @@ class TranslateRepository @Inject constructor(
             if (chunkIndex > 0) delay(800L)
             // Zbytek kapitoly by jen rychle "doběhl" s prázdnými výsledky - radši srozumitelná
             // hláška o limitu. Viz [ProviderHealth.allUnavailable].
-            if (providerHealth.allUnavailable()) throw RateLimitedException()
+            if (providerHealth.allUnavailable() && groqClient.isConfigured) throw RateLimitedException()
             val flatBubbles = chunk.flatMap { bubblesByPage.getValue(it) }
 
             // Stejný fallback řetězec jako translatePage - viz komentář tam ("ultra" prompt
@@ -280,7 +291,12 @@ class TranslateRepository @Inject constructor(
             // "flatBubbles" (chybějící "id" v odpovědi se doplní originálem, nikdy se
             // nezahodí), takže rozdělení jedné odpovědi zpátky po stránkách podle počtu
             // bublin níž je bezpečné.
-            val blocks = if (targetLanguage == "Czech") {
+            //
+            // Pokud není nakonfigurovaný cloud (Supabase/Groq/Gemini), rovnou zkusíme
+            // on-device ML Kit překlad.
+            val blocks = if (!groqClient.isConfigured) {
+                translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) ?: emptyList()
+            } else if (targetLanguage == "Czech") {
                 translateChain(
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
@@ -288,6 +304,7 @@ class TranslateRepository @Inject constructor(
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
+                    { translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) },
                 )
             } else {
                 translateChain(
@@ -295,6 +312,7 @@ class TranslateRepository @Inject constructor(
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "openrouter", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "cerebras", mangaContext, recentLines) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, "mistral", mangaContext, recentLines) },
+                    { translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) },
                 )
             }
 
@@ -567,6 +585,59 @@ class TranslateRepository @Inject constructor(
         bgUniform = c.raw.bgUniform,
         nativeLineHeightF = c.raw.nativeLineHeightF,
     )
+
+    /**
+     * Poslední záchrana: on-device ML Kit překlad, když není dostupný žádný cloudový provider.
+     * Kvalita je nižší než u modelových API, ale nepotřebuje žádný klíč ani Supabase.
+     * Vrací null, když ML Kit buď nepodporuje daný jazykový pár, nebo selhal úplně všechen text.
+     */
+    private suspend fun translateOnDevice(
+        classified: List<ClassifiedBubble>,
+        targetLanguage: String,
+        sourceLanguage: String,
+        mangaId: String,
+    ): List<TranslatedBlock>? {
+        val toTranslate = classified.filter { !it.isSfx }
+        if (toTranslate.isEmpty()) return classified.map { sfxBlock(it) }
+
+        val translations = onDeviceTranslator.translate(
+            texts = toTranslate.map { it.raw.text },
+            sourceLanguage = sourceLanguage,
+            targetLanguage = targetLanguage,
+            glossary = glossaryFor(mangaId, targetLanguage),
+        )
+        if (translations.all { it.isNullOrBlank() }) return null
+
+        var ti = 0
+        return classified.map { c ->
+            if (c.isSfx) {
+                sfxBlock(c)
+            } else {
+                val raw = translations.getOrNull(ti)?.trim()
+                ti++
+                val isUntranslated = raw.isNullOrEmpty()
+                val translated = raw ?: c.raw.text
+                TranslatedBlock(
+                    originalText = c.raw.text,
+                    translatedText = translated,
+                    leftF = c.raw.leftF,
+                    topF = c.raw.topF,
+                    rightF = c.raw.rightF,
+                    bottomF = c.raw.bottomF,
+                    displayText = if (isUntranslated) translated else ensureFallbackHyphens(translated),
+                    bgColorArgb = c.raw.bgColorTopArgb,
+                    bgColorBottomArgb = c.raw.bgColorBottomArgb,
+                    isSfx = false,
+                    lineCount = c.lineCount,
+                    shape = c.raw.shape,
+                    bubbleType = c.bubbleType,
+                    isUntranslated = isUntranslated,
+                    bgUniform = c.raw.bgUniform,
+                    nativeLineHeightF = c.raw.nativeLineHeightF,
+                )
+            }
+        }
+    }
 
     /**
      * Vrátí výsledek z Room cache bez volání překladového API; null = není v cache.

@@ -170,7 +170,34 @@ internal fun AnimeMangaCard(
             Text(text = manga.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp)
             if (totalCount > 0) {
                 val readCount = totalCount - unreadCount
-                Text(text = stringResource(R.string.mylist_read_total_count, readCount, totalCount), color = Color.White.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 11.sp)
+                val realProgress = if (totalCount > 0) readCount.toFloat() / totalCount.toFloat() else 0f
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    // Reálný progress čtení (violet) — vždy ukazuje skutečný počet přečtených
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.15f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(realProgress)
+                                .fillMaxHeight()
+                                .background(GlowViolet, RoundedCornerShape(50)),
+                        )
+                    }
+                    // "Finished" indikátor (cyan checkmark) když je status COMPLETED
+                    if (manga.readingStatus == "COMPLETED") {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            TablerIcons.CircleCheck,
+                            contentDescription = stringResource(R.string.detail_status_completed),
+                            tint = GlowCyan,
+                            modifier = Modifier.size(10.dp),
+                        )
+                    }
+                }
             }
         }
         // Selection checkmark — top-left when selected

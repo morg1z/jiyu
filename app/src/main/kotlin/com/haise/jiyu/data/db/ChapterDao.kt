@@ -122,12 +122,13 @@ interface ChapterDao {
         FROM chapter c
         INNER JOIN manga m ON c.mangaId = m.id
         WHERE m.inLibrary = 1
+          AND c.dateUpload > :cutoffMs
           AND (SELECT COUNT(*) FROM chapter c2
                WHERE c2.mangaId = c.mangaId AND c2.dateUpload > c.dateUpload) < 20
         ORDER BY c.dateUpload DESC
         LIMIT 500
     """)
-    fun observeUpdates(): Flow<List<UpdateItem>>
+    fun observeUpdates(cutoffMs: Long): Flow<List<UpdateItem>>
 
     @Query("UPDATE chapter SET read = 1 WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
     suspend fun markAllRead()

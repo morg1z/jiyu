@@ -49,6 +49,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.clickable
 import coil.compose.AsyncImage
 import com.haise.jiyu.R
+import com.haise.jiyu.ui.components.JiyuWordmark
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.NightBlue
@@ -56,7 +57,7 @@ import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
-import com.haise.jiyu.ui.theme.titleGradient
+
 import androidx.compose.foundation.layout.navigationBarsPadding
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,16 +93,7 @@ fun HistoryScreen(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.history_title),
-                style = TextStyle(
-                    brush = titleGradient,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp,
-                ),
-                modifier = Modifier.weight(1f),
-            )
+            JiyuWordmark(modifier = Modifier.weight(1f))
             if (groups.isNotEmpty() || searchQuery.isNotBlank()) {
                 IconButton(onClick = { viewModel.clearAll() }) {
                     Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.history_clear_all), tint = TextSecondary)
@@ -206,7 +198,7 @@ fun HistoryScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HistoryEntryRow(
+internal fun HistoryEntryRow(
     entry: ReadHistoryEntity,
     onResume: () -> Unit,
     onOpenManga: () -> Unit = {},

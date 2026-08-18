@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -82,6 +83,7 @@ object SettingsKeys {
     val NOTIFY_DOWNLOADS       = booleanPreferencesKey("notify_downloads")
     val BACKUP_FOLDER_URI      = stringPreferencesKey("backup_folder_uri")
     val CLOUDFLARE_CLEARANCE_CACHE = stringPreferencesKey("cloudflare_clearance_cache")
+    val APP_LANGUAGE           = stringPreferencesKey("app_language")
 
     /**
      * Potvrdil uživatel, že je mu aspoň [com.haise.jiyu.util.ADULT_AGE_YEARS] let? Odemyká
@@ -391,7 +393,7 @@ class SettingsRepository @Inject constructor(
         dataStore.edit { it[SettingsKeys.COMICK_UPD_MATURE] = values }
 
     val appMode: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.APP_MODE] ?: AppMode.SOURCES }
+        dataStore.data.map { it[SettingsKeys.APP_MODE] ?: AppMode.COMICK }
 
     suspend fun setAppMode(mode: String) =
         dataStore.edit { it[SettingsKeys.APP_MODE] = mode }
@@ -561,6 +563,18 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setLibraryGridColumns(n: Int) =
         dataStore.edit { it[SettingsKeys.LIBRARY_GRID_COLUMNS] = n }
+
+    val appLanguage: Flow<String> =
+        dataStore.data.map {
+            it[SettingsKeys.APP_LANGUAGE]
+                ?: Locale.getDefault().language
+                    .takeIf { lang -> lang in setOf("cs", "en", "fr", "es") }
+                ?: "cs"
+        }
+
+    suspend fun setAppLanguage(tag: String) = dataStore.edit {
+        it[SettingsKeys.APP_LANGUAGE] = tag
+    }
 
     val defaultCategoryId: Flow<String?> =
         dataStore.data.map { it[SettingsKeys.DEFAULT_CATEGORY_ID] }

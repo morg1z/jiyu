@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -334,11 +335,12 @@ fun MangaReader(
             ) {
                 if (indices.size == 1) {
                     var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
-                    RetryableAsyncImage(
-                        url = pages[indices[0]],
-                        contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
-                        contentScale = resolvedContentScale,
-                        cropBorders = cropBorders,
+                    val containerWidth = maxWidth
+                    val containerHeight = maxHeight
+                    // Aplikuje pinch/double-tap transformaci na celou stránku najednou
+                    // (obrázek + překladové bubliny), aby bubliny zůstaly na správném
+                    // místě při zoomu, místo toho, aby zůstávaly na původní pozici.
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer(
@@ -347,30 +349,38 @@ fun MangaReader(
                                 translationX = panOffset.x,
                                 translationY = panOffset.y,
                             ),
-                        onImageSize = { intrinsicSize = it },
-                    )
-                    if (translateMode) {
-                        val blocks = translatedPages[indices[0]]
-                        if (!blocks.isNullOrEmpty()) {
-                            // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
-                            // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
-                            // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
-                            // velikost dorazí, přepočítá se na přesný imageRect (viz imageDisplayRect).
-                            val imageRect = remember(intrinsicSize, maxWidth, maxHeight, resolvedContentScale) {
-                                intrinsicSize?.let {
-                                    imageDisplayRect(it, Size(maxWidth.value, maxHeight.value), resolvedContentScale)
-                                } ?: Rect(0f, 0f, maxWidth.value, maxHeight.value)
+                    ) {
+                        RetryableAsyncImage(
+                            url = pages[indices[0]],
+                            contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
+                            contentScale = resolvedContentScale,
+                            cropBorders = cropBorders,
+                            modifier = Modifier.fillMaxSize(),
+                            onImageSize = { intrinsicSize = it },
+                        )
+                        if (translateMode) {
+                            val blocks = translatedPages[indices[0]]
+                            if (!blocks.isNullOrEmpty()) {
+                                // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
+                                // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
+                                // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
+                                // velikost dorazí, přepočítá se na přesný imageRect (viz imageDisplayRect).
+                                val imageRect = remember(intrinsicSize, containerWidth, containerHeight, resolvedContentScale) {
+                                    intrinsicSize?.let {
+                                        imageDisplayRect(it, Size(containerWidth.value, containerHeight.value), resolvedContentScale)
+                                    } ?: Rect(0f, 0f, containerWidth.value, containerHeight.value)
+                                }
+                                BubbleOverlayLayer(
+                                    blocks = blocks,
+                                    imageRect = imageRect,
+                                    textScale = textScale,
+                                    pageIndex = indices[0],
+                                    pageUrl = pages[indices[0]],
+                                    flippedBubbles = flippedBubbles,
+                                    onToggleFlip = onToggleBubbleFlip,
+                                    onEditBubble = onEditBubble,
+                                )
                             }
-                            BubbleOverlayLayer(
-                                blocks = blocks,
-                                imageRect = imageRect,
-                                textScale = textScale,
-                                pageIndex = indices[0],
-                                pageUrl = pages[indices[0]],
-                                flippedBubbles = flippedBubbles,
-                                onToggleFlip = onToggleBubbleFlip,
-                                onEditBubble = onEditBubble,
-                            )
                         }
                     }
                 } else {

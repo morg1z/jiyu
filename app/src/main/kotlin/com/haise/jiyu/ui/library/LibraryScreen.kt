@@ -85,7 +85,7 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.Warning
 import com.haise.jiyu.ui.theme.screenGradient
-import com.haise.jiyu.ui.theme.titleGradient
+import com.haise.jiyu.ui.components.JiyuWordmark
 import com.haise.jiyu.ui.theme.violetGlow
 
 /** Dashboard "Knihovna" - karusely (Pokračovat/Nedávno přidané/Dokončené). Celá filtrovaná knihovna viz [MyListScreen]. */
@@ -130,12 +130,7 @@ fun LibraryScreen(
                 .padding(top = 10.dp, bottom = 8.dp),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "JIYU",
-                    style = TextStyle(brush = titleGradient, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 6.sp),
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp),
-                )
+                JiyuWordmark(modifier = Modifier.weight(1f))
                 IconButton(onClick = onOpenSettings) {
                     Icon(TablerIcons.Settings, contentDescription = stringResource(R.string.settings_title), tint = TextSecondary)
                 }
@@ -244,7 +239,7 @@ fun LibraryScreen(
                 if (heroItem != null) {
                     HeroContinueReadingCard(
                         item = heroItem,
-                        progressPercent = progressPercentFor(heroItem.manga.id, unreadCounts, totalCounts),
+                        progressPercent = progressPercentFor(heroItem.manga.id, heroItem.manga.readingStatus, unreadCounts, totalCounts),
                         onFavoriteToggle = { viewModel.toggleFavorite(heroItem.manga.id, heroItem.manga.isFavorite) },
                         onOpenDetail = { onOpenManga(heroItem.manga.id) },
                         onContinue = {
@@ -271,7 +266,7 @@ fun LibraryScreen(
                             items(continueReading, key = { it.manga.id }) { item ->
                                 ContinueReadingCard(
                                     item = item,
-                                    progressPercent = progressPercentFor(item.manga.id, unreadCounts, totalCounts),
+                                    progressPercent = progressPercentFor(item.manga.id, item.manga.readingStatus, unreadCounts, totalCounts),
                                     onOpenDetail = { onOpenManga(item.manga.id) },
                                     onContinue = {
                                         val chapterId = item.manga.lastReadChapterId
@@ -328,7 +323,11 @@ fun LibraryScreen(
     }
 }
 
-private fun progressPercentFor(mangaId: String, unreadCounts: Map<String, Int>, totalCounts: Map<String, Int>): Int {
+private fun progressPercentFor(mangaId: String, readingStatus: String?, unreadCounts: Map<String, Int>, totalCounts: Map<String, Int>): Int {
+    // Progress is always based on actual read chapters, NOT the reading status label.
+    // Dřív se COMPLETED status tvrdě mapoval na 100 %, což způsobovalo, že uživatel
+    // viděl 100 % i když reálně přečetl jen pár kapitol — progress tracking pak vypadal
+    // rozbitý, když měl jako default category "finished".
     val total = totalCounts[mangaId] ?: 0
     if (total <= 0) return 0
     val unread = unreadCounts[mangaId] ?: 0
@@ -420,13 +419,24 @@ private fun HeroContinueReadingCard(
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.weight(1f))
-                Box(modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progressPercent / 100f)
-                            .fillMaxHeight()
-                            .background(Brush.horizontalGradient(listOf(GlowViolet, GlowCyan)), RoundedCornerShape(50)),
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(50)).background(CardBorder)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressPercent / 100f)
+                                .fillMaxHeight()
+                                .background(Brush.horizontalGradient(listOf(GlowViolet, GlowCyan)), RoundedCornerShape(50)),
+                        )
+                    }
+                    if (item.manga.readingStatus == "COMPLETED") {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            TablerIcons.CircleCheck,
+                            contentDescription = stringResource(R.string.detail_status_completed),
+                            tint = GlowCyan,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(stringResource(R.string.library_percent_read, progressPercent), color = TextSecondary, fontSize = 11.sp)
@@ -605,8 +615,8 @@ private fun ContinueReadingCard(item: ContinueReadingItem, progressPercent: Int,
                 )
             }
             Text(
-                text = "$progressPercent %",
-                color = Color.White,
+                text = if (item.manga.readingStatus == "COMPLETED") "✓ $progressPercent%" else "$progressPercent %",
+                color = if (item.manga.readingStatus == "COMPLETED") GlowCyan else Color.White,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 7.dp, bottom = 11.dp),

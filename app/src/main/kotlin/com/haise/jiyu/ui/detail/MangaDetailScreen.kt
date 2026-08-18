@@ -964,33 +964,52 @@ fun MangaDetailScreen(
 
                 // ── Chapter list / grid (#34) ─────────────────────────────────
                 if (chapterGridView) {
+                    val totalPages = ((chapters.size + CHAPTERS_PER_PAGE - 1) / CHAPTERS_PER_PAGE).coerceAtLeast(1)
+                    val safePage = chapterPage.coerceIn(0, totalPages - 1)
+                    val pageChapters = chapters.drop(safePage * CHAPTERS_PER_PAGE).take(CHAPTERS_PER_PAGE)
+                    val rows = (pageChapters.size + 3) / 4
                     item {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(4),
-                            modifier = Modifier.fillMaxWidth().height(((chapters.size / 4 + 1) * 60).dp.coerceAtMost(400.dp)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            items(chapters) { chapter ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (chapter.read) GlowCyan.copy(alpha = 0.08f) else GlowViolet.copy(alpha = 0.15f))
-                                        .border(1.dp, if (chapter.read) GlowCyan.copy(alpha = 0.2f) else GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                        .clickable { openChapter(chapter) }
-                                        .padding(6.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = chapter.chapterNumber.let { if (it == it.toLong().toFloat()) it.toLong().toString() else it.toString() },
-                                        color = if (chapter.read) TextSecondary else TextPrimary,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(4),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(((rows * 60 + (rows - 1) * 6 + 8).coerceAtLeast(60)).dp.coerceAtMost(540.dp)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                userScrollEnabled = false,
+                            ) {
+                                items(pageChapters, key = { it.id }) { chapter ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (chapter.read) GlowCyan.copy(alpha = 0.08f) else GlowViolet.copy(alpha = 0.15f))
+                                            .border(1.dp, if (chapter.read) GlowCyan.copy(alpha = 0.2f) else GlowViolet.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                            .clickable { openChapter(chapter) }
+                                            .padding(6.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = chapter.chapterNumber.let { if (it == it.toLong().toFloat()) it.toLong().toString() else it.toString() },
+                                            color = if (chapter.read) TextSecondary else TextPrimary,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
+                            }
+                            if (totalPages > 1) {
+                                ChapterPaginationBar(
+                                    currentPage = safePage,
+                                    totalPages = totalPages,
+                                    onPageSelected = { chapterPage = it },
+                                )
                             }
                         }
                     }

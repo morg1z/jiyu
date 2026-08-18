@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,11 +30,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
+import com.haise.jiyu.ui.components.JiyuWordmark
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.screenGradient
 import compose.icons.TablerIcons
+import compose.icons.tablericons.ArrowBack
 import compose.icons.tablericons.Book
 import compose.icons.tablericons.Copy
 import compose.icons.tablericons.Database
@@ -104,14 +107,24 @@ fun SettingsScreen(
                 // Hlavička je UVNITŘ scrollu, takže odjede s obsahem místo aby zůstala viset
                 // nahoře. Odsazení stavové lišty si SettingsSubScreenHeader řeší sám a je ve
                 // scrollu první, takže se chová stejně jako dřív - jen se dá odscrolovat.
-                SettingsSubScreenHeader(title = stringResource(R.string.settings_title), onBack = onBack, applyStatusBarPadding = false)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)
+                    }
+                    JiyuWordmark()
+                }
 
                 categories.forEach { category ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(onClick = category.onClick)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .clickable(onClick = category.onClick),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(

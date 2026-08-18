@@ -1,6 +1,7 @@
 package com.haise.jiyu.ui.library
 
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+import com.haise.jiyu.ui.components.JiyuWordmark
 
 
 import compose.icons.TablerIcons
@@ -195,7 +196,12 @@ fun MyListScreen(
     BackHandler(enabled = selectionMode) { viewModel.clearSelection() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize().background(screenGradient).statusBarsPadding()) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshLibrary() },
+        modifier = Modifier.fillMaxSize().background(screenGradient).statusBarsPadding(),
+        state = pullToRefreshState,
+    ) {
 
         // ── Header ───────────────────────────────────────────────────────────
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -244,7 +250,7 @@ fun MyListScreen(
                 // Title row
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(text = stringResource(R.string.mylist_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        JiyuWordmark()
                         Text(text = pluralStringResource(R.plurals.mylist_title_count, library.size, library.size), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
                     }
                     IconButton(onClick = { searchExpanded = !searchExpanded }) {
@@ -411,12 +417,6 @@ fun MyListScreen(
 
         }
 
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { viewModel.refreshLibrary() },
-            modifier = Modifier.fillMaxSize(),
-            state = pullToRefreshState,
-        ) {
             if (library.isEmpty()) {
                 Column {
                     header()
@@ -536,18 +536,17 @@ fun MyListScreen(
 
         }
 
-        if (localImportState is LocalImportState.Importing) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)),
-                contentAlignment = Alignment.Center,
+    if (localImportState is LocalImportState.Importing) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.65f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    com.haise.jiyu.ui.components.JiyuLoadingIndicator()
-                    androidx.compose.material3.Text(stringResource(R.string.mylist_importing_file), color = Color.White, fontSize = 14.sp)
-                }
+                com.haise.jiyu.ui.components.JiyuLoadingIndicator()
+                androidx.compose.material3.Text(stringResource(R.string.mylist_importing_file), color = Color.White, fontSize = 14.sp)
             }
         }
     }

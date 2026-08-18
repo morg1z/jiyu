@@ -1,8 +1,7 @@
 package com.haise.jiyu.ui.onboarding
 
 import android.content.Context
-import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.os.LocaleListCompat
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.settings.AppMode
@@ -16,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
@@ -33,10 +33,10 @@ class OnboardingViewModel @Inject constructor(
     private val _selectedLanguage = MutableStateFlow("cs")
     val selectedLanguage: StateFlow<String> = _selectedLanguage.asStateFlow()
 
-    // Vychozi hodnota kopiruje skutecny vychozi appMode v SettingsRepository (AppMode.SOURCES),
-    // aby predvybrana karta v onboardingu odpovidala tomu, co by platilo, kdyby uzivatel krok
-    // proste preskocil bez sahnuti na volbu.
-    private val _appMode = MutableStateFlow(AppMode.SOURCES)
+    // Vychozi hodnota je agregovany styl (ComicK) - nejjednodussi cesta pro vetsinu
+    // uzivatelu. Manualni vyber zdroju je pro pokrocile uzivatele, kteri chteji novele
+    // ci americke komiksy.
+    private val _appMode = MutableStateFlow(AppMode.COMICK)
     val appMode: StateFlow<String> = _appMode.asStateFlow()
 
     private val _readingDir = MutableStateFlow(ReadingDirection.LTR)
@@ -61,16 +61,18 @@ class OnboardingViewModel @Inject constructor(
     val totalSteps = 6
 
     init {
-        // Výchozí jazyk (cs) je v UI hned zaškrtnutý, ale dokud uživatel aktivně
-        // neťukne na řádek jazyka, AppCompatDelegate se nikdy nenastaví - zbytek
-        // onboardingu i appky pak běží v systémovém locale (typicky EN), zatímco
-        // checkbox tvrdí, že je vybraná čeština. Aplikuj výchozí hodnotu hned.
-        setLanguage(_selectedLanguage.value)
+        // Výchozí jazyk (cs) je v UI hned zaškrtnutý — načti uloženou hodnotu,
+        // a pokud neexistuje, nastav výchozí češtinu přes DataStore. MainActivity
+        // pak vytvoří lokalizovaný Context bez nutnosti restartu aplikace.
+        viewModelScope.launch {
+            _selectedLanguage.value = settings.appLanguage.first()
+            settings.setAppLanguage(_selectedLanguage.value)
+        }
     }
 
     fun setLanguage(tag: String) {
         _selectedLanguage.value = tag
-        AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))
+        viewModelScope.launch { settings.setAppLanguage(tag) }
     }
 
     fun setAppMode(mode: String) { _appMode.value = mode }

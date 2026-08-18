@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Velocity
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import com.haise.jiyu.R
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.comick.ComicKGenreOption
@@ -104,6 +105,12 @@ fun ComicKBrowseScreen(
     viewModel: ComicKBrowseViewModel = hiltViewModel(),
 ) {
     val query by viewModel.query.collectAsState()
+    LaunchedEffect(query) {
+        if (query.isNotBlank()) {
+            delay(450)
+            viewModel.search()
+        }
+    }
     val filters by viewModel.filters.collectAsState()
     val genreOptions by viewModel.genreOptions.collectAsState()
     val results by viewModel.results.collectAsState()
