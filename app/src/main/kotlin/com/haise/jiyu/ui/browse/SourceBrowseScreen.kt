@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -221,13 +222,23 @@ fun SourceBrowseScreen(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                 ) {
-                    // Zaporny horizontalni padding vyrusi mrizkovy contentPadding (12dp z kazde
-                    // strany) jen pro header - jinak by mel oproti loading/error/prazdnemu stavu
-                    // (headerContent() tam bez obalky primo v Column) navic i tenhle 12dp odsazeni
-                    // ze ctverecku a vypadal by "smrsklý" doprostred, i kdyz obalky nize maji sve
-                    // vlastni odsazeni schvalne (viz BrowseMangaCard).
+                    // Header musí vizuálně vyrušit mřížkový contentPadding (12dp z každé strany) -
+                    // jinak by měl oproti loading/error/prázdnému stavu (headerContent() tam bez
+                    // obalky přímo v Column) navíc i tenhle 12dp odsazení ze čtverečku a vypadal by
+                    // "smrsklý" doprostred, i když obálky níže mají své vlastní odsazení schválně
+                    // (viz BrowseMangaCard). Modifier.padding() zápornou hodnotu odmítá (Compose to
+                    // shodí s "Padding must be non-negative"), proto vlastní layout: změří obsah o
+                    // 24dp širší, než mřížka nabízí, a posune ho o 12dp doleva.
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Box(modifier = Modifier.padding(horizontal = (-12).dp)) { headerContent() }
+                        Box(
+                            modifier = Modifier.layout { measurable, constraints ->
+                                val extra = 24.dp.roundToPx()
+                                val placeable = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + extra))
+                                layout(placeable.width, placeable.height) {
+                                    placeable.placeRelative(-12.dp.roundToPx(), 0)
+                                }
+                            },
+                        ) { headerContent() }
                     }
                     items(results, key = { it.sourceId + it.url }) { manga ->
                         val isOpening = openingManga?.let { it.sourceId == manga.sourceId && it.url == manga.url } == true
