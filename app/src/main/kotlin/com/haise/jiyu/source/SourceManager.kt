@@ -111,6 +111,7 @@ import com.haise.jiyu.source.utoon.UtoonSource
 import com.haise.jiyu.source.kscans.KScansSource
 import com.haise.jiyu.source.lagoonscans.LagoonScansSource
 import com.haise.jiyu.source.meowingtoons.MeowingToonsSource
+import com.haise.jiyu.source.valirscans.ValirScansSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -238,6 +239,7 @@ class SourceManager @Inject constructor(
     utoonSource: UtoonSource,
     kScansSource: KScansSource,
     lagoonScansSource: LagoonScansSource,
+    valirScansSource: ValirScansSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
@@ -743,6 +745,35 @@ class SourceManager @Inject constructor(
         // Managed Challenge (Cf-Mitigated: challenge, overeno zive) a appka nema
         // zadny strukturalni naznak sablony (na rozdil od Dragon Tea), takze by
         // pridani bylo cistě naslepo bez zakladu.
+        //
+        // ValirScans (valirscans.org) - taky Next.js App Router, ale na rozdil od Dusk
+        // Scans ma ciste JSON API pro katalog/hledani (`/api/series`) a detail/kapitoly
+        // jdou vytahnout z ld+json + RSC payloadu primo v HTML (viz komentar ve tride).
+        // Mixuje manga/manhwa/manhua/novel v jednom katalogu - kazda SManga ma vlastni
+        // contentType podle API pole "type".
+        valirScansSource,
+        // Samurai Scan - puvodni domena samuraiscan.com je "coming soon" stranka
+        // (WP SeedProd plugin), ktera odkazuje na docasnou domenu "samurai.j5z.xyz"
+        // (spanelsky obsah, robots noindex/nofollow - vypada jako prechodne/testovaci
+        // hostovani, ne finalni adresa). Overeno zive: genuine nezmeneny Madara motiv
+        // (wp-manga/page-item-detail/reading-content potvrzeno), 1000+ kapitol na
+        // nekterych titulech, takze obsahove funkcni - jen URL muze byt nestabilni.
+        MadaraSource("samuraiscan", "Samurai Scan", "https://samurai.j5z.xyz", client),
+        // mangademon.com i mangademon.org VYNECHANY - oba stejny skodlivy ad-fraud
+        // "Redirecting..." vzor jako drivejsi nalezy (mangayabu.top, kaiscans.org):
+        // JWT session redirect -> fingerprint (adblock/GPU/timezone/webdriver) ->
+        // document.write + auto-click na "router.parklogic.com" (domain parking sit).
+        // mangademon.org navic v base64 payloadu prozradil "domainApex":"comicdemons.com" -
+        // potvrzuje, ze jde o parkovanou/preprodanou domenu, ne skutecny web.
+        //
+        // Neox Scanlator (neoxscans.net) VYNECHÁN - puvodni domena expirovala 2024-10-02
+        // a byla znovu zaregistrovana; Windows Defender pri ulozeni stazene stranky na
+        // disk nahlasil virus/PUA (stejny tvrdy bezpecnostni signal jako u mangayabu.top
+        // a kaiscans.org drive) - nepouzivat.
+        //
+        // Quegna Traduction Team VYNECHÁN - nema vlastni ctecku, jen obecne ForumFree
+        // forum (qtt.forumcommunity.net), navic potvrzeno neaktivni (>6 mesicu bez
+        // vydani) - neni co strukturovane scrapovat.
     )
 
     init {
