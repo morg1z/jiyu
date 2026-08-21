@@ -92,6 +92,53 @@ class BalancedLineBreakTest {
         assembleLines(words, ends!!).forEach { assertTrue("empty line produced", it.isNotBlank()) }
     }
 
+    @Test
+    fun `keeps a single-letter preposition off the end of a line when a different split also fits`() {
+        // Bez "words" parametru by DP zvolila konec radku 3 ("AAA BBB v"), protoze ma nizsi
+        // cenu (5) nez konec radku 2 ("AAA BBB", cena 9) - viz vypocet v komentari k testu
+        // nize. S "words" parametrem penalizace tohle rozdeleni znevyhodni.
+        val words = listOf("AAA", "BBB", "v", "CCC", "DDD")
+        val wordWidths = listOf(3f, 3f, 1f, 3f, 3f)
+        val allowed = listOf(10f, 9f)
+
+        val withoutPenalty = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed)
+        assertEquals("AAA BBB v", assembleLines(words, withoutPenalty!!)[0])
+
+        val withPenalty = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed, words = words)
+        assertNotNull(withPenalty)
+        val lines = assembleLines(words, withPenalty!!)
+        assertTrue("no line should end with a lone preposition, got $lines", lines.none { it.trimEnd().endsWith(" v") })
+        assertEquals(listOf("AAA BBB", "v CCC DDD"), lines)
+    }
+
+    @Test
+    fun `does not penalize a single-letter word that is the very last word of the whole text`() {
+        // "v" tady konci CELY text, ne jen jeden radek - neni co "odtrhnout", takze penalizace
+        // se neuplatni a rozdeleni zustava stejne s/bez "words" parametru.
+        val words = listOf("AAAA", "BBBB", "v")
+        val wordWidths = listOf(4f, 4f, 1f)
+        val allowed = listOf(9f, 1f)
+
+        val withPenalty = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed, words = words)
+        assertNotNull(withPenalty)
+        assertEquals(listOf("AAAA BBBB", "v"), assembleLines(words, withPenalty!!))
+    }
+
+    @Test
+    fun `still returns a split ending in a lone preposition when it is the only feasible option`() {
+        // "words" nesmi zpusobit, ze breakIntoLines vrati null misto jedine mozne varianty -
+        // penalizace jen zhorsi cenu, nikdy neudela rozdeleni neproveditelnym. Jedina moznost
+        // tady je koncit prvni radek na "v" (druha varianta by mela druhy radek siroky 10,
+        // ktery se do allowedWidths[1]=8 nevejde).
+        val words = listOf("AAAAAAAA", "v", "BBBBBBBB")
+        val wordWidths = listOf(8f, 1f, 8f)
+        val allowed = listOf(10f, 8f)
+
+        val ends = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed, words = words)
+        assertNotNull(ends)
+        assertEquals(listOf("AAAAAAAA v", "BBBBBBBB"), assembleLines(words, ends!!))
+    }
+
     // ── shapeLineWidths ──
 
     @Test
