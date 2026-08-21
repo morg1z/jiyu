@@ -200,6 +200,10 @@ dependencies {
     // AppCompat — potřebné pro AppCompatDelegate.setApplicationLocales()
     implementation("androidx.appcompat:appcompat:1.7.0")
 
+    // ML Kit on-device language identification + translation (záloha bez API klíče)
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("com.google.mlkit:translate:17.0.3")
+
     // Jetpack Security — šifrované úložiště pro tracker tokeny/hesla (MAL/Kitsu/MangaUpdates).
     // Dlouho existovala jen jako alpha (a byl tu komentář, že to tak nejspíš zůstane), ale
     // 1.1.0 stable mezitím vyšla. API je stejné, žádná úprava kódu nebyla potřeba.
