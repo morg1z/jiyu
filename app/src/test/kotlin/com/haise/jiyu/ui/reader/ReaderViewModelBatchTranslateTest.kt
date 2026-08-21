@@ -188,20 +188,6 @@ class ReaderViewModelBatchTranslateTest {
     }
 
     @Test
-    fun `a missing api key stops the batch before it starts`() = runBlocking {
-        every { translateRepository.isApiKeyConfigured } returns false
-
-        val vm = viewModel()
-        vm.translateAllPages()
-
-        assertNotNull(vm.translationError.value)
-        assertFalse(vm.batchTranslating.value)
-        io.mockk.coVerify(exactly = 0) {
-            translateRepository.translateChapter(any(), any(), any(), any(), any(), any())
-        }
-    }
-
-    @Test
     fun `the batch flag is cleared once the run finishes`() = runBlocking {
         stubTranslateChapter(0 to listOf(block("Ahoj")))
 

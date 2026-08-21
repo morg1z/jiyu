@@ -695,6 +695,7 @@
     <string name="reader_error_missing_supabase_url">Falta SUPABASE_URL en local.properties - la traducción no tiene a dónde llamar</string>
     <string name="reader_error_translation_failed">Fallo al traducir el capítulo, inténtalo de nuevo</string>
     <string name="reader_error_rate_limited">Límite diario de traducción con IA alcanzado, inténtalo más tarde</string>
+    <string name="reader_on_device_warning">No hay clave de API en la nube configurada — se muestra una vista previa local aproximada.</string>
 
     <!-- Explorar -->
     <string name="browse_title">Explorar</string>
