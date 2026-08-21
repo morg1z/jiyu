@@ -1,0 +1,121 @@
+package com.haise.jiyu.translate
+
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import com.haise.jiyu.util.report
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.nio.FloatBuffer
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Nezávislá vizuální detekce "kde na stránce je bublina/text" přes natrénovaný YOLOv8 model
+ * (viz assets/models/NOTICE.md) - běží čistě na zařízení, žádné API. Na rozdíl od zbytku
+ * OCR pipeline nevychází z rozpoznaného textu vůbec, takže dává appce druhý, nezávislý zdroj
+ * pravdy o poloze bubliny - viz [com.haise.jiyu.translate.OcrEngine], kde se výsledek používá
+ * jako korekce pro [BubbleMerge]/[TranslationLayout] misto slepého spoléhání na OCR geometrii.
+ *
+ * Čistá matematika dekódování/NMS/letterboxu žije v [YoloDetectionDecode.kt] a je testovaná
+ * JVM testy nezávisle na týhle třídě - tahle třída je jen tenký obal kolem ONNX Runtime a
+ * Android Bitmap, který se JVM testem spustit nedá.
+ */
+@Singleton
+class BubbleBoxDetector @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    private val session: OrtSession by lazy {
+        val env = OrtEnvironment.getEnvironment()
+        val modelBytes = context.assets.open(MODEL_ASSET_PATH).use { it.readBytes() }
+        env.createSession(modelBytes, OrtSession.SessionOptions())
+    }
+
+    /**
+     * Spustí detekci na celé stránce.
+     *
+     * Nikdy nevyhazuje - je to doplňkový signál, ne kritická cesta (appka bez něj fungovala
+     * odjakživa), takže selhání modelu (chybějící/poškozený asset, OOM na slabém telefonu)
+     * se jen zaloguje a appka pokračuje, jako by model nic nevrátil.
+     */
+    suspend fun detect(
+        bitmap: Bitmap,
+        confThreshold: Float = 0.25f,
+        iouThreshold: Float = 0.45f,
+    ): List<DetectedBubbleBox> = withContext(Dispatchers.Default) {
+        try {
+            val env = OrtEnvironment.getEnvironment()
+            val params = letterboxParams(bitmap.width, bitmap.height, INPUT_SIZE)
+            val inputBuffer = preprocess(bitmap, params)
+            OnnxTensor.createTensor(env, inputBuffer, longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())).use { inputTensor ->
+                session.run(mapOf(session.inputNames.first() to inputTensor)).use { result ->
+                    @Suppress("UNCHECKED_CAST")
+                    val output = result[0].value as Array<Array<FloatArray>>
+                    val flat = flattenOutput(output)
+                    val raw = decodeYoloOutput(flat, numAnchors = NUM_ANCHORS, numClasses = NUM_CLASSES, confThreshold = confThreshold)
+                    nonMaxSuppression(raw, iouThreshold).map { it.toPageNormalized(params, bitmap.width, bitmap.height) }
+                }
+            }
+        } catch (e: Exception) {
+            e.report("translate:bubbleBoxDetector:detect")
+            emptyList()
+        }
+    }
+
+    /** Kanál-po-kanálu tenzor `[1][channels][anchors]` -> plochý `FloatArray` pro [decodeYoloOutput]. */
+    private fun flattenOutput(output: Array<Array<FloatArray>>): FloatArray {
+        val batch = output[0]
+        val channels = batch.size
+        val anchors = batch[0].size
+        val flat = FloatArray(channels * anchors)
+        for (c in 0 until channels) {
+            System.arraycopy(batch[c], 0, flat, c * anchors, anchors)
+        }
+        return flat
+    }
+
+    /**
+     * Standardní YOLO "letterbox" preprocessing: obrázek se zmenší se zachováním poměru stran
+     * a doplní šedým okrajem (114,114,114 - stejná hodnota, jakou používá export modelu) na
+     * čtvercový vstup [INPUT_SIZE]x[INPUT_SIZE], pak se převede na NCHW float tenzor (0..1,
+     * kanály R,G,B po sobě) - přesně formát, který čeká `images` vstup modelu.
+     */
+    private fun preprocess(bitmap: Bitmap, params: LetterboxParams): FloatBuffer {
+        val size = INPUT_SIZE
+        val scaledW = (bitmap.width * params.scale).toInt().coerceAtLeast(1)
+        val scaledH = (bitmap.height * params.scale).toInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
+        val canvasBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        try {
+            Canvas(canvasBitmap).apply {
+                drawColor(Color.rgb(114, 114, 114))
+                drawBitmap(scaled, params.padX, params.padY, null)
+            }
+
+            val pixels = IntArray(size * size)
+            canvasBitmap.getPixels(pixels, 0, size, 0, 0, size, size)
+
+            val buffer = FloatBuffer.allocate(3 * size * size)
+            for (i in pixels.indices) buffer.put(((pixels[i] shr 16) and 0xFF) / 255f)
+            for (i in pixels.indices) buffer.put(((pixels[i] shr 8) and 0xFF) / 255f)
+            for (i in pixels.indices) buffer.put((pixels[i] and 0xFF) / 255f)
+            buffer.rewind()
+            return buffer
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
+            canvasBitmap.recycle()
+        }
+    }
+
+    private companion object {
+        const val MODEL_ASSET_PATH = "models/comic_bubble_detector.onnx"
+        const val INPUT_SIZE = 640
+        const val NUM_CLASSES = 2
+        const val NUM_ANCHORS = 8400
+    }
+}
