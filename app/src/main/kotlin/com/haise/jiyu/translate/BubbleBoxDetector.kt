@@ -5,13 +5,10 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
 import com.haise.jiyu.util.report
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.nio.FloatBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,7 +48,7 @@ class BubbleBoxDetector @Inject constructor(
         try {
             val env = OrtEnvironment.getEnvironment()
             val params = letterboxParams(bitmap.width, bitmap.height, INPUT_SIZE)
-            val inputBuffer = preprocess(bitmap, params)
+            val inputBuffer = YoloPreprocessing.letterboxToFloatBuffer(bitmap, params, INPUT_SIZE)
             OnnxTensor.createTensor(env, inputBuffer, longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())).use { inputTensor ->
                 session.run(mapOf(session.inputNames.first() to inputTensor)).use { result ->
                     @Suppress("UNCHECKED_CAST")
@@ -77,39 +74,6 @@ class BubbleBoxDetector @Inject constructor(
             System.arraycopy(batch[c], 0, flat, c * anchors, anchors)
         }
         return flat
-    }
-
-    /**
-     * Standardní YOLO "letterbox" preprocessing: obrázek se zmenší se zachováním poměru stran
-     * a doplní šedým okrajem (114,114,114 - stejná hodnota, jakou používá export modelu) na
-     * čtvercový vstup [INPUT_SIZE]x[INPUT_SIZE], pak se převede na NCHW float tenzor (0..1,
-     * kanály R,G,B po sobě) - přesně formát, který čeká `images` vstup modelu.
-     */
-    private fun preprocess(bitmap: Bitmap, params: LetterboxParams): FloatBuffer {
-        val size = INPUT_SIZE
-        val scaledW = (bitmap.width * params.scale).toInt().coerceAtLeast(1)
-        val scaledH = (bitmap.height * params.scale).toInt().coerceAtLeast(1)
-        val scaled = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, true)
-        val canvasBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        try {
-            Canvas(canvasBitmap).apply {
-                drawColor(Color.rgb(114, 114, 114))
-                drawBitmap(scaled, params.padX, params.padY, null)
-            }
-
-            val pixels = IntArray(size * size)
-            canvasBitmap.getPixels(pixels, 0, size, 0, 0, size, size)
-
-            val buffer = FloatBuffer.allocate(3 * size * size)
-            for (i in pixels.indices) buffer.put(((pixels[i] shr 16) and 0xFF) / 255f)
-            for (i in pixels.indices) buffer.put(((pixels[i] shr 8) and 0xFF) / 255f)
-            for (i in pixels.indices) buffer.put((pixels[i] and 0xFF) / 255f)
-            buffer.rewind()
-            return buffer
-        } finally {
-            if (scaled !== bitmap) scaled.recycle()
-            canvasBitmap.recycle()
-        }
     }
 
     private companion object {
