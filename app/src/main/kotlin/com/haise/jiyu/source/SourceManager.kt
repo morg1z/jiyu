@@ -762,7 +762,16 @@ class SourceManager @Inject constructor(
         // hostovani, ne finalni adresa). Overeno zive: genuine nezmeneny Madara motiv
         // (wp-manga/page-item-detail/reading-content potvrzeno), 1000+ kapitol na
         // nekterych titulech, takze obsahove funkcni - jen URL muze byt nestabilni.
-        MadaraSource("samuraiscan", "Samurai Scan", "https://samurai.j5z.xyz", client),
+        //
+        // Oprava 2026-08-21 (uzivatelske hlaseni "404 pri nacitani"): web nema vychozi
+        // Madara permalink "/manga/" (ten vraci 404), archiv katalogu bezi na vlastnim
+        // slugu "/son/" (overeno zive: /son/page/N/?m_orderby=... vraci 200 s
+        // page-item-detail polozkami). Vyhledavani ("/page/N/?s=...&post_type=wp-manga")
+        // je nezavisle na permalink slugu a funguje s vychozi hodnotou beze zmeny.
+        MadaraSource(
+            "samuraiscan", "Samurai Scan", "https://samurai.j5z.xyz", client,
+            popularUrl = { root, page, orderby -> "$root/son/page/$page/?m_orderby=$orderby" },
+        ),
         // mangademon.com i mangademon.org VYNECHANY - oba stejny skodlivy ad-fraud
         // "Redirecting..." vzor jako drivejsi nalezy (mangayabu.top, kaiscans.org):
         // JWT session redirect -> fingerprint (adblock/GPU/timezone/webdriver) ->
