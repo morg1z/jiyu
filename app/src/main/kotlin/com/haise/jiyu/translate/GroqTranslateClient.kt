@@ -113,6 +113,11 @@ class GroqTranslateClient @Inject constructor(
      *   [GeminiUltraPrompt.buildMangaContext]) - proxy ho uměla přijmout od začátku
      *   (sdílený [buildProxyRequestBody] s manga cestou), jen se odsud nikdy neposílal,
      *   takže pravidlo pro "NOVEL" v [GeminiUltraPrompt.mediumRules] bylo fakticky nedosažitelné.
+     * @param previousLines ocásek už přeložených odstavců z PŘEDCHOZÍ dávky téže kapitoly
+     *   (viz [GeminiUltraPrompt.recentContextLines]) - proxy ho odjakživa umí zapojit
+     *   ([contextClauseFor] v translate-proxy je společná pro oba režimy), jen se u novel
+     *   nikdy neposílal, takže dlouhá kapitola rozseknutá na víc dávek ztrácela návaznost
+     *   tónu/oslovení na hranici dávky stejně, jako to dřív dělala manga cesta.
      */
     suspend fun translateNovelBatch(
         paragraphs: List<String>,
@@ -121,6 +126,7 @@ class GroqTranslateClient @Inject constructor(
         glossary: Map<String, String> = emptyMap(),
         provider: String = "groq",
         mangaContext: String = "",
+        previousLines: List<String> = emptyList(),
     ): List<String> = translateViaProxy(
         texts = paragraphs,
         targetLanguage = targetLanguage,
@@ -129,6 +135,7 @@ class GroqTranslateClient @Inject constructor(
         mode = "novel",
         provider = provider,
         mangaContext = mangaContext,
+        previousLines = previousLines,
     )
 
     /**
