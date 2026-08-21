@@ -829,6 +829,13 @@ class TranslateRepository @Inject constructor(
         val units = toTranslationUnits(paragraphs)
         val chunks = chunkUnits(units)
         val translatedUnits = mutableListOf<String>()
+        // Ocásek přeložených odstavců z PŘEDCHOZÍHO chunku téže kapitoly - stejný mechanismus
+        // (a stejný rozpočet) jako "recentLines" u manga cesty (viz [translateChapter]), jen
+        // se u novel dřív nikdy nepoužíval. Dlouhá kapitola rozseknutá na víc dávek (viz
+        // [NOVEL_CHUNK_CHAR_LIMIT]) tak na hranici dávky ztrácela návaznost tónu/oslovení -
+        // proxy i systémový prompt to zapojit uměly odjakživa (sdílené s manga cestou),
+        // chybělo to jen tady.
+        var previousLines = emptyList<String>()
         for (chunk in chunks) {
             val texts = chunk.map { it.text }
             // Na rozdíl od manga cesty tu dřív nebyl ŽÁDNÝ fallback - vyčerpaná denní kvóta
@@ -836,18 +843,19 @@ class TranslateRepository @Inject constructor(
             // shodila celý překlad novely, i kdyby byl OpenRouter volný. Stejný vzor jako
             // poslední čtyři kroky manga řetězce (translateWithGroq "groq"->"openrouter"->
             // "cerebras"->"mistral").
-            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext)
+            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext, previousLines = previousLines)
             if (translated.size != chunk.size) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext, previousLines = previousLines)
             }
             if (translated.size != chunk.size) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "cerebras", mangaContext = mangaContext)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "cerebras", mangaContext = mangaContext, previousLines = previousLines)
             }
             if (translated.size != chunk.size) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines)
             }
             if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
             translatedUnits += translated
+            previousLines = GeminiUltraPrompt.recentContextLines(translated)
         }
 
         // Rekonstrukce odstavců: "continuation" kousky (části jednoho moc dlouhého odstavce
