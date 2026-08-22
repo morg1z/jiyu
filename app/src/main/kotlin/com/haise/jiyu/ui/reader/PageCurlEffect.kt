@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.hypot
 
 /**
@@ -23,7 +24,7 @@ fun DrawScope.drawPageCurl(
     currentPageBitmap: ImageBitmap,
     revealedPageBitmap: ImageBitmap?,
 ) {
-    val nativeCanvas = drawContext.canvas as android.graphics.Canvas
+    val nativeCanvas = drawContext.canvas.nativeCanvas
     val toOffset = { p: Point -> Offset(p.x, p.y) }
 
     revealedPageBitmap?.let { revealed ->
