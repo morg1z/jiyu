@@ -62,4 +62,43 @@ class PageCurlStateTest {
         val result = state.onEdgeTap(TurnDirection.NEXT)
         assertEquals(PageTurnResult.WithinChapter(PageCurlState(2, 5, 0f)), result)
     }
+
+    // Critical 1 fix: a vertical/near-zero drag on a boundary page must NOT report a
+    // ChapterBoundary just because the page happens to be first/last - `dragProgress` is
+    // clamped to 0f at the boundary regardless of drag direction, so a genuinely
+    // insignificant drag has to be told apart from "a real drag attempt that hit the
+    // boundary" using `rawDragProgress`, not `dragProgress`.
+    @Test
+    fun `a vertical drag with no horizontal component on the last page does nothing`() {
+        val state = PageCurlState(currentPageIndex = 4, pageCount = 5)
+        val result = state.withDrag(0f).onDragEnd()
+        assertTrue(result is PageTurnResult.Cancelled)
+        assertEquals(4, (result as PageTurnResult.Cancelled).newState.currentPageIndex)
+        assertEquals(0f, result.newState.dragProgress)
+    }
+
+    @Test
+    fun `a vertical drag with no horizontal component on the first page does nothing`() {
+        val state = PageCurlState(currentPageIndex = 0, pageCount = 5)
+        val result = state.withDrag(0f).onDragEnd()
+        assertTrue(result is PageTurnResult.Cancelled)
+        assertEquals(0, (result as PageTurnResult.Cancelled).newState.currentPageIndex)
+    }
+
+    // Critical 1 fix: a single-page-group chapter clamps `dragProgress` to 0f in BOTH
+    // directions (it's simultaneously the first and last page), so the direction must be
+    // read from `rawDragProgress`, not inferred from the clamped (always-0) `dragProgress`.
+    @Test
+    fun `a single-page chapter dragged toward NEXT reports a chapter boundary toward NEXT, not PREV`() {
+        val state = PageCurlState(currentPageIndex = 0, pageCount = 1)
+        val result = state.withDrag(0.9f).onDragEnd()
+        assertEquals(PageTurnResult.ChapterBoundary(TurnDirection.NEXT), result)
+    }
+
+    @Test
+    fun `a single-page chapter dragged toward PREV reports a chapter boundary toward PREV`() {
+        val state = PageCurlState(currentPageIndex = 0, pageCount = 1)
+        val result = state.withDrag(-0.9f).onDragEnd()
+        assertEquals(PageTurnResult.ChapterBoundary(TurnDirection.PREV), result)
+    }
 }

@@ -13,6 +13,14 @@ data class PageCurlState(
     val currentPageIndex: Int,
     val pageCount: Int,
     val dragProgress: Float = 0f, // -1f..1f: zaporne = ohyb k PREV, kladne = k NEXT
+    // Nezaclampovany pokus o smer tahu (fix review nalezu Critical 1) - `dragProgress` se na
+    // hranici kapitoly (prvni/posledni stranka) zaclampuje na 0f, aby nikdy neprobehla prazdna
+    // ohybova animace (viz `withDrag`). To ale znamena, ze `dragProgress` sam o sobe uz na
+    // hranici NENESE informaci o tom, kterym smerem uzivatel skutecne tahl - byl by 0f pri
+    // svislem/nulovem tahu STEJNE jako pri tahu smerem NEXT/PREV, ktery jen narazil na hranici.
+    // `rawDragProgress` si tenhle pokus pamatuje nezaclampovany (jen -1f..1f) i na hranici, takze
+    // `onDragEnd` muze spravne rozlisit "zadny signifikantni tah" od "tah, co narazil na hranici".
+    val rawDragProgress: Float = 0f,
 )
 
 /** Výsledek gesta - buď změna stránky uvnitř kapitoly, přechod na jinou KAPITOLU (hranice),
@@ -29,12 +37,16 @@ sealed class PageTurnResult {
 fun PageCurlState.withDrag(deltaProgress: Float): PageCurlState {
     val atFirstPage = currentPageIndex == 0
     val atLastPage = currentPageIndex == pageCount - 1
+    val raw = deltaProgress.coerceIn(-1f, 1f)
     val clamped = when {
-        deltaProgress < 0f && atFirstPage -> 0f
-        deltaProgress > 0f && atLastPage -> 0f
-        else -> deltaProgress.coerceIn(-1f, 1f)
+        raw < 0f && atFirstPage -> 0f
+        raw > 0f && atLastPage -> 0f
+        else -> raw
     }
-    return copy(dragProgress = clamped)
+    // `dragProgress` (vizualni, clampovany na 0 na hranici) se pouziva pro vykresleni ohybu -
+    // `rawDragProgress` (nikdy vynulovany na hranici) se pouziva jen pro rozpoznani smeru v
+    // `onDragEnd` (fix Critical 1).
+    return copy(dragProgress = clamped, rawDragProgress = raw)
 }
 
 /**
@@ -45,24 +57,17 @@ fun PageCurlState.withDrag(deltaProgress: Float): PageCurlState {
  * (manga).
  */
 fun PageCurlState.onDragEnd(completionThreshold: Float = 0.4f): PageTurnResult {
-    // Check chapter boundary first: at the edge, any drag attempt (even 0f due to clamping)
-    // counts as a boundary hit if it was in the boundary direction
-    val atFirstPage = currentPageIndex == 0
-    val atLastPage = currentPageIndex == pageCount - 1
-
-    if (atFirstPage && dragProgress <= 0f) {
-        return PageTurnResult.ChapterBoundary(TurnDirection.PREV)
-    }
-    if (atLastPage && dragProgress >= 0f) {
-        return PageTurnResult.ChapterBoundary(TurnDirection.NEXT)
-    }
-
-    // Not at boundary - check threshold
-    val magnitude = kotlin.math.abs(dragProgress)
+    // Pouzivame `rawDragProgress` (fix Critical 1), NE `dragProgress` - ten druhy je na
+    // hranici kapitoly zaclampovany na 0f bez ohledu na to, kterym smerem uzivatel skutecne
+    // tahl (i svisly/nulovy tah by na hranici vypadal identicky jako tah smerem k hranici).
+    // `rawDragProgress` zustava nezaclampovany i na hranici, takze tady muzeme spravne
+    // rozlisit "zadny signifikantni tah" (-> Cancelled, zustan na miste) od "tah presahujici
+    // prah smerem X, ktery narazil na hranici" (-> ChapterBoundary(X)).
+    val magnitude = kotlin.math.abs(rawDragProgress)
     if (magnitude < completionThreshold) {
-        return PageTurnResult.Cancelled(copy(dragProgress = 0f))
+        return PageTurnResult.Cancelled(copy(dragProgress = 0f, rawDragProgress = 0f))
     }
-    val direction = if (dragProgress > 0f) TurnDirection.NEXT else TurnDirection.PREV
+    val direction = if (rawDragProgress > 0f) TurnDirection.NEXT else TurnDirection.PREV
     return completeTurn(direction)
 }
 
@@ -77,10 +82,10 @@ private fun PageCurlState.completeTurn(direction: TurnDirection): PageTurnResult
         direction == TurnDirection.PREV && atFirstPage -> PageTurnResult.ChapterBoundary(TurnDirection.PREV)
         direction == TurnDirection.NEXT && atLastPage -> PageTurnResult.ChapterBoundary(TurnDirection.NEXT)
         direction == TurnDirection.NEXT -> PageTurnResult.WithinChapter(
-            copy(currentPageIndex = currentPageIndex + 1, dragProgress = 0f),
+            copy(currentPageIndex = currentPageIndex + 1, dragProgress = 0f, rawDragProgress = 0f),
         )
         else -> PageTurnResult.WithinChapter(
-            copy(currentPageIndex = currentPageIndex - 1, dragProgress = 0f),
+            copy(currentPageIndex = currentPageIndex - 1, dragProgress = 0f, rawDragProgress = 0f),
         )
     }
 }

@@ -24,10 +24,13 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haise.jiyu.R
 
 /**
  * Novel čtečka s efektem ohýbané stránky ("page curl") - propojuje paginaci (Task 2), stav
@@ -97,7 +100,17 @@ fun PageCurlNovelReader(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    currentLayer.record { this@drawWithContent.drawContent() }
+                    // Fix Important 7 - neprumyslne pozadi PRED zaznamem obsahu vrstvy.
+                    // Bez tohohle by rasterizovana bitmapa mela pruhledne pozadi (Text sam o
+                    // sobe nekresli pozadi, jen `.background(bgColor)` na vnejsim
+                    // BoxWithConstraints, ktere ale neni soucasti teto zaznamenane vrstvy) a
+                    // curl overlay by skrz tyto pruhledne mezery prosvital zivou textovou
+                    // vrstvu vykreslenou pod nim - dvoji expozice (ghosting) textu v ohnute
+                    // oblasti.
+                    currentLayer.record {
+                        drawRect(bgColor)
+                        this@drawWithContent.drawContent()
+                    }
                     drawContent()
                 }
                 .padding(20.dp),
@@ -126,11 +139,19 @@ fun PageCurlNovelReader(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
-                    revealedLayer.record { this@drawWithContent.drawContent() }
+                    // Fix Important 7 - stejne neprumyslne pozadi jako u `currentLayer` výše;
+                    // tahle vrstva je "sousední" stránka odkrývaná pod ohybem, takže její
+                    // bitmapa musí být stejně neprůhledná, jinak by curl overlay prosvítal
+                    // zivou textovou vrstvu aktuální stránky vykreslenou pod ní.
+                    revealedLayer.record {
+                        drawRect(bgColor)
+                        this@drawWithContent.drawContent()
+                    }
                     // Zámerně BEZ drawContent() - tahle vrstva se jen rasterizuje pro
                     // revealedBitmap, na obrazovku samu o sobě nekreslí nic.
                 }
-                .padding(20.dp),
+                .padding(20.dp)
+                .clearAndSetSemantics { },
         ) {
             if (revealedPage != null) {
                 val revealedSafeStart = revealedPage.startIndex.coerceIn(0, text.length)
@@ -182,8 +203,13 @@ fun PageCurlNovelReader(
                                 pageCount = pages.size,
                                 dragProgress = dragProgress,
                             )
+                            // Znamenko obraceno oproti puvodni verzi (fix Critical 2) - musi
+                            // odpovidat konvenci v `MangaPageCurlReader.kt` (`dragProgress -
+                            // delta`, ne `+ delta`) a tomu, co ocekava sdileny `drawPageCurl`
+                            // renderer. Puvodni `+ deltaProgress` otacelo stranku opacnym
+                            // smerem, nez odpovidalo fyzickemu tahu prstu.
                             val deltaProgress = dragAmount.x / widthPx
-                            dragProgress = liveState.withDrag(liveState.dragProgress + deltaProgress).dragProgress
+                            dragProgress = liveState.withDrag(liveState.dragProgress - deltaProgress).dragProgress
                         },
                         onDragEnd = {
                             val liveState = PageCurlState(
@@ -192,6 +218,12 @@ fun PageCurlNovelReader(
                                 dragProgress = dragProgress,
                             )
                             applyTurnResult(liveState.onDragEnd())
+                        },
+                        onDragCancel = {
+                            // Fix Important 5 - kdyz je gesture node zrusen uprostred tahu
+                            // (napr. system gesto/jiny gesture-node prevezme ukazatel), curl
+                            // by jinak zustal trvale "zamrzly" na posledni hodnote dragProgress.
+                            dragProgress = 0f
                         },
                     )
                 }
@@ -236,7 +268,7 @@ fun PageCurlNovelReader(
         Box(modifier = Modifier.fillMaxSize().padding(bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
             val percent = (currentPageIndex + 1) * 100 / pages.size.coerceAtLeast(1)
             Text(
-                text = "Stránka ${currentPageIndex + 1} z ${pages.size} · $percent%",
+                text = stringResource(R.string.reader_page_curl_progress, currentPageIndex + 1, pages.size, percent),
                 color = textColor.copy(alpha = 0.6f),
                 fontSize = 12.sp,
             )
