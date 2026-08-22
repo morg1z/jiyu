@@ -34,6 +34,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.delay
 
@@ -258,25 +259,33 @@ fun MangaPageCurlReader(
                 currentBitmap = currentLayer.toImageBitmap()
             }
 
-            val revealedGroupIndex = when {
-                dragProgress > 0f -> currentGroupIndex + 1
-                dragProgress < 0f -> currentGroupIndex - 1
-                else -> null
-            }
-            val revealedIndices = revealedGroupIndex?.let { groups.getOrNull(it) }
-            val revealedLayer = rememberGraphicsLayer()
-            var revealedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            // Fix Important 6 - dřív se sousední ("revealed") stránka rasterizovala jen JEDNOU,
+            // až v okamžiku, kdy `dragProgress` poprvé přestal být 0f (uživatel začal tahat),
+            // typicky předtím, než Coil dokončil dekódování obrázku - a nikdy znovu. První tah
+            // po otevření stránky tak často ukázal prázdnou/bílou plochu tam, kde měl být sused.
+            // Teď se OBĚ sousední skupiny (další i předchozí) rasterizují PRŮBĚŽNĚ, jakmile je
+            // jejich index znám - ne až na začátek gesta - takže Coil má čas dekódovat obrázek
+            // dřív, než uživatel vůbec začne táhnout. `revealedBitmap` pak jen VYBÍRÁ z už
+            // připravené dvojice podle aktuálního směru tahu.
+            val nextGroupIndex = currentGroupIndex + 1
+            val prevGroupIndex = currentGroupIndex - 1
+            val nextIndices = groups.getOrNull(nextGroupIndex)
+            val prevIndices = groups.getOrNull(prevGroupIndex)
+
+            val nextLayer = rememberGraphicsLayer()
+            var nextBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawWithContent {
-                        revealedLayer.record { this@drawWithContent.drawContent() }
-                        // bez drawContent() - jen rasterizace pro revealedBitmap
-                    },
+                        nextLayer.record { this@drawWithContent.drawContent() }
+                        // bez drawContent() - jen rasterizace pro nextBitmap
+                    }
+                    .clearAndSetSemantics { },
             ) {
-                if (revealedIndices != null) {
+                if (nextIndices != null) {
                     MangaGroupContent(
-                        indices = revealedIndices, pages = pages, translateMode = translateMode,
+                        indices = nextIndices, pages = pages, translateMode = translateMode,
                         translatedPages = translatedPages, reverseLayout = reverseLayout,
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                         textScale = textScale, flippedBubbles = flippedBubbles,
@@ -284,8 +293,46 @@ fun MangaPageCurlReader(
                     )
                 }
             }
-            LaunchedEffect(revealedIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
-                revealedBitmap = if (revealedIndices != null) revealedLayer.toImageBitmap() else null
+            LaunchedEffect(nextIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+                nextBitmap = if (nextIndices != null) nextLayer.toImageBitmap() else null
+            }
+
+            val prevLayer = rememberGraphicsLayer()
+            var prevBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        prevLayer.record { this@drawWithContent.drawContent() }
+                        // bez drawContent() - jen rasterizace pro prevBitmap
+                    }
+                    .clearAndSetSemantics { },
+            ) {
+                if (prevIndices != null) {
+                    MangaGroupContent(
+                        indices = prevIndices, pages = pages, translateMode = translateMode,
+                        translatedPages = translatedPages, reverseLayout = reverseLayout,
+                        resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
+                        textScale = textScale, flippedBubbles = flippedBubbles,
+                        onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                    )
+                }
+            }
+            LaunchedEffect(prevIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+                prevBitmap = if (prevIndices != null) prevLayer.toImageBitmap() else null
+            }
+
+            val revealedBitmap = when {
+                dragProgress > 0f -> nextBitmap
+                dragProgress < 0f -> prevBitmap
+                else -> null
+            }
+
+            // Fix Important 5 - jakmile uzivatel zacne pinch-zoomovat pres 1x behem
+            // rozjeteho curl-tahu, `dragProgress` musi zustat cisty, jinak by curl overlay
+            // zustal trvale "zamrzly" na obrazovce po zbytek zoomovani.
+            LaunchedEffect(scale > 1f) {
+                if (scale > 1f) dragProgress = 0f
             }
 
             Box(
@@ -293,6 +340,11 @@ fun MangaPageCurlReader(
                     .fillMaxSize()
                     .then(
                         if (scale <= 1f) {
+                            // Fix Important 3 - JEN drag (curl) gesto se gatuje na zoom <= 1f,
+                            // stejne jako `userScrollEnabled = scale <= 1f` v `MangaReaderu`
+                            // gatuje jen swipe pageru, ne tap zony. Predtim bylo i tap gesto
+                            // vnorene sem, takze pri priblizeni prestaly fungovat SHOW_PANEL /
+                            // predchozi-dalsi kapitola / long-press sdileni zony uplne.
                             Modifier
                                 // Klíčováno i na `pages` (ne jen `groups.size`) - jinak by při
                                 // přechodu na kapitolu se STEJNÝM počtem skupin jako předchozí
@@ -301,7 +353,7 @@ fun MangaPageCurlReader(
                                 // `currentSingleIndex`/`dragProgress` MutableState objektů zpřed
                                 // přechodu, zatímco `groups` výše by už odkazovaly na novou
                                 // kapitolu - navigace by tiše přestala reagovat (review nález č. 2).
-                                .pointerInput(pages, groups.size, reverseLayout) {
+                                .pointerInput(pages, groups.size, spreadPageIndices, reverseLayout) {
                                     detectDragGestures(
                                         onDrag = { change, dragAmount ->
                                             change.consume()
@@ -321,31 +373,12 @@ fun MangaPageCurlReader(
                                             )
                                             applyTurnResult(live.onDragEnd())
                                         },
-                                    )
-                                }
-                                .pointerInput(pages, groups.size, tapZonesEnabled, tapZoneGrid, reverseLayout) {
-                                    detectTapGestures(
-                                        onLongPress = {
-                                            val liveIndices = groups.getOrElse(liveGroupIndex()) { listOf(0) }
-                                            sharePageUrl = pages.getOrElse(liveIndices[0]) { "" }
-                                            if (sharePageUrl.isNotEmpty()) showShareSheet = true
-                                        },
-                                        onTap = { offset ->
-                                            val action = if (!tapZonesEnabled) {
-                                                TapZoneAction.SHOW_PANEL
-                                            } else {
-                                                val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
-                                                val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
-                                                tapZoneGrid[row, col]
-                                            }
-                                            when (action) {
-                                                TapZoneAction.SHOW_PANEL -> onShowPanel()
-                                                TapZoneAction.PREV_PAGE -> tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV)
-                                                TapZoneAction.NEXT_PAGE -> tryTurn(if (reverseLayout) TurnDirection.PREV else TurnDirection.NEXT)
-                                                TapZoneAction.PREV_CHAPTER -> onNavigatePrevChapter()
-                                                TapZoneAction.NEXT_CHAPTER -> onNavigateNextChapter()
-                                                TapZoneAction.NONE -> {}
-                                            }
+                                        onDragCancel = {
+                                            // Fix Important 5 - gesture node muze byt zrusen
+                                            // uprostred tahu (napr. prevzeti ukazatele jinym
+                                            // gesture-nodem pri prechodu do pinch-zoomu) - bez
+                                            // resetu by curl overlay zustal zamrzly.
+                                            dragProgress = 0f
                                         },
                                     )
                                 }
@@ -353,6 +386,52 @@ fun MangaPageCurlReader(
                             Modifier
                         },
                     )
+                    // Fix Important 3 - tap gesta (SHOW_PANEL / predchozi-dalsi kapitola /
+                    // long-press sdileni) VZDY aktivni, nezavisle na zoomu - presne jako
+                    // `MangaReader` (`ReaderPager.kt`), kde tenhle pointerInput blok neni
+                    // vubec gatovany na `scale`. Fix Important 4 - `onDoubleTap` doplnen
+                    // identicky s `MangaReaderem` (`ReaderPager.kt:270-284`).
+                    .pointerInput(pages, groups.size, spreadPageIndices, tapZonesEnabled, tapZoneGrid, reverseLayout) {
+                        detectTapGestures(
+                            onLongPress = {
+                                val liveIndices = groups.getOrElse(liveGroupIndex()) { listOf(0) }
+                                sharePageUrl = pages.getOrElse(liveIndices[0]) { "" }
+                                if (sharePageUrl.isNotEmpty()) showShareSheet = true
+                            },
+                            onDoubleTap = { offset ->
+                                if (scale > 1f) {
+                                    scale = 1f
+                                    panOffset = Offset.Zero
+                                } else {
+                                    val zoom = 2.5f
+                                    val cx = size.width / 2f
+                                    val cy = size.height / 2f
+                                    scale = zoom
+                                    panOffset = Offset(
+                                        (offset.x - cx) * (1f - zoom),
+                                        (offset.y - cy) * (1f - zoom),
+                                    )
+                                }
+                            },
+                            onTap = { offset ->
+                                val action = if (!tapZonesEnabled) {
+                                    TapZoneAction.SHOW_PANEL
+                                } else {
+                                    val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
+                                    val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
+                                    tapZoneGrid[row, col]
+                                }
+                                when (action) {
+                                    TapZoneAction.SHOW_PANEL -> onShowPanel()
+                                    TapZoneAction.PREV_PAGE -> tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV)
+                                    TapZoneAction.NEXT_PAGE -> tryTurn(if (reverseLayout) TurnDirection.PREV else TurnDirection.NEXT)
+                                    TapZoneAction.PREV_CHAPTER -> onNavigatePrevChapter()
+                                    TapZoneAction.NEXT_CHAPTER -> onNavigateNextChapter()
+                                    TapZoneAction.NONE -> {}
+                                }
+                            },
+                        )
+                    }
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             val newScale = (scale * zoom).coerceIn(1f, 5f)
@@ -364,8 +443,23 @@ fun MangaPageCurlReader(
                 val bitmap = currentBitmap
                 if (bitmap != null && dragProgress != 0f) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val corner = if (dragProgress > 0f) Offset(widthPx, heightPx) else Offset(0f, heightPx)
-                        val fingerOffset = Offset(x = corner.x - dragProgress * widthPx, y = corner.y)
+                        // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga)
+                        // se roh, ze ktereho ohyb vychazi, zrcadli, aby odpovidal fyzicke
+                        // strane, na ktere uzivatel gesto skutecne provadi. Bez tohohle
+                        // vypadal ohyb v RTL vizualne nekonzistentne se smerem tahu prstu.
+                        val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
+                        val corner = if (curlFromRight) Offset(widthPx, heightPx) else Offset(0f, heightPx)
+                        // Vzdalenost od `corner` smerem k protejsimu rohu roste s |dragProgress|
+                        // - odectena, kdyz `corner` je na prave strane (finger jde doleva k 0),
+                        // pricteno, kdyz `corner` je vlevo (finger jde doprava k width). Puvodni
+                        // zjednodusena verze `corner.x - dragProgress * widthPx` fungovala jen
+                        // dokud `corner` primo sledoval znamenko `dragProgress` (LTR) - jakmile
+                        // fix Important 9 zavedl zrcadleni pro RTL, potreboval generictejsi vzorec.
+                        val progressDistance = kotlin.math.abs(dragProgress) * widthPx
+                        val fingerOffset = Offset(
+                            x = if (curlFromRight) corner.x - progressDistance else corner.x + progressDistance,
+                            y = corner.y,
+                        )
                         val geometry = computePageCurlGeometry(
                             corner = Point(corner.x, corner.y),
                             dragPoint = Point(fingerOffset.x, fingerOffset.y),

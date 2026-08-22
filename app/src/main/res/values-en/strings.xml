@@ -694,6 +694,7 @@
     <string name="reader_share_link">Share link</string>
     <string name="reader_save_to_gallery">Save to gallery</string>
     <string name="reader_page_content_desc">Page %1$d</string>
+    <string name="reader_page_curl_progress">Page %1$d of %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Page failed to load</string>
     <string name="reader_error_missing_supabase_url">Missing SUPABASE_URL in local.properties - translation has nowhere to call</string>
     <string name="reader_error_translation_failed">Chapter translation failed, try again</string>

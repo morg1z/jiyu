@@ -691,6 +691,7 @@
     <string name="reader_share_link">Compartir enlace</string>
     <string name="reader_save_to_gallery">Guardar en la galería</string>
     <string name="reader_page_content_desc">Página %1$d</string>
+    <string name="reader_page_curl_progress">Página %1$d de %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Error al cargar la página</string>
     <string name="reader_error_missing_supabase_url">Falta SUPABASE_URL en local.properties - la traducción no tiene a dónde llamar</string>
     <string name="reader_error_translation_failed">Fallo al traducir el capítulo, inténtalo de nuevo</string>

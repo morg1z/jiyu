@@ -732,6 +732,7 @@
     <string name="reader_share_link">Sdílet odkaz</string>
     <string name="reader_save_to_gallery">Uložit do galerie</string>
     <string name="reader_page_content_desc">Stránka %1$d</string>
+    <string name="reader_page_curl_progress">Stránka %1$d z %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Stránka se nenačetla</string>
     <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
     <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>

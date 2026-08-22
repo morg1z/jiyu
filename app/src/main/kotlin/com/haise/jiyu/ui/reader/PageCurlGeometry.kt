@@ -1,6 +1,7 @@
 package com.haise.jiyu.ui.reader
 
 import kotlin.math.hypot
+import kotlin.math.sign
 
 /** Prostý 2D bod - záměrně NE Compose `Offset`, aby tahle část šla testovat v čistém
  * JVM testu bez závislosti na Android/Compose runtime. */
@@ -58,7 +59,7 @@ fun computePageCurlGeometry(
         Point(0f, 0f), Point(pageWidth, 0f), Point(pageWidth, pageHeight), Point(0f, pageHeight),
     )
     fun side(p: Point): Float = foldDir.x * (p.y - mid.y) - foldDir.y * (p.x - mid.x)
-    val cornerSign = side(corner).sign()
+    val cornerSign = side(corner).sign
 
     val curled = mutableListOf<Point>()
     val flat = mutableListOf<Point>()
@@ -68,7 +69,7 @@ fun computePageCurlGeometry(
         val a = rectCorners[i]
         val b = rectCorners[(i + 1) % rectCorners.size]
         val sideA = side(a)
-        val onCornerSide = sideA.sign() == cornerSign || sideA == 0f
+        val onCornerSide = sideA.sign == cornerSign || sideA == 0f
         (if (onCornerSide) curled else flat).add(a)
 
         val sideB = side(b)
@@ -91,12 +92,6 @@ fun computePageCurlGeometry(
     val progress = (rawDistance.coerceAtMost(maxDistance) / maxDistance).coerceIn(0f, 1f)
 
     return PageCurlGeometry(corner, clampedDrag, foldEdgeA, foldEdgeB, flat, curled, progress)
-}
-
-private fun Float.sign(): Float = when {
-    this > 0f -> 1f
-    this < 0f -> -1f
-    else -> 0f
 }
 
 /** Šest koeficientů affinní matice zrcadlení (bez závislosti na `android.graphics.Matrix`,
