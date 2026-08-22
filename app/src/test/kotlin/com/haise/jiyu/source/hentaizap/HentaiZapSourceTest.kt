@@ -17,29 +17,56 @@ class HentaiZapSourceTest {
     private lateinit var source: HentaiZapSource
 
     // Zkraceny, ale strukturalne realny vyrez z zive odpovedi https://hentaizap.com/popular/?page=1
+    // (redesign 2026-08-21 - stary markup div.thumb/div.caption/div.inner_thumb uz na
+    // zivem webu neexistuje, nahrazen article.hz-gallery-card).
     private val popularHtml = """
         <html><body>
-        <div class="thumb" data-categories="6">
-            <div class="t_inf"><span class="th_ct"><h3><a href="/category/artist-cg/">Artist CG</a></h3></span></div>
-            <div class="inner_thumb"><a href="/gallery/1610961/"><img class="lazy" src="placeholder.svg" data-src="https://m11.hentaizap.com/032/k5bi98t4z0/thumb.jpg" alt="cover"></a></div>
-            <div class="caption"><h2><a href="/gallery/1610961/">Childbirth Island 2&amp;3</a></h2></div>
-        </div>
+        <article class="hz-gallery-card">
+            <header class="hz-gallery-card__meta">
+                <a class="hz-gallery-card__category" href="/category/artist-cg/">Artist CG</a>
+            </header>
+            <div class="hz-gallery-card__media thumb">
+                <a class="hz-gallery-card__cover" href="/gallery/1610961/">
+                    <img src="https://m11.hentaizap.com/032/k5bi98t4z0/thumb.jpg" alt="">
+                </a>
+            </div>
+            <footer class="hz-gallery-card__caption">
+                <h2 class="hz-gallery-card__title"><a href="/gallery/1610961/">Childbirth Island 2&amp;3</a></h2>
+            </footer>
+        </article>
         </body></html>
     """.trimIndent()
 
-    // Zkraceny vyrez z zive odpovedi https://hentaizap.com/gallery/1610961/
+    // Zkraceny vyrez z zive odpovedi https://hentaizap.com/gallery/1610961/ (redesign
+    // 2026-08-21). Obsahuje i decoy "popular right now" postranni widget se STEJNYMA
+    // tag/artist odkazy na CIZI galerie - overuje, ze parsovani je scopovane na
+    // div.hz-gallery-metadata a nenaplni se nahodnymi hodnotami z widgetu.
     private val detailHtml = """
         <html><body>
-        <div class="gp_top_left"><div class="gp_cover"><img class="lazy" src="placeholder.svg" data-src="https://m11.hentaizap.com/032/k5bi98t4z0/cover.jpg" alt="cover"/></div></div>
-        <div class="gp_top_right"><h1>Childbirth Island 2&amp;3</h1></div>
-        <ul><span class='info_txt'>Tags:</span>
-            <li><a class='gp_btn_tag' href='/tag/big-breasts/'>big breasts<span class='tag_badge'>448068</span></a></li>
-            <li><a class='gp_btn_tag' href='/tag/futanari/'>futanari<span class='tag_badge'>80807</span></a></li>
-        </ul>
-        <ul><span class='info_txt'>Artists:</span>
-            <li><a class='gp_btn_tag' href='/artist/niyasuke/'>niyasuke<span class='tag_badge'>12</span></a></li>
-        </ul>
+        <div class="hz-gallery-details">
+            <h1 id="gallery-title">Childbirth Island 2&amp;3</h1>
+            <div class="hz-gallery-metadata">
+                <div class="hz-gallery-entity-group">
+                    <span class="hz-gallery-entity-label">Tags:</span>
+                    <div class="hz-gallery-entity-items">
+                        <a class="hz-gallery-tag" href="/tag/big-breasts/"><span class="hz-gallery-tag__name">big breasts</span><span class="hz-gallery-tag__count">448068</span></a>
+                        <a class="hz-gallery-tag" href="/tag/futanari/"><span class="hz-gallery-tag__name">futanari</span><span class="hz-gallery-tag__count">80807</span></a>
+                    </div>
+                </div>
+                <div class="hz-gallery-entity-group">
+                    <span class="hz-gallery-entity-label">Artists:</span>
+                    <div class="hz-gallery-entity-items">
+                        <a class="hz-gallery-tag" href="/artist/niyasuke/"><span class="hz-gallery-tag__name">niyasuke</span><span class="hz-gallery-tag__count">12</span></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="hz-home-ranking__body">
+            <a href="/tag/decoy-tag/">Decoy Tag</a>
+            <a href="/artist/decoy-artist/">Decoy Artist</a>
+        </div>
         <div class="thumbstrip">
+            <img src="https://m11.hentaizap.com/032/k5bi98t4z0/cover.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/1t.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/2t.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/10t.jpg"/>

@@ -698,6 +698,7 @@
     <string name="reader_error_missing_supabase_url">Missing SUPABASE_URL in local.properties - translation has nowhere to call</string>
     <string name="reader_error_translation_failed">Chapter translation failed, try again</string>
     <string name="reader_error_rate_limited">Daily AI translation limit reached, please try again later</string>
+    <string name="reader_on_device_warning">No cloud API key configured — showing a rough on-device preview.</string>
 
     <!-- Browse -->
     <string name="browse_title">Browse</string>

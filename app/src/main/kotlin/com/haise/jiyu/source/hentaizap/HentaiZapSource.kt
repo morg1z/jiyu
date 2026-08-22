@@ -48,11 +48,11 @@ class HentaiZapSource @Inject constructor(
     private fun fetchDocument(url: String): Document = Jsoup.parse(fetchHtml(url), url)
 
     private fun parseGalleryList(doc: Document): List<SManga> =
-        doc.select("div.thumb").mapNotNull { thumb ->
-            val a = thumb.selectFirst("div.caption h2 a") ?: return@mapNotNull null
+        doc.select("article.hz-gallery-card").mapNotNull { card ->
+            val a = card.selectFirst("h2.hz-gallery-card__title a") ?: return@mapNotNull null
             val url = a.absUrl("href").ifBlank { return@mapNotNull null }
             val title = a.text().trim().ifBlank { return@mapNotNull null }
-            val img = thumb.selectFirst("div.inner_thumb img")
+            val img = card.selectFirst("div.hz-gallery-card__media img")
             val cover = img?.attr("data-src")?.trim()?.ifBlank { img.attr("src").trim() }?.ifBlank { null }
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
         }.distinctBy { it.url }
@@ -76,8 +76,14 @@ class HentaiZapSource @Inject constructor(
         try {
             val doc = fetchDocument(manga.url)
             val title = doc.selectFirst("h1")?.text()?.trim()?.ifBlank { null } ?: manga.title
-            val artist = doc.selectFirst("a[href^=/artist/]")?.ownText()?.trim()?.ifBlank { null }
-            val genres = doc.select("a[href^=/tag/]").mapNotNull { it.ownText().trim().ifBlank { null } }
+            // Scopovano na div.hz-gallery-metadata - stranka ma i postranni "popular right now"
+            // widget se stejnymi "a[href^=/tag/]" odkazy na CIZI galerie, bez scope by se
+            // genres/artist naplnily nahodnymi tagy z jine galerie misto teto.
+            val metadata = doc.selectFirst("div.hz-gallery-metadata")
+            val artist = metadata?.selectFirst("a[href^=/artist/] span.hz-gallery-tag__name")
+                ?.text()?.trim()?.ifBlank { null }
+            val genres = metadata?.select("a[href^=/tag/] span.hz-gallery-tag__name")
+                ?.mapNotNull { it.text().trim().ifBlank { null } } ?: emptyList()
             manga.copy(title = title, artist = artist, genres = genres)
         } catch (_: Exception) { manga }
     }
