@@ -35,7 +35,9 @@ unit testy.
   podmíněné větve se jen PŘIDÁVAJÍ, nic se needstraňuje z dnešní cesty.
 - Nové stringy (cs/en/es/fr) - cs je zdrojový jazyk appky, ostatní 3 překlady stejným
   stylem jako existující `settings_reader_preload_novel_*` klíče.
-- Čistá logika (Task 2, 3, 4, 7) NESMÍ importovat žádný `androidx.compose.*` typ - projekt
+- Čistá logika (Task 2, 3, 4, a POUZE `computePageGroups` v rámci Tasku 7 - NE
+  `MangaGroupContent`/`SharePageBottomSheet` ze stejného tasku, které jsou `@Composable`
+  a Compose logicky potřebují) NESMÍ importovat žádný `androidx.compose.*` typ - projekt
   nemá v `app/src/test` ani jeden existující import z Compose (ověřeno), pravděpodobně
   záměrně kvůli JVM-testovatelnosti bez Robolectricu (viz [[project_jiyu_audit_2026_08]]
   "past s Robolectric" v paměti). Vlastní `Point` data class místo `Offset` v testovatelných
@@ -1410,6 +1412,12 @@ Expected: FAIL — `unresolved reference: computePageGroups`
 
 - [ ] **Step 3: Extrahovat `computePageGroups` a napojit ho do `MangaReaderu`**
 
+Nejdřív změnit `private val OffsetSaver` na `internal val OffsetSaver` (beze změny těla) -
+`OffsetSaver` je `private` = viditelný jen uvnitř `ReaderPager.kt` (Kotlin `private` na
+top-level je souborová, ne balíčková viditelnost), ale Task 8 potřebuje `OffsetSaver`
+použít z NOVÉHO souboru `MangaPageCurlReader.kt` ve stejném balíčku - beze změny na
+`internal` by to nešlo zkompilovat.
+
 V `app/src/main/kotlin/com/haise/jiyu/ui/reader/ReaderPager.kt` přidat jako top-level
 funkci (mimo `MangaReader`, např. hned pod `OffsetSaver`):
 
@@ -1664,12 +1672,10 @@ git commit -m "refactor: extrahovat computePageGroups/MangaGroupContent/SharePag
 - Modify: `app/src/main/kotlin/com/haise/jiyu/ui/reader/ReaderContent.kt` (podmíněná větev)
 
 **Interfaces:**
-- Consumes: `computePageGroups`/`MangaGroupContent`/`SharePageBottomSheet`/`saveBitmapToGallery`
-  (Task 7), `PageCurlState`/`TurnDirection`/`PageTurnResult`/`.withDrag()`/`.onDragEnd()`/`.onEdgeTap()`
-  (Task 3), `Point`/`computePageCurlGeometry` (Task 4), `drawPageCurl` (Task 5),
-  `OffsetSaver` (privátní `val` v `ReaderPager.kt`, stejný soubor/balíček - zpřístupnit
-  jako `internal` místo `private`, pokud implementátor zjistí, že `MangaPageCurlReader`
-  žije v JINÉM souboru než `ReaderPager.kt` a potřebuje k němu přístup).
+- Consumes: `computePageGroups`/`MangaGroupContent`/`SharePageBottomSheet` (Task 7),
+  `internal val OffsetSaver` (`ReaderPager.kt` - Task 7 už ho zpřístupnilo z `private`
+  na `internal`, viz Task 7 Step 3), `PageCurlState`/`TurnDirection`/`PageTurnResult`/`.withDrag()`/`.onDragEnd()`/`.onEdgeTap()`
+  (Task 3), `Point`/`computePageCurlGeometry` (Task 4), `drawPageCurl` (Task 5).
 - Produces: `@Composable fun MangaPageCurlReader(...)` se STEJNOU signaturou parametrů
   jako dnešní `MangaReader` (viz `ReaderPager.kt:74-100`) - žádný nový/chybějící
   parametr, aby `ReaderContent.kt` mohl volat oba zaměnitelně.
