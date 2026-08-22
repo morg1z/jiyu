@@ -83,6 +83,13 @@ fun PageCurlNovelReader(
         // kapitoly aktuální.
         var readingOffset by remember(text) { mutableStateOf(0) }
         var dragProgress by remember(text) { mutableStateOf(0f) }
+        // Fix regrese po Critical 1 - `PageCurlState.onDragEnd()` teď spravne cte
+        // `rawDragProgress` (nezaclampovany pokus o smer), ale ta hodnota se musi
+        // persistovat STEJNE jako `dragProgress`, jinak by pri kazde konstrukci
+        // `PageCurlState(...)` defaultovala na 0f a `onDragEnd()` by VZDY vratil
+        // `Cancelled` bez ohledu na skutecny tah - otaceni tahem by bylo kompletne
+        // nefunkcni (tap zony/onEdgeTap by dal fungovaly, protoze nejdou pres tohle).
+        var rawDragProgress by remember(text) { mutableStateOf(0f) }
 
         val currentPageIndex = findPageIndexForOffset(pages, readingOffset)
         val currentPage = pages[currentPageIndex.coerceIn(pages.indices)]
@@ -169,13 +176,16 @@ fun PageCurlNovelReader(
             when (result) {
                 is PageTurnResult.WithinChapter -> {
                     dragProgress = result.newState.dragProgress
+                    rawDragProgress = result.newState.rawDragProgress
                     readingOffset = pages.getOrNull(result.newState.currentPageIndex)?.startIndex ?: 0
                 }
                 is PageTurnResult.Cancelled -> {
                     dragProgress = result.newState.dragProgress
+                    rawDragProgress = result.newState.rawDragProgress
                 }
                 is PageTurnResult.ChapterBoundary -> {
                     dragProgress = 0f
+                    rawDragProgress = 0f
                     onChapterBoundary(result.direction)
                 }
             }
@@ -202,6 +212,7 @@ fun PageCurlNovelReader(
                                 currentPageIndex = findPageIndexForOffset(pages, readingOffset),
                                 pageCount = pages.size,
                                 dragProgress = dragProgress,
+                                rawDragProgress = rawDragProgress,
                             )
                             // Znamenko obraceno oproti puvodni verzi (fix Critical 2) - musi
                             // odpovidat konvenci v `MangaPageCurlReader.kt` (`dragProgress -
@@ -209,13 +220,19 @@ fun PageCurlNovelReader(
                             // renderer. Puvodni `+ deltaProgress` otacelo stranku opacnym
                             // smerem, nez odpovidalo fyzickemu tahu prstu.
                             val deltaProgress = dragAmount.x / widthPx
-                            dragProgress = liveState.withDrag(liveState.dragProgress - deltaProgress).dragProgress
+                            val updated = liveState.withDrag(liveState.dragProgress - deltaProgress)
+                            dragProgress = updated.dragProgress
+                            // Fix regrese po Critical 1 - `rawDragProgress` z vysledku `withDrag`
+                            // se musi ulozit zpet do persistovaneho state, jinak by pri pusteni
+                            // prstu `onDragEnd()` cetl porad jen defaultni 0f.
+                            rawDragProgress = updated.rawDragProgress
                         },
                         onDragEnd = {
                             val liveState = PageCurlState(
                                 currentPageIndex = findPageIndexForOffset(pages, readingOffset),
                                 pageCount = pages.size,
                                 dragProgress = dragProgress,
+                                rawDragProgress = rawDragProgress,
                             )
                             applyTurnResult(liveState.onDragEnd())
                         },
@@ -224,6 +241,7 @@ fun PageCurlNovelReader(
                             // (napr. system gesto/jiny gesture-node prevezme ukazatel), curl
                             // by jinak zustal trvale "zamrzly" na posledni hodnote dragProgress.
                             dragProgress = 0f
+                            rawDragProgress = 0f
                         },
                     )
                 }
@@ -240,6 +258,7 @@ fun PageCurlNovelReader(
                                     currentPageIndex = findPageIndexForOffset(pages, readingOffset),
                                     pageCount = pages.size,
                                     dragProgress = dragProgress,
+                                    rawDragProgress = rawDragProgress,
                                 )
                                 applyTurnResult(liveState.onEdgeTap(it))
                             }

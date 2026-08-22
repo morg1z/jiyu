@@ -131,6 +131,14 @@ fun MangaPageCurlReader(
     // resp. rotaci - a jsou k sobě kolmé (ani jeden by sám o sobě nestačil).
     var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
     var dragProgress by remember(pages) { mutableStateOf(0f) }
+    // Fix regrese po Critical 1 - `PageCurlState.onDragEnd()` teď spravne cte
+    // `rawDragProgress` (nezaclampovany pokus o smer), ale ta hodnota se musi
+    // persistovat STEJNE jako `dragProgress`, jinak by pri kazde konstrukci
+    // `PageCurlState(...)` defaultovala na 0f a `onDragEnd()` by VZDY vratil
+    // `Cancelled` bez ohledu na skutecny tah - otaceni tahem by bylo kompletne
+    // nefunkcni (tap zony/volume keys/edge-tap by dal fungovaly, protoze jdou
+    // pres `onEdgeTap`/`completeTurn`, ne pres tohle).
+    var rawDragProgress by remember(pages) { mutableStateOf(0f) }
     var reachedEndManually by remember(pages) { mutableStateOf(false) }
 
     // Záměrně počítáno jen z `pages.size`/`currentSingleIndex` (ne z group-indexu/`groups`,
@@ -178,6 +186,7 @@ fun MangaPageCurlReader(
             val target = jumpToPage ?: return@LaunchedEffect
             currentSingleIndex = target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
             dragProgress = 0f
+            rawDragProgress = 0f
             onJumpConsumed()
         }
 
@@ -185,13 +194,18 @@ fun MangaPageCurlReader(
             when (result) {
                 is PageTurnResult.WithinChapter -> {
                     dragProgress = result.newState.dragProgress
+                    rawDragProgress = result.newState.rawDragProgress
                     groups.getOrNull(result.newState.currentPageIndex)?.firstOrNull()?.let {
                         currentSingleIndex = it
                     }
                 }
-                is PageTurnResult.Cancelled -> dragProgress = result.newState.dragProgress
+                is PageTurnResult.Cancelled -> {
+                    dragProgress = result.newState.dragProgress
+                    rawDragProgress = result.newState.rawDragProgress
+                }
                 is PageTurnResult.ChapterBoundary -> {
                     dragProgress = 0f
+                    rawDragProgress = 0f
                     if (result.direction == TurnDirection.NEXT) onNavigateNextChapter() else onNavigatePrevChapter()
                 }
             }
@@ -203,6 +217,7 @@ fun MangaPageCurlReader(
                     currentPageIndex = liveGroupIndex(),
                     pageCount = groups.size,
                     dragProgress = dragProgress,
+                    rawDragProgress = rawDragProgress,
                 )
                 applyTurnResult(live.onEdgeTap(direction))
             }
@@ -332,7 +347,10 @@ fun MangaPageCurlReader(
             // rozjeteho curl-tahu, `dragProgress` musi zustat cisty, jinak by curl overlay
             // zustal trvale "zamrzly" na obrazovce po zbytek zoomovani.
             LaunchedEffect(scale > 1f) {
-                if (scale > 1f) dragProgress = 0f
+                if (scale > 1f) {
+                    dragProgress = 0f
+                    rawDragProgress = 0f
+                }
             }
 
             Box(
@@ -362,14 +380,22 @@ fun MangaPageCurlReader(
                                                 currentPageIndex = liveGroupIndex(),
                                                 pageCount = groups.size,
                                                 dragProgress = dragProgress,
+                                                rawDragProgress = rawDragProgress,
                                             )
-                                            dragProgress = live.withDrag(live.dragProgress - delta).dragProgress
+                                            val updated = live.withDrag(live.dragProgress - delta)
+                                            dragProgress = updated.dragProgress
+                                            // Fix regrese po Critical 1 - `rawDragProgress` z
+                                            // vysledku `withDrag` se musi ulozit zpet do
+                                            // persistovaneho state, jinak by pri pusteni prstu
+                                            // `onDragEnd()` cetl porad jen defaultni 0f.
+                                            rawDragProgress = updated.rawDragProgress
                                         },
                                         onDragEnd = {
                                             val live = PageCurlState(
                                                 currentPageIndex = liveGroupIndex(),
                                                 pageCount = groups.size,
                                                 dragProgress = dragProgress,
+                                                rawDragProgress = rawDragProgress,
                                             )
                                             applyTurnResult(live.onDragEnd())
                                         },
@@ -379,6 +405,7 @@ fun MangaPageCurlReader(
                                             // gesture-nodem pri prechodu do pinch-zoomu) - bez
                                             // resetu by curl overlay zustal zamrzly.
                                             dragProgress = 0f
+                                            rawDragProgress = 0f
                                         },
                                     )
                                 }
