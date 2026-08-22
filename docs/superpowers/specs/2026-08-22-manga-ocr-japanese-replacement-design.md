@@ -35,13 +35,22 @@ každá bublina musí mít fallback na ML Kit.
   místo modelového výchozího beam=4. Jednodušší kód, nižší riziko timeoutu, dost dobrá
   přesnost pro první verzi. Beam search jako možné vylepšení kvality později, až bude
   vidět reálná přesnost greedy na uživatelských datech.
-- **Ruční KV-cache logika v Kotlinu** - pokud community ONNX export dodržuje standardní
-  HF Optimum seq2seq layout (`encoder_model.onnx` + `decoder_model.onnx` +
-  `decoder_with_past_model.onnx`), cache logiku počítá samotný ONNX graf; Kotlin jen
-  přeposílá `past_key_values` tenzory mezi kroky. Pokud se při Python ověření (viz níže)
-  ukáže, že tenhle layout export nemá, je to blokující zjištění - řešení (vlastní export
-  přes `optimum-cli`, nebo přijmout pomalejší no-cache varianty) je samostatné
-  rozhodnutí, ne součást týhle specifikace.
+- **KV-cache (`past_key_values`) - potvrzeno neproveditelné, definitivně mimo v1.**
+  Python ověření na reálných datech (viz níže) potvrdilo, že Optimum/HF ONNX exporter
+  nemá registrovaný with-past config pro tuhle architekturu (VisionEncoderDecoder +
+  BERT-styl decoder) - `optimum-cli export onnx --task image-to-text-with-past` selže
+  natvrdo (`ValueError: The decoder part of the encoder-decoder model is bert which
+  does not need past key values.`). Ověřeno i na 3 nezávislých komunitních ONNX
+  exportech - žádný nemá `past_key_values` I/O. Jediná cesta ke KV-cache by byl vlastní
+  ruční `torch.onnx.export` tracing s explicitním graph I/O - výrazně větší a rizikovější
+  práce. Změřená reálná latence no-cache greedy decode (~0.1-0.16s/bublinu na desktop
+  CPU, encoder ~0.08s + decode ~0.03-0.08s pro typickou 7-9 token bublinu, rychlejší než
+  referenční model s beam=4) ukazuje, že přínos KV-cache (rychlost) není pro krátký
+  manga text potřeba - O(n²) penalta bez cache je při téhle délce sekvence zanedbatelná.
+  v1 tedy používá čistě no-cache decoder (`decoder_model.onnx`, volaný opakovaně s
+  CELOU dosavadní `input_ids` sekvencí každý krok). Vlastní KV-cache export zůstává
+  možné budoucí vylepšení, jen pokud by se na reálných zařízeních ukázalo, že no-cache
+  latence nestačí.
 - **Detekce jazyka uvnitř `MangaOcrPipeline`** - o tom, jestli je stránka japonská,
   rozhoduje beze změny stávající `resolveAutoLanguage` (ML Kit trial), viz níže.
 
@@ -99,7 +108,8 @@ bez ML Kitu.
 ```kotlin
 /**
  * @param nextToken (dosavadní ID tokeny) -> ID dalšího tokenu. V produkci volá
- *   `decoderSession.run(...)` s `past_key_values`, v testu je to fake lambda.
+ *   `decoderSession.run(...)` s CELOU dosavadní sekvencí (no-cache, viz "Mimo rozsah" -
+ *   KV-cache není proveditelné), v testu je to fake lambda.
  */
 internal suspend fun greedyDecode(
     bosId: Int,
@@ -114,10 +124,44 @@ stránky/odstavce) - jedna bublina manga textu je pár slov, navrhovaná hodnota
 jako bezpečný strop (early-stop přes `eosId` je normální cesta, `maxTokens` je jen
 pojistka proti nekonečné smyčce).
 
-`MangaOcrPipeline.recognizeCrop` pak jen zapojí `nextToken` na skutečný `decoderSession`
-(první krok přes `decoder_model.onnx` bez cache, další kroky přes
-`decoder_with_past_model.onnx` s `past_key_values` z předchozího kroku) a na konci
-zavolá `tokenizer.decode(...)`.
+`MangaOcrPipeline.recognizeCrop` pak zapojí `nextToken` na skutečný `decoderSession`:
+KAŽDÝ krok volá `decoder_model.onnx` (jediný ONNX decoder, bez `_with_past` varianty)
+s inputy `input_ids` (CELÁ dosavadní sekvence `soFar`, ne jen poslední token) a
+`encoder_hidden_states` (výstup encoderu, spočítaný jednou na začátku), vezme `logits`
+posledního pozice a udělá `argmax`. Na konci `tokenizer.decode(...)` a
+`MangaOcrPostProcess.postProcess(...)` (viz níže).
+
+### 3b. Preprocessing (`MangaOcrPipeline.recognizeCrop`, před encoder inferencí)
+
+Přesné pořadí kroků (ověřeno na reálných datech proti referenčnímu modelu, 6/6 shoda):
+
+1. **Grayscale round-trip** - `crop` převést na grayscale a zpátky na RGB (3 identické
+   kanály). Tenhle krok NENÍ v `preprocessor_config.json`, dělá ho `MangaOcr.__call__`
+   natvrdo před resize - bez něj vychází numericky odlišný (špatný) výstup.
+2. Resize na `224x224`, bilineární interpolace.
+3. Normalizace: `(pixel/255 - 0.5) / 0.5` pro každý kanál (mean=std=0.5).
+4. Přeuspořádání na `NCHW` `FloatArray` (`[1, 3, 224, 224]`), vstup `pixel_values` do
+   `encoder_model.onnx`.
+
+### 3c. `MangaOcrPostProcess.kt` (čistá funkce, testovatelná)
+
+Port `post_process()` z referenční Python knihovny, volá se na výstup
+`tokenizer.decode(...)` PŘED vrácením textu z `recognizeCrop`:
+
+```kotlin
+internal object MangaOcrPostProcess {
+    fun postProcess(text: String): String {
+        // 1. odstranit VŠECHNY whitespace (join bez mezer, ne jen trim)
+        // 2. "…" -> "..."
+        // 3. 2+ opakování "." nebo "・" -> stejný počet teček "..."
+        // 4. ASCII interpunkce/číslice -> fullwidth japonská (h2z), prostá mapovací
+        //    tabulka (jaconv.h2z ascii=True digit=True nemá jinou logiku)
+    }
+}
+```
+
+Žádná závislost na `jaconv` knihovně - `h2z` pro ASCII+digit je jen 1:1 znaková mapa
+(např. `!`->`！`, `0`->`０`, `,`->`，` atd.), zapsatelná jako `Map<Char, Char>` v Kotlinu.
 
 ### 4. Zapojení do `OcrEngine.recognize()`
 
@@ -150,6 +194,10 @@ recognizer, co dnes `OcrEngine` už lazy vytváří pro `recognizeLines`.
 
 ### 5. Timeout
 
+- Reálně změřená latence (Python spike, no-cache greedy, 6 reálných bublin, desktop
+  CPU): ~0.1-0.16s/bublinu (encoder ~0.08s + decode ~0.03-0.08s). I s velkorysou 10x
+  penaltou za pomalejší mobilní ARM CPU vychází ~1-1.6s/bublinu - navrhovaný timeout
+  níže má tedy velkou rezervu, ne jen odhad naslepo.
 - **Nová konstanta** `MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS` (návrh: 8000L), obaluje
   jedno `mangaOcrPipeline.recognizeCrop(...)` volání uvnitř `OcrEngine` -
   `withTimeoutOrNull`. Timeout/výjimka -> ML Kit fallback pro tu bublinu (bod 4), ne
@@ -161,35 +209,43 @@ recognizer, co dnes `OcrEngine` už lazy vytváří pro `recognizeLines`.
 ### 6. Assets a bundlování
 
 Nové soubory pod `app/src/main/assets/models/` (Git LFS, stejně jako existující dva
-modely):
-- `manga_ocr_encoder.onnx`
-- `manga_ocr_decoder.onnx`
-- `manga_ocr_decoder_with_past.onnx`
+modely) - jen dva ONNX soubory, žádná `_with_past` varianta (KV-cache mimo v1, viz
+"Mimo rozsah"), dohromady ~460MB:
+- `manga_ocr_encoder.onnx` (343MB)
+- `manga_ocr_decoder.onnx` (117MB)
 - `manga_ocr_vocab.txt`
 
 `NOTICE.md` dostane třetí sekci - `kha-white/manga-ocr-base`, Apache-2.0, žádná GPL
 komplikace jako u segmentačního modelu.
 
-## Ověření na reálných datech (PŘED psaním Kotlin/Android kódu)
+## Ověření na reálných datech (HOTOVO, 2026-08-22)
 
-Stejný postup jako u YOLOv8 modelů dřív v týhle iniciativě: v Python venv (`ultralytics`/
-`optimum`/`onnxruntime`, real manga screenshoty použité i pro předchozí ověření):
+Provedeno v Python venv (`optimum`/`optimum-onnx`/`onnxruntime`/`manga_ocr` jako
+referenční model), reálné výřezy bublin z Vagabonda (`C:\bml\crops\pg*.png`):
 
-1. Export/stažení ONNX (`mayocream/manga-ocr-onnx` nebo vlastní export přes
-   `optimum-cli export onnx`) a **potvrzení, že layout obsahuje `decoder_with_past`**
-   (viz "Mimo rozsah" - pokud ne, je to blokující zjištění vyžadující nové rozhodnutí).
-2. Porovnání výstupu ONNX inference (encoder + greedy decode s KV-cache) proti
-   referenčnímu PyTorch `MangaOcr` volání na několika reálných manga výřezech - musí
-   sedět text, ne jen "nespadne".
-3. Změření skutečné latence jednoho `recognizeCrop` volání v Pythonu (orientační odhad
-   pro návrh `MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS`, finální číslo se doladí až na
-   reálném zařízení).
+1. **Export ONNX**: `optimum-cli export onnx --task image-to-text` (no-cache) uspěl a
+   dal `encoder_model.onnx` + `decoder_model.onnx`. `--task image-to-text-with-past`
+   selhal natvrdo (viz "Mimo rozsah" - KV-cache config pro tuhle architekturu v
+   Optimu neexistuje), potvrzeno i na 3 nezávislých komunitních ONNX exportech.
+2. **Numerická správnost**: po doplnění dvou preprocessing/postprocessing detailů
+   (grayscale round-trip, `post_process`, viz sekce 3b/3c) - **6/6 bajtově přesná
+   shoda** ONNX no-cache greedy decode vs. PyTorch referenční `MangaOcr` (greedy,
+   `num_beams=1`) na všech testovaných reálných bublinách.
+3. **Latence**: ~0.1-0.16s/bublinu na desktop CPU (encoder ~0.08s + decode
+   ~0.03-0.08s pro 7-9 token výstup) - rychlejší než referenční model s výchozím
+   beam=4 (~0.2s). Použito jako podklad pro timeout v sekci 5.
+
+Přesné tensor names/shapes, zjištěné preprocessing/tokenizer/decoder konstanty a plný
+protokol ověření: `C:\bml\manga_ocr_spike\FACTS.md` (lokální scratch soubor, mimo git
+repo appky).
 
 ## Testování
 
 - **JVM, čisté funkce** (bez Androidu/ONNX): `MangaOcrTokenizer.decode` (fixture vocab +
   známá ID sekvence -> očekávaný text), `greedyDecode` (fake `nextToken` lambda -
-  early-stop na `eosId`, ořezání na `maxTokens`, prázdný vstup), mapování
+  early-stop na `eosId`, ořezání na `maxTokens`, prázdný vstup), `MangaOcrPostProcess.
+  postProcess` (whitespace, "…"/opakované tečky, ASCII->fullwidth mapování - případy
+  ověřené proti skutečným výstupům z Python spike v `FACTS.md`), mapování
   `DetectedBubbleBox` -> `RawTextBlock` (souřadnice, výchozí hodnoty polí popsané v
   bodě 4).
 - **`MangaOcrPipeline` samotná zůstává netestovaná JVM testem** (stejně jako
