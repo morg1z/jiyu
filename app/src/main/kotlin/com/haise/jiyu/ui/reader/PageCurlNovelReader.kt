@@ -163,7 +163,13 @@ fun PageCurlNovelReader(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(pages.size) {
+                // Klíčováno i na `text`, ne jen na `pages.size` - jinak by při přechodu na
+                // kapitolu se STEJNÝM počtem stránek (běžné u podobně dlouhých kapitol)
+                // `pointerInput` nerestartoval a gesta by dál čítala/zapisovala do starých,
+                // teď už osiřelých `readingOffset`/`dragProgress` MutableState objektů
+                // zpřed přechodu (nový pár alokoval `remember(text)` výše, ale tahle
+                // korutina by ho nikdy neviděla) - navigace by tiše přestala reagovat.
+                .pointerInput(text, pages.size) {
                     detectDragGestures(
                         onDrag = { change, dragAmount ->
                             change.consume()
@@ -189,7 +195,7 @@ fun PageCurlNovelReader(
                         },
                     )
                 }
-                .pointerInput(pages.size) {
+                .pointerInput(text, pages.size) {
                     detectTapGestures(
                         onTap = { offset ->
                             val direction = when {
