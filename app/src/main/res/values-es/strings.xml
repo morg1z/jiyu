@@ -895,6 +895,9 @@
     <string name="settings_sources_mode_toggle_title">Modo agregado ComicK</string>
     <string name="settings_sources_mode_toggle_desc">En lugar de elegir entre todas las fuentes, la app muestra solo ComicK como catálogo - verás los grupos de scan por título y por capítulo igual que en ComicK. La lectura de capítulos en este modo todavía no funciona - se irá añadiendo progresivamente.</string>
 
+    <string name="settings_reader_page_curl_section_title">Cambio de página</string>
+    <string name="settings_reader_page_curl_title">Efecto 3D al pasar página</string>
+    <string name="settings_reader_page_curl_desc">La página se pasa con una animación de curvatura como un libro, en vez de un desplazamiento/deslizamiento plano. Se aplica al lector de novelas ligeras y a la lectura paginada de manga/manhwa (no al desplazamiento continuo de webtoon)</string>
     <string name="settings_reader_preload_novel_title">Precargar la traducción del siguiente capítulo (novela ligera)</string>
     <string name="settings_reader_preload_novel_desc">Cuando se traduce el capítulo actual, el siguiente se traduce en segundo plano para que esté listo de inmediato</string>
     <string name="settings_reader_preload_manga_title">Precargar la traducción del siguiente capítulo (manga/manhwa/manhua)</string>

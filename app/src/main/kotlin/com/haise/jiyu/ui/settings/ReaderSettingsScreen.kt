@@ -67,6 +67,7 @@ fun ReaderSettingsScreen(
     val readerTheme        by viewModel.readerTheme.collectAsState()
     val oledMode           by viewModel.oledMode.collectAsState()
     val autoNextChapter    by viewModel.autoNextChapter.collectAsState()
+    val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsState()
     val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsState()
     val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsState()
     val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsState()
@@ -226,6 +227,18 @@ fun ReaderSettingsScreen(
                         description = stringResource(R.string.settings_reader_auto_next_desc),
                         checked = autoNextChapter,
                         onCheckedChange = { viewModel.setAutoNextChapter(it) },
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Otáčení stránek (novel + manga/manhwa) ────────────────
+                SettingsSection(title = stringResource(R.string.settings_reader_page_curl_section_title)) {
+                    SettingsToggleRow(
+                        title = stringResource(R.string.settings_reader_page_curl_title),
+                        description = stringResource(R.string.settings_reader_page_curl_desc),
+                        checked = pageCurlEnabled,
+                        onCheckedChange = { viewModel.setPageCurlEnabled(it) },
                     )
                 }
 

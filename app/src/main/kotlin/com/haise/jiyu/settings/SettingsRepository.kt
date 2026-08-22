@@ -48,6 +48,7 @@ object SettingsKeys {
     val PRELOAD_NEXT_NOVEL_CHAPTER = booleanPreferencesKey("preload_next_novel_chapter")
     val PRELOAD_NEXT_CHAPTER_MANGA = booleanPreferencesKey("preload_next_chapter_manga")
     val PRELOAD_NEXT_CHAPTER_WIFI_ONLY = booleanPreferencesKey("preload_next_chapter_wifi_only")
+    val PAGE_CURL_ENABLED      = booleanPreferencesKey("page_curl_enabled")
     val FAVORITE_SOURCE_IDS    = stringSetPreferencesKey("favorite_source_ids")
     val COMICK_UPD_COUNTRIES   = stringSetPreferencesKey("comick_upd_countries")
     val COMICK_UPD_DEMOGRAPHICS = stringSetPreferencesKey("comick_upd_demographics")
@@ -483,6 +484,15 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setCropBorders(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.CROP_BORDERS] = enabled }
+
+    /** Výchozí false - stránkovaný 3D page-curl přechod (novel reader) / curl přechod
+     * mezi stránkami (manga/manhwa reader v ReadingMode.MANGA) místo dnešního scrollu/swipu.
+     * Netýká se ReadingMode.WEBTOON (vertikální scroll nemá diskrétní stránky). */
+    val pageCurlEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.PAGE_CURL_ENABLED] ?: false }
+
+    suspend fun setPageCurlEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.PAGE_CURL_ENABLED] = enabled }
 
     val libraryGridMode: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.LIBRARY_GRID_MODE] ?: true }

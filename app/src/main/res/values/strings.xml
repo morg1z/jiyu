@@ -187,6 +187,9 @@
     <string name="settings_reader_oled_desc">Čistě černé pozadí mezi stránkami — šetří baterii OLED displejů</string>
     <string name="settings_reader_auto_next_title">Po dočtení přejít na další kapitolu</string>
     <string name="settings_reader_auto_next_desc">Po dosažení poslední stránky se automaticky přejde na další kapitolu</string>
+    <string name="settings_reader_page_curl_section_title">Otáčení stránek</string>
+    <string name="settings_reader_page_curl_title">Použití 3D efektu při otáčení stránek</string>
+    <string name="settings_reader_page_curl_desc">Stránka se otočí ohybovou animací jako u knihy místo plynulého scrollu/swipu. Platí pro light novel čtečku i pro manga/manhwa čtení po stránkách (ne pro webtoon plynulý scroll)</string>
     <string name="settings_reader_preload_novel_title">Přednačítat překlad další kapitoly (light novel)</string>
     <string name="settings_reader_preload_novel_desc">Po přeložení aktuální kapitoly se na pozadí přeloží i další, aby byla hned připravená</string>
     <string name="settings_reader_preload_manga_title">Přednačítat překlad další kapitoly (manga/manhwa/manhua)</string>

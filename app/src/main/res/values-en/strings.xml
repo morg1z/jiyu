@@ -898,6 +898,9 @@
     <string name="settings_sources_mode_toggle_title">ComicK aggregated mode</string>
     <string name="settings_sources_mode_toggle_desc">Instead of picking from every source, the app shows only ComicK as the catalog - you\'ll see scan groups per title and per chapter exactly like on ComicK. Reading chapters through this mode doesn\'t work yet - it\'s being added incrementally.</string>
 
+    <string name="settings_reader_page_curl_section_title">Page turning</string>
+    <string name="settings_reader_page_curl_title">3D page-turn effect</string>
+    <string name="settings_reader_page_curl_desc">Pages turn with a book-like curling animation instead of a plain scroll/swipe. Applies to the light novel reader and to paged manga/manhwa reading (not to webtoon continuous scroll)</string>
     <string name="settings_reader_preload_novel_title">Preload next chapter translation (light novel)</string>
     <string name="settings_reader_preload_novel_desc">Once the current chapter is translated, the next one is translated in the background so it is ready right away</string>
     <string name="settings_reader_preload_manga_title">Preload next chapter translation (manga/manhwa/manhua)</string>

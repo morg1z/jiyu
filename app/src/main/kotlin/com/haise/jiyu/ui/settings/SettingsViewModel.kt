@@ -497,6 +497,12 @@ class SettingsViewModel @Inject constructor(
 
     fun setPreloadNextNovelChapter(enabled: Boolean) = viewModelScope.launch { settings.setPreloadNextNovelChapter(enabled) }
 
+    // ── 3D efekt otáčení stránek (novel i manga/manhwa reader) ────────────────
+    val pageCurlEnabled: StateFlow<Boolean> = settings.pageCurlEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setPageCurlEnabled(enabled: Boolean) = viewModelScope.launch { settings.setPageCurlEnabled(enabled) }
+
     // ── Přednačítání překladu další kapitoly manga/manhwa/manhua ─────────────
     val preloadNextChapterManga: StateFlow<Boolean> = settings.preloadNextChapterManga
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
