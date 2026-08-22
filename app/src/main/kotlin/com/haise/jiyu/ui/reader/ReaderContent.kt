@@ -113,6 +113,7 @@ fun ReaderContent(
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
     onDeviceWarningText: String? = null,
+    pageCurlEnabled: Boolean = false,
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
 
@@ -174,6 +175,33 @@ fun ReaderContent(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+            )
+        } else if (pageCurlEnabled) {
+            MangaPageCurlReader(
+                pages = pages,
+                initialPage = initialPage,
+                translateMode = effectiveTranslateMode,
+                translatedPages = translatedPages,
+                reverseLayout = reverseLayout,
+                doublePageSpread = doublePageSpread,
+                spreadPageIndices = spreadPageIndices,
+                textScale = textScale,
+                tapZonesEnabled = tapZonesEnabled,
+                tapZoneGrid = tapZoneGrid,
+                onPageChanged = onPageChanged,
+                onShowPanel = onToggleControlsVisible,
+                onNavigatePrevChapter = onNavigatePrev,
+                onNavigateNextChapter = onNavigateNext,
+                onSharePage = onSharePage,
+                pageScale = pageScale,
+                jumpToPage = jumpToPage,
+                onJumpConsumed = onJumpConsumed,
+                autoNextChapter = autoNextChapter,
+                onAutoNextChapter = onAutoNextChapter,
+                cropBorders = cropBorders,
+                volumeKeysNav = volumeKeysNav,
+                flippedBubbles = flippedBubbles,
+                onToggleBubbleFlip = onToggleBubbleFlip,
             )
         } else {
             MangaReader(

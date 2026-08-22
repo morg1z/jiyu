@@ -1,0 +1,354 @@
+package com.haise.jiyu.ui.reader
+
+import android.content.res.Configuration
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import com.haise.jiyu.translate.TranslatedBlock
+import kotlinx.coroutines.delay
+
+/**
+ * Manga/manhwa čtečka s efektem ohýbané stránky - manga obdoba [PageCurlNovelReader],
+ * propojuje rozdělení do skupin ([computePageGroups]/[MangaGroupContent], Task 7) se stavem
+ * ohybu ([PageCurlState], Task 3), jeho geometrií ([computePageCurlGeometry], Task 4) a
+ * vykreslením ([drawPageCurl], Task 5). Signatura je záměrně identická s [MangaReader], aby
+ * je [ReaderContent] mohl volat zaměnitelně podle `pageCurlEnabled` toggle.
+ *
+ * Klíčová vlastnost návrhu: `pages` (a tedy i [computePageGroups] výstup) se mění při KAŽDÉM
+ * přechodu na jinou kapitolu (`onNavigatePrevChapter`/`onNavigateNextChapter` -> ViewModel
+ * načte nové `pages`), zatímco identita TOHOTO composable zůstává stejná (žádný `key(chapterId)`
+ * o úroveň výš v `ReaderScreen`/`ReaderContent`). `currentSingleIndex`/`dragProgress` jsou
+ * proto `remember`ované s klíčem `pages` (nová identita listu = nová kapitola => reset), a
+ * `currentGroupIndex`/`curlState` se POKAŽDÉ dopočítávají přímo z aktuálních `groups`/
+ * `currentSingleIndex` - nikdy nejsou uloženy jako samostatný "zamrzlý" stav, který by mohl
+ * zůstat neplatný proti novým `groups` po přechodu kapitoly (viz review nález č. 1 u
+ * [PageCurlNovelReader]). Gesto-detekční `pointerInput` bloky jsou klíčované i na `pages` (ne
+ * jen na `groups.size`), aby korektně restartovaly při přechodu kapitoly se STEJNÝM počtem
+ * skupin jako předchozí (viz review nález č. 2 u [PageCurlNovelReader]).
+ */
+@Composable
+fun MangaPageCurlReader(
+    pages: List<String>,
+    initialPage: Int,
+    translateMode: Boolean,
+    translatedPages: Map<Int, List<TranslatedBlock>>,
+    reverseLayout: Boolean,
+    doublePageSpread: Boolean,
+    spreadPageIndices: Set<Int> = emptySet(),
+    textScale: Float,
+    tapZonesEnabled: Boolean,
+    tapZoneGrid: TapZoneGrid = TapZoneGrid(),
+    onPageChanged: (Int) -> Unit,
+    onShowPanel: () -> Unit,
+    onNavigatePrevChapter: () -> Unit = {},
+    onNavigateNextChapter: () -> Unit = {},
+    onSharePage: (String) -> Unit = {},
+    pageScale: String = "fit_width",
+    jumpToPage: Int? = null,
+    onJumpConsumed: () -> Unit = {},
+    autoNextChapter: Boolean = false,
+    onAutoNextChapter: () -> Unit = {},
+    cropBorders: Boolean = false,
+    volumeKeysNav: Boolean = true,
+    flippedBubbles: Set<String> = emptySet(),
+    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+) {
+    // Pinch-to-zoom - nezávisí na kapitole (rememberSaveable přežije rotaci); resetuje se
+    // explicitně na 1f/Offset.Zero v efektu níže vždy, když se změní stránka NEBO kapitola.
+    var scale by rememberSaveable { mutableStateOf(1f) }
+    var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
+
+    val resolvedContentScale = when (pageScale) {
+        "fit_height" -> ContentScale.FillHeight
+        "fit_screen" -> ContentScale.Fit
+        "stretch"    -> ContentScale.FillBounds
+        else         -> ContentScale.FillWidth
+    }
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val useSpread = doublePageSpread && isLandscape
+
+    var showShareSheet by remember { mutableStateOf(false) }
+    var sharePageUrl by remember { mutableStateOf("") }
+    if (showShareSheet) {
+        SharePageBottomSheet(pageUrl = sharePageUrl, onDismiss = { showShareSheet = false })
+    }
+
+    // key(useSpread) zahodí a znovu vytvoří celý podstrom při přepnutí spread módu (rotace) -
+    // stejný vzor jako v MangaReaderu.
+    key(useSpread) {
+        // `groups` závisí na CELÉM `pages` (ne jen `pages.size`) - dvě po sobě jdoucí kapitoly
+        // se stejným počtem stránek by jinak sdílely stejnou instanci `groups` a stav níže
+        // klíčovaný na `pages` by se recompute-oval, zatímco `groups` ne, což by je rozjelo.
+        val groups = remember(pages, useSpread, spreadPageIndices) {
+            computePageGroups(pages.size, useSpread, spreadPageIndices)
+        }
+
+        // Klíčováno na `pages` - nová kapitola (nová instance/obsah `pages`) = nový pár stavů,
+        // starý se zahodí. To je zásadní i pro gesto-pointerInputy níže (klíčované taky na
+        // `pages`): při přechodu kapitoly se MUSÍ restartovat, jinak by jejich uzávěry dál
+        // odkazovaly na OSIŘELÉ MutableState objekty z předchozí kapitoly (review nález č. 2).
+        var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
+        var dragProgress by remember(pages) { mutableStateOf(0f) }
+        var reachedEndManually by remember(pages) { mutableStateOf(false) }
+
+        // Skupina (curl "stránka") odvozená VŽDY čerstvě z aktuálních `groups`/`currentSingleIndex`
+        // - nikdy uložena jako samostatný stav, který by mohl zůstat neplatný proti `groups`
+        // vypočítaným z nové kapitoly (review nález č. 1: stará `pageCount`/`currentPageIndex`
+        // by jinak přežily přechod kapitoly zamrzlé na hodnotách staré kapitoly).
+        fun liveGroupIndex(): Int {
+            if (groups.isEmpty()) return 0
+            val found = groups.indexOfFirst { currentSingleIndex in it }
+            return (if (found < 0) 0 else found).coerceIn(0, groups.lastIndex)
+        }
+
+        val currentGroupIndex = liveGroupIndex()
+        val currentIndices = groups.getOrElse(currentGroupIndex) { listOf(0) }
+
+        LaunchedEffect(currentSingleIndex, pages) {
+            scale = 1f
+            panOffset = Offset.Zero
+            onPageChanged(currentSingleIndex)
+            if (groups.size > 1 && currentGroupIndex < groups.size - 1) reachedEndManually = true
+            if (reachedEndManually && groups.isNotEmpty() && currentGroupIndex == groups.size - 1 && autoNextChapter) {
+                delay(2500)
+                if (liveGroupIndex() == groups.size - 1) onAutoNextChapter()
+            }
+        }
+
+        LaunchedEffect(jumpToPage, pages) {
+            val target = jumpToPage ?: return@LaunchedEffect
+            currentSingleIndex = target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+            dragProgress = 0f
+            onJumpConsumed()
+        }
+
+        fun applyTurnResult(result: PageTurnResult) {
+            when (result) {
+                is PageTurnResult.WithinChapter -> {
+                    dragProgress = result.newState.dragProgress
+                    groups.getOrNull(result.newState.currentPageIndex)?.firstOrNull()?.let {
+                        currentSingleIndex = it
+                    }
+                }
+                is PageTurnResult.Cancelled -> dragProgress = result.newState.dragProgress
+                is PageTurnResult.ChapterBoundary -> {
+                    dragProgress = 0f
+                    if (result.direction == TurnDirection.NEXT) onNavigateNextChapter() else onNavigatePrevChapter()
+                }
+            }
+        }
+
+        fun tryTurn(direction: TurnDirection) {
+            if (scale <= 1f) {
+                val live = PageCurlState(
+                    currentPageIndex = liveGroupIndex(),
+                    pageCount = groups.size,
+                    dragProgress = dragProgress,
+                )
+                applyTurnResult(live.onEdgeTap(direction))
+            }
+        }
+
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            try { focusRequester.requestFocus() } catch (_: IllegalStateException) { }
+        }
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft, Key.A -> { tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV); true }
+                        Key.DirectionRight, Key.D -> { tryTurn(if (reverseLayout) TurnDirection.PREV else TurnDirection.NEXT); true }
+                        Key.VolumeDown -> if (volumeKeysNav) { tryTurn(if (reverseLayout) TurnDirection.PREV else TurnDirection.NEXT); true } else false
+                        Key.VolumeUp -> if (volumeKeysNav) { tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV); true } else false
+                        else -> false
+                    }
+                },
+        ) {
+            val density = LocalDensity.current
+            val widthPx = with(density) { maxWidth.toPx() }
+            val heightPx = with(density) { maxHeight.toPx() }
+
+            val currentLayer = rememberGraphicsLayer()
+            var currentBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        currentLayer.record { this@drawWithContent.drawContent() }
+                        drawContent()
+                    }
+                    .graphicsLayer(
+                        scaleX = scale, scaleY = scale,
+                        translationX = panOffset.x, translationY = panOffset.y,
+                    ),
+            ) {
+                MangaGroupContent(
+                    indices = currentIndices, pages = pages, translateMode = translateMode,
+                    translatedPages = translatedPages, reverseLayout = reverseLayout,
+                    resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
+                    textScale = textScale, flippedBubbles = flippedBubbles,
+                    onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                )
+            }
+            LaunchedEffect(currentIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+                currentBitmap = currentLayer.toImageBitmap()
+            }
+
+            val revealedGroupIndex = when {
+                dragProgress > 0f -> currentGroupIndex + 1
+                dragProgress < 0f -> currentGroupIndex - 1
+                else -> null
+            }
+            val revealedIndices = revealedGroupIndex?.let { groups.getOrNull(it) }
+            val revealedLayer = rememberGraphicsLayer()
+            var revealedBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        revealedLayer.record { this@drawWithContent.drawContent() }
+                        // bez drawContent() - jen rasterizace pro revealedBitmap
+                    },
+            ) {
+                if (revealedIndices != null) {
+                    MangaGroupContent(
+                        indices = revealedIndices, pages = pages, translateMode = translateMode,
+                        translatedPages = translatedPages, reverseLayout = reverseLayout,
+                        resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
+                        textScale = textScale, flippedBubbles = flippedBubbles,
+                        onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                    )
+                }
+            }
+            LaunchedEffect(revealedIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+                revealedBitmap = if (revealedIndices != null) revealedLayer.toImageBitmap() else null
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (scale <= 1f) {
+                            Modifier
+                                // Klíčováno i na `pages` (ne jen `groups.size`) - jinak by při
+                                // přechodu na kapitolu se STEJNÝM počtem skupin jako předchozí
+                                // (běžné u podobně dlouhých kapitol) `pointerInput` nerestartoval
+                                // a gesta by dál čítala/zapisovala do osiřelých
+                                // `currentSingleIndex`/`dragProgress` MutableState objektů zpřed
+                                // přechodu, zatímco `groups` výše by už odkazovaly na novou
+                                // kapitolu - navigace by tiše přestala reagovat (review nález č. 2).
+                                .pointerInput(pages, groups.size, reverseLayout) {
+                                    detectDragGestures(
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val delta = (if (reverseLayout) -dragAmount.x else dragAmount.x) / widthPx
+                                            val live = PageCurlState(
+                                                currentPageIndex = liveGroupIndex(),
+                                                pageCount = groups.size,
+                                                dragProgress = dragProgress,
+                                            )
+                                            dragProgress = live.withDrag(live.dragProgress - delta).dragProgress
+                                        },
+                                        onDragEnd = {
+                                            val live = PageCurlState(
+                                                currentPageIndex = liveGroupIndex(),
+                                                pageCount = groups.size,
+                                                dragProgress = dragProgress,
+                                            )
+                                            applyTurnResult(live.onDragEnd())
+                                        },
+                                    )
+                                }
+                                .pointerInput(pages, groups.size, tapZonesEnabled, tapZoneGrid, reverseLayout) {
+                                    detectTapGestures(
+                                        onLongPress = {
+                                            val liveIndices = groups.getOrElse(liveGroupIndex()) { listOf(0) }
+                                            sharePageUrl = pages.getOrElse(liveIndices[0]) { "" }
+                                            if (sharePageUrl.isNotEmpty()) showShareSheet = true
+                                        },
+                                        onTap = { offset ->
+                                            val action = if (!tapZonesEnabled) {
+                                                TapZoneAction.SHOW_PANEL
+                                            } else {
+                                                val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
+                                                val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
+                                                tapZoneGrid[row, col]
+                                            }
+                                            when (action) {
+                                                TapZoneAction.SHOW_PANEL -> onShowPanel()
+                                                TapZoneAction.PREV_PAGE -> tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV)
+                                                TapZoneAction.NEXT_PAGE -> tryTurn(if (reverseLayout) TurnDirection.PREV else TurnDirection.NEXT)
+                                                TapZoneAction.PREV_CHAPTER -> onNavigatePrevChapter()
+                                                TapZoneAction.NEXT_CHAPTER -> onNavigateNextChapter()
+                                                TapZoneAction.NONE -> {}
+                                            }
+                                        },
+                                    )
+                                }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                            scale = newScale
+                            if (newScale > 1f) panOffset += pan else panOffset = Offset.Zero
+                        }
+                    },
+            ) {
+                val bitmap = currentBitmap
+                if (bitmap != null && dragProgress != 0f) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val corner = if (dragProgress > 0f) Offset(widthPx, heightPx) else Offset(0f, heightPx)
+                        val fingerOffset = Offset(x = corner.x - dragProgress * widthPx, y = corner.y)
+                        val geometry = computePageCurlGeometry(
+                            corner = Point(corner.x, corner.y),
+                            dragPoint = Point(fingerOffset.x, fingerOffset.y),
+                            pageWidth = widthPx, pageHeight = heightPx,
+                        )
+                        drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
+                    }
+                }
+            }
+        }
+    }
+}

@@ -325,6 +325,7 @@ fun ReaderScreen(
                     bubbleEdit = Triple(pageIndex, originalText, currentText)
                 },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
+                pageCurlEnabled = pageCurlEnabled,
             )
         }
 
