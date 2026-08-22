@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,6 +31,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class CascadingBubbleOnDeviceTest {
+
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     /**
      * Nakreslí kaskádovou bublinu: dvě PŘEKRÝVAJÍCÍ SE bílé elipsy s černým obrysem na tmavém
@@ -71,7 +74,7 @@ class CascadingBubbleOnDeviceTest {
     @Test
     fun cascadingBubbleShapesDoNotSwallowTheNeighbour() = runBlocking {
         val bitmap = cascadingBalloon()
-        val blocks = OcrEngine().recognize(bitmap, "English")
+        val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
 
         Log.i("CascadeProbe", "nalezeno bloku: ${blocks.size}")
         blocks.forEachIndexed { i, b ->
