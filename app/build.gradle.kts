@@ -38,8 +38,8 @@ android {
         // ktery na nizsich verzich neexistuje.
         minSdk = 33
         targetSdk = 36
-        versionCode = 90
-        versionName = "1.2.33"
+        versionCode = 91
+        versionName = "1.2.34"
         buildConfigField("String", "SUPABASE_URL", "\"${localProps["SUPABASE_URL"] ?: "https://placeholder.supabase.co"}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps["SUPABASE_ANON_KEY"] ?: "placeholder-anon-key"}\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")

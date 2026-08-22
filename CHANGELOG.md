@@ -4,6 +4,18 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.34
+
+### Nový volitelný efekt otáčení stránek (page-curl)
+Appka umí nově simulovat otáčení stránky jako u knihy - ohybová animace místo
+plynulého scrollu nebo obyčejného swipu. Zapíná se v Nastavení čtečky
+("Otáčení stránek" -> "Použití 3D efektu při otáčení stránek") a funguje
+jak v čtečce light novelů, tak v manga/manhwa čtečce (pro režim čtení
+"po stránkách", ne pro webtoon plynulý scroll) - včetně zoomu, dvoustránkového
+zobrazení, zón pro tapnutí, hlasitostních tlačítek, sdílení stránky a
+automatického přechodu na další kapitolu. Výchozí chování se nemění - efekt
+je vypnutý, dokud si ho v nastavení nezapneš.
+
 ## v1.2.32
 
 ### ComicK: dolaďování automatického výběru zdroje z v1.2.31
