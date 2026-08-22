@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +28,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PunctuationBlockProbeTest {
+
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun bubblePage(w: Int = 900, h: Int = 1400): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -84,7 +87,7 @@ class PunctuationBlockProbeTest {
     }
 
     private fun dump(label: String, bitmap: Bitmap) = runBlocking {
-        val blocks = OcrEngine().recognize(bitmap, "English")
+        val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
         val classified = BubbleClassifier.classifyPage(blocks)
         Log.i(TAG, "=== $label: ${blocks.size} bloku ===")
         blocks.forEachIndexed { i, b ->

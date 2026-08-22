@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +30,8 @@ import kotlin.random.Random
  */
 @RunWith(AndroidJUnit4::class)
 class CascadeOnLightBackgroundTest {
+
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     /** Světlé šrafované pozadí - drobné tmavé tahy na skoro bílé ploše, jako na nahlášené stránce. */
     private fun hatchedBackground(canvas: Canvas, w: Int, h: Int) {
@@ -82,7 +85,7 @@ class CascadeOnLightBackgroundTest {
     @Test
     fun probeShapesAndClassificationOnLightBackground() = runBlocking<Unit> {
         val bitmap = cascadingOnLightBg()
-        val raw = OcrEngine().recognize(bitmap, "English")
+        val raw = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
         val classified = BubbleClassifier.classifyPage(raw)
 
         Log.i("LightBgProbe", "bloku = ${raw.size}")

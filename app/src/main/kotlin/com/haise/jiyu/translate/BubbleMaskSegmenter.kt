@@ -22,6 +22,13 @@ import javax.inject.Singleton
  * tvaru KONKRÉTNÍ bubliny, takže může uspět i tam, kde klasický flood-fill nenajde uzavřenou
  * barevnou hranici (bublina s hranatým/"impact" obrysem - třída bugů "OKÖ!").
  *
+ * Rozdělené na [detectPage] (jedna ONNX inference nad celou bitmapou) a [matchShape] (čisté
+ * párování konkrétního OCR boxu proti už hotovým detekcím) SCHVÁLNĚ - když na jedné stránce
+ * potřebuje zálohu víc bublin najednou, volající (viz [OcrEngine]) zavolá [detectPage] jen
+ * JEDNOU a výsledek použije pro všechny. Původní jednokrokové API spouštělo celou ~100MB
+ * inferenci znovu pro KAŽDOU bublinu zvlášť, což na přeplněné stránce s víc "hranatými"
+ * bublinami hrozilo vyčerpáním sdíleného OCR timeoutu (viz TranslateRepository).
+ *
  * Čistá matematika (dekódování, NMS, rekonstrukce masky z prototypů) žije v
  * [YoloSegmentationDecode.kt] a je testovaná JVM testy nezávisle na týhle třídě.
  */
@@ -35,29 +42,31 @@ class BubbleMaskSegmenter @Inject constructor(
         env.createSession(modelBytes, OrtSession.SessionOptions())
     }
 
+    /** Výsledek jedné inference nad celou stránkou - vstup pro (opakované) [matchShape]. */
+    class PageSegmentation internal constructor(
+        internal val detections: List<RawSegDetection>,
+        internal val protoFlat: FloatArray,
+        internal val protoH: Int,
+        internal val protoW: Int,
+        internal val params: LetterboxParams,
+        internal val bitmapWidth: Int,
+        internal val bitmapHeight: Int,
+    )
+
     /**
-     * Najde tvar bubliny, která se v obraze nejvíc překrývá se zadaným OCR boxem textu
-     * (normalizované 0..1 souřadnice stránky, stejný formát jako [TranslatedBlock]).
+     * Spustí model JEDNOU nad celou stránkou a vrátí všechny detekce bublin - viz [matchShape]
+     * pro přiřazení ke konkrétnímu OCR boxu.
      *
      * Nikdy nevyhazuje - stejný důvod jako [BubbleBoxDetector.detect]: je to poslední záchrana,
      * ne kritická cesta, appka bez ní spadne zpátky na heuristický obdélník jako dřív.
      *
-     * @param minOverlapIou minimální překryv (IoU) mezi detekcí modelu a OCR boxem, aby se
-     *   detekce vůbec považovala za TU SAMOU bublinu - bez týhle kontroly by appka mohla vzít
-     *   tvar úplně jiné (jen nejbližší) bubliny na přeplněné stránce.
-     * @return null, když model neběžel, nenašel žádnou detekci, nebo žádná dost nepřekrývala
-     *   zadaný box.
+     * @return null, když model neběžel nebo nenašel na stránce žádnou bublinu.
      */
-    suspend fun segmentShape(
+    suspend fun detectPage(
         bitmap: Bitmap,
-        targetLeftF: Float,
-        targetTopF: Float,
-        targetRightF: Float,
-        targetBottomF: Float,
         confThreshold: Float = 0.25f,
         iouThreshold: Float = 0.45f,
-        minOverlapIou: Float = 0.1f,
-    ): List<BubbleShapePoint>? = withContext(Dispatchers.Default) {
+    ): PageSegmentation? = withContext(Dispatchers.Default) {
         try {
             val env = OrtEnvironment.getEnvironment()
             val params = letterboxParams(bitmap.width, bitmap.height, INPUT_SIZE)
@@ -84,41 +93,70 @@ class BubbleMaskSegmenter @Inject constructor(
                     val kept = nonMaxSuppressionSeg(raw, iouThreshold)
                     if (kept.isEmpty()) return@withContext null
 
-                    // Cilovy box (OCR text, uz vime kde je) prevedeny do stejneho letterboxovaneho
-                    // prostoru jako detekce modelu, aby slo pocitat IoU proti nim.
-                    val targetInInputSpace = RawBoxDetection(
-                        leftPx = targetLeftF * bitmap.width * params.scale + params.padX,
-                        topPx = targetTopF * bitmap.height * params.scale + params.padY,
-                        rightPx = targetRightF * bitmap.width * params.scale + params.padX,
-                        bottomPx = targetBottomF * bitmap.height * params.scale + params.padY,
-                        classId = 0,
-                        score = 1f,
-                    )
-                    val best = kept.maxByOrNull { iou(it.box, targetInInputSpace) } ?: return@withContext null
-                    if (iou(best.box, targetInInputSpace) < minOverlapIou) return@withContext null
-
                     val protoBatch = protoOutput[0]
                     val protoH = protoBatch[0].size
                     val protoW = protoBatch[0][0].size
                     val flatProto = flattenChannelMajorHw(protoBatch)
 
-                    val mask = reconstructMask(best.maskCoeffs, flatProto, protoH, protoW)
-                    val protoScale = (INPUT_SIZE / protoW).coerceAtLeast(1)
-                    maskToShapePoints(
-                        mask = mask,
-                        maskW = protoW,
-                        maskH = protoH,
-                        protoScale = protoScale,
-                        letterbox = params,
-                        srcWidth = bitmap.width,
-                        srcHeight = bitmap.height,
+                    PageSegmentation(
+                        detections = kept,
+                        protoFlat = flatProto,
+                        protoH = protoH,
+                        protoW = protoW,
+                        params = params,
+                        bitmapWidth = bitmap.width,
+                        bitmapHeight = bitmap.height,
                     )
                 }
             }
         } catch (e: Exception) {
-            e.report("translate:bubbleMaskSegmenter:segmentShape")
+            e.report("translate:bubbleMaskSegmenter:detectPage")
             null
         }
+    }
+
+    /**
+     * Najde v [page] tvar bubliny, která se nejvíc překrývá se zadaným OCR boxem textu
+     * (normalizované 0..1 souřadnice stránky, stejný formát jako [TranslatedBlock]). Čistá
+     * funkce bez ONNX volání - jde volat opakovaně pro víc bloků ze stejné [detectPage].
+     *
+     * @param minOverlapIou minimální překryv (IoU) mezi detekcí modelu a OCR boxem, aby se
+     *   detekce vůbec považovala za TU SAMOU bublinu - bez týhle kontroly by appka mohla vzít
+     *   tvar úplně jiné (jen nejbližší) bubliny na přeplněné stránce.
+     * @return null, když žádná detekce dost nepřekrývala zadaný box.
+     */
+    fun matchShape(
+        page: PageSegmentation,
+        targetLeftF: Float,
+        targetTopF: Float,
+        targetRightF: Float,
+        targetBottomF: Float,
+        minOverlapIou: Float = 0.1f,
+    ): List<BubbleShapePoint>? {
+        // Cilovy box (OCR text, uz vime kde je) prevedeny do stejneho letterboxovaneho
+        // prostoru jako detekce modelu, aby slo pocitat IoU proti nim.
+        val targetInInputSpace = RawBoxDetection(
+            leftPx = targetLeftF * page.bitmapWidth * page.params.scale + page.params.padX,
+            topPx = targetTopF * page.bitmapHeight * page.params.scale + page.params.padY,
+            rightPx = targetRightF * page.bitmapWidth * page.params.scale + page.params.padX,
+            bottomPx = targetBottomF * page.bitmapHeight * page.params.scale + page.params.padY,
+            classId = 0,
+            score = 1f,
+        )
+        val best = page.detections.maxByOrNull { iou(it.box, targetInInputSpace) } ?: return null
+        if (iou(best.box, targetInInputSpace) < minOverlapIou) return null
+
+        val mask = reconstructMask(best.maskCoeffs, page.protoFlat, page.protoH, page.protoW)
+        val protoScale = (INPUT_SIZE / page.protoW).coerceAtLeast(1)
+        return maskToShapePoints(
+            mask = mask,
+            maskW = page.protoW,
+            maskH = page.protoH,
+            protoScale = protoScale,
+            letterbox = page.params,
+            srcWidth = page.bitmapWidth,
+            srcHeight = page.bitmapHeight,
+        )
     }
 
     /** Detekční tenzor `[channels][anchors]` -> plochý `FloatArray`, viz [decodeYoloSegOutput]. */
