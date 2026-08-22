@@ -50,22 +50,45 @@ fun PageCurlNovelReader(
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(bgColor)) {
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        val baseStyle = TextStyle(color = textColor, fontSize = fontSize.sp, lineHeight = (fontSize * lineSpacing).sp)
-        val layoutProvider = remember(textMeasurer) { ComposeTextLayoutProvider(textMeasurer, baseStyle) }
 
-        var pages by remember { mutableStateOf(listOf(NovelPage(0, 0))) }
-        var curlState by remember { mutableStateOf(PageCurlState(0, 1)) }
-
-        LaunchedEffect(text, fontSize, lineSpacing, widthPx, heightPx) {
-            val previousOffset = pages.getOrNull(curlState.currentPageIndex)?.startIndex ?: 0
-            val newPages = paginateNovelText(text, layoutProvider, widthPx, heightPx, fontSize)
-            val newIndex = findPageIndexForOffset(newPages, previousOffset)
-            pages = newPages
-            curlState = PageCurlState(currentPageIndex = newIndex, pageCount = newPages.size)
+        // Znovu vytvořeno pokaždé, když se změní cokoliv, co ovlivňuje zalomení textu (fix
+        // review nálezu č. 2) - dřív byl klíč jen `textMeasurer` (ten je sám o sobě
+        // memoizovaný přes celý životní cyklus obrazovky), takže `layoutProvider` i jeho
+        // zamrzlý `lineHeight` vznikly jen JEDNOU a další změna velikosti písma/řádkování
+        // uživatelem v NovelContent je nikdy nedostihla - paginace pak počítala s jiným
+        // řádkováním, než jaké se skutečně vykreslovalo.
+        val layoutProvider = remember(textMeasurer, fontSize, lineSpacing, textColor) {
+            val baseStyle = TextStyle(color = textColor, fontSize = fontSize.sp, lineHeight = (fontSize * lineSpacing).sp)
+            ComposeTextLayoutProvider(textMeasurer, baseStyle)
         }
 
-        val currentPage = pages[curlState.currentPageIndex.coerceIn(pages.indices)]
-        val currentPageText = text.substring(currentPage.startIndex, currentPage.endIndex)
+        // Stránky se počítají SYNCHRONNĚ v tomtéž composition průchodu jako `text` (fix review
+        // nálezu č. 1) - dřív se přepočítávaly až v `LaunchedEffect`, tedy o krok pozadu. Při
+        // přechodu na jinou kapitolu (jiná délka textu) se stará `pages`/`curlState` použily
+        // proti NOVÉMU `text` ještě předtím, než `LaunchedEffect` doběhl, a `text.substring(...)`
+        // mohl spadnout s `StringIndexOutOfBoundsException`. Teď je `pages` vždy odvozeno přímo
+        // z aktuálního `text` v rámci jednoho `remember` - nemůže nikdy patřit jinému textu.
+        val pages = remember(text, fontSize, lineSpacing, widthPx, heightPx, layoutProvider) {
+            paginateNovelText(text, layoutProvider, widthPx, heightPx, fontSize)
+        }
+
+        // Pozice čtenáře jako znakový offset do `text`, ne jako index stránky - přežije
+        // repaginaci (zmena fontu/řádkování v RÁMCI stejné kapitoly) přes
+        // `findPageIndexForOffset`, a resetuje se na 0 pokaždé, když se `text` sám změní
+        // (přechod na jinou kapitolu) díky klíči `remember(text)` - nemůže tak nikdy zůstat
+        // ukazovat na offset z PŘEDCHOZÍ kapitoly nad stránkami nově napaginovanými z textu
+        // kapitoly aktuální.
+        var readingOffset by remember(text) { mutableStateOf(0) }
+        var dragProgress by remember(text) { mutableStateOf(0f) }
+
+        val currentPageIndex = findPageIndexForOffset(pages, readingOffset)
+        val currentPage = pages[currentPageIndex.coerceIn(pages.indices)]
+        // Bezpečnostní pojistka navíc (i když `pages` je vždy odvozeno ze stejného `text`,
+        // který se tu čte) - substring nikdy nespadne, i kdyby se výše uvedená synchronizace
+        // v budoucnu narušila.
+        val currentSafeStart = currentPage.startIndex.coerceIn(0, text.length)
+        val currentSafeEnd = currentPage.endIndex.coerceIn(currentSafeStart, text.length)
+        val currentPageText = text.substring(currentSafeStart, currentSafeEnd)
 
         val currentLayer = rememberGraphicsLayer()
         var currentBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -91,8 +114,8 @@ fun PageCurlNovelReader(
         // obrazovku (chybí koncové `drawContent()`) - jinak by prosvítala i v klidu (dragProgress
         // == 0f), překrytá přes aktuální stránku.
         val revealedPageIndex = when {
-            curlState.dragProgress > 0f -> curlState.currentPageIndex + 1
-            curlState.dragProgress < 0f -> curlState.currentPageIndex - 1
+            dragProgress > 0f -> currentPageIndex + 1
+            dragProgress < 0f -> currentPageIndex - 1
             else -> null
         }
         val revealedPage = revealedPageIndex?.let { pages.getOrNull(it) }
@@ -110,7 +133,9 @@ fun PageCurlNovelReader(
                 .padding(20.dp),
         ) {
             if (revealedPage != null) {
-                val revealedText = text.substring(revealedPage.startIndex, revealedPage.endIndex)
+                val revealedSafeStart = revealedPage.startIndex.coerceIn(0, text.length)
+                val revealedSafeEnd = revealedPage.endIndex.coerceIn(revealedSafeStart, text.length)
+                val revealedText = text.substring(revealedSafeStart, revealedSafeEnd)
                 Text(text = revealedText, color = textColor, fontSize = fontSize.sp, lineHeight = (fontSize * lineSpacing).sp)
             }
         }
@@ -121,10 +146,15 @@ fun PageCurlNovelReader(
 
         fun applyTurnResult(result: PageTurnResult) {
             when (result) {
-                is PageTurnResult.WithinChapter -> curlState = result.newState
-                is PageTurnResult.Cancelled -> curlState = result.newState
+                is PageTurnResult.WithinChapter -> {
+                    dragProgress = result.newState.dragProgress
+                    readingOffset = pages.getOrNull(result.newState.currentPageIndex)?.startIndex ?: 0
+                }
+                is PageTurnResult.Cancelled -> {
+                    dragProgress = result.newState.dragProgress
+                }
                 is PageTurnResult.ChapterBoundary -> {
-                    curlState = curlState.copy(dragProgress = 0f)
+                    dragProgress = 0f
                     onChapterBoundary(result.direction)
                 }
             }
@@ -133,17 +163,33 @@ fun PageCurlNovelReader(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(curlState.pageCount) {
+                .pointerInput(pages.size) {
                     detectDragGestures(
                         onDrag = { change, dragAmount ->
                             change.consume()
+                            // Živě sestrojeno z aktuálních hodnot `readingOffset`/`dragProgress`
+                            // při KAŽDÉM volání (ne z jednou zachyceného `val` z předchozí
+                            // kompozice) - stejný princip jako předtím `var curlState by
+                            // remember`, jen rozložený na dva primitivy kvůli fixu nálezu č. 1.
+                            val liveState = PageCurlState(
+                                currentPageIndex = findPageIndexForOffset(pages, readingOffset),
+                                pageCount = pages.size,
+                                dragProgress = dragProgress,
+                            )
                             val deltaProgress = dragAmount.x / widthPx
-                            curlState = curlState.withDrag(curlState.dragProgress + deltaProgress)
+                            dragProgress = liveState.withDrag(liveState.dragProgress + deltaProgress).dragProgress
                         },
-                        onDragEnd = { applyTurnResult(curlState.onDragEnd()) },
+                        onDragEnd = {
+                            val liveState = PageCurlState(
+                                currentPageIndex = findPageIndexForOffset(pages, readingOffset),
+                                pageCount = pages.size,
+                                dragProgress = dragProgress,
+                            )
+                            applyTurnResult(liveState.onDragEnd())
+                        },
                     )
                 }
-                .pointerInput(curlState.pageCount) {
+                .pointerInput(pages.size) {
                     detectTapGestures(
                         onTap = { offset ->
                             val direction = when {
@@ -151,17 +197,24 @@ fun PageCurlNovelReader(
                                 offset.x > widthPx * 0.85f -> TurnDirection.NEXT
                                 else -> null
                             }
-                            direction?.let { applyTurnResult(curlState.onEdgeTap(it)) }
+                            direction?.let {
+                                val liveState = PageCurlState(
+                                    currentPageIndex = findPageIndexForOffset(pages, readingOffset),
+                                    pageCount = pages.size,
+                                    dragProgress = dragProgress,
+                                )
+                                applyTurnResult(liveState.onEdgeTap(it))
+                            }
                         },
                     )
                 },
         ) {
             val bitmap = currentBitmap
-            if (bitmap != null && curlState.dragProgress != 0f) {
+            if (bitmap != null && dragProgress != 0f) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val corner = if (curlState.dragProgress > 0f) Offset(widthPx, heightPx) else Offset(0f, heightPx)
+                    val corner = if (dragProgress > 0f) Offset(widthPx, heightPx) else Offset(0f, heightPx)
                     val fingerOffset = Offset(
-                        x = corner.x - curlState.dragProgress * widthPx,
+                        x = corner.x - dragProgress * widthPx,
                         y = corner.y,
                     )
                     val geometry = computePageCurlGeometry(
@@ -175,9 +228,9 @@ fun PageCurlNovelReader(
         }
 
         Box(modifier = Modifier.fillMaxSize().padding(bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
-            val percent = (curlState.currentPageIndex + 1) * 100 / pages.size.coerceAtLeast(1)
+            val percent = (currentPageIndex + 1) * 100 / pages.size.coerceAtLeast(1)
             Text(
-                text = "Stránka ${curlState.currentPageIndex + 1} z ${pages.size} · $percent%",
+                text = "Stránka ${currentPageIndex + 1} z ${pages.size} · $percent%",
                 color = textColor.copy(alpha = 0.6f),
                 fontSize = 12.sp,
             )
