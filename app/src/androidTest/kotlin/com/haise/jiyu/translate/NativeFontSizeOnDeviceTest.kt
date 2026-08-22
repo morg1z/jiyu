@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +28,8 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeFontSizeOnDeviceTest {
 
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
     private fun page(text: String, fontPx: Float, w: Int = 1000, h: Int = 400): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
@@ -42,7 +45,7 @@ class NativeFontSizeOnDeviceTest {
 
     @Test
     fun measureOcrBoxHeightAgainstKnownFontSize() = runBlocking {
-        val engine = OcrEngine()
+        val engine = OcrEngine(BubbleMaskSegmenter(context))
         val ratios = mutableListOf<Float>()
 
         // Verzalky jsou to, co manga lettering pouziva nejcasteji.
