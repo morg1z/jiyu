@@ -49,12 +49,19 @@ import kotlinx.coroutines.delay
  * načte nové `pages`), zatímco identita TOHOTO composable zůstává stejná (žádný `key(chapterId)`
  * o úroveň výš v `ReaderScreen`/`ReaderContent`). `currentSingleIndex`/`dragProgress` jsou
  * proto `remember`ované s klíčem `pages` (nová identita listu = nová kapitola => reset), a
- * `currentGroupIndex`/`curlState` se POKAŽDÉ dopočítávají přímo z aktuálních `groups`/
- * `currentSingleIndex` - nikdy nejsou uloženy jako samostatný "zamrzlý" stav, který by mohl
- * zůstat neplatný proti novým `groups` po přechodu kapitoly (viz review nález č. 1 u
- * [PageCurlNovelReader]). Gesto-detekční `pointerInput` bloky jsou klíčované i na `pages` (ne
- * jen na `groups.size`), aby korektně restartovaly při přechodu kapitoly se STEJNÝM počtem
- * skupin jako předchozí (viz review nález č. 2 u [PageCurlNovelReader]).
+ * `currentGroupIndex` se POKAŽDÉ dopočítává přímo z aktuálních `groups`/`currentSingleIndex`
+ * - nikdy neuložen jako samostatný "zamrzlý" stav, který by mohl zůstat neplatný proti novým
+ * `groups` po přechodu kapitoly (review nález č. 1). Gesto-detekční `pointerInput` bloky jsou
+ * klíčované i na `pages` (ne jen na `groups.size`), aby korektně restartovaly při přechodu
+ * kapitoly se STEJNÝM počtem skupin jako předchozí (review nález č. 2).
+ *
+ * Navíc: `currentSingleIndex`/`dragProgress`/`reachedEndManually` a efekt, který volá
+ * `onPageChanged`, žijí ÚMYSLNĚ MIMO `key(useSpread)` (na rozdíl od `groups` a všeho z něj
+ * odvozeného, co uvnitř zůstává) - stejně jako v `MangaReaderu` (`ReaderPager.kt:160-175`).
+ * Otočení zařízení při zapnutém spreadu mění `useSpread`, takže by jinak Compose zahodil a
+ * znovu vytvořil celý podstrom uvnitř `key()` a resetoval by tak živou pozici čtenáře zpět na
+ * `initialPage` (review nález č. 3 - stejná kategorie chyby jako č. 1/2, jen jiný spouštěč:
+ * rotace zařízení místo přechodu kapitoly).
  */
 @Composable
 fun MangaPageCurlReader(
@@ -105,23 +112,53 @@ fun MangaPageCurlReader(
         SharePageBottomSheet(pageUrl = sharePageUrl, onDismiss = { showShareSheet = false })
     }
 
-    // key(useSpread) zahodí a znovu vytvoří celý podstrom při přepnutí spread módu (rotace) -
-    // stejný vzor jako v MangaReaderu.
+    // Musí žít MIMO `key(useSpread)` níže - `useSpread = doublePageSpread && isLandscape`, takže
+    // otočení zařízení při zapnutém spreadu změní klíč a Compose zahodí a znovu vytvoří CELÝ
+    // podstrom uvnitř `key()`, včetně `rememberSaveable` stavu v něm (review nález: dřív tu
+    // stránka žila UVNITŘ key(useSpread), takže rotace při zapnutém spreadu resetovala
+    // `currentSingleIndex` zpět na `initialPage` - uloženou "poslední přečtenou" stránku kapitoly,
+    // ne živou pozici čtenáře - a `onPageChanged` pak propagoval tuhle zastaralou hodnotu do
+    // trvalého stavu čtecího postupu). Stejný vzor a stejné zdůvodnění jako `MangaReader`
+    // (`ReaderPager.kt:160-175`), kde je `currentSingleIndex`/`reachedEndManually` ze stejného
+    // důvodu taky MIMO `key(useSpread)`.
+    //
+    // Klíčováno na `pages` (ne bez klíče jako v `MangaReaderu`) - nová kapitola (nová
+    // instance/obsah `pages`) MUSÍ dostat nový pár stavů, starý se zahodí, jinak by gesto-
+    // pointerInputy níže (klíčované taky na `pages`) po přechodu kapitoly odkazovaly na
+    // OSIŘELÉ MutableState objekty z předchozí kapitoly (review nález č. 2). Klíč na `pages`
+    // a fyzická poloha MIMO `key(useSpread)` řeší dva NEZÁVISLÉ problémy zároveň - kapitolu,
+    // resp. rotaci - a jsou k sobě kolmé (ani jeden by sám o sobě nestačil).
+    var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
+    var dragProgress by remember(pages) { mutableStateOf(0f) }
+    var reachedEndManually by remember(pages) { mutableStateOf(false) }
+
+    // Záměrně počítáno jen z `pages.size`/`currentSingleIndex` (ne z group-indexu/`groups`,
+    // které žijí uvnitř `key(useSpread)` a odsud by nebyly vidět) - stejná logika jako
+    // `MangaReader` (`ReaderPager.kt:169-174`), aby zůstala 1:1 srovnatelná parita chování
+    // (včetně "poslední skupina" hranice u sudého spreadu - to je existující vlastnost
+    // MangaReaderu, ne nová regrese zavedená tady).
+    LaunchedEffect(currentSingleIndex, pages) {
+        scale = 1f
+        panOffset = Offset.Zero
+        onPageChanged(currentSingleIndex)
+        if (pages.size > 1 && currentSingleIndex < pages.size - 1) reachedEndManually = true
+        if (reachedEndManually && pages.isNotEmpty() && currentSingleIndex == pages.size - 1 && autoNextChapter) {
+            delay(2500)
+            if (currentSingleIndex == pages.size - 1) onAutoNextChapter()
+        }
+    }
+
+    // key(useSpread) zahodí a znovu vytvoří jen věci, které se MUSÍ přepočítat/znovu vytvořit
+    // per-spread-mode (rozdělení do skupin a vše z něj odvozené) - stejný vzor jako v
+    // MangaReaderu, kde `groups` naopak žije mimo (viz `ReaderPager.kt:150`) - tady zůstává
+    // uvnitř, protože nic z curl-gest logiky výše na něm nezávisí.
     key(useSpread) {
         // `groups` závisí na CELÉM `pages` (ne jen `pages.size`) - dvě po sobě jdoucí kapitoly
-        // se stejným počtem stránek by jinak sdílely stejnou instanci `groups` a stav níže
+        // se stejným počtem stránek by jinak sdílely stejnou instanci `groups` a stav výše
         // klíčovaný na `pages` by se recompute-oval, zatímco `groups` ne, což by je rozjelo.
         val groups = remember(pages, useSpread, spreadPageIndices) {
             computePageGroups(pages.size, useSpread, spreadPageIndices)
         }
-
-        // Klíčováno na `pages` - nová kapitola (nová instance/obsah `pages`) = nový pár stavů,
-        // starý se zahodí. To je zásadní i pro gesto-pointerInputy níže (klíčované taky na
-        // `pages`): při přechodu kapitoly se MUSÍ restartovat, jinak by jejich uzávěry dál
-        // odkazovaly na OSIŘELÉ MutableState objekty z předchozí kapitoly (review nález č. 2).
-        var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
-        var dragProgress by remember(pages) { mutableStateOf(0f) }
-        var reachedEndManually by remember(pages) { mutableStateOf(false) }
 
         // Skupina (curl "stránka") odvozená VŽDY čerstvě z aktuálních `groups`/`currentSingleIndex`
         // - nikdy uložena jako samostatný stav, který by mohl zůstat neplatný proti `groups`
@@ -135,17 +172,6 @@ fun MangaPageCurlReader(
 
         val currentGroupIndex = liveGroupIndex()
         val currentIndices = groups.getOrElse(currentGroupIndex) { listOf(0) }
-
-        LaunchedEffect(currentSingleIndex, pages) {
-            scale = 1f
-            panOffset = Offset.Zero
-            onPageChanged(currentSingleIndex)
-            if (groups.size > 1 && currentGroupIndex < groups.size - 1) reachedEndManually = true
-            if (reachedEndManually && groups.isNotEmpty() && currentGroupIndex == groups.size - 1 && autoNextChapter) {
-                delay(2500)
-                if (liveGroupIndex() == groups.size - 1) onAutoNextChapter()
-            }
-        }
 
         LaunchedEffect(jumpToPage, pages) {
             val target = jumpToPage ?: return@LaunchedEffect

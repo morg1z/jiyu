@@ -202,6 +202,7 @@ fun ReaderContent(
                 volumeKeysNav = volumeKeysNav,
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
+                onEditBubble = onEditBubble,
             )
         } else {
             MangaReader(
