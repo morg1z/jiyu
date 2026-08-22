@@ -269,15 +269,10 @@ fun PageCurlNovelReader(
             val bitmap = currentBitmap
             if (bitmap != null && dragProgress != 0f) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val corner = if (dragProgress > 0f) Offset(widthPx, heightPx) else Offset(0f, heightPx)
-                    val fingerOffset = Offset(
-                        x = corner.x - dragProgress * widthPx,
-                        y = corner.y,
-                    )
                     val geometry = computePageCurlGeometry(
-                        corner = Point(corner.x, corner.y),
-                        dragPoint = Point(fingerOffset.x, fingerOffset.y),
                         pageWidth = widthPx, pageHeight = heightPx,
+                        turningFromRight = dragProgress > 0f,
+                        progress = kotlin.math.abs(dragProgress),
                     )
                     drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                 }

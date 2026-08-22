@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.35
+
+### Oprava vzhledu page-curl efektu
+Efekt otáčení stránek (v1.2.34) měl špatně vykreslený samotný ohyb - místo skutečného
+zakřivení stránky se obsah kolem osy ohybu zrcadlil sám na sebe (viditelný "duch"/duplikát
+textu). Přepsáno na válcový ohyb ve stylu Google Play Books/iBooks - obsah se u osy ohybu
+komprimuje a zaobluje podle úhlu na pomyslném válci, s jemným stínováním. Žádné zrcadlení,
+žádný duplikát textu.
+
 ## v1.2.34
 
 ### Nový volitelný efekt otáčení stránek (page-curl)

@@ -470,27 +470,14 @@ fun MangaPageCurlReader(
                 val bitmap = currentBitmap
                 if (bitmap != null && dragProgress != 0f) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga)
-                        // se roh, ze ktereho ohyb vychazi, zrcadli, aby odpovidal fyzicke
-                        // strane, na ktere uzivatel gesto skutecne provadi. Bez tohohle
-                        // vypadal ohyb v RTL vizualne nekonzistentne se smerem tahu prstu.
+                        // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga) se
+                        // strana, ze ktere se stranka odvaluje, zrcadli, aby odpovidala fyzicke
+                        // strane, na ktere uzivatel gesto skutecne provadi.
                         val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
-                        val corner = if (curlFromRight) Offset(widthPx, heightPx) else Offset(0f, heightPx)
-                        // Vzdalenost od `corner` smerem k protejsimu rohu roste s |dragProgress|
-                        // - odectena, kdyz `corner` je na prave strane (finger jde doleva k 0),
-                        // pricteno, kdyz `corner` je vlevo (finger jde doprava k width). Puvodni
-                        // zjednodusena verze `corner.x - dragProgress * widthPx` fungovala jen
-                        // dokud `corner` primo sledoval znamenko `dragProgress` (LTR) - jakmile
-                        // fix Important 9 zavedl zrcadleni pro RTL, potreboval generictejsi vzorec.
-                        val progressDistance = kotlin.math.abs(dragProgress) * widthPx
-                        val fingerOffset = Offset(
-                            x = if (curlFromRight) corner.x - progressDistance else corner.x + progressDistance,
-                            y = corner.y,
-                        )
                         val geometry = computePageCurlGeometry(
-                            corner = Point(corner.x, corner.y),
-                            dragPoint = Point(fingerOffset.x, fingerOffset.y),
                             pageWidth = widthPx, pageHeight = heightPx,
+                            turningFromRight = curlFromRight,
+                            progress = kotlin.math.abs(dragProgress),
                         )
                         drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                     }

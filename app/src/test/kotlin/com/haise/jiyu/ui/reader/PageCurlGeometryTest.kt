@@ -3,96 +3,95 @@ package com.haise.jiyu.ui.reader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
+import kotlin.math.PI
 
 class PageCurlGeometryTest {
 
     @Test
-    fun `dragging the corner straight across produces a fold line near the page center`() {
+    fun `zero progress puts the fold exactly on the turning edge`() {
+        val fromRight = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 0f,
+        )
+        assertEquals(300f, fromRight.foldX, 0.01f)
+        assertEquals(0f, fromRight.curlBandWidth, 0.01f)
+
+        val fromLeft = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = false, progress = 0f,
+        )
+        assertEquals(0f, fromLeft.foldX, 0.01f)
+        assertEquals(0f, fromLeft.curlBandWidth, 0.01f)
+    }
+
+    @Test
+    fun `full progress moves the fold to the opposite edge`() {
+        val fromRight = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
+        )
+        assertEquals(0f, fromRight.foldX, 0.01f)
+
+        val fromLeft = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = false, progress = 1f,
+        )
+        assertEquals(300f, fromLeft.foldX, 0.01f)
+    }
+
+    @Test
+    fun `curl band width grows with progress but is capped at radius times half pi`() {
+        val early = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 0.05f,
+        )
+        val late = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 0.9f,
+        )
+        val maxBand = late.radius * (PI.toFloat() / 2f)
+        assertTrue("band by mel byt mensi nez strop kdyz je jeste malo papiru za osou", early.curlBandWidth < maxBand)
+        assertEquals(maxBand, late.curlBandWidth, 0.5f)
+    }
+
+    @Test
+    fun `progress is clamped to zero and one`() {
+        val negative = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = -0.5f,
+        )
+        val overOne = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1.5f,
+        )
+        assertEquals(0f, negative.progress, 0.001f)
+        assertEquals(1f, overOne.progress, 0.001f)
+    }
+
+    @Test
+    fun `warped offset at zero distance from the fold is zero`() {
         val geometry = computePageCurlGeometry(
-            corner = Point(300f, 400f),
-            dragPoint = Point(150f, 400f),
-            pageWidth = 300f, pageHeight = 400f,
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 0.5f,
         )
-        val foldMidX = (geometry.foldEdgeA.x + geometry.foldEdgeB.x) / 2f
-        assertTrue("fold by mel byt kolem stredu mezi rohem a prstem", abs(foldMidX - 225f) < 5f)
+        assertEquals(0f, geometry.warpedOffset(0f), 0.01f)
     }
 
     @Test
-    fun `dragging exactly to the opposite corner reaches nearly full progress`() {
+    fun `warped offset compresses distance - never exceeds the original`() {
         val geometry = computePageCurlGeometry(
-            corner = Point(300f, 400f),
-            dragPoint = Point(0f, 0f),
-            pageWidth = 300f, pageHeight = 400f,
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
         )
-        assertEquals(1f, geometry.progress, 0.15f)
+        val d = geometry.curlBandWidth
+        assertTrue("warpovany posun musi byt <= puvodni vzdalenosti (komprese, ne roztazeni)", geometry.warpedOffset(d) <= d + 0.01f)
     }
 
     @Test
-    fun `dragging past the opposite corner is clamped, not extrapolated further`() {
-        val withinBounds = computePageCurlGeometry(
-            corner = Point(300f, 400f), dragPoint = Point(0f, 0f),
-            pageWidth = 300f, pageHeight = 400f,
-        )
-        val overshooting = computePageCurlGeometry(
-            corner = Point(300f, 400f), dragPoint = Point(-500f, -500f),
-            pageWidth = 300f, pageHeight = 400f,
-        )
-        assertEquals(withinBounds.progress, overshooting.progress, 0.2f)
-    }
-
-    @Test
-    fun `flat and curled regions together cover all four rectangle corners`() {
+    fun `warped offset at the end of the visible band reaches close to the radius`() {
         val geometry = computePageCurlGeometry(
-            corner = Point(300f, 400f), dragPoint = Point(200f, 350f),
-            pageWidth = 300f, pageHeight = 400f,
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
         )
-        val rectCorners = setOf(Point(0f, 0f), Point(300f, 0f), Point(300f, 400f), Point(0f, 400f))
-        val covered = (geometry.flatRegion + geometry.curledRegion).toSet()
-        rectCorners.forEach { corner ->
-            assertTrue("roh $corner musi byt bud v ploche, nebo v ohybane casti", corner in covered)
-        }
+        assertEquals(geometry.radius, geometry.warpedOffset(geometry.curlBandWidth), 0.5f)
     }
 
     @Test
-    fun `no drag (finger at the corner) yields zero progress`() {
+    fun `shade is full brightness right at the fold and darker at the end of the band`() {
         val geometry = computePageCurlGeometry(
-            corner = Point(300f, 400f), dragPoint = Point(300f, 400f),
-            pageWidth = 300f, pageHeight = 400f,
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
         )
-        assertEquals(0f, geometry.progress, 0.01f)
-    }
-
-    @Test
-    fun `reflecting a point across a horizontal line flips only the Y coordinate`() {
-        val coeffs = computeReflectionAcross(Point(0f, 100f), Point(500f, 100f))
-        val reflected = coeffs.apply(Point(50f, 150f))
-        assertEquals(50f, reflected.x, 0.01f)
-        assertEquals(50f, reflected.y, 0.01f)
-    }
-
-    @Test
-    fun `reflecting a point across a vertical line flips only the X coordinate`() {
-        val coeffs = computeReflectionAcross(Point(200f, 0f), Point(200f, 500f))
-        val reflected = coeffs.apply(Point(250f, 80f))
-        assertEquals(150f, reflected.x, 0.01f)
-        assertEquals(80f, reflected.y, 0.01f)
-    }
-
-    @Test
-    fun `reflecting twice returns the original point`() {
-        val coeffs = computeReflectionAcross(Point(10f, 20f), Point(300f, 250f))
-        val once = coeffs.apply(Point(70f, 45f))
-        val twice = coeffs.apply(once)
-        assertEquals(70f, twice.x, 0.05f)
-        assertEquals(45f, twice.y, 0.05f)
-    }
-
-    @Test
-    fun `a point exactly on the reflection line stays put`() {
-        val coeffs = computeReflectionAcross(Point(0f, 0f), Point(100f, 100f))
-        val reflected = coeffs.apply(Point(50f, 50f))
-        assertEquals(50f, reflected.x, 0.01f)
-        assertEquals(50f, reflected.y, 0.01f)
+        assertEquals(1f, geometry.shadeAt(0f), 0.01f)
+        assertTrue("stin na konci pasu musi byt tmavsi nez u osy ohybu", geometry.shadeAt(geometry.curlBandWidth) < geometry.shadeAt(0f))
+        assertEquals(0.35f, geometry.shadeAt(geometry.curlBandWidth), 0.02f)
     }
 }

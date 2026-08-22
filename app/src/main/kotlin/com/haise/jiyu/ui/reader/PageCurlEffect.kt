@@ -1,23 +1,29 @@
 package com.haise.jiyu.ui.reader
 
+import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.RadialGradient
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Shader
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
-import kotlin.math.hypot
+import kotlin.math.roundToInt
+
+/** Počet tenkých svislých proužků, na které se ohýbaný pás rozdělí - vyšší číslo = plynulejší
+ * zakulacení, ale víc `drawBitmap` volání za snímek. 40 je dost jemné na to, aby jednotlivé
+ * proužky nebyly vidět, a levné dost na to, aby to drželo 60fps během tažení prstem. */
+private const val STRIP_COUNT = 40
 
 /**
- * Vykreslí aktuální stránku s ohybem podle [geometry]. [revealedPageBitmap] je stránka,
- * která se odkrývá pod ohybem (null na hranici kapitoly, kdy sousední stránka ještě
- * neexistuje jako bitmapa).
+ * Vykreslí aktuální stránku s válcovým ohybem podle [geometry] (styl Google Play Books/iBooks -
+ * obsah se u osy ohybu komprimuje/zakulacuje, ne zrcadlí jako dřív). [revealedPageBitmap] je
+ * stránka odkrývaná pod ohybem (null na hranici kapitoly, kdy sousední stránka ještě neexistuje
+ * jako bitmapa).
  */
 fun DrawScope.drawPageCurl(
     geometry: PageCurlGeometry,
@@ -25,86 +31,98 @@ fun DrawScope.drawPageCurl(
     revealedPageBitmap: ImageBitmap?,
 ) {
     val nativeCanvas = drawContext.canvas.nativeCanvas
-    val toOffset = { p: Point -> Offset(p.x, p.y) }
+    val bitmap = currentPageBitmap.asAndroidBitmap()
 
-    revealedPageBitmap?.let { revealed ->
-        nativeCanvas.drawBitmap(revealed.asAndroidBitmap(), 0f, 0f, null)
+    revealedPageBitmap?.let {
+        nativeCanvas.drawBitmap(it.asAndroidBitmap(), 0f, 0f, null)
     }
 
-    val flatPath = polygonPath(geometry.flatRegion.map(toOffset))
-    nativeCanvas.save()
-    nativeCanvas.clipPath(flatPath.asAndroidPath())
-    nativeCanvas.drawBitmap(currentPageBitmap.asAndroidBitmap(), 0f, 0f, null)
-    nativeCanvas.restore()
+    val direction = if (geometry.turningFromRight) 1f else -1f
 
-    drawFoldShadow(nativeCanvas, geometry)
+    // Plochá část stránky (mezi protější hranou a osou ohybu) - beze změny, bez warpu.
+    val flatRect = if (geometry.turningFromRight) {
+        Rect(0, 0, geometry.foldX.roundToInt().coerceIn(0, bitmap.width), bitmap.height)
+    } else {
+        Rect(geometry.foldX.roundToInt().coerceIn(0, bitmap.width), 0, bitmap.width, bitmap.height)
+    }
+    if (flatRect.width() > 0) {
+        nativeCanvas.save()
+        nativeCanvas.clipRect(flatRect)
+        nativeCanvas.drawBitmap(bitmap, 0f, 0f, null)
+        nativeCanvas.restore()
+    }
 
-    val curledPath = polygonPath(geometry.curledRegion.map(toOffset))
-    nativeCanvas.save()
-    nativeCanvas.clipPath(curledPath.asAndroidPath())
-    val reflection = computeReflectionAcross(geometry.foldEdgeA, geometry.foldEdgeB)
-    val matrix = Matrix().apply {
-        setValues(
-            floatArrayOf(
-                reflection.scaleX, reflection.skewX, reflection.transX,
-                reflection.skewY, reflection.scaleY, reflection.transY,
-                0f, 0f, 1f,
-            ),
+    if (geometry.curlBandWidth < 0.5f) return
+
+    // Stín na odkryté stránce kousek před ohýbaným pásem - simuluje, že zvednutý papír vrhá stín.
+    drawAheadShadow(nativeCanvas, geometry, direction)
+
+    // Ohýbaný pás: tenké svislé proužky, každý s trochu jiným posunem (komprese k ose ohybu,
+    // viz `warpedOffset`) a stínováním (tmavší, čím víc zakulacený, viz `shadeAt`). `drawBitmap`
+    // s `src`/`dst` obdélníky samo natáhne/zúží obsah proužku mezi originální a warpovanou
+    // šířkou - přesně tahle komprese vytváří dojem zakulaceného papíru.
+    for (i in 0 until STRIP_COUNT) {
+        val d0 = geometry.curlBandWidth * i / STRIP_COUNT
+        val d1 = geometry.curlBandWidth * (i + 1) / STRIP_COUNT
+
+        val srcX0 = geometry.foldX + direction * d0
+        val srcX1 = geometry.foldX + direction * d1
+        val srcLeft = minOf(srcX0, srcX1)
+        val srcRight = maxOf(srcX0, srcX1)
+        val srcRect = Rect(
+            srcLeft.roundToInt().coerceIn(0, bitmap.width),
+            0,
+            srcRight.roundToInt().coerceIn(0, bitmap.width),
+            bitmap.height,
         )
+        if (srcRect.width() <= 0) continue
+
+        val warped0 = geometry.warpedOffset(d0)
+        val warped1 = geometry.warpedOffset(d1)
+        val dstX0 = geometry.foldX + direction * warped0
+        val dstX1 = geometry.foldX + direction * warped1
+        val dstLeft = minOf(dstX0, dstX1)
+        val dstRight = maxOf(dstX0, dstX1).coerceAtLeast(dstLeft + 1f)
+        val dstRect = RectF(dstLeft, 0f, dstRight, geometry.pageHeight)
+
+        val shade = geometry.shadeAt((d0 + d1) / 2f)
+        val gray = (shade * 255).roundToInt().coerceIn(0, 255)
+        val paint = Paint().apply {
+            isAntiAlias = true
+            colorFilter = PorterDuffColorFilter(Color.rgb(gray, gray, gray), PorterDuff.Mode.MULTIPLY)
+        }
+        nativeCanvas.drawBitmap(bitmap, srcRect, dstRect, paint)
     }
-    val dimPaint = Paint().apply { alpha = 217 } // ~0.85 - simuluje o neco tmavsi rub papiru
-    nativeCanvas.drawBitmap(currentPageBitmap.asAndroidBitmap(), matrix, dimPaint)
-    nativeCanvas.restore()
 
-    drawFoldHighlight(nativeCanvas, geometry)
+    drawFoldCrease(nativeCanvas, geometry)
 }
 
-private fun polygonPath(points: List<Offset>): Path = Path().apply {
-    if (points.isEmpty()) return@apply
-    moveTo(points[0].x, points[0].y)
-    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
-    close()
-}
-
-/** Stín na plochém okraji podél linie ohybu - simuluje zvednutý papír vrhající stín na
- * stránku pod sebou. */
-private fun drawFoldShadow(canvas: android.graphics.Canvas, geometry: PageCurlGeometry) {
-    val a = geometry.foldEdgeA
-    val b = geometry.foldEdgeB
-    val shadowWidth = 40f * geometry.progress.coerceIn(0.1f, 1f)
-    val dx = b.x - a.x
-    val dy = b.y - a.y
-    val len = hypot(dx.toDouble(), dy.toDouble()).toFloat().takeIf { it > 0f } ?: 1f
-    val normalX = -dy / len
-    val normalY = dx / len
-
+/** Jemný stín na odkryté stránce těsně před ohýbaným pásem - simuluje, že zvednutý papír vrhá
+ * stín na to, co je pod ním. */
+private fun drawAheadShadow(canvas: android.graphics.Canvas, geometry: PageCurlGeometry, direction: Float) {
+    val shadowWidth = 28f
+    val edgeX = geometry.foldX + direction * geometry.curlBandWidth
+    val farX = edgeX + direction * shadowWidth
     val paint = Paint().apply {
         shader = LinearGradient(
-            a.x, a.y,
-            a.x - normalX * shadowWidth, a.y - normalY * shadowWidth,
-            intArrayOf(0x66000000.toInt(), 0x00000000),
+            edgeX, 0f, farX, 0f,
+            intArrayOf(0x55000000.toInt(), 0x00000000),
             null, Shader.TileMode.CLAMP,
         )
     }
-    val path = android.graphics.Path().apply {
-        moveTo(a.x, a.y)
-        lineTo(b.x, b.y)
-        lineTo(b.x - normalX * shadowWidth, b.y - normalY * shadowWidth)
-        lineTo(a.x - normalX * shadowWidth, a.y - normalY * shadowWidth)
-        close()
-    }
-    canvas.drawPath(path, paint)
+    val left = minOf(edgeX, farX)
+    val right = maxOf(edgeX, farX)
+    canvas.drawRect(left, 0f, right, geometry.pageHeight, paint)
 }
 
-/** Zvýraznění na špičce ohybu (světlo odrážející se od zakřiveného papíru u prstu). */
-private fun drawFoldHighlight(canvas: android.graphics.Canvas, geometry: PageCurlGeometry) {
-    val tip = geometry.dragPoint
-    val radius = 60f * geometry.progress.coerceAtLeast(0.05f)
+/** Tenký světlý proužek přesně na ose ohybu - simuluje odlesk světla na hraně zakulaceného
+ * papíru. */
+private fun drawFoldCrease(canvas: android.graphics.Canvas, geometry: PageCurlGeometry) {
+    val creaseWidth = 3f
     val paint = Paint().apply {
-        shader = RadialGradient(
-            tip.x, tip.y, radius,
-            intArrayOf(0x40FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP,
-        )
+        color = 0x40FFFFFF
+        isAntiAlias = true
     }
-    canvas.drawCircle(tip.x, tip.y, radius, paint)
+    val left = geometry.foldX - creaseWidth / 2f
+    canvas.drawRect(left, 0f, left + creaseWidth, geometry.pageHeight, paint)
 }
