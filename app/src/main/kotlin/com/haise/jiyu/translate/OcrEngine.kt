@@ -217,7 +217,9 @@ private class BitmapPixelSource(private val bitmap: Bitmap) : PixelSource {
  * stránky je zodpovědnost volajícího (viz [PageBitmapLoader]), ne tohohle enginu.
  */
 @Singleton
-class OcrEngine @Inject constructor() {
+class OcrEngine @Inject constructor(
+    private val maskSegmenter: BubbleMaskSegmenter,
+) {
     // Lazy recognizers: CJK jazyky mají vlastní ML Kit model, ostatní spadají na latinkový výchozí
     private val japaneseRecognizer by lazy { TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build()) }
     private val chineseRecognizer by lazy { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
@@ -268,7 +270,12 @@ class OcrEngine @Inject constructor() {
             // četl repliky pozpátku.
             rightToLeft = isRightToLeftScript(resolvedLanguage),
         )
-        val result = merged.mapIndexed { index, block ->
+        // Prvni pruchod: klasicke (flood-fill / edge-aware) pokusy o tvar pro kazdy blok. Bloky,
+        // kde OBA selzaly, se sesbiraji do `needsMaskSegmenter` - GPL model (viz nize) se pak
+        // spusti nejvyse JEDNOU za celou stranku, ne opakovane za kazdou takovou bublinu (ktera
+        // by jinak sdileny OCR timeout mohla vycerpat, viz TranslateRepository.PAGE_OCR_TIMEOUT_MILLIS).
+        data class Pending(val block: RawTextBlock, val bgSample: BgSample, val others: List<RawTextBlock>, val shapeFromClassic: List<BubbleShapePoint>?)
+        val pending = merged.mapIndexed { index, block ->
             val bgSample = sampleBackgroundColor(bitmap, block)
             val detected = BubbleShapeDetector.detectShape(
                 source = pixelSource,
@@ -290,12 +297,9 @@ class OcrEngine @Inject constructor() {
             // jeste jednodussi paprskovy fallback, ktery najde hranici bubliny pres barevnou
             // zmenu okolo OCR boxu - viz [BubbleShapeDetector.edgeAwareShape].
             val bgColor = averageArgb(bgSample.topArgb, bgSample.bottomArgb)
-            val shape = when {
-                detected != null -> clampShapeToOwnLobe(
-                    shape = detected,
-                    own = block,
-                    others = merged.filterIndexed { i, _ -> i != index },
-                )
+            val others = merged.filterIndexed { i, _ -> i != index }
+            val shapeFromClassic = when {
+                detected != null -> clampShapeToOwnLobe(shape = detected, own = block, others = others)
                 bgSample.uniform -> BubbleShapeDetector.edgeAwareShape(
                     source = pixelSource,
                     width = bitmap.width,
@@ -305,19 +309,32 @@ class OcrEngine @Inject constructor() {
                     rightF = block.rightF,
                     bottomF = block.bottomF,
                     bgColorArgb = bgColor,
-                )?.let { edgeShape ->
-                    clampShapeToOwnLobe(
-                        shape = edgeShape,
-                        own = block,
-                        others = merged.filterIndexed { i, _ -> i != index },
-                    )
-                }
+                )?.let { edgeShape -> clampShapeToOwnLobe(shape = edgeShape, own = block, others = others) }
                 else -> null
             }
-            block.copy(
-                bgColorTopArgb = bgSample.topArgb,
-                bgColorBottomArgb = bgSample.bottomArgb,
-                bgUniform = bgSample.uniform,
+            Pending(block, bgSample, others, shapeFromClassic)
+        }
+
+        // POSLEDNI zaloha pro bubliny s hranatym/"impact" obrysem, kde flood-fill nenajde
+        // uzavrenou barevnou hranici ani zjednodusenym paprskovym pokusem vys - viz
+        // BubbleMaskSegmenter (GPL-3.0, assets/models/NOTICE.md). Spousti se jen kdyz aspon
+        // jeden blok potrebuje zalohu, a i pak jen JEDNOU pro celou stranku.
+        val pageSegmentation = if (pending.any { it.shapeFromClassic == null }) maskSegmenter.detectPage(bitmap) else null
+
+        val result = pending.map { p ->
+            val shape = p.shapeFromClassic ?: pageSegmentation?.let { page ->
+                maskSegmenter.matchShape(
+                    page = page,
+                    targetLeftF = p.block.leftF,
+                    targetTopF = p.block.topF,
+                    targetRightF = p.block.rightF,
+                    targetBottomF = p.block.bottomF,
+                )
+            }?.let { segShape -> clampShapeToOwnLobe(shape = segShape, own = p.block, others = p.others) }
+            p.block.copy(
+                bgColorTopArgb = p.bgSample.topArgb,
+                bgColorBottomArgb = p.bgSample.bottomArgb,
+                bgUniform = p.bgSample.uniform,
                 shape = shape,
             )
         }
@@ -373,8 +390,14 @@ class OcrEngine @Inject constructor() {
         val h = bitmap.height
         if (w == 0 || h == 0) return@withContext blocks
         val pixelSource = BitmapPixelSource(bitmap)
-        blocks.map { tb ->
-            if (tb.shape != null || tb.isSfx) return@map tb
+
+        // Stejne dvouprchodove schema jako v recognize() (viz komentar tam): nejdriv klasicke
+        // pokusy pro kazdy neotvarovany blok, GPL model (viz BubbleMaskSegmenter) az pak a
+        // nejvyse JEDNOU pro celou stranku - ne opakovane za kazdou bublinu.
+        data class Pending(val tb: TranslatedBlock, val own: RawTextBlock?, val others: List<RawTextBlock>?, val shapeFromClassic: List<BubbleShapePoint>?)
+        fun asRawTextBlock(b: TranslatedBlock) = RawTextBlock(text = b.originalText, leftF = b.leftF, topF = b.topF, rightF = b.rightF, bottomF = b.bottomF)
+        val toResolve = blocks.filter { it.shape == null && !it.isSfx }
+        val pending = toResolve.map { tb ->
             val detected = BubbleShapeDetector.detectShape(
                 source = pixelSource,
                 width = w,
@@ -384,9 +407,15 @@ class OcrEngine @Inject constructor() {
                 textAreaPx = textAreaPx(tb.leftF, tb.topF, tb.rightF, tb.bottomF, w, h),
                 onRatioMeasured = ::logShapeRatio,
             )
-            val shape = when {
-                detected != null -> detected
-                tb.bgUniform -> BubbleShapeDetector.edgeAwareShape(
+            // own/others slouzi jen edgeAwareShape-clampu a pripadne pozdejsi GPL zaloze - kdyz
+            // uz klasicky flood-fill (detected) uspel, ani jedno z toho se nepouzije, takze se
+            // schvalne nepocita.
+            if (detected != null) return@map Pending(tb, own = null, others = null, shapeFromClassic = detected)
+
+            val own = asRawTextBlock(tb)
+            val others = blocks.filter { it !== tb }.map(::asRawTextBlock)
+            val shapeFromClassic = if (tb.bgUniform) {
+                BubbleShapeDetector.edgeAwareShape(
                     source = pixelSource,
                     width = w,
                     height = h,
@@ -395,30 +424,37 @@ class OcrEngine @Inject constructor() {
                     rightF = tb.rightF,
                     bottomF = tb.bottomF,
                     bgColorArgb = tb.bgColorArgb,
-                )?.let { edgeShape ->
-                    clampShapeToOwnLobe(
-                        shape = edgeShape,
-                        own = RawTextBlock(
-                            text = tb.originalText,
-                            leftF = tb.leftF,
-                            topF = tb.topF,
-                            rightF = tb.rightF,
-                            bottomF = tb.bottomF,
-                        ),
-                        others = blocks.filter { it !== tb }.map {
-                            RawTextBlock(
-                                text = it.originalText,
-                                leftF = it.leftF,
-                                topF = it.topF,
-                                rightF = it.rightF,
-                                bottomF = it.bottomF,
-                            )
-                        },
-                    )
-                }
-                else -> null
+                )?.let { edgeShape -> clampShapeToOwnLobe(shape = edgeShape, own = own, others = others) }
+            } else {
+                null
             }
-            tb.copy(shape = shape)
+            Pending(tb, own, others, shapeFromClassic)
+        }
+
+        // Stejna POSLEDNI zaloha jako v recognize() - viz komentar tam a BubbleMaskSegmenter
+        // (GPL-3.0, assets/models/NOTICE.md). Bez tohohle by stary cache bez shape (migrace)
+        // nikdy nedostal vyhodu GPL zalohy, i kdyz nove rozpoznane stranky uz ano.
+        val pageSegmentation = if (pending.any { it.shapeFromClassic == null }) maskSegmenter.detectPage(bitmap) else null
+
+        // Poradi `pending` odpovida poradi `toResolve` (obojí vzniklo stejnym .map/.filter nad
+        // `blocks`), takze se da bezpecne zipovat zpatky podle indexu - na rozdil od parovani
+        // podle rovnosti TranslatedBlock to nekolidovalo by ani u dvou bloku se stejnym obsahem.
+        val resolvedShapes = pending.map { p ->
+            // own/others jsou tu vzdycky non-null: shapeFromClassic je null jen kdyz `detected`
+            // selhalo, a to je jedina cesta, kde se vubec pocitaly - viz vys.
+            p.shapeFromClassic ?: pageSegmentation?.let { page ->
+                maskSegmenter.matchShape(
+                    page = page,
+                    targetLeftF = p.tb.leftF,
+                    targetTopF = p.tb.topF,
+                    targetRightF = p.tb.rightF,
+                    targetBottomF = p.tb.bottomF,
+                )
+            }?.let { segShape -> clampShapeToOwnLobe(shape = segShape, own = p.own!!, others = p.others!!) }
+        }
+        var nextResolved = 0
+        blocks.map { tb ->
+            if (tb.shape == null && !tb.isSfx) tb.copy(shape = resolvedShapes[nextResolved++]) else tb
         }
     }
 
