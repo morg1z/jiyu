@@ -179,6 +179,9 @@ class ReaderViewModel @Inject constructor(
     val oledMode: StateFlow<Boolean> = settings.oledMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val pageCurlEnabled: StateFlow<Boolean> = settings.pageCurlEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val pageScale: StateFlow<String> = settings.pageScale
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit_width")
 

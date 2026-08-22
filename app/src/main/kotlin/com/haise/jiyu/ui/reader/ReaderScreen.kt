@@ -93,6 +93,7 @@ fun ReaderScreen(
     val sleepTimerRemaining  by viewModel.sleepTimerRemaining.collectAsState()
     val panelMode            by viewModel.panelMode.collectAsState()
     val oledMode             by viewModel.oledMode.collectAsState()
+    val pageCurlEnabled      by viewModel.pageCurlEnabled.collectAsState()
     val incognitoMode        by viewModel.incognitoMode.collectAsState()
     val sessionElapsed       by viewModel.sessionElapsed.collectAsState()
     val tapZoneGrid          by viewModel.tapZoneGrid.collectAsState()
@@ -233,6 +234,7 @@ fun ReaderScreen(
                 glossary = glossary,
                 onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
+                pageCurlEnabled = pageCurlEnabled,
             )
             comickUnavailable -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(

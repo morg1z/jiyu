@@ -72,6 +72,7 @@ fun NovelContent(
     glossary: List<GlossaryEntity> = emptyList(),
     onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
     onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
+    pageCurlEnabled: Boolean = false,
 ) {
     var fontSize by remember { mutableStateOf(16f) }
     var lineSpacing by remember { mutableStateOf(1.6f) }
@@ -225,29 +226,42 @@ fun NovelContent(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp),
-        ) {
-            items(paragraphs) { paragraph: String ->
-                Text(
-                    text = paragraph,
-                    color = textColor,
-                    fontSize = fontSize.sp,
-                    lineHeight = (fontSize * lineSpacing).sp,
-                    modifier = Modifier.padding(bottom = (fontSize * 0.75f).dp),
-                )
-            }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                    Arrangement.SpaceBetween,
-                ) {
-                    if (hasPrev) {
-                        TextButton(onClick = onPrev) { Text(stringResource(R.string.reader_prev_novel), color = Color(0xFF34D1BF)) }
-                    } else { Spacer(Modifier) }
-                    if (hasNext) {
-                        TextButton(onClick = onNext) { Text(stringResource(R.string.reader_next_novel), color = Color(0xFF34D1BF)) }
+        if (pageCurlEnabled) {
+            PageCurlNovelReader(
+                text = displayText,
+                fontSize = fontSize,
+                lineSpacing = lineSpacing,
+                textColor = textColor,
+                bgColor = bgColor,
+                onChapterBoundary = { direction ->
+                    if (direction == TurnDirection.NEXT) onNext() else onPrev()
+                },
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                items(paragraphs) { paragraph: String ->
+                    Text(
+                        text = paragraph,
+                        color = textColor,
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineSpacing).sp,
+                        modifier = Modifier.padding(bottom = (fontSize * 0.75f).dp),
+                    )
+                }
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        Arrangement.SpaceBetween,
+                    ) {
+                        if (hasPrev) {
+                            TextButton(onClick = onPrev) { Text(stringResource(R.string.reader_prev_novel), color = Color(0xFF34D1BF)) }
+                        } else { Spacer(Modifier) }
+                        if (hasNext) {
+                            TextButton(onClick = onNext) { Text(stringResource(R.string.reader_next_novel), color = Color(0xFF34D1BF)) }
+                        }
                     }
                 }
             }
