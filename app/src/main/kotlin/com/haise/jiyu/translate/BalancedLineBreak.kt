@@ -17,6 +17,29 @@ package com.haise.jiyu.translate
 private const val INFEASIBLE = Float.MAX_VALUE
 
 /**
+ * Jednopísmenné české předložky/spojky, které nesmí zůstat osamocené na konci řádku - viz
+ * [breakIntoLines]. Standardní sazečské pravidlo (ne jen předložky - "a"/"i" patří do stejné
+ * skupiny), nahlášeno uživatelskou rešerší srovnávající Jiyū s konkurenčními appkami.
+ */
+private val ORPHAN_PRONE_WORDS = setOf("a", "i", "k", "o", "s", "u", "v", "z")
+
+/**
+ * Umělá penalizace (v jednotkách čtverce px, viz cena v [breakIntoLines]) za řádek, který by
+ * nechal jednopísmennou předložku/spojku samotnou na svém konci. Dost velká, aby DP vždycky
+ * dala přednost jinému rozdělení, pokud nějaké existuje, ale konečná - když je to jediná
+ * proveditelná varianta (žádné jiné slovo se na řádek nevejde), rozdělení se pořád vrátí,
+ * jen s nejhorší cenou. Bez týhle měkkosti by [breakIntoLines] mohl zbytečně vrátit null
+ * (a volající by spadl na víc řádků/menší písmo) i tam, kde orphan byl jediná možnost.
+ */
+private const val ORPHAN_LINE_END_PENALTY = 1_000_000f
+
+/** Je [word] (po odstranění interpunkce na okrajích) jednopísmenná předložka/spojka? */
+private fun isOrphanProneWord(word: String): Boolean {
+    val core = word.trim { !it.isLetter() }
+    return core.length == 1 && core.lowercase() in ORPHAN_PRONE_WORDS
+}
+
+/**
  * Rozdělí slova do PŘESNĚ [allowedWidths].size řádků tak, aby součet čtverců nevyužitého místa
  * na řádcích byl nejmenší (klasická "minimum raggedness" dynamika, jen s jinou povolenou šířkou
  * pro každý řádek).
@@ -27,6 +50,10 @@ private const val INFEASIBLE = Float.MAX_VALUE
  * @param wordWidths šířky jednotlivých slov (v px) při aktuální velikosti písma
  * @param spaceWidth šířka mezery mezi slovy
  * @param allowedWidths povolená šířka pro každý řádek - viz [shapeLineWidths]
+ * @param words skutečný text slov (stejná délka jako [wordWidths]) - když je zadaný, řádky,
+ *   které by skončily osamocenou jednopísmennou předložkou/spojkou (viz [ORPHAN_PRONE_WORDS]),
+ *   dostanou penalizaci (viz [ORPHAN_LINE_END_PENALTY]), takže DP dá přednost jinému rozdělení,
+ *   pokud existuje. Null (výchozí) = staré chování bez týhle kontroly.
  * @return indexy KONCŮ řádků (exkluzivně) - např. [3, 7] znamená slova 0..2 na prvním řádku
  *   a 3..6 na druhém. Null, když rozdělení do tohoto počtu řádků není možné (nějaké slovo se
  *   nevejde ani samo na svůj řádek) - volající pak zkusí víc řádků nebo menší písmo.
@@ -35,6 +62,7 @@ fun breakIntoLines(
     wordWidths: List<Float>,
     spaceWidth: Float,
     allowedWidths: List<Float>,
+    words: List<String>? = null,
 ): List<Int>? {
     val wordCount = wordWidths.size
     val lineCount = allowedWidths.size
@@ -65,7 +93,14 @@ fun breakIntoLines(
                 val width = lineWidth(k, j)
                 if (width > allowed) continue // slovo/slova se na tenhle řádek nevejdou
                 val slack = allowed - width
-                val cost = prev + slack * slack
+                var cost = prev + slack * slack
+                // j < wordCount = za tímhle řádkem ještě něco následuje, takže poslední slovo
+                // na něm (index j-1) by bylo vizuálně odtržené od zbytku své fráze. Poslední
+                // slovo CELÉHO textu penalizaci nedostává - tam už nic nenásleduje, co by bylo
+                // "odtržené".
+                if (words != null && j < wordCount && isOrphanProneWord(words[j - 1])) {
+                    cost += ORPHAN_LINE_END_PENALTY
+                }
                 if (cost < dp[line][j]) {
                     dp[line][j] = cost
                     back[line][j] = k
@@ -200,7 +235,7 @@ fun fitTextToShape(
                 lineCount = lineCount,
                 pageWidthPx = pageWidthPx,
             ).map { it.coerceAtMost(maxLineWidthPx) } // viz [maxLineWidthPx]
-            val ends = breakIntoLines(wordWidths, space, allowed) ?: continue
+            val ends = breakIntoLines(wordWidths, space, allowed, words) ?: continue
             return assembleLines(words, ends) to (blockTopF + blockHeightF / 2f)
         }
         return null

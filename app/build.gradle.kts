@@ -181,6 +181,10 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 
+    // ONNX Runtime — spouští natrénované YOLOv8 modely (detekce/segmentace bublin, viz
+    // BubbleBoxDetector/BubbleMaskSegmenter) přímo na zařízení, žádné API/server.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
+
     // Supabase — cloud sync + auth (2.0.3 je poslední verze s Kotlin 1.9.x)
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.0.3")
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.0.3")
