@@ -62,10 +62,34 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Offset není nativně Bundle-savovatelný, takže pro rememberSaveable potřebuje vlastní Saver. */
-private val OffsetSaver = Saver<Offset, List<Float>>(
+internal val OffsetSaver = Saver<Offset, List<Float>>(
     save = { listOf(it.x, it.y) },
     restore = { Offset(it[0], it[1]) },
 )
+
+/**
+ * Rozdělí [pageCount] stránek do skupin - bez spreadu je každá stránka vlastní skupina,
+ * se spreadem se párují po dvou, KROMĚ stránek v [spreadPageIndices] (širší-než-vyšší
+ * obrázky, #29 fix), které zůstávají samy. Čistá funkce vytažená z `MangaReader` pro
+ * JVM testovatelnost a znovupoužití v [MangaPageCurlReader].
+ */
+fun computePageGroups(pageCount: Int, useSpread: Boolean, spreadPageIndices: Set<Int>): List<List<Int>> {
+    if (!useSpread) {
+        return (0 until pageCount).map { listOf(it) }
+    }
+    val result = mutableListOf<List<Int>>()
+    var i = 0
+    while (i < pageCount) {
+        if (i in spreadPageIndices) {
+            result.add(listOf(i)); i++
+        } else if (i + 1 < pageCount && (i + 1) !in spreadPageIndices) {
+            result.add(listOf(i, i + 1)); i += 2
+        } else {
+            result.add(listOf(i)); i++
+        }
+    }
+    return result
+}
 
 // ── Horizontální manga reader (s pinch-to-zoom) ──────────────────────────────
 
@@ -111,7 +135,6 @@ fun MangaReader(
         onPageChanged(page)
     }
 
-    val saveContext = androidx.compose.ui.platform.LocalContext.current
     val resolvedContentScale = when (pageScale) {
         "fit_height" -> ContentScale.FillHeight
         "fit_screen" -> ContentScale.Fit
@@ -125,62 +148,13 @@ fun MangaReader(
     // Dvoustránkové zobrazení: skupiny po 2 stránkách.
     // Stránky, které jsou samy o sobě šiřší než vysoké (#29), se nezačleňují do páru.
     val groups: List<List<Int>> = remember(pages.size, useSpread, spreadPageIndices) {
-        if (!useSpread) {
-            pages.indices.map { listOf(it) }
-        } else {
-            val result = mutableListOf<List<Int>>()
-            var i = 0
-            while (i < pages.size) {
-                if (i in spreadPageIndices) {
-                    result.add(listOf(i)); i++
-                } else if (i + 1 < pages.size && (i + 1) !in spreadPageIndices) {
-                    result.add(listOf(i, i + 1)); i += 2
-                } else {
-                    result.add(listOf(i)); i++
-                }
-            }
-            result
-        }
+        computePageGroups(pages.size, useSpread, spreadPageIndices)
     }
 
-    val saveScope = rememberCoroutineScope()
     var showShareSheet by remember { mutableStateOf(false) }
     var sharePageUrl by remember { mutableStateOf("") }
     if (showShareSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showShareSheet = false },
-            sheetState = sheetState,
-            containerColor = Color(0xFF111B35),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Text(stringResource(R.string.reader_share_page_chooser), color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 16.dp))
-                OutlinedButton(
-                    onClick = { onSharePage(sharePageUrl); showShareSheet = false },
-                    modifier = Modifier.fillMaxWidth(),
-                    border = BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
-                ) {
-                    Icon(TablerIcons.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.reader_share_link), color = Color(0xFF4FC3F7))
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        val url = sharePageUrl
-                        saveScope.launch { saveBitmapToGallery(saveContext, url) }
-                        showShareSheet = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
-                ) {
-                    Icon(TablerIcons.DeviceFloppy, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.reader_save_to_gallery), color = Color(0xFF8B5CF6))
-                }
-                Spacer(Modifier.height(32.dp))
-            }
-        }
+        SharePageBottomSheet(pageUrl = sharePageUrl, onDismiss = { showShareSheet = false })
     }
 
     // Tracks the single page index across recompositions and spread-mode resets.
@@ -331,101 +305,120 @@ fun MangaReader(
                                 TapZoneAction.NONE -> {}
                             }
                         })
-                    },
-            ) {
-                if (indices.size == 1) {
-                    var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
-                    val containerWidth = maxWidth
-                    val containerHeight = maxHeight
-                    // Aplikuje pinch/double-tap transformaci na celou stránku najednou
+                    }
+                    // Aplikuje pinch/double-tap transformaci na celou skupinu stránek najednou
                     // (obrázek + překladové bubliny), aby bubliny zůstaly na správném
                     // místě při zoomu, místo toho, aby zůstávaly na původní pozici.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = panOffset.x,
-                                translationY = panOffset.y,
-                            ),
-                    ) {
-                        RetryableAsyncImage(
-                            url = pages[indices[0]],
-                            contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
-                            contentScale = resolvedContentScale,
-                            cropBorders = cropBorders,
-                            modifier = Modifier.fillMaxSize(),
-                            onImageSize = { intrinsicSize = it },
-                        )
-                        if (translateMode) {
-                            val blocks = translatedPages[indices[0]]
-                            if (!blocks.isNullOrEmpty()) {
-                                // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
-                                // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
-                                // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
-                                // velikost dorazí, přepočítá se na přesný imageRect (viz imageDisplayRect).
-                                val imageRect = remember(intrinsicSize, containerWidth, containerHeight, resolvedContentScale) {
-                                    intrinsicSize?.let {
-                                        imageDisplayRect(it, Size(containerWidth.value, containerHeight.value), resolvedContentScale)
-                                    } ?: Rect(0f, 0f, containerWidth.value, containerHeight.value)
-                                }
-                                BubbleOverlayLayer(
-                                    blocks = blocks,
-                                    imageRect = imageRect,
-                                    textScale = textScale,
-                                    pageIndex = indices[0],
-                                    pageUrl = pages[indices[0]],
-                                    flippedBubbles = flippedBubbles,
-                                    onToggleFlip = onToggleBubbleFlip,
-                                    onEditBubble = onEditBubble,
-                                )
-                            }
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = panOffset.x,
+                        translationY = panOffset.y,
+                    ),
+            ) {
+                MangaGroupContent(
+                    indices = indices,
+                    pages = pages,
+                    translateMode = translateMode,
+                    translatedPages = translatedPages,
+                    reverseLayout = reverseLayout,
+                    resolvedContentScale = resolvedContentScale,
+                    cropBorders = cropBorders,
+                    textScale = textScale,
+                    flippedBubbles = flippedBubbles,
+                    onToggleBubbleFlip = onToggleBubbleFlip,
+                    onEditBubble = onEditBubble,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MangaGroupContent(
+    indices: List<Int>,
+    pages: List<String>,
+    translateMode: Boolean,
+    translatedPages: Map<Int, List<TranslatedBlock>>,
+    reverseLayout: Boolean,
+    resolvedContentScale: ContentScale,
+    cropBorders: Boolean,
+    textScale: Float,
+    flippedBubbles: Set<String>,
+    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit,
+) {
+    if (indices.size == 1) {
+        var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val containerWidth = maxWidth
+            val containerHeight = maxHeight
+            Box(modifier = Modifier.fillMaxSize()) {
+                RetryableAsyncImage(
+                    url = pages[indices[0]],
+                    contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
+                    contentScale = resolvedContentScale,
+                    cropBorders = cropBorders,
+                    modifier = Modifier.fillMaxSize(),
+                    onImageSize = { intrinsicSize = it },
+                )
+                if (translateMode) {
+                    val blocks = translatedPages[indices[0]]
+                    if (!blocks.isNullOrEmpty()) {
+                        // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
+                        // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
+                        // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
+                        // velikost dorazí, přepočítá se na přesný imageRect (viz imageDisplayRect).
+                        val imageRect = remember(intrinsicSize, containerWidth, containerHeight, resolvedContentScale) {
+                            intrinsicSize?.let {
+                                imageDisplayRect(it, Size(containerWidth.value, containerHeight.value), resolvedContentScale)
+                            } ?: Rect(0f, 0f, containerWidth.value, containerHeight.value)
                         }
+                        BubbleOverlayLayer(
+                            blocks = blocks,
+                            imageRect = imageRect,
+                            textScale = textScale,
+                            pageIndex = indices[0],
+                            pageUrl = pages[indices[0]],
+                            flippedBubbles = flippedBubbles,
+                            onToggleFlip = onToggleBubbleFlip,
+                            onEditBubble = onEditBubble,
+                        )
                     }
-                } else {
-                    val ordered = if (reverseLayout) indices.reversed() else indices
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = panOffset.x,
-                                translationY = panOffset.y,
-                            ),
-                    ) {
-                        ordered.forEach { idx ->
-                            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
-                                var pageIntrinsicSize by remember(pages[idx]) { mutableStateOf<Size?>(null) }
-                                RetryableAsyncImage(
-                                    url = pages[idx],
-                                    contentDescription = stringResource(R.string.reader_page_content_desc, idx + 1),
-                                    contentScale = resolvedContentScale,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onImageSize = { pageIntrinsicSize = it },
-                                )
-                                if (translateMode) {
-                                    val blocks = translatedPages[idx]
-                                    if (!blocks.isNullOrEmpty()) {
-                                        val imageRect = remember(pageIntrinsicSize, maxWidth, maxHeight, resolvedContentScale) {
-                                            pageIntrinsicSize?.let {
-                                                imageDisplayRect(it, Size(maxWidth.value, maxHeight.value), resolvedContentScale)
-                                            } ?: Rect(0f, 0f, maxWidth.value, maxHeight.value)
-                                        }
-                                        BubbleOverlayLayer(
-                                            blocks = blocks,
-                                            imageRect = imageRect,
-                                            textScale = textScale,
-                                            pageIndex = idx,
-                                            pageUrl = pages[idx],
-                                            flippedBubbles = flippedBubbles,
-                                            onToggleFlip = onToggleBubbleFlip,
-                                            onEditBubble = onEditBubble,
-                                        )
-                                    }
-                                }
+                }
+            }
+        }
+    } else {
+        val ordered = if (reverseLayout) indices.reversed() else indices
+        Row(modifier = Modifier.fillMaxSize()) {
+            ordered.forEach { idx ->
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
+                    var pageIntrinsicSize by remember(pages[idx]) { mutableStateOf<Size?>(null) }
+                    RetryableAsyncImage(
+                        url = pages[idx],
+                        contentDescription = stringResource(R.string.reader_page_content_desc, idx + 1),
+                        contentScale = resolvedContentScale,
+                        modifier = Modifier.fillMaxSize(),
+                        onImageSize = { pageIntrinsicSize = it },
+                    )
+                    if (translateMode) {
+                        val blocks = translatedPages[idx]
+                        if (!blocks.isNullOrEmpty()) {
+                            val imageRect = remember(pageIntrinsicSize, maxWidth, maxHeight, resolvedContentScale) {
+                                pageIntrinsicSize?.let {
+                                    imageDisplayRect(it, Size(maxWidth.value, maxHeight.value), resolvedContentScale)
+                                } ?: Rect(0f, 0f, maxWidth.value, maxHeight.value)
                             }
+                            BubbleOverlayLayer(
+                                blocks = blocks,
+                                imageRect = imageRect,
+                                textScale = textScale,
+                                pageIndex = idx,
+                                pageUrl = pages[idx],
+                                flippedBubbles = flippedBubbles,
+                                onToggleFlip = onToggleBubbleFlip,
+                                onEditBubble = onEditBubble,
+                            )
                         }
                     }
                 }
@@ -434,7 +427,49 @@ fun MangaReader(
     }
 }
 
-private suspend fun saveBitmapToGallery(context: android.content.Context, url: String) {
+/** Poznámka: "Sdílet odkaz" volá jen [onDismiss] - `onSharePage` z `MangaReaderu` do sem
+ * nikdy nebylo napojeno (viz `ReaderContent.kt`), takže tlačítko i dřív jen zavřelo sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SharePageBottomSheet(pageUrl: String, onDismiss: () -> Unit) {
+    val saveContext = androidx.compose.ui.platform.LocalContext.current
+    val saveScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111B35),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+            Text(stringResource(R.string.reader_share_page_chooser), color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 16.dp))
+            OutlinedButton(
+                onClick = { onDismiss() },
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
+            ) {
+                Icon(TablerIcons.Share, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.reader_share_link), color = Color(0xFF4FC3F7))
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    saveScope.launch { saveBitmapToGallery(saveContext, pageUrl) }
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f)),
+            ) {
+                Icon(TablerIcons.DeviceFloppy, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.reader_save_to_gallery), color = Color(0xFF8B5CF6))
+            }
+            Spacer(Modifier.height(32.dp))
+        }
+    }
+}
+
+internal suspend fun saveBitmapToGallery(context: android.content.Context, url: String) {
     val bitmap: android.graphics.Bitmap? = if (url.startsWith("/") || url.startsWith("file://")) {
         val path = url.removePrefix("file://")
         android.graphics.BitmapFactory.decodeFile(path)
