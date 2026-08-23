@@ -5,7 +5,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Dva vizuální styly otáčení stránky - viz [PageCurlGeometry.style].
+ * Vizuální styly otáčení stránky - viz [PageCurlGeometry.style].
  */
 enum class CurlStyle {
     /** Plochý ohyb po (téměř) celé výšce stránky, jako klasické otáčení listu v knize -
@@ -16,6 +16,28 @@ enum class CurlStyle {
      * pomyslného válce (0..π), malý konstantní poloměr. Viditelná i "rubová" (tmavší) strana
      * svinutého papíru. */
     ROLL,
+
+    /** Stejná válcová geometrie jako [ROLL] (sdílí [computePageCurlGeometry]/[warpedOffset]/
+     * [shadeAt]), ale poloměr NENÍ konstantní - roste s tím, kolik papíru je už otočeno
+     * (`radius = paperPastFold / π`), takže "svitek" místo tenké trubičky ztloustne přes celou
+     * odvalenou délku - žádný plochý zbytek navíc, celá otočená část je vždy vidět jako válec. */
+    CYLINDER,
+
+    /** Vlastní sinusová geometrie (NE válcová, nepoužívá [warpedOffset]/[shadeAt]) - viz
+     * [com.haise.jiyu.ui.reader.drawWaveCurl]. Otočená část se prohne jako mořská vlna (hrb
+     * uprostřed pásu), na vrcholu se "zláme" jako přehoz zpátky. */
+    WAVE,
+}
+
+/** Převede uloženou textovou hodnotu nastavení ([com.haise.jiyu.settings.CurlStyleSetting]) na
+ * [CurlStyle] - sdíleno mezi [com.haise.jiyu.ui.reader.MangaPageCurlReader] a
+ * [com.haise.jiyu.ui.reader.PageCurlNovelReader], aby obě čtečky nezávisle nezapomněly na nově
+ * přidaný styl (dřív každá měla vlastní binární `if (== ROLL) ROLL else CLASSIC`). */
+fun resolveCurlStyle(value: String): CurlStyle = when (value) {
+    com.haise.jiyu.settings.CurlStyleSetting.ROLL -> CurlStyle.ROLL
+    com.haise.jiyu.settings.CurlStyleSetting.CYLINDER -> CurlStyle.CYLINDER
+    com.haise.jiyu.settings.CurlStyleSetting.WAVE -> CurlStyle.WAVE
+    else -> CurlStyle.CLASSIC
 }
 
 /** Maximální úhel na pomyslném válci, který [style] ještě vykresluje - určuje, jestli je vidět
@@ -23,6 +45,13 @@ enum class CurlStyle {
 private fun CurlStyle.domainMax(): Float = when (this) {
     CurlStyle.CLASSIC -> PI.toFloat() / 2f
     CurlStyle.ROLL -> PI.toFloat()
+    // Stejná půlka válce jako ROLL - jen poloměr (viz computePageCurlGeometry) roste s
+    // paperPastFold misto aby byl konstantni, takze curlBandWidth == paperPastFold vzdy presne
+    // (zadny plochy zbytek navic, viz CurlStyle.CYLINDER dokumentace).
+    CurlStyle.CYLINDER -> PI.toFloat()
+    // Nepouziva se pro warpedOffset/shadeAt (WAVE ma vlastni sinusovou geometrii v
+    // drawWaveCurl) - jen omezuje maximalni sirku "vlneni" pres radius*domainMax nize.
+    CurlStyle.WAVE -> 1f
 }
 
 /** Nejtmavší přípustné stínování - u [CurlStyle.ROLL] by `cos(theta)` u theta blízko π jinak
@@ -85,14 +114,21 @@ fun computePageCurlGeometry(
     style: CurlStyle = CurlStyle.CLASSIC,
 ): PageCurlGeometry {
     val clampedProgress = progress.coerceIn(0f, 1f)
+    val paperPastFold = clampedProgress * pageWidth
     val radius = when (style) {
         CurlStyle.CLASSIC -> (pageWidth * 0.18f).coerceAtLeast(24f)
         // Výrazně užší než CLASSIC - jinak by "svitek" byl tak široký, že by se svinutí vůbec
         // nestihlo opticky uzavřít do trubičky, než by narazil na maximum šířky stránky.
         CurlStyle.ROLL -> (pageWidth * 0.05f).coerceAtLeast(16f)
+        // Roste s paperPastFold (ne konstantni jako ROLL) - radius*domainMax(=π) tak vzdy vyjde
+        // presne paperPastFold, viz maxBandWidth nize (zadne coerceAtMost oriznuti). Floor 16f
+        // jen pro bezpecne deleni pri paperPastFold blizko 0 (curlBandWidth tam stejne vyjde
+        // male, protoze je to min(paperPastFold, maxBandWidth) a paperPastFold je ten mensi).
+        CurlStyle.CYLINDER -> (paperPastFold / PI.toFloat()).coerceAtLeast(16f)
+        // Maximalni sirka pasu, na kterem se vlni - viz drawWaveCurl.
+        CurlStyle.WAVE -> (pageWidth * 0.35f).coerceAtLeast(40f)
     }
     val maxBandWidth = radius * style.domainMax()
-    val paperPastFold = clampedProgress * pageWidth
     val curlBandWidth = paperPastFold.coerceAtMost(maxBandWidth)
     val foldX = if (turningFromRight) pageWidth - paperPastFold else paperPastFold
     return PageCurlGeometry(pageWidth, pageHeight, turningFromRight, foldX, curlBandWidth, radius, clampedProgress, style)

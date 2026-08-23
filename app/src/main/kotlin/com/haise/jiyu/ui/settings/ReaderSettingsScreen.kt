@@ -254,6 +254,8 @@ fun ReaderSettingsScreen(
                         listOf(
                             CurlStyleSetting.CLASSIC to stringResource(R.string.settings_reader_curl_style_classic),
                             CurlStyleSetting.ROLL to stringResource(R.string.settings_reader_curl_style_roll),
+                            CurlStyleSetting.CYLINDER to stringResource(R.string.settings_reader_curl_style_cylinder),
+                            CurlStyleSetting.WAVE to stringResource(R.string.settings_reader_curl_style_wave),
                         ).forEach { (value, label) ->
                             GlassRadioRow(label = label, selected = curlStyle == value, onClick = { viewModel.setCurlStyle(value) })
                         }

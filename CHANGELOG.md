@@ -4,6 +4,18 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.56
+
+### Nové: 2 nové styly otáčení stránky
+V Nastavení → Čtečka → Otáčení stránek přibyly další dvě volby vedle "Klasické otáčení" a
+"Srolování stránky":
+- **Silný svitek** - stejné svinutí jako "Srolování stránky", ale svitek tloustne s tím, jak
+  přibývá otočeného papíru (ne tenká trubička po celou dobu).
+- **Mořská vlna** - otočená část se prohne jako mořská vlna (hrb uprostřed), na vrcholu se
+  "zláme" jako přehyb papíru.
+
+Nezkoušeno naživo na zařízení - dej vědět, jestli to vypadá/chová se podle očekávání.
+
 ## v1.2.55
 
 ### Nové: tlačítko Domů v panelu čtečky

@@ -206,6 +206,8 @@
     <string name="settings_reader_volume_keys_desc">Tlačítka hl. + / hl. − přepínají stránky</string>
     <string name="settings_reader_curl_style_classic">Klasické otáčení</string>
     <string name="settings_reader_curl_style_roll">Srolování stránky</string>
+    <string name="settings_reader_curl_style_cylinder">Silný svitek</string>
+    <string name="settings_reader_curl_style_wave">Mořská vlna</string>
     <string name="settings_reader_skip_read_title">Přeskakovat přečtené kapitoly</string>
     <string name="settings_reader_skip_read_desc">Navigace přeskočí kapitoly označené jako přečtené</string>
     <string name="settings_reader_theme_title">Téma čtečky</string>

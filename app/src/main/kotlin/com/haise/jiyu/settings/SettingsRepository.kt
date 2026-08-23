@@ -129,6 +129,8 @@ object ReadingDirection {
 object CurlStyleSetting {
     const val CLASSIC = "classic"
     const val ROLL = "roll"
+    const val CYLINDER = "cylinder"
+    const val WAVE = "wave"
 }
 
 object ReadingMode {
