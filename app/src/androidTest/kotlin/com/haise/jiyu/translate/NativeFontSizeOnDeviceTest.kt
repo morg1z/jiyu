@@ -45,7 +45,7 @@ class NativeFontSizeOnDeviceTest {
 
     @Test
     fun measureOcrBoxHeightAgainstKnownFontSize() = runBlocking {
-        val engine = OcrEngine(BubbleMaskSegmenter(context))
+        val engine = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context)))
         val ratios = mutableListOf<Float>()
 
         // Verzalky jsou to, co manga lettering pouziva nejcasteji.

@@ -87,7 +87,7 @@ class PunctuationBlockProbeTest {
     }
 
     private fun dump(label: String, bitmap: Bitmap) = runBlocking {
-        val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
+        val blocks = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(bitmap, "English")
         val classified = BubbleClassifier.classifyPage(blocks)
         Log.i(TAG, "=== $label: ${blocks.size} bloku ===")
         blocks.forEachIndexed { i, b ->

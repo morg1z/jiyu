@@ -85,7 +85,7 @@ class CascadeOnLightBackgroundTest {
     @Test
     fun probeShapesAndClassificationOnLightBackground() = runBlocking<Unit> {
         val bitmap = cascadingOnLightBg()
-        val raw = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
+        val raw = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(bitmap, "English")
         val classified = BubbleClassifier.classifyPage(raw)
 
         Log.i("LightBgProbe", "bloku = ${raw.size}")

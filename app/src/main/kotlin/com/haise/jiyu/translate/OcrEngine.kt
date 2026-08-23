@@ -3,14 +3,18 @@ package com.haise.jiyu.translate
 import android.graphics.Bitmap
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.haise.jiyu.util.report
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -159,6 +163,14 @@ internal val AUTO_CANDIDATE_LANGUAGES = listOf("English", "Japanese", "Korean", 
 internal const val AUTO_CONFIDENT_CHARS = 20
 
 /**
+ * Bezpečná horní hranice jedné manga-ocr inference na bublinu (viz spec sekce 5 - reálně
+ * změřeno ~1-1.6s/bublinu i s 10x mobilní ARM penaltou, velká rezerva). Timeout/výjimka
+ * padá na ML Kit fallback jen pro TUHLE bublinu, ne pro celou stránku -
+ * TranslateRepository.PAGE_OCR_TIMEOUT_MILLIS (40s) zůstává vnější pojistkou beze změny.
+ */
+internal const val MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS = 8000L
+
+/**
  * Vybere rozpoznávač pro [AUTO_LANGUAGE]: zkouší kandidáty popořadě a bere ten, který našel
  * nejvíc textu. Jakmile některý překročí [AUTO_CONFIDENT_CHARS], zbytek se už nespouští.
  *
@@ -219,6 +231,8 @@ private class BitmapPixelSource(private val bitmap: Bitmap) : PixelSource {
 @Singleton
 class OcrEngine @Inject constructor(
     private val maskSegmenter: BubbleMaskSegmenter,
+    private val bubbleBoxDetector: BubbleBoxDetector,
+    private val mangaOcrPipeline: MangaOcrPipeline,
 ) {
     // Lazy recognizers: CJK jazyky mají vlastní ML Kit model, ostatní spadají na latinkový výchozí
     private val japaneseRecognizer by lazy { TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build()) }
@@ -263,13 +277,22 @@ class OcrEngine @Inject constructor(
         // vizuální hranice (obrys, jiná barva boxu). Bez týhle kontroly se sloučily do
         // jednoho bloku: jedna bublina zmizela beze zbytku (viz uživatelská zpětná vazba),
         // druhá na stránce s reklamou vytvořila jednu přebujelou barevnou plochu.
-        val merged = sortIntoReadingOrder(
-            mergeNearbyLines(lines) { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
-            // Rozhoduje ROZPOZNANÝ jazyk, ne ten nastavený - pod "Auto" byl nastavený jazyk
-            // doslova "Auto", takže japonská stránka dostala pořadí zleva doprava a model
-            // četl repliky pozpátku.
-            rightToLeft = isRightToLeftScript(resolvedLanguage),
-        )
+        //
+        // Japonština má od téhle chvíle úplně jinou cestu (viz spec sekce 4): manga-ocr
+        // čte VÝŘEZ CELÉ bubliny najednou, ne řádek po řádku, takže `lines` (ML-Kit trial,
+        // co jen ROZHODL, že stránka je japonská) se tu zahazuje a mergeNearbyLines se pro
+        // ni vůbec nevolá - shouldMerge je pravidlo pro řádkové OCR, ne pro celobublinové.
+        val merged = if (resolvedLanguage == "Japanese") {
+            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap), rightToLeft = true)
+        } else {
+            sortIntoReadingOrder(
+                mergeNearbyLines(lines) { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
+                // Rozhoduje ROZPOZNANÝ jazyk, ne ten nastavený - pod "Auto" byl nastavený jazyk
+                // doslova "Auto", takže japonská stránka dostala pořadí zleva doprava a model
+                // četl repliky pozpátku.
+                rightToLeft = isRightToLeftScript(resolvedLanguage),
+            )
+        }
         // Prvni pruchod: klasicke (flood-fill / edge-aware) pokusy o tvar pro kazdy blok. Bloky,
         // kde OBA selzaly, se sesbiraji do `needsMaskSegmenter` - GPL model (viz nize) se pak
         // spusti nejvyse JEDNOU za celou stranku, ne opakovane za kazdou takovou bublinu (ktera
@@ -378,6 +401,56 @@ class OcrEngine @Inject constructor(
                 isVertical = isVerticalAngle(line.angle),
             )
         }
+    }
+
+    /**
+     * Japonská větev [recognize] - viz spec sekce 4. Na rozdíl od ML Kit cesty čte VÝŘEZ
+     * CELÉ bubliny najednou ([MangaOcrPipeline]), ne řádek po řádku, takže tady netřeba
+     * [mergeNearbyLines].
+     *
+     * Selhání/timeout jednotlivé bubliny padá na ML Kit ([recognizeCropWithMlKit]) - appka
+     * nikdy nesmí zůstat bez textu jen kvůli tomuhle modelu (spec "Cíl").
+     */
+    private suspend fun recognizeJapaneseWithMangaOcr(bitmap: Bitmap): List<RawTextBlock> {
+        val boxes = bubbleBoxDetector.detect(bitmap)
+        return boxes.mapNotNull { box ->
+            val crop = cropBubbleBoxWithMargin(bitmap, box)
+            try {
+                val mangaOcrText = withTimeoutOrNull(MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS) {
+                    mangaOcrPipeline.recognizeCrop(crop)
+                }
+                val text = if (!mangaOcrText.isNullOrBlank()) mangaOcrText else recognizeCropWithMlKit(crop)
+                if (text.isNullOrBlank()) {
+                    null
+                } else {
+                    RawTextBlock(text = text, leftF = box.leftF, topF = box.topF, rightF = box.rightF, bottomF = box.bottomF)
+                }
+            } finally {
+                crop.recycle()
+            }
+        }
+    }
+
+    /**
+     * ML Kit záloha pro jednu už oříznutou bublinu - viz spec sekce 4/5. Stejný recognizer,
+     * co [recognizeLines] pro "Japanese", jen na oříznutém výřezu misto celé stránky a se
+     * spojeným výsledkem do jednoho stringu (nepotřebujeme řádkovou geometrii, jen text).
+     */
+    private suspend fun recognizeCropWithMlKit(crop: Bitmap): String? {
+        val image = InputImage.fromBitmap(crop, 0)
+        val result: Text = try {
+            suspendCancellableCoroutine { cont ->
+                japaneseRecognizer.process(image)
+                    .addOnSuccessListener { cont.resume(it) }
+                    .addOnFailureListener { cont.resumeWithException(it) }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("translate:ocrEngine:mangaOcrMlKitFallback")
+            return null
+        }
+        return result.textBlocks.flatMap { it.lines }.joinToString(" ") { it.text }.ifBlank { null }
     }
 
     /**

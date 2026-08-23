@@ -59,7 +59,7 @@ class LineSpacingMergeProbeTest {
     fun probe_atWhichLineSpacingDoLinesStopMerging() = runBlocking {
         Log.i(TAG, "=== rozteč -> naměřený pomer gap/avgHeight -> slouci se? (prah je 0.9) ===")
         for (ratio in listOf(1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f)) {
-            val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(twoLineBubble(ratio), "English")
+            val blocks = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(twoLineBubble(ratio), "English")
             if (blocks.size < 2) {
                 // Sloučené uz na urovni OCR/mergeNearbyLines - to je zadouci vysledek.
                 Log.i(TAG, "roztec=${ratio}x -> ${blocks.size} blok(u): ${blocks.map { it.text }} (SLOUCENO)")
@@ -105,7 +105,7 @@ class LineSpacingMergeProbeTest {
             canvas.drawText("SURVIVED,", w * 0.32f, firstBaseline + fontPx * ratio, text)
             canvas.drawText("TOO...", w * 0.38f, firstBaseline + fontPx * ratio * 2f, text)
 
-            val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bmp, "English")
+            val blocks = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(bmp, "English")
             if (blocks.size < 2) {
                 Log.i(TAG, "kratky radek roztec=${ratio}x -> ${blocks.size} blok(u) ${blocks.map { it.text }} (SLOUCENO)")
                 continue
@@ -161,7 +161,7 @@ class LineSpacingMergeProbeTest {
             canvas.drawText("REFUGEE", w * 0.15f, firstBottom - h * 0.07f, text)
             canvas.drawText("HUNTERS", w * 0.15f, secondTop + h * 0.12f, text)
 
-            val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bmp, "English")
+            val blocks = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(bmp, "English")
             if (blocks.size < 2) {
                 Log.i(TAG, "odstup bublin=${bubbleGapRatio} -> ${blocks.size} blok(u) ${blocks.map { it.text }} (CHYBNE SLOUCENO)")
                 continue

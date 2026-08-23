@@ -74,7 +74,7 @@ class CascadingBubbleOnDeviceTest {
     @Test
     fun cascadingBubbleShapesDoNotSwallowTheNeighbour() = runBlocking {
         val bitmap = cascadingBalloon()
-        val blocks = OcrEngine(BubbleMaskSegmenter(context)).recognize(bitmap, "English")
+        val blocks = OcrEngine(BubbleMaskSegmenter(context), BubbleBoxDetector(context), MangaOcrPipeline(context, BubbleBoxDetector(context))).recognize(bitmap, "English")
 
         Log.i("CascadeProbe", "nalezeno bloku: ${blocks.size}")
         blocks.forEachIndexed { i, b ->
