@@ -4,6 +4,32 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.53
+
+### Oprava: Novinky ukazovaly starý archiv jako nové a duplicitní upozornění u ComicK
+"Novinky" braly datum VYDÁNÍ kapitoly na zdroji, ne kdy ji appka objevila - při přidání mangy
+s už existujícím archivem (např. 8 kapitol) appka celý archiv ukázala/oznámila jako 8 nových
+kapitol, i když jde jen o kapitoly starší, než kdy jsi mangu přidal. Nová kapitola se teď počítá
+podle toho, kdy ji appka poprvé zaznamenala, ne podle původního data vydání - takže Novinky
+začnou "od teď", ne od celé historie.
+
+Zároveň platí, že u agregovaných zdrojů (ComicK) může stejné číslo kapitoly vydat víc
+překladatelských skupin zvlášť - to už appka nebude počítat/oznamovat víckrát za sebou, jen
+jednou za číslo kapitoly.
+
+### Oprava: barvy štítků MANHWA/MANHUA byly nerozeznatelné
+Štítky typu obsahu MANHWA a MANHUA ukazovaly stejnou fialovou barvu (obě byly ve skutečnosti
+jen alias na stejnou barvu motivu, i mezi mřížkovým a seznamovým zobrazením se navíc lišily).
+MANHWA je teď modrá, MANHUA zlatá - a obě zobrazení používají stejnou paletu.
+
+## v1.2.52
+
+### Oprava: pomalé stahování aktualizací (Novinky + Knihovna)
+Ruční obnovení v záložce Novinky a "potáhnutím obnovit" v Knihovně kontrolovalo každou mangu v
+knihovně jednu po druhé - jeden pomalejší/Cloudflare chráněný zdroj tak zdržel všechny ostatní
+za sebou. Teď se kontroluje až 5 najednou (stejně jako už dřív dělala tichá kontrola na pozadí),
+takže by to mělo být citelně rychlejší.
+
 ## v1.2.51
 
 ### Oprava: možná příčina náhodných pádů appky/kapitoly u srolování stránky

@@ -40,4 +40,10 @@ data class ChapterEntity(
     val volume: String? = null,
     /** JSON pole [{"name":...,"slug":...}] - viz SGroup. Zatim se nikde necte zpet do UI (pripraveno pro budouci klikaci stranku skupiny). */
     val groupsJson: String? = null,
+    /** Kdy tenhle radek poprve vlozila appka (ne kdy zdroj kapitolu skutecne vydal - to je
+     * [dateUpload]). Rozliseni je dulezite pro "Novinky" - viz ChapterDao.observeUpdates -
+     * pri prvnim pridani mangy s uz existujicim archivem (napr. 8 kapitol) se cely archiv
+     * vlozi naraz a MEL by se brat jako "uz mam precteno/videno", ne jako "8 novych upozorneni".
+     * MangaRepository.refreshChapters nastavi na System.currentTimeMillis() pri vytvoreni. */
+    val discoveredAt: Long = 0L,
 )

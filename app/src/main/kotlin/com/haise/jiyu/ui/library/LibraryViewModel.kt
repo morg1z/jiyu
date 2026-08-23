@@ -17,6 +17,9 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +29,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.random.Random
@@ -235,16 +240,27 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             _refreshError.value = null
-            val errors = mutableListOf<String>()
+            // Az 5 soubezne (stejny vzor jako ChapterUpdateWorker/UpdatesViewModel.refresh) -
+            // drivejsi sekvencni forEach cekalo na kazdou mangu/zdroj ZVLAST, jeden pomaly/
+            // Cloudflare-chraneny zdroj tak zdrzel VSECHNY ostatni po nem (uzivatel hlasil
+            // "aktualizace se stahuji nejak pomalu").
+            val semaphore = Semaphore(5)
+            val errors = java.util.Collections.synchronizedList(mutableListOf<String>())
             val allManga = repository.getAllLibraryManga()
-            allManga.forEach { manga ->
-                try {
-                    val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, manga.description, manga.status, contentType = manga.contentType)
-                    repository.refreshChapters(manga.id, sManga)
-                    repository.refreshMangaDetails(manga.id, sManga)
-                } catch (e: Exception) {
-                    errors += manga.title
-                }
+            coroutineScope {
+                allManga.map { manga ->
+                    async {
+                        semaphore.withPermit {
+                            try {
+                                val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, manga.description, manga.status, contentType = manga.contentType)
+                                repository.refreshChapters(manga.id, sManga)
+                                repository.refreshMangaDetails(manga.id, sManga)
+                            } catch (e: Exception) {
+                                errors += manga.title
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
             if (errors.isNotEmpty()) {
                 val suffix = if (errors.size > 3) context.getString(R.string.library_refresh_error_and_more) else ""

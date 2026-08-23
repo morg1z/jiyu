@@ -105,3 +105,9 @@ val GlowCyan    get() = Accent
 val NavyGlass   get() = NightBlue
 val Pink        = Color(0xFFEC4899)
 val PinkLight   = Color(0xFFF9A8D4)
+/** Odznak typu obsahu MANHWA (viz contentTypeBadgeColor) - pevna barva nezavisla na motivu,
+ * stejne jako Pink/Danger nize - drive GlowViolet/GlowCyan pro MANHWA/MANHUA byly ve
+ * skutecnosti STEJNA barva (obe jen aliasy na Accent), odznaky tak byly k nerozeznani. */
+val Blue        = Color(0xFF3B82F6)
+/** Odznak typu obsahu MANHUA (viz contentTypeBadgeColor). */
+val Gold        = Color(0xFFD4A017)

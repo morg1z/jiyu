@@ -49,11 +49,16 @@ class ChapterUpdateWorker @AssistedInject constructor(
                             try {
                                 val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, contentType = manga.contentType)
                                 val newChapters = repository.refreshChapters(manga.id, sManga)
-                                if (newChapters.isNotEmpty()) {
-                                    updatedManga.add(manga.title to (manga.id to newChapters.size))
+                                // Agregovane zdroje (ComicK) umi vydat stejne cislo kapitoly vic
+                                // prekladatelskymi skupinami zaraz - kazda je samostatny radek,
+                                // bez dedup by tak jedna nova kapitola znamenala 2-3 upozorneni
+                                // (nahlaseno uzivatelem).
+                                val uniqueNewChapters = newChapters.distinctBy { it.chapterNumber }
+                                if (uniqueNewChapters.isNotEmpty()) {
+                                    updatedManga.add(manga.title to (manga.id to uniqueNewChapters.size))
                                 }
-                                if (manga.autoDownload && newChapters.isNotEmpty() && manga.sourceId != "comick") {
-                                    newChapters.forEach { ch ->
+                                if (manga.autoDownload && uniqueNewChapters.isNotEmpty() && manga.sourceId != "comick") {
+                                    uniqueNewChapters.forEach { ch ->
                                         repository.setDownloadStatus(ch.id, DownloadStatus.QUEUED)
                                         downloadQueue.enqueue(ch, manga.url)
                                     }

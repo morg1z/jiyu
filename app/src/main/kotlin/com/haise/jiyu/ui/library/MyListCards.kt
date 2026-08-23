@@ -212,7 +212,9 @@ internal fun AnimeMangaCard(
         }
         // Content type badge (MANHWA / MANHUA) — skip for MANGA (default)
         if (!isSelected && manga.contentType != "MANGA") {
-            val badgeColor = if (manga.contentType == "MANHWA") GlowCyan else Color(0xFFEC4899)
+            // Stejna paleta jako v seznamovem zobrazeni (LibraryListRow) - viz
+            // contentTypeBadgeColor v MyListComponents.kt.
+            val badgeColor = contentTypeBadgeColor(manga.contentType)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)

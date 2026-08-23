@@ -116,15 +116,34 @@ interface ChapterDao {
     @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED', localPath = NULL, pageCount = 0 WHERE id = :id")
     suspend fun resetDownloadForChapter(id: String)
 
+    // "Novinky" - dve zamerne odlisnosti od naivniho "vsechny kapitoly serazene podle data":
+    // 1) `c.discoveredAt > m.addedAt` - `dateUpload` je datum VYDANI na zdroji (muze byt roky
+    //    stare), `discoveredAt` je kdy appka radek poprve ulozila. Bez tehle podminky by prvni
+    //    synchronizace ciziho titulu (napr. 8 jiz existujicich kapitol pri pridani do
+    //    knihovny) zaplavila Novinky celym archivem, jako by slo o 8 novych vydani
+    //    (nahlaseno uzivatelem). Porovnanim s `addedAt` (kdy uzivatel mangu pridal) zustanou
+    //    ve feedu jen kapitoly objevene AZ POTOM - tedy skutecne nove.
+    // 2) `c.id = (SELECT ... ORDER BY discoveredAt ASC LIMIT 1)` - u agregovanych zdroju
+    //    (ComicK) muze stejne cislo kapitoly vydat vic prekladatelskych skupin zvlast, kazda
+    //    jako samostatny radek - bez tehle podminky by kazda skupina znamenala vlastni
+    //    polozku ve feedu (uzivatel hlasil 3 upozorneni na stejnou kapitolu). Vybere se jen
+    //    NEJDRIV objevena skupina jako zastupce cisla kapitoly.
     @Query("""
         SELECT c.id as chapterId, c.name as chapterName, c.chapterNumber, c.dateUpload,
                c.mangaId, m.title as mangaTitle, m.coverUrl, c.sourceId, c.read
         FROM chapter c
         INNER JOIN manga m ON c.mangaId = m.id
         WHERE m.inLibrary = 1
-          AND (SELECT COUNT(*) FROM chapter c2
-               WHERE c2.mangaId = c.mangaId AND c2.dateUpload > c.dateUpload) < 20
-        ORDER BY c.dateUpload DESC
+          AND c.discoveredAt > m.addedAt
+          AND c.id = (
+              SELECT c2.id FROM chapter c2
+              WHERE c2.mangaId = c.mangaId AND c2.chapterNumber = c.chapterNumber
+              ORDER BY c2.discoveredAt ASC LIMIT 1
+          )
+          AND (SELECT COUNT(DISTINCT c3.chapterNumber) FROM chapter c3
+               WHERE c3.mangaId = c.mangaId AND c3.discoveredAt > c.discoveredAt
+                 AND c3.discoveredAt > m.addedAt) < 20
+        ORDER BY c.discoveredAt DESC
         LIMIT 500
     """)
     fun observeUpdates(): Flow<List<UpdateItem>>

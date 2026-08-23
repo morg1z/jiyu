@@ -107,9 +107,11 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.ui.settings.ReadingStats
 import com.haise.jiyu.ui.settings.SettingsViewModel
+import com.haise.jiyu.ui.theme.Blue
 import com.haise.jiyu.ui.theme.CyanLight
 import com.haise.jiyu.ui.theme.Danger
 import com.haise.jiyu.ui.theme.DeepSpace
+import com.haise.jiyu.ui.theme.Gold
 import com.haise.jiyu.ui.theme.Pink
 import com.haise.jiyu.ui.theme.GlowCyan
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -261,9 +263,9 @@ private fun BulkAction(
 
 // ── Composables ───────────────────────────────────────────────────────────────
 
-private fun contentTypeBadgeColor(contentType: String): Color = when (contentType) {
-    "MANHWA" -> GlowViolet
-    "MANHUA" -> GlowCyan
+internal fun contentTypeBadgeColor(contentType: String): Color = when (contentType) {
+    "MANHWA" -> Blue
+    "MANHUA" -> Gold
     "NOVEL"  -> Danger
     "COMIC"  -> Pink
     else     -> Color(0xFF6B7280) // MANGA a neznámé typy - neutrální šedá

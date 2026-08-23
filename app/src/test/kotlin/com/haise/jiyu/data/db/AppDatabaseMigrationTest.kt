@@ -99,6 +99,7 @@ class AppDatabaseMigrationTest {
                 AppDatabase.MIGRATION_30_31,
                 AppDatabase.MIGRATION_31_32,
                 AppDatabase.MIGRATION_32_33,
+                AppDatabase.MIGRATION_33_34,
             )
             .build()
 
@@ -167,6 +168,13 @@ class AppDatabaseMigrationTest {
         assertEquals(194953, ratedResult.followCount)
         assertEquals(5, ratedResult.rank)
         assertEquals("""["Solo Leveling","I Alone Level-Up"]""", ratedResult.alternateTitles)
+
+        // MIGRATION_33_34: discoveredAt pridany na chapter (NOT NULL default 0 pro existujici
+        // radky), musi byt citelny/zapisovatelny a prezit round-trip pres Room.
+        assertEquals(0L, ch1After.discoveredAt)
+        val ch2 = ch.copy(id = "ch2", discoveredAt = 555L)
+        chapters.upsertAll(listOf(ch2))
+        assertEquals(555L, chapters.getById("ch2")?.discoveredAt)
 
         db.close()
         context.deleteDatabase(dbName)

@@ -286,6 +286,9 @@ class MangaRepository @Inject constructor(
     suspend fun refreshChapters(mangaId: String, manga: SManga): List<ChapterEntity> {
         val source = sourceManager.getById(manga.sourceId) ?: return emptyList()
         val chapters = source.getChapterList(manga)
+        // discoveredAt se pouziva jen pri SKUTECNEM prvnim vlozeni radku (insertNewOnly nize
+        // duplicity ignoruje) - proto staci jedno "ted" pro celou davku, ne per-kapitola cas.
+        val now = System.currentTimeMillis()
         val entities = chapters.map { chapter ->
             ChapterEntity(
                 id = chapterId(chapter),
@@ -298,6 +301,7 @@ class MangaRepository @Inject constructor(
                 scanlationGroup = chapter.scanlationGroup,
                 volume = chapter.volume,
                 groupsJson = serializeChapterGroups(chapter.groups),
+                discoveredAt = now,
             )
         }
         val rowIds = chapterDao.insertNewOnly(entities)
