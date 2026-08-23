@@ -270,14 +270,29 @@ fun PageCurlNovelReader(
         ) {
             val bitmap = currentBitmap
             if (bitmap != null && dragProgress != 0f) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val geometry = computePageCurlGeometry(
-                        pageWidth = widthPx, pageHeight = heightPx,
-                        turningFromRight = dragProgress > 0f,
+                if (resolvedCurlStyle == CurlStyle.ROLL) {
+                    // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Novel čtečka
+                    // drží jen jednu "revealedBitmap" vrstvu (ne trvale next+prev jako manga),
+                    // takže se posílá jako next/prev podle směru - druhá zůstane null (v tom
+                    // směru je stejně skrytá za neprůhlednou aktivní/statickou stránkou).
+                    com.haise.jiyu.ui.reader.glcurl.GLPageCurlView(
+                        currentBitmap = bitmap,
+                        prevBitmap = if (dragProgress < 0f) revealedBitmap else null,
+                        nextBitmap = if (dragProgress > 0f) revealedBitmap else null,
+                        forward = dragProgress > 0f,
                         progress = kotlin.math.abs(dragProgress),
-                        style = resolvedCurlStyle,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
+                } else {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val geometry = computePageCurlGeometry(
+                            pageWidth = widthPx, pageHeight = heightPx,
+                            turningFromRight = dragProgress > 0f,
+                            progress = kotlin.math.abs(dragProgress),
+                            style = resolvedCurlStyle,
+                        )
+                        drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
+                    }
                 }
             }
         }

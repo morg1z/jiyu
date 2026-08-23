@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.40
+
+### Srolování stránky teď jede přes skutečný OpenGL port (karacken.curl)
+Styl "Srolování stránky" byl doteď vlastní 2D aproximace (Canvas mesh). Nahrazeno přímým portem
+open-source knihovny karacken.curl (denis554/PlayLikeCurl) do Kotlinu - stejná matematika ohybu
+(vlnová plocha ve 3D, ne 2D komprese), stejné vykreslování přes OpenGL ES, jen napojené na naše
+vlastní tažení prstem/stav místo vlastního dotykového ovládání knihovny. "Klasické otáčení"
+zůstává beze změny (2D Canvas efekt, funguje dobře).
+
 ## v1.2.39
 
 ### Oprava: odstraněn rušivý zvýrazňovací proužek na ose ohybu

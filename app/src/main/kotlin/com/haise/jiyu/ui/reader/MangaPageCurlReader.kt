@@ -496,18 +496,31 @@ fun MangaPageCurlReader(
             ) {
                 val bitmap = currentBitmap
                 if (bitmap != null && dragProgress != 0f) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga) se
-                        // strana, ze ktere se stranka odvaluje, zrcadli, aby odpovidala fyzicke
-                        // strane, na ktere uzivatel gesto skutecne provadi.
-                        val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
-                        val geometry = computePageCurlGeometry(
-                            pageWidth = widthPx, pageHeight = heightPx,
-                            turningFromRight = curlFromRight,
+                    if (resolvedCurlStyle == CurlStyle.ROLL) {
+                        // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Rizeno stejnym
+                        // `dragProgress`, jen dragProgress>0f = tazeni na DALSI stranku ("forward").
+                        com.haise.jiyu.ui.reader.glcurl.GLPageCurlView(
+                            currentBitmap = bitmap,
+                            prevBitmap = prevBitmap,
+                            nextBitmap = nextBitmap,
+                            forward = dragProgress > 0f,
                             progress = kotlin.math.abs(dragProgress),
-                            style = resolvedCurlStyle,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                        drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
+                    } else {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga) se
+                            // strana, ze ktere se stranka odvaluje, zrcadli, aby odpovidala fyzicke
+                            // strane, na ktere uzivatel gesto skutecne provadi.
+                            val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
+                            val geometry = computePageCurlGeometry(
+                                pageWidth = widthPx, pageHeight = heightPx,
+                                turningFromRight = curlFromRight,
+                                progress = kotlin.math.abs(dragProgress),
+                                style = resolvedCurlStyle,
+                            )
+                            drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
+                        }
                     }
                 }
             }
