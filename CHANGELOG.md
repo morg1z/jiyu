@@ -4,6 +4,18 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.41
+
+### Oprava GL srolování: vypadalo jako spirála/trubička, ne hladký ohyb
+Ohýbaný OpenGL port (v1.2.40) při podržení prstu v dotažené pozici vytvářel spirálovitý průřez
+(vypadalo to jako svinutá trubička) - originální knihovna počítala jen s rychlou 300ms animací,
+kde to oko nepostřehne, naše čtečka ale nechává tažení podržet v libovolné pozici. Zpomalena
+vlnová délka ohybu, ať zůstane jeden hladký oblouk i při podržení.
+
+### Vylepšení GL srolování: kónický ohyb (síla podle výšky)
+Ohyb byl stejný na každém řádku (rovnoměrný "válec" po celé výšce stránky) - teď sílí směrem k
+dolnímu rohu a slábne k hornímu, jako u fyzického uchopení stránky za roh.
+
 ## v1.2.40
 
 ### Srolování stránky teď jede přes skutečný OpenGL port (karacken.curl)

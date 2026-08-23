@@ -70,6 +70,21 @@ open class GLPage {
         needsTextureUpdate = true
     }
 
+    /**
+     * Násobitel 0f..1f pro to, jak moc je ohyb vyjádřený na řádku [row] (0=horní okraj stránky,
+     * [GRID]=dolní okraj) - KÓNICKÝ ohyb (jako by čtenář uchopil stránku za dolní roh a táhl
+     * obloukem), ne rovnoměrný přes celou výšku. Bez tohohle vypadal ohyb u [GLPageFront]/
+     * [GLPageLeft] identicky na každém řádku (uživatelská zpětná vazba: "vypadá to jak vlna na
+     * moři" - tj. chybí ta postupná proměna síly ohybu podle výšky, co dělá vlnu vlnou, ne
+     * jednolitou rourou). U dolního okraje (`row=GRID`) je násobitel 1f (plná síla), lineárně
+     * klesá k `1f - TAPER_STRENGTH` na horním okraji.
+     */
+    protected fun verticalTaper(row: Int): Float {
+        val rowT = row / GRID.toFloat()
+        val dist = kotlin.math.abs(rowT - ANCHOR_ROW_T)
+        return (1f - dist * TAPER_STRENGTH).coerceIn(1f - TAPER_STRENGTH, 1f)
+    }
+
     open fun calculateVerticesCoords() {
         hWRatio = bitmapRatio
         hWCorrection = (hWRatio - 1f) / 2f
@@ -145,5 +160,13 @@ open class GLPage {
     companion object {
         const val GRID = 25
         const val RADIUS = 0.18f
+
+        /** Svislá pozice (0f nahoře, 1f dole) - dolní roh je nejběžnější místo, za které se
+         * stránka při otáčení uchopí (viz [verticalTaper]). */
+        private const val ANCHOR_ROW_T = 1f
+
+        /** O kolik je ohyb slabší na opačném svislém konci stránky - 0.6 = na druhém konci
+         * zůstane 40 % síly ohybu, ne 0 (úplně plochý konec by působil nepřirozeně ostře). */
+        private const val TAPER_STRENGTH = 0.6f
     }
 }
