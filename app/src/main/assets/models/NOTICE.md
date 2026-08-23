@@ -34,3 +34,25 @@ Model se proto používá VÝHRADNĚ jako poslední záchranná záloha, když s
 [com.haise.jiyu.translate.BubbleShapeDetector.detectShape], tak
 [com.haise.jiyu.translate.BubbleShapeDetector.edgeAwareShape] (třída bugů "bublina
 s divným/hranatým tvarem, kde flood-fill nenajde uzavřený obrys") - ne pro každou bublinu.
+
+## manga_ocr_encoder.onnx + manga_ocr_decoder.onnx + manga_ocr_vocab.txt
+
+- Zdroj: https://huggingface.co/kha-white/manga-ocr-base
+- Autor: kha-white
+- Licence: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+- Architektura: Vision Encoder-Decoder (ViT encoder + BERT-styl decoder, 2 vrstvy,
+  12 hlav, hidden_size 768) natrénovaný speciálně na japonském textu v manze (včetně
+  svislého a stylizovaného písma) - na rozdíl od obecného OCR čte celý oříznutý obrázek
+  bubliny najednou, ne řádek po řádku.
+- Do ONNX (bez KV-cache - `image-to-text-with-past` export selhává, protože dekodér je
+  BERT-styl a `past_key_values` nepotřebuje) exportováno lokálně přes
+  `optimum-cli export onnx --task image-to-text` z originálních vah - repo samo ONNX
+  export neposkytuje.
+- `manga_ocr_vocab.txt` - slovník tokenizeru (6144 řádků, index řádku = ID tokenu,
+  `subword_tokenizer_type="character"` - čistý znakový lookup, žádné BPE slučování).
+- Žádná modifikace vah, jen formát exportu.
+
+Používá se v [com.haise.jiyu.translate.MangaOcrPipeline] jako hlavní zdroj rozpoznaného
+textu pro japonštinu (nahrazuje ML Kit Japanese recognizer) - viz
+[com.haise.jiyu.translate.OcrEngine.recognize]. ML Kit zůstává záložním zdrojem pro
+jednotlivé bubliny, kde tenhle model selže nebo vyprší timeout.
