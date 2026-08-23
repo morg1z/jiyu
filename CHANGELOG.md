@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.44
+
+### Oprava: nová kapitola ve webtoon režimu se neotevřela nahoře
+Při přechodu na další/předchozí kapitolu ve svislém (webtoon) čtecím režimu appka nechala
+scroll pozici z PŘEDCHOZÍ kapitoly - nová kapitola se tak neotevřela nahoře, ale někde
+uprostřed nebo i na konci, podle toho, kam náhodou stará pozice v novém (jinak dlouhém)
+seznamu stránek padla. Obnovení pozice se spouštělo jen jednou při prvním otevření čtečky,
+ne při každé změně kapitoly.
+
 ## v1.2.43
 
 ### Oprava GL srolování: efekt byl schovaný za stránkou (skutečná příčina)

@@ -86,9 +86,17 @@ fun WebtoonReader(
     // Dokud probiha programove obnoveni pozice (scrollToItem nize), snapshotFlow pod tim
     // NESMI zapisovat do DB - jinak by se ulozena pozice cteni pri kazdem otevreni kapitoly
     // vynulovala, presne to hlasil uzivatel ("vzdy se otevre od zacatku").
-    var isRestoringPosition by remember { mutableStateOf(initialPage > 0 || initialScrollOffset > 0) }
+    //
+    // `isRestoringPosition` se musi nastavit na true PRI KAZDE ZMENE `pages` (tedy pri
+    // kazdem prechodu na jinou kapitolu), ne jen jednou pri prvnim slozeni - `listState` tu
+    // zije PO CELOU dobu, co je WebtoonReader na obrazovce (neni klicovany na kapitolu), takze
+    // pri prechodu na novou kapitolu zustavala stara scroll pozice z PREDCHOZI kapitoly a nova
+    // kapitola tak neotevrela nahore, ale nekde uprostred/na konci - podle toho, kam nahodou
+    // stary index/offset v novem (jinak dlouhem) seznamu stranek padl (review nalez uzivatele).
+    var isRestoringPosition by remember { mutableStateOf(true) }
     LaunchedEffect(pages) {
-        if (pages.isNotEmpty() && isRestoringPosition) {
+        isRestoringPosition = true
+        if (pages.isNotEmpty()) {
             val target = initialPage.coerceIn(0, pages.lastIndex)
             // scrollToItem() hned po prvnim slozeni LazyColumn muze tise selhat a skoncit
             // na indexu 0 - stranky jsou obrazky s neznamou vyskou predem, takze prvni
@@ -99,8 +107,8 @@ fun WebtoonReader(
                 if (listState.firstVisibleItemIndex == target && listState.firstVisibleItemScrollOffset == initialScrollOffset) break
                 if (attempt < 7) delay(150L)
             }
-            isRestoringPosition = false
         }
+        isRestoringPosition = false
     }
 
     LaunchedEffect(listState) {
