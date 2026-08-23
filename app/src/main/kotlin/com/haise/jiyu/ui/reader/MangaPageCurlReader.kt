@@ -3,9 +3,10 @@ package com.haise.jiyu.ui.reader
 import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -459,11 +461,34 @@ fun MangaPageCurlReader(
                             },
                         )
                     }
+                    // Vlastni pinch-zoom detekce misto `detectTransformGestures` - ta v Compose
+                    // Foundation pocita pan/zoom uz z JEDNOHO prstu (jednoprstovy tah = pan se
+                    // zoom=1f) a jakmile prekroci touch slop, VZDY zkonzumuje position change,
+                    // bez ohledu na to, ze callback nic nedela (newScale zustane 1f). Protoze
+                    // tohle beží jako posledni (nejvrchnejsi) sourozenec v retezci, konzumovalo
+                    // to KAZDE jednoprstove tazeni jeste pred drag-pointerInputem vyse - curl
+                    // gesto tak nikdy nevidelo zadny pohyb (onDrag se nikdy nezavolal). Novel
+                    // ctecka tenhle blok vubec nema (nema pinch-zoom), proto tam curl fungoval.
+                    // Tahle verze čeká, dokud nejsou dole aspoň 2 prsty, než začne cokoliv číst
+                    // nebo konzumovat - jednoprstové gesto tak projde nedotčené k drag detektoru.
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val newScale = (scale * zoom).coerceIn(1f, 5f)
-                            scale = newScale
-                            if (newScale > 1f) panOffset += pan else panOffset = Offset.Zero
+                        awaitPointerEventScope {
+                            while (true) {
+                                var event = awaitPointerEvent()
+                                while (event.changes.count { it.pressed } < 2 && event.changes.any { it.pressed }) {
+                                    event = awaitPointerEvent()
+                                }
+                                if (event.changes.count { it.pressed } < 2) continue
+                                do {
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                                    scale = newScale
+                                    if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
+                                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                                    event = awaitPointerEvent()
+                                } while (event.changes.count { it.pressed } >= 2)
+                            }
                         }
                     },
             ) {

@@ -1,12 +1,10 @@
 package com.haise.jiyu.ui.reader
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.Shader
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -14,10 +12,11 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.roundToInt
 
-/** Počet tenkých svislých proužků, na které se ohýbaný pás rozdělí - vyšší číslo = plynulejší
- * zakulacení, ale víc `drawBitmap` volání za snímek. 40 je dost jemné na to, aby jednotlivé
- * proužky nebyly vidět, a levné dost na to, aby to drželo 60fps během tažení prstem. */
-private const val STRIP_COUNT = 40
+/** Počet sloupců sítě, na které se ohýbaný pás rozdělí pro [android.graphics.Canvas.drawBitmapMesh]
+ * - vyšší číslo = plynulejší zakulacení. Mesh je bilineárně interpolovaný hardwarově, takže na
+ * rozdíl od starého přístupu (diskrétní `drawBitmap` proužky) je i s vyšším počtem sloupců levný
+ * a hladký - žádné viditelné "schody" mezi sloupci. */
+private const val MESH_COLUMNS = 30
 
 /**
  * Vykreslí aktuální stránku s válcovým ohybem podle [geometry] (styl Google Play Books/iBooks -
@@ -57,42 +56,49 @@ fun DrawScope.drawPageCurl(
     // Stín na odkryté stránce kousek před ohýbaným pásem - simuluje, že zvednutý papír vrhá stín.
     drawAheadShadow(nativeCanvas, geometry, direction)
 
-    // Ohýbaný pás: tenké svislé proužky, každý s trochu jiným posunem (komprese k ose ohybu,
-    // viz `warpedOffset`) a stínováním (tmavší, čím víc zakulacený, viz `shadeAt`). `drawBitmap`
-    // s `src`/`dst` obdélníky samo natáhne/zúží obsah proužku mezi originální a warpovanou
-    // šířkou - přesně tahle komprese vytváří dojem zakulaceného papíru.
-    for (i in 0 until STRIP_COUNT) {
-        val d0 = geometry.curlBandWidth * i / STRIP_COUNT
-        val d1 = geometry.curlBandWidth * (i + 1) / STRIP_COUNT
+    // Ohýbaný pás: nejdřív oříznout bitmapu jen na pás, co se ohýbá (drawBitmapMesh warpuje
+    // celou zdrojovou bitmapu rovnoměrně, nemá vlastní parametr pro texturové souřadnice).
+    // `turningFromRight` určuje, který konec ořezu leží na ose ohybu (d=0) - viz mapování d(col)
+    // níž.
+    val bandLeftF = if (geometry.turningFromRight) geometry.foldX else geometry.foldX - geometry.curlBandWidth
+    val bandRightF = if (geometry.turningFromRight) geometry.foldX + geometry.curlBandWidth else geometry.foldX
+    val cropLeft = bandLeftF.roundToInt().coerceIn(0, bitmap.width)
+    val cropRight = bandRightF.roundToInt().coerceIn(cropLeft, bitmap.width)
+    val cropWidth = cropRight - cropLeft
+    if (cropWidth <= 0) return
+    val bandBitmap = Bitmap.createBitmap(bitmap, cropLeft, 0, cropWidth, bitmap.height)
 
-        val srcX0 = geometry.foldX + direction * d0
-        val srcX1 = geometry.foldX + direction * d1
-        val srcLeft = minOf(srcX0, srcX1)
-        val srcRight = maxOf(srcX0, srcX1)
-        val srcRect = Rect(
-            srcLeft.roundToInt().coerceIn(0, bitmap.width),
-            0,
-            srcRight.roundToInt().coerceIn(0, bitmap.width),
-            bitmap.height,
-        )
-        if (srcRect.width() <= 0) continue
+    // Mřížka MESH_COLUMNS x 1 (svisle se ohyb neliší, stejně jako v referenci) - pro každý
+    // sloupec spočítáme vzdálenost `d` od osy ohybu a z ní warp (`warpedOffset`, komprese k ose)
+    // a stín (`shadeAt`). `colors` pole násobí barvu bitmapy per-vertex - nahrazuje starý
+    // PorterDuffColorFilter, teď ale plynule interpolovaný mezi sloupci místo skokového po proužcích.
+    val vertsPerRow = MESH_COLUMNS + 1
+    val verts = FloatArray(vertsPerRow * 2 * 2)
+    val colors = IntArray(vertsPerRow * 2)
+    for (row in 0..1) {
+        val y = geometry.pageHeight * row
+        for (col in 0..MESH_COLUMNS) {
+            val frac = col.toFloat() / MESH_COLUMNS
+            val d = if (geometry.turningFromRight) {
+                geometry.curlBandWidth * frac
+            } else {
+                geometry.curlBandWidth * (1f - frac)
+            }
+            val x = geometry.foldX + direction * geometry.warpedOffset(d)
+            val idx = row * vertsPerRow + col
+            verts[idx * 2] = x
+            verts[idx * 2 + 1] = y
 
-        val warped0 = geometry.warpedOffset(d0)
-        val warped1 = geometry.warpedOffset(d1)
-        val dstX0 = geometry.foldX + direction * warped0
-        val dstX1 = geometry.foldX + direction * warped1
-        val dstLeft = minOf(dstX0, dstX1)
-        val dstRight = maxOf(dstX0, dstX1).coerceAtLeast(dstLeft + 1f)
-        val dstRect = RectF(dstLeft, 0f, dstRight, geometry.pageHeight)
-
-        val shade = geometry.shadeAt((d0 + d1) / 2f)
-        val gray = (shade * 255).roundToInt().coerceIn(0, 255)
-        val paint = Paint().apply {
-            isAntiAlias = true
-            colorFilter = PorterDuffColorFilter(Color.rgb(gray, gray, gray), PorterDuff.Mode.MULTIPLY)
+            val gray = (geometry.shadeAt(d) * 255).roundToInt().coerceIn(0, 255)
+            colors[idx] = Color.argb(255, gray, gray, gray)
         }
-        nativeCanvas.drawBitmap(bitmap, srcRect, dstRect, paint)
     }
+
+    val meshPaint = Paint().apply {
+        isAntiAlias = true
+        isFilterBitmap = true
+    }
+    nativeCanvas.drawBitmapMesh(bandBitmap, MESH_COLUMNS, 1, verts, 0, colors, 0, meshPaint)
 
     drawFoldCrease(nativeCanvas, geometry)
 }

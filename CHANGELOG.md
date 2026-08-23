@@ -4,6 +4,24 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.36
+
+### Oprava opakovaného pádu appky pár minut po startu
+Appka občas spadla asi minutu po otevření a vyhodila tě z kapitoly - opakovalo se to
+donekonečna. Příčina: synchronizace na pozadí (SyncWorker) jako první v appce sahala na
+přihlašovací modul (Supabase Auth), který si vyžaduje registraci na hlavním vlákně appky -
+na vlákně pro práci na pozadí to appce spolehlivě spadlo. Teď se tenhle modul připraví hned
+při startu appky na hlavním vlákně, dřív než se k němu synchronizace na pozadí vůbec dostane.
+
+### Oprava otáčení stránek (page-curl) u manga/manhwa
+Tažení prstem u manga/manhwa čtečky efekt otáčení vůbec nespouštělo (fungovalo jen ťuknutí
+na okraj) - gesto pro přiblížení prsty (pinch-zoom) omylem "sežralo" i obyčejné jednoprstové
+tažení dřív, než se dostalo k otáčení stránky. U novel čtečky, která přiblížení nemá, to
+fungovalo správně už předtím.
+
+Zároveň přepracovaný samotný vzhled ohybu (u manga i novel) - hladší zaoblení a stínování
+blíž stylu Google Play Books.
+
 ## v1.2.35
 
 ### Oprava vzhledu page-curl efektu

@@ -27,6 +27,7 @@ import com.haise.jiyu.work.CHANNEL_ID
 import com.haise.jiyu.util.report
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.HiltAndroidApp
+import io.github.jan.supabase.SupabaseClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +49,17 @@ class JiyuApp : Application(), Configuration.Provider {
 
     /** Úklid jen prohlédnuté mangy při startu - viz [evictOldTranslationCache]. */
     @Inject lateinit var database: com.haise.jiyu.data.db.AppDatabase
+
+    /**
+     * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
+     *
+     * Bez tohohle ho Hilt sestaví líně při prvním použití - a tím prvním použitím byl
+     * [com.haise.jiyu.work.SyncWorker] běžící na WorkManager threadu. Auth (GoTrue) plugin
+     * si při instalaci registruje pozorovatele ProcessLifecycle, což Android vyžaduje na
+     * hlavním vlákně - appka proto opakovaně padala s
+     * "Method addObserver must be called on the main thread" pár minut po startu čtení.
+     */
+    @Inject lateinit var supabaseClient: SupabaseClient
 
     override fun onCreate() {
         super.onCreate()
