@@ -4,6 +4,14 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.49
+
+### Nové: zdroj BatCave (americké komiksy)
+Přidán zdroj BatCave (batcave.biz) - Marvel/DC a další vydavatelé. Web je za Cloudflare a má
+netypickou čtečku (seznam kapitol a obrázky stránek se stahují přes vlastní API, ne ze
+statického HTML), takže tenhle zdroj zatím nebyl živě otestovaný na zařízení - dej vědět, jak
+funguje.
+
 ## v1.2.48
 
 ### Oprava: procenta u ComicK titulů počítala jen ze zlomku kapitol

@@ -16,6 +16,7 @@ import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangago.MangagoSource
 import com.haise.jiyu.source.asurascans.AsuraScansSource
 import com.haise.jiyu.source.flamecomics.FlameComicsSource
+import com.haise.jiyu.source.comic.BatCaveSource
 import com.haise.jiyu.source.comic.ComicBookPlusSource
 import com.haise.jiyu.source.comic.ReadFreeComicsOnlineSource
 import com.haise.jiyu.source.comicskingdom.ComicsKingdomSource
@@ -151,6 +152,7 @@ class SourceManager @Inject constructor(
     flameComicsSource: FlameComicsSource,
     comicBookPlusSource: ComicBookPlusSource,
     readFreeComicsOnlineSource: ReadFreeComicsOnlineSource,
+    batCaveSource: BatCaveSource,
     comicsKingdomSource: ComicsKingdomSource,
     royalRoadSource: RoyalRoadSource,
     weebCentralSource: WeebCentralSource,
@@ -290,6 +292,7 @@ class SourceManager @Inject constructor(
         flameComicsSource,
         comicBookPlusSource,
         readFreeComicsOnlineSource,
+        batCaveSource,
         comicsKingdomSource,
         royalRoadSource,
         weebCentralSource,
