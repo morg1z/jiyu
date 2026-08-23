@@ -4,6 +4,12 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.55
+
+### Nové: tlačítko Domů v panelu čtečky
+Do spodního panelu čtečky (mezi ikonu překladu a jasu) přibylo tlačítko domečku - okamžitě
+přeskočí do Knihovny bez nutnosti se ručně proklikávat zpátky přes detail mangy.
+
 ## v1.2.54
 
 ### Oprava: znovu přidaná manga zdědila starý stav "přečteno"

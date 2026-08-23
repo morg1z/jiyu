@@ -722,6 +722,7 @@
     <string name="reader_prev_chapter_desc">Předchozí kapitola</string>
     <string name="reader_next_chapter_desc">Další kapitola</string>
     <string name="reader_brightness_desc">Jas</string>
+    <string name="reader_home_desc">Domů (Knihovna)</string>
     <string name="reader_translate_settings_desc">Nastavení překladu</string>
     <string name="reader_translation_label">Překlad:</string>
     <string name="reader_orientation_label">Orientace:</string>

@@ -58,6 +58,7 @@ import kotlinx.coroutines.delay
 fun ReaderScreen(
     onFindSource: () -> Unit = {},
     onOpenManga: (String) -> Unit = {},
+    onNavigateHome: () -> Unit = {},
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     val pages               by viewModel.pages.collectAsState()
@@ -265,6 +266,7 @@ fun ReaderScreen(
                 chapterTitle = chapterTitle,
                 mangaTitle = mangaTitle,
                 onOpenManga = { mangaId?.let(onOpenManga) },
+                onNavigateHome = onNavigateHome,
                 hasPrevChapter = hasPrevChapter,
                 hasNextChapter = hasNextChapter,
                 controlsVisible = controlsVisible,

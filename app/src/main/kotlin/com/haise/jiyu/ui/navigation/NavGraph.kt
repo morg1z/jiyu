@@ -231,6 +231,12 @@ fun JiyuNavGraph(
             ReaderScreen(
                 onFindSource = { chapterId?.let { navController.navigate(Routes.sourceResolver(it)) } },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onNavigateHome = {
+                    navController.navigate(Routes.LIBRARY) {
+                        popUpTo(Routes.LIBRARY) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 

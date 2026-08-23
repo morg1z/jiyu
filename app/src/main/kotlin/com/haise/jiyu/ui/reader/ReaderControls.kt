@@ -65,6 +65,7 @@ import compose.icons.tablericons.ArrowRight
 import compose.icons.tablericons.Check
 import compose.icons.tablericons.Eye
 import compose.icons.tablericons.EyeOff
+import compose.icons.tablericons.Home
 import compose.icons.tablericons.Language
 import compose.icons.tablericons.LayoutRows
 import compose.icons.tablericons.Menu2
@@ -309,6 +310,7 @@ fun ReaderBottomPanel(
     onNavigatePrev: () -> Unit,
     hasNextChapter: Boolean,
     onNavigateNext: () -> Unit,
+    onNavigateHome: () -> Unit = {},
     // Presunuto sem z horni listy (uzivatelsky pozadavek) - zit ted v sheetu za
     // prekladovou ikonou spolu se zbytkem pokrocilych nastaveni.
     panelMode: Boolean,
@@ -406,6 +408,15 @@ fun ReaderBottomPanel(
                     TablerIcons.Sun,
                     contentDescription = stringResource(R.string.reader_brightness_desc),
                     tint = if (showBrightness) Color(0xFFFFD54F) else liveTint,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+            // Domu - primy skok do Knihovny (uzivatelsky pozadavek, uprostred listy).
+            IconButton(onClick = onNavigateHome, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    TablerIcons.Home,
+                    contentDescription = stringResource(R.string.reader_home_desc),
+                    tint = liveTint,
                     modifier = Modifier.size(21.dp),
                 )
             }
