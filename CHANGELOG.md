@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.38
+
+### Vylepšení: skutečná 3D perspektiva místo ploché sinusové aproximace
+Ohyb stránky dřív počítal jen vodorovnou pozici bodu na pomyslném válci (ortografická
+projekce - jako by se divák díval z nekonečné vzdálenosti). Teď se navíc počítá i hloubka bodu
+(jak moc se při otáčení vzdaluje od diváka) a aplikuje se skutečné perspektivní dělení - body
+dál v ohybu se komprimují k ose o něco víc, takže to vypadá jako fyzická 3D perspektiva
+otáčející se stránky, ne mechanicky protažená křivka. Blíž stylu Google Knih.
+
 ## v1.2.37
 
 ### Oprava: efekt otáčení stránek se vůbec nezakřivoval

@@ -78,11 +78,16 @@ class PageCurlGeometryTest {
     }
 
     @Test
-    fun `warped offset at the end of the visible band reaches close to the radius`() {
+    fun `warped offset at the end of the visible band is compressed below the radius by perspective`() {
         val geometry = computePageCurlGeometry(
             pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
         )
-        assertEquals(geometry.radius, geometry.warpedOffset(geometry.curlBandWidth), 0.5f)
+        val offset = geometry.warpedOffset(geometry.curlBandWidth)
+        // Perspektivni deleni hloubkou (viz warpedOffset dokumentace) znamena, ze se uz nikdy
+        // nedosahne presne `radius` jako u stare ortograficke projekce - vzdy o kousek min.
+        assertTrue("perspektivne komprimovany posun musi byt mensi nez radius", offset < geometry.radius)
+        // Ale porad blizko - perspektiva ma byt patrna doladeni, ne uplne jiny tvar krivky.
+        assertTrue("perspektivni komprese by nemela usousnat vic nez polovinu radiusu", offset > geometry.radius * 0.5f)
     }
 
     @Test
@@ -116,12 +121,16 @@ class PageCurlGeometryTest {
     }
 
     @Test
-    fun `roll style warped offset rises to the radius at mid-band then returns to zero at the end`() {
+    fun `roll style warped offset peaks near mid-band then returns to zero at the end`() {
         val geometry = computePageCurlGeometry(
             pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.ROLL,
         )
         val mid = geometry.curlBandWidth / 2f
-        assertEquals(geometry.radius, geometry.warpedOffset(mid), 0.5f)
+        val midOffset = geometry.warpedOffset(mid)
+        // Perspektivni deleni hloubkou (viz warpedOffset dokumentace) znamena, ze vrchol uz
+        // nedosahne presne `radius` jako u stare ortograficke projekce - vzdy o kousek min.
+        assertTrue("vrchol smycky musi byt mensi nez radius", midOffset < geometry.radius)
+        assertTrue("vrchol smycky musi zustat citelne velky, ne skoro nula", midOffset > geometry.radius * 0.5f)
         assertEquals(0f, geometry.warpedOffset(geometry.curlBandWidth), 0.5f)
     }
 

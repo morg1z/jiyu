@@ -38,6 +38,13 @@ private const val ANCHOR_ROW_T = 1f
  * ostře, viz [verticalTaper]). */
 private const val CONICAL_TAPER_STRENGTH = 0.55f
 
+/** Kolikrát dál je "kamera" (virtuální oko diváka) než poloměr válce - řídí sílu perspektivy
+ * v [warpedOffset]. Menší číslo = silnější/dramatičtější perspektivní zkreslení (body dál od
+ * diváka se komprimují víc k ose ohybu); větší = slabší, blíž staré čistě ortografické projekci
+ * (`radius*sin(theta)` bez dělení hloubkou). 3.5 je střední hodnota - jediné vyladitelné číslo,
+ * kdyby efekt na reálném zařízení působil moc slabě nebo moc silně. */
+private const val FOCAL_DISTANCE_MULTIPLIER = 3.5f
+
 /**
  * Geometrie ohybu stránky (styl Google Play Books / iBooks nebo svinutí do trubičky, viz
  * [CurlStyle]). Stránka se odvaluje od hrany otáčení směrem k protější hraně - obsah kousek
@@ -92,16 +99,29 @@ fun computePageCurlGeometry(
 }
 
 /**
- * Pro vzdálenost [d] (0f..[PageCurlGeometry.curlBandWidth]) od osy ohybu vrátí skutečný posun
- * na obrazovce - `radius*sin(d/radius)`, vždy <= [d] (komprese, jak se obsah "zakulacuje" na
- * válci). U [d]=0 je posun 0 (přímo na ose ohybu). U [CurlStyle.CLASSIC] roste posun až po
- * `radius` na konci pásu (čtvrtina válce). U [CurlStyle.ROLL] posun nejdřív vyroste na `radius`
- * v polovině pásu a pak zase klesne zpátky k 0 na konci (půlka válce) - to je právě ta viditelná
- * "smyčka" trubičky, protože se obsah vrací zpátky k ose ohybu, jen z opačné (odvrácené) strany.
+ * Pro vzdálenost [d] (0f..[PageCurlGeometry.curlBandWidth]) od osy ohybu vrátí skutečný
+ * PERSPEKTIVNĚ SPRÁVNÝ posun na obrazovce - ne jen `radius*sin(theta)` (to by byla ortografická
+ * projekce, jako by se divák díval z nekonečné vzdálenosti). Bod na povrchu válce v úhlu `theta`
+ * má 3D pozici X=`radius*sin(theta)` (vodorovně) a Z=`radius*(1-cos(theta))` (hloubka - jak moc
+ * se vzdaluje od diváka, jak se ohyb "otáčí pryč"). Skutečná kamera v konečné vzdálenosti
+ * (pinhole model, `focal/(focal+Z)`) vzdálenější body komprimuje k ose ohybu o něco víc než
+ * ortografická projekce - proto ohyb teď vypadá jako fyzická 3D perspektiva otáčející se
+ * stránky, ne jako mechanicky protažený sinusový pruh.
+ *
+ * Výsledek je vždy <= [d] (komprese, jak se obsah "zakulacuje" na válci, teď navíc ještě víc
+ * kvůli perspektivnímu dělení). U [d]=0 je posun 0 (přímo na ose ohybu). U [CurlStyle.CLASSIC]
+ * roste posun až k `radius` na konci pásu (čtvrtina válce, `theta`=π/2), ale díky perspektivě
+ * ho nikdy úplně nedosáhne. U [CurlStyle.ROLL] posun nejdřív vyroste (vrchol o něco před polovinou
+ * pásu, protože perspektiva vrchol mírně posouvá blíž k ose) a pak zase klesne přesně k 0 na
+ * konci (`theta`=π, `sin(π)`=0 přesně, takže perspektivní dělení na tom nic nemění) - to je právě
+ * ta viditelná "smyčka" trubičky, protože se obsah vrací zpátky k ose ohybu, jen z opačné strany.
  */
 fun PageCurlGeometry.warpedOffset(d: Float): Float {
     val theta = (d / radius).coerceIn(0f, style.domainMax())
-    return radius * sin(theta)
+    val x = radius * sin(theta)
+    val z = radius * (1f - cos(theta))
+    val focal = radius * FOCAL_DISTANCE_MULTIPLIER
+    return focal * x / (focal + z)
 }
 
 /**
