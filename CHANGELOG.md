@@ -4,6 +4,17 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.57
+
+### Oprava: Mořská vlna byla na zařízení rozbitá (roztrhaný/posunutý obsah)
+Zpětná vazba z reálného telefonu - v1.2.56 vypadala "Mořská vlna" uprostřed tažení jako
+roztrhaná/posunutá stránka, ne jako vlnění. Odstranil jsem zrcadlenou "špičku" vlny (lámající se
+přehyb na vrcholu) - byla to jediná část efektu bez ověřeného vzoru jinde v appce, tedy
+nejpravděpodobnější viník. Zbylo jen samotné vlnění + měkký stín, bez viditelné špičky.
+
+Zatím pořád neověřeno naživo (appka bez přístupu k zařízení pro test) - dej prosím vědět, jestli
+je to teď v pořádku.
+
 ## v1.2.56
 
 ### Nové: 2 nové styly otáčení stránky

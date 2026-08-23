@@ -184,19 +184,16 @@ private const val WAVE_BULGE_STRENGTH = 0.28f
  * okraje jsou o tenhle podíl tmavší. */
 private const val WAVE_EDGE_DARKEN = 0.3f
 
-/** Šířka "zlomu" (rubová/mírně tmavší zrcadlená obálka na vrcholu vlny) jako násobek
- * [PageCurlGeometry.curlBandWidth] a obálky (`envelope`, viz níže) - jen viditelná uprostřed
- * tažení, na začátku/konci mizí spolu s obálkou. */
-private const val WAVE_LIP_FRACTION = 0.2f
-
 /**
  * Vykreslí aktuální stránku s efektem "mořské vlny" - VLASTNÍ sinusová geometrie, ne válcová
  * ([PageCurlGeometry.warpedOffset]/[shadeAt] se tu nepoužívají). [geometry] se ale počítá stejnou
  * [computePageCurlGeometry] funkcí se stylem [CurlStyle.WAVE] - [PageCurlGeometry.foldX] je
  * hranice mezi plochou částí a vlněním (kde vlna vyrůstá z roviny stránky, výška 0), a
  * [PageCurlGeometry.curlBandWidth] je šířka vlnícího se pásu; jeho vzdálenější konec (`front`)
- * je "hřeben", kde se vlna láme (viz [WAVE_LIP_FRACTION]) - výška je 0 i tam (vlna vyroste a zase
- * klesne, ne monotónně roste jako u [CurlStyle.CLASSIC]/[CurlStyle.ROLL]).
+ * je "hřeben" - výška je 0 i tam (vlna vyroste a zase klesne, ne monotónně roste jako u
+ * [CurlStyle.CLASSIC]/[CurlStyle.ROLL]). Za hřebenem je jen měkký stín na odkryté stránce, žádný
+ * zrcadlený "lip" přehyb - ten byl na zařízení potvrzeně rozbitý (viz git historie), odstraněn
+ * místo dalšího ladění naslepo bez přístupu k zařízení.
  *
  * Sílu vlnění řídí [PageCurlGeometry.progress] přes `envelope = sin(π·progress)` - 0 v klidu
  * (na začátku i na konci tažení), maximum v polovině tažení, takže "moře" je klidné, dokud se
@@ -296,43 +293,23 @@ fun DrawScope.drawWaveCurl(
     }
     nativeCanvas.drawBitmapMesh(bandBitmap, WAVE_MESH_COLUMNS, WAVE_MESH_ROWS, verts, 0, colors, 0, meshPaint)
 
-    // Zlom vlny (lip) - zrcadleny pruh tesne za "front" (rub papíru, co se prehyba), + jeho stin
-    // na odkryte strance dal za nim. Viditelny jen kdyz je vlna dost silna (envelope).
-    val lipWidth = geometry.curlBandWidth * WAVE_LIP_FRACTION * envelope
-    if (lipWidth > 2f) {
-        // Zdroj pro zrcadleny pruh - tesne PRED "front" (kousek pasu, co uz je "nejvic vyboulely"),
-        // stejna sirka jako cilovy lipWidth.
-        val srcNear = front.roundToInt().coerceIn(0, bitmap.width)
-        val srcFar = (front - direction * lipWidth).roundToInt().coerceIn(0, bitmap.width)
-        val lipSrcRect = Rect(minOf(srcNear, srcFar), 0, maxOf(srcNear, srcFar), bitmap.height)
-        if (lipSrcRect.width() > 0) {
-            val dstLeft = minOf(front, front + direction * lipWidth)
-            val dstRight = maxOf(front, front + direction * lipWidth)
-            val lipDstRect = Rect(dstLeft.roundToInt(), 0, dstRight.roundToInt(), bitmap.height)
-            val lipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                isFilterBitmap = true
-                // Ruba strana papíru je o něco tmavší než líc.
-                colorFilter = android.graphics.PorterDuffColorFilter(Color.argb((90 * envelope).roundToInt(), 0, 0, 0), android.graphics.PorterDuff.Mode.DARKEN)
-            }
-            nativeCanvas.save()
-            // Zrcadleni platna kolem stredu cile - dst.left/right zustavaji stejne, ale obsah
-            // (co se do nich vykresli) se prevrati = ruba strana papiru prehnuta pres hreben.
-            nativeCanvas.scale(-1f, 1f, (dstLeft + dstRight) / 2f, 0f)
-            nativeCanvas.drawBitmap(bitmap, lipSrcRect, lipDstRect, lipPaint)
-            nativeCanvas.restore()
-
-            // Stin, ktery zlom vrha na odkrytou stranku dal za nim.
-            val shadowFar = dstRight + direction * 70f
-            val shadowPaint = Paint().apply {
-                shader = LinearGradient(
-                    dstRight, 0f, shadowFar, 0f,
-                    intArrayOf(Color.argb((140 * envelope).roundToInt(), 0, 0, 0), 0x00000000),
-                    null, Shader.TileMode.CLAMP,
-                )
-            }
-            val shadowLeft = minOf(dstRight, shadowFar)
-            val shadowRight = maxOf(dstRight, shadowFar)
-            nativeCanvas.drawRect(shadowLeft, 0f, shadowRight, geometry.pageHeight, shadowPaint)
+    // Stin za "front" (kde by se vlna lamala) na odkrytou stranku - naznaci hloubku bez
+    // zrcadleneho "lip" pruhu, ktery byl na zarizeni potvrzene rozbity (roztrhany/posunuty
+    // obsah, viz nahlaseny bug) - zrcadleni platna + drawBitmap(src,dst) pres nej byla jedina
+    // technika v tehle funkci bez overeneho vzoru jinde v kodu, proto prvni podezrely a
+    // odstraneny, misto dalsiho slepeho ladeni bez pristupu k zarizeni.
+    if (envelope > 0.05f) {
+        val shadowNear = front
+        val shadowFar = front + direction * geometry.curlBandWidth * 0.25f
+        val shadowPaint = Paint().apply {
+            shader = LinearGradient(
+                shadowNear, 0f, shadowFar, 0f,
+                intArrayOf(Color.argb((110 * envelope).roundToInt(), 0, 0, 0), 0x00000000),
+                null, Shader.TileMode.CLAMP,
+            )
         }
+        val shadowLeft = minOf(shadowNear, shadowFar)
+        val shadowRight = maxOf(shadowNear, shadowFar)
+        nativeCanvas.drawRect(shadowLeft, 0f, shadowRight, geometry.pageHeight, shadowPaint)
     }
 }
