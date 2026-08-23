@@ -147,10 +147,16 @@ internal fun AnimeMangaCard(
             .scale(scale)
             .violetGlow(radius = 16f, alpha = if (isSelected) 0.4f else 0.15f)
             .clip(RoundedCornerShape(12.dp))
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) GlowViolet else GlowViolet.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(12.dp),
+            .then(
+                // Ramecek kolem cele karty jen pri vyberu - normalne postup cteni ukazuje
+                // uzsi lista dole (stejne jako v seznamovem zobrazeni, LibraryListRow), ne
+                // ramecek na vsech stranach (uzivatelsky pozadavek - v gridu to vypadalo jako
+                // "bary i na bocich" oproti cistemu spodnimu baru v listu).
+                if (isSelected) {
+                    Modifier.border(width = 2.dp, color = GlowViolet, shape = RoundedCornerShape(12.dp))
+                } else {
+                    Modifier
+                },
             )
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -166,11 +172,16 @@ internal fun AnimeMangaCard(
             Box(modifier = Modifier.fillMaxSize().background(GlowViolet.copy(alpha = 0.35f)))
         }
         Box(modifier = Modifier.fillMaxWidth().height(80.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE5070B14)))))
-        Column(modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 7.dp, vertical = 6.dp)) {
+        Column(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 7.dp, vertical = 6.dp)) {
             Text(text = manga.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp)
             if (totalCount > 0) {
                 val readCount = totalCount - unreadCount
                 Text(text = stringResource(R.string.mylist_read_total_count, readCount, totalCount), color = Color.White.copy(alpha = 0.55f), fontSize = 9.sp, lineHeight = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                val progress = (readCount.toFloat() / totalCount.toFloat()).coerceIn(0f, 1f)
+                Box(modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.2f))) {
+                    Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(GlowViolet, RoundedCornerShape(50)))
+                }
             }
         }
         // Selection checkmark — top-left when selected

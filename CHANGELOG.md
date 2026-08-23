@@ -4,6 +4,14 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.50
+
+### Oprava: dlaždicová karta v Mém seznamu měla rámeček na všech stranách
+V dlaždicovém (mřížkovém) zobrazení Mého seznamu měla každá karta trvalý fialový rámeček
+kolem celé obálky - vedle čistého spodního pruhu postupu v seznamovém zobrazení to působilo
+jako "pruhy i po bocích". Rámeček kolem celé karty teď zůstává jen u vybrané položky, postup
+čtení ukazuje tenký pruh dole (stejně jako v seznamovém zobrazení).
+
 ## v1.2.49
 
 ### Nové: zdroj BatCave (americké komiksy)
