@@ -46,7 +46,9 @@ fun PageCurlNovelReader(
     textColor: Color,
     bgColor: Color,
     onChapterBoundary: (TurnDirection) -> Unit,
+    curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
 ) {
+    val resolvedCurlStyle = if (curlStyle == com.haise.jiyu.settings.CurlStyleSetting.ROLL) CurlStyle.ROLL else CurlStyle.CLASSIC
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
 
@@ -273,6 +275,7 @@ fun PageCurlNovelReader(
                         pageWidth = widthPx, pageHeight = heightPx,
                         turningFromRight = dragProgress > 0f,
                         progress = kotlin.math.abs(dragProgress),
+                        style = resolvedCurlStyle,
                     )
                     drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                 }

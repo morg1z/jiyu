@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.haise.jiyu.R
+import com.haise.jiyu.settings.CurlStyleSetting
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -68,6 +69,7 @@ fun ReaderSettingsScreen(
     val oledMode           by viewModel.oledMode.collectAsState()
     val autoNextChapter    by viewModel.autoNextChapter.collectAsState()
     val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsState()
+    val curlStyle          by viewModel.curlStyle.collectAsState()
     val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsState()
     val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsState()
     val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsState()
@@ -240,6 +242,14 @@ fun ReaderSettingsScreen(
                         checked = pageCurlEnabled,
                         onCheckedChange = { viewModel.setPageCurlEnabled(it) },
                     )
+                    if (pageCurlEnabled) {
+                        listOf(
+                            CurlStyleSetting.CLASSIC to stringResource(R.string.settings_reader_curl_style_classic),
+                            CurlStyleSetting.ROLL to stringResource(R.string.settings_reader_curl_style_roll),
+                        ).forEach { (value, label) ->
+                            GlassRadioRow(label = label, selected = curlStyle == value, onClick = { viewModel.setCurlStyle(value) })
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))

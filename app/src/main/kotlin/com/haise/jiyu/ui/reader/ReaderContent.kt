@@ -114,6 +114,7 @@ fun ReaderContent(
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
     onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
+    curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
 
@@ -200,6 +201,7 @@ fun ReaderContent(
                 onAutoNextChapter = onAutoNextChapter,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
+                curlStyle = curlStyle,
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,

@@ -94,6 +94,7 @@ fun ReaderScreen(
     val panelMode            by viewModel.panelMode.collectAsState()
     val oledMode             by viewModel.oledMode.collectAsState()
     val pageCurlEnabled      by viewModel.pageCurlEnabled.collectAsState()
+    val curlStyle            by viewModel.curlStyle.collectAsState()
     val incognitoMode        by viewModel.incognitoMode.collectAsState()
     val sessionElapsed       by viewModel.sessionElapsed.collectAsState()
     val tapZoneGrid          by viewModel.tapZoneGrid.collectAsState()
@@ -235,6 +236,7 @@ fun ReaderScreen(
                 onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 pageCurlEnabled = pageCurlEnabled,
+                curlStyle = curlStyle,
             )
             comickUnavailable -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
@@ -326,6 +328,7 @@ fun ReaderScreen(
                 },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
+                curlStyle = curlStyle,
             )
         }
 

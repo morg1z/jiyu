@@ -503,6 +503,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setPageCurlEnabled(enabled: Boolean) = viewModelScope.launch { settings.setPageCurlEnabled(enabled) }
 
+    val curlStyle: StateFlow<String> = settings.curlStyle
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.settings.CurlStyleSetting.CLASSIC)
+
+    fun setCurlStyle(style: String) = viewModelScope.launch { settings.setCurlStyle(style) }
+
     // ── Přednačítání překladu další kapitoly manga/manhwa/manhua ─────────────
     val preloadNextChapterManga: StateFlow<Boolean> = settings.preloadNextChapterManga
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)

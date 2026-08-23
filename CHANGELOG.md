@@ -4,6 +4,27 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.37
+
+### Oprava: efekt otáčení stránek se vůbec nezakřivoval
+Ohyb stránky (klasický i srolování) se v poslední verzi vykresloval jako plochý řez bez
+jakéhokoli zakřivení nebo stínování - vypadalo to jako obyčejné přeskočení na další stránku
+místo ohýbání papíru. Příčina: stránka se interně rasterizuje do bitmapy, která na tomhle
+zařízení skončí v paměti dostupné jen grafické kartě (ne procesoru) - vykreslovací funkce pro
+zakřivení potřebuje na pixely sáhnout přímo, takže tiše nenakreslila nic. Teď se bitmapa nejdřív
+zkopíruje do procesorem čitelné podoby.
+
+### Nový styl otáčení: druhý přidán vedle Klasického
+Přibyl druhý volitelný vzhled otáčení stránky - "Srolování stránky" (stránka se svine do úzké
+trubičky, která putuje napříč obrazovkou podle tažení, včetně tmavší "rubové" strany svitku).
+Přepínáš v Nastavení čtečky, hned pod zapnutím 3D efektu.
+
+### Vylepšení: kónický (ne válcový) ohyb + měkčí stín
+Ohyb stránky teď silí směrem k dolnímu rohu (odkud se stránka typicky "drží" při otáčení) a
+slábne směrem k hornímu okraji, místo stejně silného ohybu po celé výšce - blíž tomu, jak se
+otáčí stránka v Google Knihách. Zároveň měkčí, plynulejší vržený stín a odlesk na ose ohybu
+místo tvrdých hran.
+
 ## v1.2.36
 
 ### Oprava opakovaného pádu appky pár minut po startu

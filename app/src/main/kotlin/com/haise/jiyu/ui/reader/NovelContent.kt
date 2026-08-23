@@ -73,6 +73,7 @@ fun NovelContent(
     onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
     onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
     pageCurlEnabled: Boolean = false,
+    curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
 ) {
     var fontSize by remember { mutableStateOf(16f) }
     var lineSpacing by remember { mutableStateOf(1.6f) }
@@ -236,6 +237,7 @@ fun NovelContent(
                 onChapterBoundary = { direction ->
                     if (direction == TurnDirection.NEXT) onNext() else onPrev()
                 },
+                curlStyle = curlStyle,
             )
         } else {
             LazyColumn(

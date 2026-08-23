@@ -90,10 +90,12 @@ fun MangaPageCurlReader(
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
     volumeKeysNav: Boolean = true,
+    curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
 ) {
+    val resolvedCurlStyle = if (curlStyle == com.haise.jiyu.settings.CurlStyleSetting.ROLL) CurlStyle.ROLL else CurlStyle.CLASSIC
     // Pinch-to-zoom - nezávisí na kapitole (rememberSaveable přežije rotaci); resetuje se
     // explicitně na 1f/Offset.Zero v efektu níže vždy, když se změní stránka NEBO kapitola.
     var scale by rememberSaveable { mutableStateOf(1f) }
@@ -503,6 +505,7 @@ fun MangaPageCurlReader(
                             pageWidth = widthPx, pageHeight = heightPx,
                             turningFromRight = curlFromRight,
                             progress = kotlin.math.abs(dragProgress),
+                            style = resolvedCurlStyle,
                         )
                         drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                     }

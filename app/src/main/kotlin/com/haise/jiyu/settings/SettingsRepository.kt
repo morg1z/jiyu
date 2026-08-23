@@ -49,6 +49,7 @@ object SettingsKeys {
     val PRELOAD_NEXT_CHAPTER_MANGA = booleanPreferencesKey("preload_next_chapter_manga")
     val PRELOAD_NEXT_CHAPTER_WIFI_ONLY = booleanPreferencesKey("preload_next_chapter_wifi_only")
     val PAGE_CURL_ENABLED      = booleanPreferencesKey("page_curl_enabled")
+    val CURL_STYLE             = stringPreferencesKey("curl_style")
     val FAVORITE_SOURCE_IDS    = stringSetPreferencesKey("favorite_source_ids")
     val COMICK_UPD_COUNTRIES   = stringSetPreferencesKey("comick_upd_countries")
     val COMICK_UPD_DEMOGRAPHICS = stringSetPreferencesKey("comick_upd_demographics")
@@ -120,6 +121,13 @@ object ThemeOption {
 object ReadingDirection {
     const val LTR = "ltr"
     const val RTL = "rtl"
+}
+
+/** Hodnoty pro [SettingsRepository.curlStyle] - viz `com.haise.jiyu.ui.reader.CurlStyle`, kam se
+ * tenhle string na hraně čtečky převádí. */
+object CurlStyleSetting {
+    const val CLASSIC = "classic"
+    const val ROLL = "roll"
 }
 
 object ReadingMode {
@@ -493,6 +501,14 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setPageCurlEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.PAGE_CURL_ENABLED] = enabled }
+
+    /** Vizuální styl [pageCurlEnabled] přechodu - [CurlStyleSetting.CLASSIC] (plochý ohyb jako
+     * klasické otáčení listu) nebo [CurlStyleSetting.ROLL] (svinutí do trubičky). */
+    val curlStyle: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.CURL_STYLE] ?: CurlStyleSetting.CLASSIC }
+
+    suspend fun setCurlStyle(style: String) =
+        dataStore.edit { it[SettingsKeys.CURL_STYLE] = style }
 
     val libraryGridMode: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.LIBRARY_GRID_MODE] ?: true }

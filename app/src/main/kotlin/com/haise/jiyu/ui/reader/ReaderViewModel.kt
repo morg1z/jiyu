@@ -182,6 +182,9 @@ class ReaderViewModel @Inject constructor(
     val pageCurlEnabled: StateFlow<Boolean> = settings.pageCurlEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val curlStyle: StateFlow<String> = settings.curlStyle
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.settings.CurlStyleSetting.CLASSIC)
+
     val pageScale: StateFlow<String> = settings.pageScale
         .stateIn(viewModelScope, SharingStarted.Eagerly, "fit_width")
 

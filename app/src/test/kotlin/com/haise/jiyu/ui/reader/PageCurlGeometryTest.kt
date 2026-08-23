@@ -94,4 +94,76 @@ class PageCurlGeometryTest {
         assertTrue("stin na konci pasu musi byt tmavsi nez u osy ohybu", geometry.shadeAt(geometry.curlBandWidth) < geometry.shadeAt(0f))
         assertEquals(0.35f, geometry.shadeAt(geometry.curlBandWidth), 0.02f)
     }
+
+    @Test
+    fun `roll style caps the band at radius times pi - twice as wide as classic`() {
+        val roll = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.ROLL,
+        )
+        val maxBand = roll.radius * PI.toFloat()
+        assertEquals(maxBand, roll.curlBandWidth, 0.5f)
+    }
+
+    @Test
+    fun `roll style radius is tighter than classic for the same page width`() {
+        val classic = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.CLASSIC,
+        )
+        val roll = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.ROLL,
+        )
+        assertTrue("svinuta trubicka musi byt uzsi nez klasicky ohyb", roll.radius < classic.radius)
+    }
+
+    @Test
+    fun `roll style warped offset rises to the radius at mid-band then returns to zero at the end`() {
+        val geometry = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.ROLL,
+        )
+        val mid = geometry.curlBandWidth / 2f
+        assertEquals(geometry.radius, geometry.warpedOffset(mid), 0.5f)
+        assertEquals(0f, geometry.warpedOffset(geometry.curlBandWidth), 0.5f)
+    }
+
+    @Test
+    fun `roll style shade is darkest at the end of the band - the rolled-away back of the page`() {
+        val geometry = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f, style = CurlStyle.ROLL,
+        )
+        assertEquals(1f, geometry.shadeAt(0f), 0.01f)
+        assertTrue(
+            "konec pasu u ROLL musi byt tmavsi nez konec pasu u CLASSIC (rubova strana svitku)",
+            geometry.shadeAt(geometry.curlBandWidth) < 0.35f,
+        )
+    }
+
+    @Test
+    fun `vertical taper is full strength at the bottom anchor corner`() {
+        val geometry = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
+        )
+        assertEquals(1f, geometry.verticalTaper(1f), 0.001f)
+    }
+
+    @Test
+    fun `vertical taper is weaker at the top - conical, not cylindrical`() {
+        val geometry = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
+        )
+        val topTaper = geometry.verticalTaper(0f)
+        assertTrue("horni okraj musi mit slabsi ohyb nez dolni roh (konicky tvar)", topTaper < 1f)
+        assertTrue("i na druhem konci musi zbyt viditelny ohyb, ne uplne plocha", topTaper > 0f)
+    }
+
+    @Test
+    fun `vertical taper decreases monotonically away from the anchor corner`() {
+        val geometry = computePageCurlGeometry(
+            pageWidth = 300f, pageHeight = 400f, turningFromRight = true, progress = 1f,
+        )
+        val nearAnchor = geometry.verticalTaper(0.9f)
+        val midway = geometry.verticalTaper(0.5f)
+        val farFromAnchor = geometry.verticalTaper(0f)
+        assertTrue(nearAnchor > midway)
+        assertTrue(midway > farFromAnchor)
+    }
 }
