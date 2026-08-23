@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.48
+
+### Oprava: procenta u ComicK titulů počítala jen ze zlomku kapitol
+Seznam kapitol pro ComicK tituly se filtroval podle jazyka nastaveného pro PŘEKLAD (výchozí
+angličtina) - u titulu, jehož anglický překlad zaostává za originálem, appka viděla jen malou
+část skutečných kapitol, takže "% přečteno" v knihovně vycházelo směšně vysoko (např. 100 % u
+kapitoly 1 z titulu, který má ve skutečnosti 150+ kapitol). Appka teď stahuje čísla kapitol
+napříč všemi jazyky, takže "celkem kapitol" odpovídá skutečnosti.
+
 ## v1.2.47
 
 ### Oprava: kapitola se občas nenačetla a zůstala trvale na "načítání"

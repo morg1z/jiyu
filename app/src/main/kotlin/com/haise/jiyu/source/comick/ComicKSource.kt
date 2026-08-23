@@ -470,10 +470,21 @@ class ComicKSource @Inject constructor(
     // ─── Kapitoly ────────────────────────────────────────────────────────────
 
     /**
-     * Stáhne kompletní seznam kapitol v angličtině.
+     * Stáhne kompletní seznam kapitol NAPŘÍČ VŠEMI JAZYKY (ne jen jedním).
      * API vyžaduje hid (ne slug) pro endpoint /manga/{hid}/chapters,
      * proto nejdřív načteme detail mangy abychom hid získali.
      * Prochází stránky po 60 dokud API nevrátí méně výsledků.
+     *
+     * Dřív se filtrovalo přes `lang=` podle SettingsRepository.sourceLanguage - to je ale
+     * nastavení PŘEKLADOVÉ funkce (z jakého jazyka OCR čte text), s katalogem kapitol ComicK
+     * nemá nic společného. Efekt: titul, jehož překlad do zvoleného jazyka (výchozí "en")
+     * zaostává za originálem, měl v appce synchronizovaný jen zlomek svých kapitol - "celkem
+     * kapitol" (viz LibraryScreen.progressPercentFor - počítá UNIKÁTNÍ čísla kapitol napříč
+     * všemi jazyky, duplicity už řeší SQL GROUP BY) tak vycházelo směšně nízké/špatné (např.
+     * "100 % přečteno" u kapitoly 1 z titulu, který má ve skutečnosti 150+ kapitol - nahlásil
+     * uživatel). Bez filtru appka vidí VŠECHNA existující čísla kapitol bez ohledu na jazyk
+     * překladu (skutečné čtení stejně vždy jde přes zvlášť vyhledaný reálný zdroj, ne přímo
+     * přes ComicK - viz ReaderViewModel.loadChapter, blokuje sourceId=="comick").
      */
     override suspend fun getChapterList(manga: SManga): List<SChapter> =
         withContext(Dispatchers.IO) {
@@ -490,9 +501,8 @@ class ComicKSource @Inject constructor(
             var page = 1
             val pageSize = 60
 
-            val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
             while (true) {
-                val url = "$apiBase/comic/$hid/chapters?lang=$langCode&page=$page&limit=$pageSize"
+                val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
                 val json = getObject(url)
                 val arr = json.optJSONArray("chapters") ?: break
 
