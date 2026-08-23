@@ -4,6 +4,14 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.51
+
+### Oprava: možná příčina náhodných pádů appky/kapitoly u srolování stránky
+GL vykreslovací vlákno (u stylu "Srolování stránky") nemělo žádné zachytávání chyb - když se
+nepodařilo připravit texturu (např. appka mezitím stihla vyměnit stránku, než vlákno stihlo
+předchozí), pád na tomhle vlákně shodil CELOU appku, ne jen tenhle jeden snímek. Teď se taková
+chyba jen nahlásí a přeskočí, appka/kapitola by se tím pádem neměla zavírat.
+
 ## v1.2.50
 
 ### Oprava: dlaždicová karta v Mém seznamu měla rámeček na všech stranách

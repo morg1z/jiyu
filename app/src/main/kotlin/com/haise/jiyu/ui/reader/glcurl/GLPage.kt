@@ -2,6 +2,7 @@ package com.haise.jiyu.ui.reader.glcurl
 
 import android.graphics.Bitmap
 import android.opengl.GLUtils
+import com.haise.jiyu.util.report
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -144,26 +145,36 @@ open class GLPage {
 
     private fun loadTexture(gl: GL10) {
         val bmp = bitmap ?: return
-        // Stejny problem jako drive u PageCurlEffect/drawBitmapMesh (viz tam) - bitmapa z
-        // Compose GraphicsLayer.toImageBitmap() je na tomhle zarizeni Bitmap.Config.HARDWARE,
-        // coz GLUtils.texImage2D bud tise vynecha, nebo shodi GL vlakno - v obou pripadech
-        // stranka na obrazovce zustane plocha/staticka, i kdyz matematika ohybu bezi spravne.
-        val safeBmp = if (bmp.config == Bitmap.Config.HARDWARE) {
-            bmp.copy(Bitmap.Config.ARGB_8888, false)
-        } else {
-            bmp
+        try {
+            // Stejny problem jako drive u PageCurlEffect/drawBitmapMesh (viz tam) - bitmapa z
+            // Compose GraphicsLayer.toImageBitmap() je na tomhle zarizeni Bitmap.Config.HARDWARE,
+            // coz GLUtils.texImage2D bud tise vynecha, nebo shodi GL vlakno - v obou pripadech
+            // stranka na obrazovce zustane plocha/staticka, i kdyz matematika ohybu bezi spravne.
+            val safeBmp = if (bmp.config == Bitmap.Config.HARDWARE) {
+                bmp.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bmp
+            }
+            bitmapRatio = safeBmp.height.toFloat() / safeBmp.width.toFloat()
+
+            gl.glGenTextures(1, textures, 0)
+            gl.glBindTexture(GL10.GL_TEXTURE_2D, textures[0])
+
+            gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST.toFloat())
+            gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR.toFloat())
+            gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_REPEAT.toFloat())
+            gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_REPEAT.toFloat())
+
+            GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, safeBmp, 0)
+        } catch (e: Exception) {
+            // GL vlakno (GLThread) nema zadny globalni handler jako hlavni vlakno - nezachycena
+            // vyjimka tady (napr. IllegalStateException z bmp.copy() na uz recyklovane bitmape,
+            // pokud UI mezitim stihlo stranku vymenit driv, nez GL vlakno dohonilo predchozi
+            // pozadavek na texturu) by spadla appku CELOU, ne jen tenhle jeden snimek ohybu.
+            e.report("reader:glcurl:loadTexture")
+        } catch (e: OutOfMemoryError) {
+            e.report("reader:glcurl:loadTexture:oom")
         }
-        bitmapRatio = safeBmp.height.toFloat() / safeBmp.width.toFloat()
-
-        gl.glGenTextures(1, textures, 0)
-        gl.glBindTexture(GL10.GL_TEXTURE_2D, textures[0])
-
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST.toFloat())
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR.toFloat())
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_REPEAT.toFloat())
-        gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_REPEAT.toFloat())
-
-        GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, safeBmp, 0)
     }
 
     companion object {

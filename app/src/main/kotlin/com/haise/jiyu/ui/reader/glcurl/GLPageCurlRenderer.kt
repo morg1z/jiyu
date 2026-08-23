@@ -3,6 +3,7 @@ package com.haise.jiyu.ui.reader.glcurl
 import android.graphics.Bitmap
 import android.opengl.GLSurfaceView
 import android.opengl.GLU
+import com.haise.jiyu.util.report
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -106,22 +107,31 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
         gl.glClear(GL10.GL_COLOR_BUFFER_BIT or GL10.GL_DEPTH_BUFFER_BIT)
         gl.glLoadIdentity()
 
-        gl.glPushMatrix()
-        gl.glTranslatef(0f, 0f, -2f)
-        gl.glTranslatef(-0.5f, -0.5f, 0f)
-        leftPage.draw(gl)
-        gl.glPopMatrix()
+        // Kazde .draw() obalene zvlast - GLThread nema zadny globalni handler nezachycenych
+        // vyjimek jako hlavni vlakno, takze by pad pri vykreslovani JEDNE stranky (napr.
+        // loadTexture na uz recyklovane bitmape) shodil celou appku. Sam GLPage.loadTexture uz
+        // vyjimky chyta (viz tam), tohle je jen dalsi vrstva pro cokoliv necekaneho v
+        // calculateVerticesCoords()/zbytku draw().
+        try {
+            gl.glPushMatrix()
+            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(-0.5f, -0.5f, 0f)
+            leftPage.draw(gl)
+            gl.glPopMatrix()
 
-        gl.glPushMatrix()
-        gl.glTranslatef(0f, 0f, -2f)
-        gl.glTranslatef(-0.5f, -0.5f, 0f)
-        frontPage.draw(gl)
-        gl.glPopMatrix()
+            gl.glPushMatrix()
+            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(-0.5f, -0.5f, 0f)
+            frontPage.draw(gl)
+            gl.glPopMatrix()
 
-        gl.glPushMatrix()
-        gl.glTranslatef(0f, 0f, -2f)
-        gl.glTranslatef(-0.5f, -0.5f, 0f)
-        rightPage.draw(gl)
-        gl.glPopMatrix()
+            gl.glPushMatrix()
+            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(-0.5f, -0.5f, 0f)
+            rightPage.draw(gl)
+            gl.glPopMatrix()
+        } catch (e: Exception) {
+            e.report("reader:glcurl:onDrawFrame")
+        }
     }
 }
