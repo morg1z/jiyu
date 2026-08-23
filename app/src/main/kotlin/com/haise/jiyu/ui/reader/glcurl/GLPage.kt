@@ -144,7 +144,16 @@ open class GLPage {
 
     private fun loadTexture(gl: GL10) {
         val bmp = bitmap ?: return
-        bitmapRatio = bmp.height.toFloat() / bmp.width.toFloat()
+        // Stejny problem jako drive u PageCurlEffect/drawBitmapMesh (viz tam) - bitmapa z
+        // Compose GraphicsLayer.toImageBitmap() je na tomhle zarizeni Bitmap.Config.HARDWARE,
+        // coz GLUtils.texImage2D bud tise vynecha, nebo shodi GL vlakno - v obou pripadech
+        // stranka na obrazovce zustane plocha/staticka, i kdyz matematika ohybu bezi spravne.
+        val safeBmp = if (bmp.config == Bitmap.Config.HARDWARE) {
+            bmp.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            bmp
+        }
+        bitmapRatio = safeBmp.height.toFloat() / safeBmp.width.toFloat()
 
         gl.glGenTextures(1, textures, 0)
         gl.glBindTexture(GL10.GL_TEXTURE_2D, textures[0])
@@ -154,7 +163,7 @@ open class GLPage {
         gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_S, GL10.GL_REPEAT.toFloat())
         gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_REPEAT.toFloat())
 
-        GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, bmp, 0)
+        GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, safeBmp, 0)
     }
 
     companion object {

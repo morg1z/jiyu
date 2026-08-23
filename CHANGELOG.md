@@ -4,6 +4,16 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.42
+
+### Oprava GL srolování: efekt se vůbec nezakřivoval (žádná animace)
+Textura pro OpenGL srolovací efekt (v1.2.40/v1.2.41) se natahovala přímo z bitmapy, kterou
+appka renderuje z Compose vrstvy - ta je na tomhle typu zařízení hardwarová (`Bitmap.Config.
+HARDWARE`), což OpenGL nahrání textury tiše přeskočí/nezvládne. Stránka tak při tažení
+zůstávala úplně plochá, jako by žádná animace neběžela (stejný druh chyby, jaký dřív potkal
+starší 2D ohyb - viz v1.2.34 oprava). Bitmapa se teď před nahráním do GL vždy převede na
+běžný formát.
+
 ## v1.2.41
 
 ### Oprava GL srolování: vypadalo jako spirála/trubička, ne hladký ohyb
