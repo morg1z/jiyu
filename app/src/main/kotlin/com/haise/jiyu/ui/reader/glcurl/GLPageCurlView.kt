@@ -39,6 +39,12 @@ fun GLPageCurlView(
         modifier = modifier,
         factory = { context ->
             GLSurfaceView(context).apply {
+                // GLSurfaceView je SurfaceView - ten se BEZ tohohle volani vykresluje na
+                // samostatnem povrchu ZA oknem aplikace (diry v Compose UI), takže by byl
+                // schovany za zbytkem obrazovky (staticka bitmapa aktualni stranky nad nim) a
+                // cely efekt by pusobil jako by se vubec nerenderoval, presne jak to bylo videt
+                // po nasazeni - zadna animace, jen skok na dalsi stranku po pusteni prstu.
+                setZOrderOnTop(true)
                 // Zadny setEGLContextClientVersion() - stejne jako originalni
                 // PageSurfaceView.java, ktery ho taky nevola. Renderer pouziva klasicke
                 // GL10 (pevna funkcni roura, OpenGL ES 1.x), GLSurfaceView si na to sam

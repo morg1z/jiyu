@@ -4,6 +4,16 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.43
+
+### Oprava GL srolování: efekt byl schovaný za stránkou (skutečná příčina)
+Oprava v1.2.42 (hardwarová bitmapa) problém nevyřešila - skutečná příčina byla jinde.
+`GLSurfaceView`, ve kterém OpenGL efekt běží, se bez výslovného nastavení vykresluje na
+samostatné vrstvě ZA oknem aplikace - takže ho statická stránka nahoře úplně zakrývala. Tažení
+tak nemělo žádnou viditelnou animaci a po puštění prstu appka jen rovnou přepnula na další
+stránku, jako by šlo o obyčejné ťuknutí. Teď se vrstva s GL efektem výslovně staví nad
+zbytek obrazovky.
+
 ## v1.2.42
 
 ### Oprava GL srolování: efekt se vůbec nezakřivoval (žádná animace)
