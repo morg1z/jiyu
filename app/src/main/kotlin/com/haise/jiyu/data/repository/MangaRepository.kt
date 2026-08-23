@@ -225,7 +225,18 @@ class MangaRepository @Inject constructor(
             year = manga.year,
         )
 
-    suspend fun removeFromLibrary(mangaId: String) = mangaDao.setInLibrary(mangaId, false)
+    /**
+     * Odebrani z knihovny mangu ani kapitoly nemaze (jen inLibrary = false) - zaroven ale
+     * resetuje stav cteni (precteno/pozice/cas), aby pripadne pozdejsi znovu-pridani te
+     * same mangy (mangaId/chapterId jsou deterministicke ze zdroje+URL, viz mangaId()/
+     * chapterId() nize) nezdedilo stary stav z doby pred odebranim - viz nahlaseny bug,
+     * kdy cerstve pridany titul vypadal jako uz kompletne precteny.
+     */
+    suspend fun removeFromLibrary(mangaId: String) {
+        mangaDao.setInLibrary(mangaId, false)
+        mangaDao.resetReadProgress(mangaId)
+        chapterDao.resetProgressForManga(mangaId)
+    }
 
     /**
      * Znovu dotáhne kompletní detail mangy ze zdroje (popis, stav, autor, žánry,

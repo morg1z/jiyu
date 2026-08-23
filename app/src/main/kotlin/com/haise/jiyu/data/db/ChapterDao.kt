@@ -54,6 +54,14 @@ interface ChapterDao {
     @Query("UPDATE chapter SET lastScrollOffset = :offset, lastReadAt = :lastReadAt WHERE id = :id")
     suspend fun updateScrollOffset(id: String, offset: Int, lastReadAt: Long)
 
+    // Manga/kapitola id se generuje deterministicky ze zdroje+URL (viz MangaRepository.mangaId/
+    // chapterId) a odebrání z knihovny mangu ani kapitoly nemaže (jen inLibrary = false, viz
+    // MangaDao.setInLibrary) - bez tohohle resetu by opetovne pridani te same mangy tise
+    // "zdedilo" stary stav cteni (read/lastPageRead) z doby pred odebranim, takže by cerstve
+    // pridany titul vypadal jako uz kompletne precteny.
+    @Query("UPDATE chapter SET read = 0, lastPageRead = 0, lastScrollOffset = 0, lastReadAt = 0 WHERE mangaId = :mangaId")
+    suspend fun resetProgressForManga(mangaId: String)
+
     @Query("SELECT COUNT(*) FROM chapter WHERE mangaId = :mangaId")
     suspend fun countForManga(mangaId: String): Int
 

@@ -428,7 +428,7 @@ fun MyListScreen(
             } else if (gridMode) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumns),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp + navBottom),
+                    contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 8.dp, bottom = 96.dp + navBottom),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),

@@ -306,7 +306,7 @@ internal fun LibraryListRow(
                 .fillMaxWidth()
                 .background(if (isSelected) GlowViolet.copy(alpha = 0.15f) else Color.Transparent)
                 .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }, onLongPress = { onLongPress() }) }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {

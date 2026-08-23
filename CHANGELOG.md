@@ -4,6 +4,19 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.54
+
+### Oprava: znovu přidaná manga zdědila starý stav "přečteno"
+Odebrání mangy z knihovny mangu ani kapitoly nemazalo (jen skrylo z knihovny), takže při
+pozdějším znovu-přidání stejného titulu appka potichu obnovila starý stav čtení z doby před
+odebráním - čerstvě přidaný titul tak mohl vypadat jako už kompletně přečtený, i když jsi
+neotevřel/a jedinou kapitolu. Odebrání z knihovny teď zároveň resetuje stav čtení (přečteno,
+pozici, čas čtení), takže další přidání téhož titulu je vždy opravdu čisté.
+
+### Oprava: Můj seznam měl zbytečně velké okraje od hran obrazovky
+Karty v mřížkovém zobrazení (16dp) i řádky v seznamovém zobrazení (16dp) měly větší odstup od
+levého/pravého okraje než zbytek appky. Zmenšeno na 6dp.
+
 ## v1.2.53
 
 ### Oprava: Novinky ukazovaly starý archiv jako nové a duplicitní upozornění u ComicK

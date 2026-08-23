@@ -123,6 +123,12 @@ interface MangaDao {
     @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
     suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
 
+    // Doplnek ChapterDao.resetProgressForManga - manga radek se pri odebrani z knihovny
+    // take nemaze, takze "Pokracovat X" a cas cteni by jinak po znovu-pridani ukazovaly
+    // stary stav z doby pred odebranim.
+    @Query("UPDATE manga SET lastReadChapterId = NULL, lastReadAt = 0, readingTimeMs = 0 WHERE id = :id")
+    suspend fun resetReadProgress(id: String)
+
     @Query("UPDATE manga SET readingStatus = :status WHERE id = :id")
     suspend fun setReadingStatus(id: String, status: String?)
 
