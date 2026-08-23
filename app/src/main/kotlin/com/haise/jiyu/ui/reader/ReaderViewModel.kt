@@ -50,6 +50,15 @@ data class TranslationProgress(val done: Int, val total: Int)
 /** Jak dlouho po poslednim cteni jeste ma smysl obnovovat presnou stranku/scroll - viz [ReaderViewModel.loadChapter]. */
 private const val POSITION_FRESHNESS_MS = 10L * 24 * 60 * 60 * 1000
 
+/**
+ * Strop na stažení seznamu stránek kapitoly (repository.getChapterPages) - beze stropu umí
+ * RetryInterceptor × CloudflareInterceptor (viz AppModule.kt) v nejhorším případě viset i přes
+ * minutu BEZE JAKÉKOLI výjimky (retry opakuje celý interceptor řetězec včetně interaktivního
+ * Cloudflare řešení), takže appka jinak zůstane trvale na "načítání" bez chybové hlášky - přesně
+ * to uživatel hlásil ("kapitola se někdy nenačte správně").
+ */
+private const val CHAPTER_LOAD_TIMEOUT_MS = 45_000L
+
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -674,22 +683,36 @@ class ReaderViewModel @Inject constructor(
             } else {
                 val manga = repository.getManga(chapter.mangaId)
                 if (manga != null) {
-                    try {
-                        val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
-                        val isNovel = rawPages.any { it.imageUrl == "novel://text" }
-                        _isNovelSource.value = isNovel
-                        if (isNovel) {
+                    // withTimeoutOrNull - viz CHAPTER_LOAD_TIMEOUT_MS dokumentace: bez tohohle
+                    // stropu umi zdroj chraneny Cloudflare (RetryInterceptor okolo
+                    // CloudflareInterceptor, AppModule.kt) viset beze jakekoli vyjimky i pres
+                    // minutu, appka by pak zustala trvale na "nacitani".
+                    val rawPages = try {
+                        kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) {
+                            repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
+                        }
+                    } catch (e: Exception) {
+                        e.report("reader:loadChapter:getChapterPages")
+                        null
+                    }
+                    val isNovel = rawPages?.any { it.imageUrl == "novel://text" } ?: false
+                    _isNovelSource.value = isNovel
+                    when {
+                        rawPages == null -> {
+                            // Vyjimka (nahlasena vyse) nebo vyprseni CHAPTER_LOAD_TIMEOUT_MS -
+                            // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo
+                            // načíst.", misto vecneho viseni na "nacitani".
+                            _novelText.value = ""
+                            _pages.value = emptyList()
+                        }
+                        isNovel -> {
                             _novelText.value = rawPages.firstOrNull()?.url ?: ""
                             _pages.value = emptyList()
-                        } else {
+                        }
+                        else -> {
                             _novelText.value = ""
                             _pages.value = rawPages.map { it.imageUrl ?: it.url }
                         }
-                    } catch (_: Exception) {
-                        // Zdroj selhal (expirovana/geoblokovana kapitola, sitova chyba...) -
-                        // prazdny seznam stranek uz UI zobrazi jako "Kapitolu se nepodařilo načíst."
-                        _isNovelSource.value = false
-                        _pages.value = emptyList()
                     }
                 }
             }
@@ -781,7 +804,11 @@ class ReaderViewModel @Inject constructor(
         if (segments.any { it.chapterId == nextChapter.id }) return
         appendingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val pages = nextChapterCache.remove(nextChapter.id) ?: fetchChapterPagesForSegment(nextChapter)
+                // Strop stejny jako u hlavniho nacitani kapitoly (CHAPTER_LOAD_TIMEOUT_MS) -
+                // bez nej by zaseknuty pokus drzel appendingSegmentJob "aktivni" donekonecna a
+                // znemoznil dalsi pokus (viz podminka na zacatku funkce).
+                val pages = nextChapterCache.remove(nextChapter.id)
+                    ?: kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) { fetchChapterPagesForSegment(nextChapter) }
                 if (pages.isNullOrEmpty()) return@launch
                 val newSegment = WebtoonSegment(nextChapter.id, nextChapter.name, pages)
                 _webtoonSegments.value = _webtoonSegments.value + newSegment

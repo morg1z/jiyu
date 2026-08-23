@@ -4,6 +4,15 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.47
+
+### Oprava: kapitola se občas nenačetla a zůstala trvale na "načítání"
+Zdroje chráněné Cloudflare umí appku bez jakékoli chybové hlášky nechat viset i přes minutu -
+appka to opakuje (retry) na chybu, ale to opakování zahrnuje i celé (drahé) řešení Cloudflare
+výzvy znovu od začátku, takže se to může sečíst. Načítání stránek kapitoly má teď strop 45 s -
+po jeho vypršení appka rovnou ukáže "Kapitolu se nepodařilo načíst" (jde použít nové tlačítko
+pro restart kapitoly z v1.2.45) místo věčného čekání.
+
 ## v1.2.46
 
 ### Nové: Nekonečné čtení (webtoon)
