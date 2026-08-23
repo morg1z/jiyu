@@ -133,8 +133,6 @@ fun DrawScope.drawPageCurl(
         isFilterBitmap = true
     }
     nativeCanvas.drawBitmapMesh(bandBitmap, MESH_COLUMNS, MESH_ROWS, verts, 0, colors, 0, meshPaint)
-
-    drawFoldCrease(nativeCanvas, geometry)
 }
 
 /** Kolik vodorovných pruhů se použije na vykreslení stínu - musí sledovat stejný kónický taper
@@ -166,20 +164,4 @@ private fun drawAheadShadow(canvas: android.graphics.Canvas, geometry: PageCurlG
         val right = maxOf(edgeX, farX)
         canvas.drawRect(left, geometry.pageHeight * rowT0, right, geometry.pageHeight * rowT1, paint)
     }
-}
-
-/** Měkký odlesk světla na ose ohybu - simuluje ohyb papíru přes hranu, ne tvrdou čáru. Gradient
- * (ne plná barva) mizí do stran, aby to nepůsobilo jako nakreslená linka. */
-private fun drawFoldCrease(canvas: android.graphics.Canvas, geometry: PageCurlGeometry) {
-    val creaseWidth = (geometry.radius * 0.12f).coerceIn(3f, 14f)
-    val left = geometry.foldX - creaseWidth / 2f
-    val paint = Paint().apply {
-        shader = LinearGradient(
-            left, 0f, left + creaseWidth, 0f,
-            intArrayOf(0x00FFFFFF, 0x50FFFFFF.toInt(), 0x00FFFFFF),
-            floatArrayOf(0f, 0.5f, 1f),
-            Shader.TileMode.CLAMP,
-        )
-    }
-    canvas.drawRect(left, 0f, left + creaseWidth, geometry.pageHeight, paint)
 }

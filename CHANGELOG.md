@@ -4,6 +4,12 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.39
+
+### Oprava: odstraněn rušivý zvýrazňovací proužek na ose ohybu
+Ohyb stránky měl podél celé osy tenký světlý proužek (odlesk simulující ohnutý papír), který
+na některých stránkách vypadal jako rušivá čára navíc, ne jako přirozený stín. Odstraněno.
+
 ## v1.2.38
 
 ### Vylepšení: skutečná 3D perspektiva místo ploché sinusové aproximace
