@@ -310,6 +310,7 @@ fun ReaderScreen(
                 allChapters = allChapters,
                 currentChapterId = currentChapterId,
                 onJumpToChapter = { viewModel.jumpToChapter(it) },
+                onResetChapter = { currentChapterId?.let { viewModel.jumpToChapter(it) } },
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = { viewModel.navigateNext() },
                 cropBorders = cropBorders,

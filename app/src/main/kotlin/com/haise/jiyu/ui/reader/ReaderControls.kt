@@ -69,6 +69,7 @@ import compose.icons.tablericons.Language
 import compose.icons.tablericons.LayoutRows
 import compose.icons.tablericons.Menu2
 import compose.icons.tablericons.Moon
+import compose.icons.tablericons.Refresh
 import compose.icons.tablericons.Sun
 import compose.icons.tablericons.WifiOff
 import compose.icons.tablericons.X
@@ -89,6 +90,7 @@ fun ReaderTopBar(
     currentChapterId: String? = null,
     onOpenManga: () -> Unit,
     onJumpToChapter: (String) -> Unit,
+    onResetChapter: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -161,6 +163,19 @@ fun ReaderTopBar(
                         )
                     }
                 }
+            }
+
+            // Restart kapitoly - pro pripad, ze se nenacte spravne (uzivatelsky pozadavek).
+            // Znovu spusti nacitani UPLNE od zacatku (stejna cesta jako skok na jinou
+            // kapitolu ze seznamu nize), takze i castecne/rozbite nactene stranky se zahodi
+            // a stahnou znovu ze zdroje.
+            IconButton(onClick = onResetChapter, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    TablerIcons.Refresh,
+                    contentDescription = stringResource(R.string.reader_reset_chapter_desc),
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(19.dp),
+                )
             }
 
             // Seznam kapitol - jediná ikona, co v horní liště zůstala (uživatelský požadavek).

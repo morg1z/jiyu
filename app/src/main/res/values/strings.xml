@@ -708,6 +708,7 @@
     <string name="reader_offline_desc">Offline</string>
     <string name="reader_panel_mode_desc">Panel po panelu</string>
     <string name="reader_pick_chapter_desc">Vybrat kapitolu</string>
+    <string name="reader_reset_chapter_desc">Znovu načíst kapitolu</string>
     <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
     <string name="reader_incognito_off_desc">Vypnout inkognito</string>
     <string name="reader_incognito_on_desc">Inkognito</string>

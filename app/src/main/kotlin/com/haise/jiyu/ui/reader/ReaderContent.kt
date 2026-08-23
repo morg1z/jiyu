@@ -98,6 +98,7 @@ fun ReaderContent(
     allChapters: List<ChapterEntity> = emptyList(),
     currentChapterId: String? = null,
     onJumpToChapter: (String) -> Unit = {},
+    onResetChapter: () -> Unit = {},
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
@@ -261,6 +262,7 @@ fun ReaderContent(
                     currentChapterId = currentChapterId,
                     onOpenManga = onOpenManga,
                     onJumpToChapter = onJumpToChapter,
+                    onResetChapter = onResetChapter,
                 )
 
                 ReaderBottomPanel(

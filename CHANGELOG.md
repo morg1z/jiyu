@@ -4,6 +4,12 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.45
+
+### Nové: tlačítko pro restart kapitoly
+V horní liště čtečky (mezi názvem a seznamem kapitol) přibylo tlačítko pro znovunačtení
+aktuální kapitoly od začátku - pro případ, že se nenačte správně.
+
 ## v1.2.44
 
 ### Oprava: nová kapitola ve webtoon režimu se neotevřela nahoře
