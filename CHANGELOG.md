@@ -4,6 +4,14 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.46
+
+### Nové: Nekonečné čtení (webtoon)
+V Nastavení → Čtečka přibyl přepínač "Nekonečné čtení" - ve svislém (webtoon) čtecím režimu
+appka místo přepnutí na další kapitolu po dočtení potichu na pozadí stáhne a plynule přilepí
+její stránky pod tu aktuální, takže scroll pokračuje dál bez přerušení. Na hranici mezi
+kapitolami se objeví tenká karta s tlačítky Předchozí/Další pro ruční přeskočení.
+
 ## v1.2.45
 
 ### Nové: tlačítko pro restart kapitoly

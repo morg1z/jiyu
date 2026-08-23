@@ -68,6 +68,7 @@ fun ReaderSettingsScreen(
     val readerTheme        by viewModel.readerTheme.collectAsState()
     val oledMode           by viewModel.oledMode.collectAsState()
     val autoNextChapter    by viewModel.autoNextChapter.collectAsState()
+    val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsState()
     val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsState()
     val curlStyle          by viewModel.curlStyle.collectAsState()
     val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsState()
@@ -229,6 +230,13 @@ fun ReaderSettingsScreen(
                         description = stringResource(R.string.settings_reader_auto_next_desc),
                         checked = autoNextChapter,
                         onCheckedChange = { viewModel.setAutoNextChapter(it) },
+                    )
+
+                    SettingsToggleRow(
+                        title = stringResource(R.string.settings_reader_infinite_scroll_title),
+                        description = stringResource(R.string.settings_reader_infinite_scroll_desc),
+                        checked = infiniteScrollEnabled,
+                        onCheckedChange = { viewModel.setInfiniteScrollEnabled(it) },
                     )
                 }
 

@@ -99,11 +99,13 @@ fun ReaderContent(
     currentChapterId: String? = null,
     onJumpToChapter: (String) -> Unit = {},
     onResetChapter: () -> Unit = {},
+    webtoonSegments: List<WebtoonSegment> = emptyList(),
+    onNeedMoreWebtoonSegments: () -> Unit = {},
+    onWebtoonVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
     webtoonScrollOffset: Int = 0,
-    onWebtoonScrollOffset: (Int) -> Unit = {},
     volumeKeysNav: Boolean = true,
     readerOrientation: String = "free",
     onSetReaderOrientation: (String) -> Unit = {},
@@ -157,15 +159,21 @@ fun ReaderContent(
     Box(modifier = Modifier.fillMaxSize()) {
         val effectiveTranslateMode = translateMode && !showOriginal
         if (readingMode == ReadingMode.WEBTOON) {
+            // Prazdne webtoonSegments (volajici je jeste nepredava) = spadni zpatky na jeden
+            // segment postaveny z `pages`/`currentChapterId`/`chapterTitle` - stejne chovani
+            // jako pred zavedenim segmentu.
+            val effectiveWebtoonSegments = webtoonSegments.ifEmpty {
+                listOf(WebtoonSegment(currentChapterId ?: "", chapterTitle, pages))
+            }
             WebtoonReader(
-                pages = pages,
+                segments = effectiveWebtoonSegments,
                 initialPage = initialPage,
                 initialScrollOffset = webtoonScrollOffset,
-                onScrollOffsetChanged = onWebtoonScrollOffset,
+                onNeedMoreSegments = onNeedMoreWebtoonSegments,
+                onVisibleChapterChanged = onWebtoonVisibleChapterChanged,
                 translateMode = effectiveTranslateMode,
                 translatedPages = translatedPages,
                 textScale = textScale,
-                onPageChanged = onPageChanged,
                 tapZoneGrid = tapZoneGrid,
                 tapZonesEnabled = tapZonesEnabled,
                 onShowPanel = onToggleControlsVisible,

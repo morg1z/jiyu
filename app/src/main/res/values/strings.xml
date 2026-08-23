@@ -187,6 +187,8 @@
     <string name="settings_reader_oled_desc">Čistě černé pozadí mezi stránkami — šetří baterii OLED displejů</string>
     <string name="settings_reader_auto_next_title">Po dočtení přejít na další kapitolu</string>
     <string name="settings_reader_auto_next_desc">Po dosažení poslední stránky se automaticky přejde na další kapitolu</string>
+    <string name="settings_reader_infinite_scroll_title">Nekonečné čtení</string>
+    <string name="settings_reader_infinite_scroll_desc">Ve svislém (webtoon) režimu appka místo přepnutí kapitoly plynule přilepí další kapitolu pod tu aktuální</string>
     <string name="settings_reader_page_curl_section_title">Otáčení stránek</string>
     <string name="settings_reader_page_curl_title">Použití 3D efektu při otáčení stránek</string>
     <string name="settings_reader_page_curl_desc">Stránka se otočí ohybovou animací jako u knihy místo plynulého scrollu/swipu. Platí pro light novel čtečku i pro manga/manhwa čtení po stránkách (ne pro webtoon plynulý scroll)</string>
@@ -709,6 +711,8 @@
     <string name="reader_panel_mode_desc">Panel po panelu</string>
     <string name="reader_pick_chapter_desc">Vybrat kapitolu</string>
     <string name="reader_reset_chapter_desc">Znovu načíst kapitolu</string>
+    <string name="webtoon_chapter_boundary_finished">Konec: %1$s</string>
+    <string name="webtoon_chapter_boundary_next">Další: %1$s</string>
     <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
     <string name="reader_incognito_off_desc">Vypnout inkognito</string>
     <string name="reader_incognito_on_desc">Inkognito</string>

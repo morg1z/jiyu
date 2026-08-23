@@ -191,6 +191,9 @@ class ReaderViewModel @Inject constructor(
     val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val infiniteScrollEnabled: StateFlow<Boolean> = settings.infiniteScrollEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val cropBorders: StateFlow<Boolean> = settings.cropBorders
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -216,6 +219,17 @@ class ReaderViewModel @Inject constructor(
 
     private val _webtoonScrollOffset = MutableStateFlow(0)
     val webtoonScrollOffset: StateFlow<Int> = _webtoonScrollOffset.asStateFlow()
+
+    // ── Nekonečné čtení (webtoon segmenty) ───────────────────────────────────
+    //
+    // Mimo "Nekonečné čtení" má tenhle seznam vždy přesně JEDEN segment (aktuálně otevřenou
+    // kapitolu - viz konec loadChapter) a chová se úplně stejně jako dřívější plochý seznam
+    // `pages` předávaný do WebtoonReaderu. Se zapnutým nastavením appendNextWebtoonSegment()
+    // přidává na konec DALŠÍ kapitolu (mísí se do souvislého scrollu) - vědomě se NEMAŽE
+    // (viz dokumentace u onWebtoonVisibleChapterChanged, proč).
+    private val _webtoonSegments = MutableStateFlow<List<WebtoonSegment>>(emptyList())
+    val webtoonSegments: StateFlow<List<WebtoonSegment>> = _webtoonSegments.asStateFlow()
+    private var appendingSegmentJob: Job? = null
 
     // Scroll ve webtoon rezimu emituje pozici na kazdy pixel behem flingu - zapis do DB
     // na kazdou zmenu by appku zbytecne zatezoval. Misto toho se pri kazde zmene zrusi
@@ -682,6 +696,11 @@ class ReaderViewModel @Inject constructor(
         }
         lastPageChangeMs = System.currentTimeMillis()
         _loading.value = false
+        // Kazde plne nacteni kapitoly (jumpToChapter/navigateNext/navigatePrev/pocatecni otevreni)
+        // zacina cerstvym jednosegmentovym seznamem - i pri zapnutem "Nekonecnem cteni" se dalsi
+        // segmenty pridavaji az prubezne za cteni (viz appendNextWebtoonSegment), ne predem.
+        appendingSegmentJob?.cancel()
+        _webtoonSegments.value = listOf(WebtoonSegment(chapter.id, chapter.name, _pages.value))
     }
 
     private fun updateNavState() {
@@ -741,6 +760,79 @@ class ReaderViewModel @Inject constructor(
                 e.report("reader:preloadNextChapterPages")
             }
         }
+    }
+
+    /**
+     * "Nekonečné čtení" (viz [infiniteScrollEnabled]) - přilepí DALŠÍ kapitolu (tu, co následuje
+     * za POSLEDNÍM aktuálně přidaným segmentem, ne nutně za `currentChapter` - viz
+     * [onWebtoonVisibleChapterChanged]) na konec [_webtoonSegments], takže [WebtoonReader]
+     * scrolluje plynule dál bez viditelného přepnutí. Zavolá [WebtoonReader] sám, jakmile
+     * uživatel dočte skoro na konec posledního segmentu.
+     */
+    fun appendNextWebtoonSegment() {
+        if (!infiniteScrollEnabled.value) return
+        if (appendingSegmentJob?.isActive == true) return
+        val segments = _webtoonSegments.value
+        val lastChapterId = segments.lastOrNull()?.chapterId ?: return
+        val lastIdx = allChapters.indexOfFirst { it.id == lastChapterId }
+        // allChapters je DESC (nejnovější první) - dalsi/novejsi kapitola je NIZSI index.
+        if (lastIdx <= 0) return
+        val nextChapter = allChapters[lastIdx - 1]
+        if (segments.any { it.chapterId == nextChapter.id }) return
+        appendingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val pages = nextChapterCache.remove(nextChapter.id) ?: fetchChapterPagesForSegment(nextChapter)
+                if (pages.isNullOrEmpty()) return@launch
+                val newSegment = WebtoonSegment(nextChapter.id, nextChapter.name, pages)
+                _webtoonSegments.value = _webtoonSegments.value + newSegment
+            } catch (e: Exception) {
+                e.report("reader:infiniteScroll:appendNextSegment")
+            }
+        }
+    }
+
+    /** Sdílená logika stažení stránek jedné kapitoly (offline i online) - viz stejné větvení v loadChapter. */
+    private suspend fun fetchChapterPagesForSegment(chapter: ChapterEntity): List<String>? {
+        if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
+            return ChapterStorage.listPageUrls(context, chapter.localPath).takeIf { it.isNotEmpty() }
+        }
+        val manga = repository.getManga(chapter.mangaId) ?: return null
+        val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
+        return rawPages.mapNotNull { it.imageUrl?.takeIf { u -> u.isNotBlank() } ?: it.url.takeIf { u -> u.isNotBlank() } }
+            .takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Volá [WebtoonReader], jakmile se v souvislém "Nekonečném čtení" scrollu viditelná pozice
+     * posune do JINÉ kapitoly, než je aktuálně sledovaná ([currentChapter]) - `localIndex`/
+     * `localOffset` jsou pozice PŘEPOČÍTANÉ na tenhle konkrétní segment (ne globální index přes
+     * všechny segmenty). Přepne "aktivní" kapitolu (název v horní liště, ukládání postupu,
+     * spouštěč přednačítání) a znovu použije existující [onPageChanged]/[saveWebtoonScrollOffset]
+     * - ty už samy o sobě ukládají postup a spouští [preloadNextChapter] správně, jen potřebují
+     * mít [currentChapter]/`_pages` nastavené na TUHLE kapitolu.
+     *
+     * Vědomě NEMAŽE starší segmenty z [_webtoonSegments] (i když se čtenář o pár kapitol
+     * dostane dál) - LazyColumn je virtualizovaný (dávno odscrollované položky se nedrží
+     * složené) a přehled URL adres je zanedbatelně malý, takže by mazání jen riskovalo bug
+     * (viz git historie - dřívější verze mazala první segment a tím měnila jeho identitu,
+     * což omylem znovu spustilo obnovu pozice ve WebtoonReaderu a způsobilo skok scrollu).
+     */
+    fun onWebtoonVisibleChapterChanged(chapterId: String, localIndex: Int, localOffset: Int) {
+        if (chapterId != _currentChapterId.value) {
+            val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return
+            val segment = _webtoonSegments.value.firstOrNull { it.chapterId == chapterId } ?: return
+            currentChapter = chapter
+            _currentChapterId.value = chapter.id
+            _chapterTitle.value = chapter.name
+            _chapterIndex.value = allChapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
+            updateNavState()
+            _pages.value = segment.pages
+            _translatedPages.value = emptyMap()
+            _flippedBubbles.value = emptySet()
+            _translateMode.value = false
+        }
+        onPageChanged(localIndex)
+        saveWebtoonScrollOffset(localOffset)
     }
 
     /**

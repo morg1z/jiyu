@@ -491,6 +491,12 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoNextChapter(enabled: Boolean) = viewModelScope.launch { settings.setAutoNextChapter(enabled) }
 
+    // ── Nekonečné čtení (webtoon) ──────────────────────────────────────────────
+    val infiniteScrollEnabled: StateFlow<Boolean> = settings.infiniteScrollEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setInfiniteScrollEnabled(enabled: Boolean) = viewModelScope.launch { settings.setInfiniteScrollEnabled(enabled) }
+
     // ── Přednačítání překladu další kapitoly light novel ─────────────────────
     val preloadNextNovelChapter: StateFlow<Boolean> = settings.preloadNextNovelChapter
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)

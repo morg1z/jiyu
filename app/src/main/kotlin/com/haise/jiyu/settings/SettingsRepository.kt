@@ -45,6 +45,7 @@ object SettingsKeys {
     val PAGE_SCALE             = stringPreferencesKey("page_scale")
     val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
     val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
+    val INFINITE_SCROLL_ENABLED = booleanPreferencesKey("infinite_scroll_enabled")
     val PRELOAD_NEXT_NOVEL_CHAPTER = booleanPreferencesKey("preload_next_novel_chapter")
     val PRELOAD_NEXT_CHAPTER_MANGA = booleanPreferencesKey("preload_next_chapter_manga")
     val PRELOAD_NEXT_CHAPTER_WIFI_ONLY = booleanPreferencesKey("preload_next_chapter_wifi_only")
@@ -326,6 +327,17 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAutoNextChapter(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.AUTO_NEXT_CHAPTER] = enabled }
+
+    /**
+     * Výchozí false - ve webtoon (svislém) čtecím režimu appka místo přepnutí na další kapitolu
+     * po dočtení jen nenápadně přilepí její stránky pod tu aktuální, takže scroll pokračuje
+     * plynule dál (viz WebtoonReader/ReaderViewModel.appendNextChapterSegment).
+     */
+    val infiniteScrollEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.INFINITE_SCROLL_ENABLED] ?: false }
+
+    suspend fun setInfiniteScrollEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.INFINITE_SCROLL_ENABLED] = enabled }
 
     /** Výchozí true - warmuje Room cache pro další kapitolu light novel na pozadí, viz ReaderViewModel.preloadNextNovelChapter. */
     val preloadNextNovelChapter: Flow<Boolean> =
