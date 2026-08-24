@@ -53,7 +53,15 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
         } catch (_: Exception) { emptyList() }
     }
 
-    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = emptyList()
+    // Web nema funkcni server-side hledani (?search= je ticha no-op), ale homepage
+    // ma kompletni seznam (100 titulu, jedna stranka bez strankovani) - misto
+    // natvrdo prazdneho vysledku ("zadne vysledky" i pro titul, ktery web
+    // evidentne ma) se filtruje lokalne, stejny vzor jako AnimeSamaSource/
+    // HachirumiSource.
+    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (page > 1) return@withContext emptyList()
+        getPopular(1, filter).filter { it.title.contains(query, ignoreCase = true) }
+    }
 
     private fun slugOf(mangaUrl: String) = mangaUrl.trim('/').substringAfterLast('/')
 
