@@ -23,7 +23,13 @@ import java.net.URLEncoder
  */
 data class MadaraSelectors(
     val listItem: String = "div.page-item-detail, div.c-tabs-item__content",
-    val titleLink: String = "a[href], .post-title a",
+    // Poradi zde je PRIORITA vyhledavani (viz firstMatchInPriorityOrder), ne
+    // CSS selektor vyhodnoceny naraz - u nekterych motivu (napr. Lilymanga)
+    // karta obsahuje i odkaz na "posledni kapitolu" DRIV v DOM nez odkaz na
+    // titul, takze prosty combined-selector `selectFirst` by chytil spatny
+    // odkaz (kapitolu misto detailu mangy) - pak getChapterList volal AJAX na
+    // nesmyslnou URL a vzdy vratil prazdno ("zadne kapitoly" pro kazdy titul).
+    val titleLink: String = ".post-title a, a[href]",
     val description: String = "div.summary__content, div.description-summary",
     val status: String = "div.post-status .summary-content, .post-content_item .summary-content",
     val chapterList: String = "li.wp-manga-chapter",
@@ -101,10 +107,18 @@ class MadaraSource(
             parseMangaList(fetchDocument(url))
         }
 
+    /**
+     * Zkusí jednotlivé čárkou oddělené části [combinedSelector] POSTUPNĚ podle
+     * pořadí (na rozdíl od `Element.selectFirst("a, b")`, který v Jsoup vrací
+     * první SHODU V DOM POŘADÍ napříč oběma částmi najednou, ne podle priority).
+     */
+    private fun firstMatchInPriorityOrder(item: Element, combinedSelector: String): Element? =
+        combinedSelector.split(",").map { it.trim() }.firstNotNullOfOrNull { part -> item.selectFirst(part) }
+
     private fun parseMangaList(doc: Document): List<SManga> {
         val items = doc.select(selectors.listItem)
         return items.mapNotNull { item ->
-            val link = item.selectFirst(selectors.titleLink) ?: return@mapNotNull null
+            val link = firstMatchInPriorityOrder(item, selectors.titleLink) ?: return@mapNotNull null
             val title = link.attr("title").ifBlank { link.text() }.ifBlank { return@mapNotNull null }
             val url = link.absUrl("href").ifBlank { return@mapNotNull null }
             val cover = item.selectFirst("img")?.let { img ->
