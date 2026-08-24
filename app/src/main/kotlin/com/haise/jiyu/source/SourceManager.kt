@@ -384,7 +384,8 @@ class SourceManager @Inject constructor(
             popularUrl = { root, page, orderby -> "$root/comic/page/$page/?m_orderby=$orderby" },
         ),
         MadaraSource("mangaread",     "MangaRead",          "https://www.mangaread.org",    client, contentTypeOverride = "MANGA"),
-        MadaraSource("coffeemanga",   "CoffeManga",         "https://coffeemanga.ink",      client, contentTypeOverride = "MANGA"),
+        // CoffeManga odstraneno 2026-08-24 - coffeemanga.ink vraci 404 i na hlavni
+        // strance (overeno zive), cela domena je mrtva.
         MadaraSource("mangasushi",    "Mangasushi",         "https://mangasushi.org",       client, contentTypeOverride = "MANGA"),
         MadaraSource("manhwatoon",    "Manhwatoon",         "https://www.manhwatoon.me",    client, contentTypeOverride = "MANHWA"),
         // mangalink.site vraci Cloudflare 522 (origin nedostupny) - mrtvy web, nepridavat.
