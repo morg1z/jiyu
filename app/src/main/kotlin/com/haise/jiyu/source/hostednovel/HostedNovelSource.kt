@@ -48,7 +48,11 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val title = a.nextElementSibling()?.takeIf { it.tagName() == "p" }?.text()?.trim()
                     ?.ifBlank { null } ?: return@mapNotNull null
-                val cover = a.selectFirst("img")?.attr("data-src")?.takeIf { it.startsWith("http") }
+                // Web mezitim odstranil lazy-loading (data-src) uplne - vsechny obrazky
+                // maji rovnou "src" - bez fallbacku vychazel cover null pro KAZDY
+                // titul (overeno zive, 0/50 melo jeste data-src).
+                val img = a.selectFirst("img")
+                val cover = img?.attr("data-src")?.ifBlank { img.attr("src") }?.takeIf { it.startsWith("http") }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
             }
 

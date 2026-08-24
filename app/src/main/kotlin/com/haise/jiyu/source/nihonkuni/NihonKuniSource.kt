@@ -46,7 +46,11 @@ class NihonKuniSource @Inject constructor(private val client: OkHttpClient) : Ma
             val href = normalizeHref(titleLink.attr("href"))
             val title = titleLink.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val style = card.selectFirst("a.manga-cover")?.attr("style").orEmpty()
-            val cover = Regex("""url\('([^']+)'""").find(style)?.groupValues?.get(1)
+            // U casti titulu web sam vygeneruje HTML s chybejici uzavirajici uvozovkou
+            // (overeno zive - cca 2/30 na strance), coz prohlizec/Jsoup uzavre atribut
+            // driv nez cekana ')' - URL obrazku uz je ale v tu chvili kompletni, jen
+            // bez uzaviraciho apostrofu. Regex ho proto nevyzaduje.
+            val cover = Regex("""url\('([^'"]+)""").find(style)?.groupValues?.get(1)
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
     }

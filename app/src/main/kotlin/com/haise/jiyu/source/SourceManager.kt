@@ -385,7 +385,10 @@ class SourceManager @Inject constructor(
         // CoffeManga odstraneno 2026-08-24 - coffeemanga.ink vraci 404 i na hlavni
         // strance (overeno zive), cela domena je mrtva.
         MadaraSource("mangasushi",    "Mangasushi",         "https://mangasushi.org",       client, contentTypeOverride = "MANGA"),
-        MadaraSource("manhwatoon",    "Manhwatoon",         "https://www.manhwatoon.me",    client, contentTypeOverride = "MANHWA"),
+        // Manhwatoon (manhwatoon.me) odstraneno 2026-08-24 - domena je Google Safe
+        // Browsing oznacena jako nebezpecna ("Web, ktery byl oznamen jako nebezpecny"),
+        // Chrome navigaci na ni rovnou blokuje. Bezpecnostni riziko, ne technicka
+        // prekazka - neresit obchazenim, jen odstranit.
         // mangalink.site vraci Cloudflare 522 (origin nedostupny) - mrtvy web, nepridavat.
         // Mangalink (linkmanga.com, jina domena nez vyse) - genuine Madara, vychozi cesty
         // funguji beze zmeny (/manga/{slug}/, wp-json, manga_get_chapters ajax).
