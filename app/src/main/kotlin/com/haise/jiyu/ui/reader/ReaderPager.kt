@@ -25,8 +25,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -347,9 +349,18 @@ fun MangaGroupContent(
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit,
+    // Viz RetryableAsyncImage.onLoadedChange - curl čtečky tímhle poznají, kdy je bezpečné
+    // (znovu) zamrazit skupinu do bitmapy pro ohýbání, místo aby zamrzly prázdný/rozsypaný
+    // placeholder navždy.
+    onAllImagesLoaded: (Boolean) -> Unit = {},
+    // Viz RetryableAsyncImage.disableCrossfade - curl čtečky (jediní volající s true) tímhle
+    // zabrání zamrazení bitmapy uprostřed prolínací animace.
+    disableCrossfade: Boolean = false,
 ) {
     if (indices.size == 1) {
         var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
+        var imageLoaded by remember(pages[indices[0]]) { mutableStateOf(false) }
+        LaunchedEffect(imageLoaded) { onAllImagesLoaded(imageLoaded) }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val containerWidth = maxWidth
             val containerHeight = maxHeight
@@ -361,6 +372,8 @@ fun MangaGroupContent(
                     cropBorders = cropBorders,
                     modifier = Modifier.fillMaxSize(),
                     onImageSize = { intrinsicSize = it },
+                    onLoadedChange = { imageLoaded = it },
+                    disableCrossfade = disableCrossfade,
                 )
                 if (translateMode) {
                     val blocks = translatedPages[indices[0]]
@@ -390,8 +403,12 @@ fun MangaGroupContent(
         }
     } else {
         val ordered = if (reverseLayout) indices.reversed() else indices
+        val loadedFlags = remember(ordered) { mutableStateListOf(*BooleanArray(ordered.size).toTypedArray()) }
+        LaunchedEffect(loadedFlags.toList()) {
+            onAllImagesLoaded(loadedFlags.isNotEmpty() && loadedFlags.all { it })
+        }
         Row(modifier = Modifier.fillMaxSize()) {
-            ordered.forEach { idx ->
+            ordered.forEachIndexed { i, idx ->
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
                     var pageIntrinsicSize by remember(pages[idx]) { mutableStateOf<Size?>(null) }
                     RetryableAsyncImage(
@@ -400,6 +417,8 @@ fun MangaGroupContent(
                         contentScale = resolvedContentScale,
                         modifier = Modifier.fillMaxSize(),
                         onImageSize = { pageIntrinsicSize = it },
+                        onLoadedChange = { loaded -> loadedFlags[i] = loaded },
+                        disableCrossfade = disableCrossfade,
                     )
                     if (translateMode) {
                         val blocks = translatedPages[idx]

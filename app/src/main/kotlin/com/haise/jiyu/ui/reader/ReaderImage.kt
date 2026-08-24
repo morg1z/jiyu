@@ -30,6 +30,7 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import coil.transform.Transformation
+import coil.transition.Transition
 import com.haise.jiyu.R
 import com.haise.jiyu.util.ScrambledImageUrl
 import compose.icons.TablerIcons
@@ -50,13 +51,30 @@ fun RetryableAsyncImage(
     // obrazovku) a skutečně vykresleným obrázkem (letterbox mezery u contentScale jiného
     // než FillBounds), a pozice bublin by driftovaly tím víc, čím dál od okraje stránky.
     onImageSize: ((Size) -> Unit)? = null,
+    // Curl čtečky (viz MangaPageCurlReader) zamrazí stránku do bitmapy pro ohýbání JEDNOU, hned
+    // jak zná seznam stránek - ne až po dokončení Coilu (síť/dekódování/rozskládání dlaždic přes
+    // ScrambledImageUrl níž). Bez tohohle callbacku se tak do zamrazené bitmapy nenávratně "vypálil"
+    // buď prázdný/bílý placeholder (obrázek ještě nenačtený), nebo ROZSYPANÉ dlaždice (transformace
+    // ScrambledImageUrl ještě neproběhla) - nahlášeno jako "tmavé čáry/kostičky" na KAŽDÉM stylu
+    // otáčení, protože všechny sdílí stejné zamrazení bitmapy před ohybem.
+    onLoadedChange: ((Boolean) -> Unit)? = null,
+    // Curl čtečky zamrazí stránku do bitmapy HNED, jak Coil nahlásí Success - ale globální
+    // ImageLoader (viz JiyuApp) má crossfade(true), takže "Success" jen znamená DOKONČENÉ
+    // DEKÓDOVÁNÍ, ne že je obrázek na plátně už na 100% neprůhlednosti (prolínací animace
+    // pak ještě ~200ms běží). Zamrazená bitmapa tak občas zachytila obrázek uprostřed
+    // prolnutí - vybledlý/průsvitný, s "dírou" tam, kde ještě prolnutí sotva začalo (nahlášeno
+    // jako "tmavé čáry/kostičky/bílé díry", měnící se podle strany tažení = podle toho, která
+    // část stránky se zrovna zamrazovala). Curl čtečky proto crossfade pro svoje 3 rasterizované
+    // vrstvy (aktuální/další/předchozí) vypínají - tam se prolnutí stejně nikdy nestihne ani
+    // uvidět (2 ze 3 vrstev navíc vůbec nejsou na obrazovce, jen se rasterizují).
+    disableCrossfade: Boolean = false,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var retryTrigger by remember(url) { mutableStateOf(0) }
     var isError by remember(url) { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        val request = remember(url, retryTrigger, cropBorders) {
+        val request = remember(url, retryTrigger, cropBorders, disableCrossfade) {
             val scramble = ScrambledImageUrl.parse(url)
             val transforms = buildList<Transformation> {
                 if (cropBorders) add(CropBordersTransformation())
@@ -65,6 +83,7 @@ fun RetryableAsyncImage(
             ImageRequest.Builder(context)
                 .data(url)
                 .apply { if (transforms.isNotEmpty()) transformations(transforms) }
+                .apply { if (disableCrossfade) transitionFactory(Transition.Factory.NONE) }
                 .build()
         }
         AsyncImage(
@@ -80,6 +99,7 @@ fun RetryableAsyncImage(
                         onImageSize?.invoke(painterSize)
                     }
                 }
+                onLoadedChange?.invoke(state is AsyncImagePainter.State.Success)
             },
         )
         if (isError) {

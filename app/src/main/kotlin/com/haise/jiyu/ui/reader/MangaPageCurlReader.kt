@@ -254,6 +254,12 @@ fun MangaPageCurlReader(
 
             val currentLayer = rememberGraphicsLayer()
             var currentBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            // Bug fix - Coil (síť/dekódování/rozskládání dlaždic) doběhne často AŽ PO téhle
+            // první rasterizaci, takže se do zamrazené bitmapy pro ohyb "vypálil" napořád
+            // prázdný/rozsypaný obrázek (nahlášeno jako tmavé čáry/kostičky). `currentLoaded`
+            // jako další klíč LaunchedEffectu níž zajistí PŘERASTERIZACI, jakmile Coil skutečně
+            // doběhne - i uprostřed už rozjetého gesta.
+            var currentLoaded by remember(currentIndices) { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -272,9 +278,11 @@ fun MangaPageCurlReader(
                     resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                     textScale = textScale, flippedBubbles = flippedBubbles,
                     onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                    onAllImagesLoaded = { currentLoaded = it },
+                    disableCrossfade = true,
                 )
             }
-            LaunchedEffect(currentIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+            LaunchedEffect(currentIndices, pages, translateMode, translatedPages, widthPx, heightPx, currentLoaded) {
                 currentBitmap = currentLayer.toImageBitmap()
             }
 
@@ -293,6 +301,7 @@ fun MangaPageCurlReader(
 
             val nextLayer = rememberGraphicsLayer()
             var nextBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            var nextLoaded by remember(nextIndices) { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -309,15 +318,18 @@ fun MangaPageCurlReader(
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                         textScale = textScale, flippedBubbles = flippedBubbles,
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                        onAllImagesLoaded = { nextLoaded = it },
+                        disableCrossfade = true,
                     )
                 }
             }
-            LaunchedEffect(nextIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+            LaunchedEffect(nextIndices, pages, translateMode, translatedPages, widthPx, heightPx, nextLoaded) {
                 nextBitmap = if (nextIndices != null) nextLayer.toImageBitmap() else null
             }
 
             val prevLayer = rememberGraphicsLayer()
             var prevBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+            var prevLoaded by remember(prevIndices) { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -334,10 +346,12 @@ fun MangaPageCurlReader(
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                         textScale = textScale, flippedBubbles = flippedBubbles,
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                        onAllImagesLoaded = { prevLoaded = it },
+                        disableCrossfade = true,
                     )
                 }
             }
-            LaunchedEffect(prevIndices, pages, translateMode, translatedPages, widthPx, heightPx) {
+            LaunchedEffect(prevIndices, pages, translateMode, translatedPages, widthPx, heightPx, prevLoaded) {
                 prevBitmap = if (prevIndices != null) prevLayer.toImageBitmap() else null
             }
 
