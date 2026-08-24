@@ -39,10 +39,8 @@ import com.haise.jiyu.source.kaliscan.KaliScanSource
 import com.haise.jiyu.source.mangacloud.MangaCloudSource
 import com.haise.jiyu.source.galaxymanga.GalaxyMangaSource
 import com.haise.jiyu.source.kuramanga.KuraMangaSource
-import com.haise.jiyu.source.lightnovelworld.LightNovelWorldSource
 import com.haise.jiyu.source.novelfire.NovelFireSource
 import com.haise.jiyu.source.wuxiabox.WuxiaBoxSource
-import com.haise.jiyu.source.ranobes.RanobesSource
 import com.haise.jiyu.source.novelcool.NovelCoolSource
 import com.haise.jiyu.source.novelhall.NovelHallSource
 import com.haise.jiyu.source.mangakatana.MangaKatanaSource
@@ -164,10 +162,8 @@ class SourceManager @Inject constructor(
     mangaCloudSource: MangaCloudSource,
     galaxyMangaSource: GalaxyMangaSource,
     kuraMangaSource: KuraMangaSource,
-    lightNovelWorldSource: LightNovelWorldSource,
     novelFireSource: NovelFireSource,
     wuxiaBoxSource: WuxiaBoxSource,
-    ranobesSource: RanobesSource,
     novelCoolSource: NovelCoolSource,
     novelHallSource: NovelHallSource,
     mangaKatanaSource: MangaKatanaSource,
@@ -448,10 +444,13 @@ class SourceManager @Inject constructor(
         galaxyMangaSource,
         kuraMangaSource,
         // ── Novely (nový vlastní scraping) ───────────────────────────────────
-        lightNovelWorldSource,
+        // LightNovelWorld odstraneno 2026-08-24 - web se oficialne zavrel a presunul
+        // na chikari.moe (jina domena/struktura, potreba samostatny prepis).
         novelFireSource,
         wuxiaBoxSource,
-        ranobesSource,
+        // Ranobes odstraneno 2026-08-24 - web ma interaktivni Cloudflare Turnstile
+        // "I'm not a robot" vyzvu, ne jen automaticky JS challenge - tu appka (ani
+        // scraper) nedokaze projit bez skutecneho lidskeho kliknuti.
         novelCoolSource,
         // Adult zdroj, pridano na vyslovne prani uzivatele (viz konverzace 2026-07-18)
         novelHallSource,
