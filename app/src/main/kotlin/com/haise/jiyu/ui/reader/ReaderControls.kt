@@ -403,20 +403,21 @@ fun ReaderBottomPanel(
                     modifier = Modifier.size(21.dp),
                 )
             }
-            IconButton(onClick = { showBrightness = !showBrightness }, modifier = Modifier.size(40.dp)) {
-                Icon(
-                    TablerIcons.Sun,
-                    contentDescription = stringResource(R.string.reader_brightness_desc),
-                    tint = if (showBrightness) Color(0xFFFFD54F) else liveTint,
-                    modifier = Modifier.size(21.dp),
-                )
-            }
-            // Domu - primy skok do Knihovny (uzivatelsky pozadavek, uprostred listy).
+            // Domu - primy skok do Knihovny (uzivatelsky pozadavek, presne uprostred listy -
+            // prostredni z 5 ikon, ne hned vedle sipky vpravo).
             IconButton(onClick = onNavigateHome, modifier = Modifier.size(40.dp)) {
                 Icon(
                     TablerIcons.Home,
                     contentDescription = stringResource(R.string.reader_home_desc),
                     tint = liveTint,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+            IconButton(onClick = { showBrightness = !showBrightness }, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    TablerIcons.Sun,
+                    contentDescription = stringResource(R.string.reader_brightness_desc),
+                    tint = if (showBrightness) Color(0xFFFFD54F) else liveTint,
                     modifier = Modifier.size(21.dp),
                 )
             }
