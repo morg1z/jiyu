@@ -693,19 +693,14 @@ class SourceManager @Inject constructor(
         VComicsSource("kaynscan", "Kayn Scan", "https://kaynscan.org", client),
         VComicsSource("kenscans", "Ken Scans", "https://kenscans.org", client),
         hadesScansSource,
-        // Dragon Tea (dragontea.ink) - NEOVERENO naživo (uzivatelsky souhlas 2026-08-17
-        // pridat i tak). Web blokuje pristup opravdovym interaktivnim Cloudflare
-        // "Managed Challenge" (hlavicka "Cf-Mitigated: challenge", ne jen fingerprinting
-        // redirect jako XToonhub vyse) - nešlo overit skutecnou strukturu stranky ani
-        // pres WebFetch. URL vzorce z vyhledavani ("/manga/", "/novel-genre/comics/")
-        // odpovidaji Madara konvenci, proto pridano jako MadaraSource s vychozimi
-        // selektory a NOVEL typem (odpovida nazvu vlastni taxonomy "novel-genre") - v
-        // appce CloudflareInterceptor challenge resi pres WebView, takze to muze
-        // fungovat, ale bez zive kontroly to neni jiste. Pokud vrati prazdne vysledky,
-        // je potreba znovu proverit strukturu az pujde web normalne nacist.
+        // Dragon Tea (dragontea.ink) - puvodne pridano s contentTypeOverride = "NOVEL" (odhad
+        // podle nazvu vlastni taxonomy "novel-genre" ve URL, web byl pri pridavani blokovany
+        // Cloudflare Managed Challenge, takze skutecna struktura nesla overit). Uzivatel zivym
+        // testem potvrdil (2026-08-24), ze zdroj ve skutecnosti obsahuje manga/komiksovy obsah -
+        // NOVEL filtr ho tak nespravne zobrazoval mezi novelami. contentTypeOverride odstranen,
+        // MadaraSource defaultuje na MANGA (viz [MangaSource.contentType]).
         MadaraSource(
             "dragontea", "Dragon Tea", "https://dragontea.ink", client,
-            contentTypeOverride = "NOVEL",
         ),
         // AstraToons (astratoons.com, pt-BR) - overeno zive: cisty Laravel JSON API
         // pro katalog/hledani/detail (/api/comics), jen seznam kapitol je HTML
