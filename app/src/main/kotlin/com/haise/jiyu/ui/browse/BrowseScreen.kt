@@ -457,24 +457,24 @@ private fun SourceIcon(source: MangaSource, size: Dp, cornerRadius: Dp, fontSize
 }
 
 /**
- * Malý odznak "18+" přilepený na roh ikony zdroje - dřív stál v textovém řádku
- * s typem/jazykem, kde ho u delších názvů useklo ellipsis a u úzkých 3-sloupcových
- * karet nebyl vidět vůbec. Na ikoně je vidět vždy, bez ohledu na délku textu.
+ * Malý čtvercový ("kostkový") odznak "18+" - samostatný prvek vedle ikony zdroje,
+ * ne přes její roh (to překrývalo samotné logo). Dřív stál v textovém řádku s
+ * typem/jazykem, kde ho u delších názvů useklo ellipsis a v úzkém 3-sloupcovém
+ * gridu nebyl videt vůbec.
  */
 @Composable
-private fun BoxScope.AdultBadgeOverlay() {
+private fun AdultBadgeCube(size: Dp = 18.dp, fontSize: androidx.compose.ui.unit.TextUnit = 8.sp) {
     Box(
         modifier = Modifier
-            .align(Alignment.TopEnd)
-            .offset(x = 4.dp, y = (-4).dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(Danger)
-            .padding(horizontal = 3.dp, vertical = 1.dp),
+            .size(size)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Danger),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = stringResource(R.string.browse_source_adult_badge),
             color = Color.White,
-            fontSize = 7.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
         )
@@ -504,9 +504,12 @@ private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
             .padding(10.dp),
     ) {
         Column {
-            Box {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 SourceIcon(source = source, size = 38.dp, cornerRadius = 10.dp, fontSize = 13.sp)
-                if (source.isAdult) AdultBadgeOverlay()
+                if (source.isAdult) {
+                    Spacer(Modifier.width(6.dp))
+                    AdultBadgeCube(size = 16.dp, fontSize = 7.sp)
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(
@@ -569,9 +572,12 @@ private fun SourceCard(
         // Typ obsahu + jazyk jsou ale spojené do jednoho řádku pod názvem místo
         // dřívějších dvou zvlášť + samostatného chip-boxu - čistší bez ztráty místa.
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box {
-                SourceIcon(source = source, size = 36.dp, cornerRadius = 10.dp, fontSize = 14.sp)
-                if (source.isAdult) AdultBadgeOverlay()
+            SourceIcon(source = source, size = 36.dp, cornerRadius = 10.dp, fontSize = 14.sp)
+            // Odznak jako samostatna "kostka" mezi ikonou a tri teckami - drive prekryval
+            // roh loga, coz nekdy schovavalo cast obrazku.
+            if (source.isAdult) {
+                Spacer(Modifier.width(6.dp))
+                AdultBadgeCube()
             }
             Spacer(Modifier.weight(1f))
             if (isFavorite) {
