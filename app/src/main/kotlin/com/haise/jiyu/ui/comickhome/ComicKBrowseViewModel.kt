@@ -11,10 +11,14 @@ import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,6 +29,7 @@ import javax.inject.Inject
  * seznam ověřených parametrů. Znovupoužívá [ComicKSectionViewModel]'s openManga
  * vzor pro otevírání titulu do knihovny/detailu.
  */
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class ComicKBrowseViewModel @Inject constructor(
     private val comicKSource: ComicKSource,
@@ -70,6 +75,16 @@ class ComicKBrowseViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.report("comickbrowse:getGenreList")
             }
+        }
+        // Zive hledani za psani (jako napoveda primo na comick.io - viz api.comick.dev/
+        // v1.0/search, kterou tam vola kazdy keystroke) - drive setQuery() jen menilo
+        // text pole a novy vysledek se natahnul az po explicitnim submitu/Enteru, takze
+        // seznam pod polem behem psani zustaval na starych vysledcich. drop(1) preskoci
+        // pocatecni prazdnou hodnotu (tu uz resi loadFirstPage() vyse), debounce necha
+        // dopsat kratkou pauzu pred dalsim pozadavkem, aby appka nebombardovala API
+        // pri kazdem jednom pismenu.
+        viewModelScope.launch {
+            _query.drop(1).distinctUntilChanged().debounce(350).collect { loadFirstPage() }
         }
     }
 
