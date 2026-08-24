@@ -279,11 +279,16 @@ class OcrEngine @Inject constructor(
         // druhá na stránce s reklamou vytvořila jednu přebujelou barevnou plochu.
         //
         // Japonština má od téhle chvíle úplně jinou cestu (viz spec sekce 4): manga-ocr
-        // čte VÝŘEZ CELÉ bubliny najednou, ne řádek po řádku, takže `lines` (ML-Kit trial,
-        // co jen ROZHODL, že stránka je japonská) se tu zahazuje a mergeNearbyLines se pro
-        // ni vůbec nevolá - shouldMerge je pravidlo pro řádkové OCR, ne pro celobublinové.
+        // čte VÝŘEZ CELÉ bubliny najednou, ne řádek po řádku, takže se `lines` (ML-Kit
+        // trial, co jen ROZHODL, že stránka je japonská) NESLUČUJE přes mergeNearbyLines -
+        // shouldMerge je pravidlo pro řádkové OCR, ne pro celobublinové. `lines` se ale
+        // dál předává do recognizeJapaneseWithMangaOcr, protože jeho řádková geometrie je
+        // jediný způsob, jak dopočítat RawTextBlock.lineCount pro celobublinový box (viz
+        // tam) - bez toho by každý japonský blok nesl lineCount=1 bez ohledu na skutečný
+        // počet řádků, což tiše rozbíjí TranslationLayout i BubbleClassifier (audit finding
+        // Important #3).
         val merged = if (resolvedLanguage == "Japanese") {
-            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap), rightToLeft = true)
+            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, lines), rightToLeft = true)
         } else {
             sortIntoReadingOrder(
                 mergeNearbyLines(lines) { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
@@ -410,25 +415,59 @@ class OcrEngine @Inject constructor(
      *
      * Selhání/timeout jednotlivé bubliny padá na ML Kit ([recognizeCropWithMlKit]) - appka
      * nikdy nesmí zůstat bez textu jen kvůli tomuhle modelu (spec "Cíl").
+     *
+     * @param mlKitLines řádky z předchozího ML-Kit trial průchodu (viz [recognize] - stejné
+     *   volání, které rozhodlo, že stránka je japonská). Používají se JEN pro dopočet
+     *   [RawTextBlock.lineCount] (viz [lineCountForBox]) - manga-ocr text samotný z nich
+     *   nevychází.
      */
-    private suspend fun recognizeJapaneseWithMangaOcr(bitmap: Bitmap): List<RawTextBlock> {
+    private suspend fun recognizeJapaneseWithMangaOcr(bitmap: Bitmap, mlKitLines: List<RawTextBlock>): List<RawTextBlock> {
         val boxes = bubbleBoxDetector.detect(bitmap)
         return boxes.mapNotNull { box ->
             val crop = cropBubbleBoxWithMargin(bitmap, box)
-            try {
-                val mangaOcrText = withTimeoutOrNull(MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS) {
-                    mangaOcrPipeline.recognizeCrop(crop)
-                }
-                val text = if (!mangaOcrText.isNullOrBlank()) mangaOcrText else recognizeCropWithMlKit(crop)
-                if (text.isNullOrBlank()) {
-                    null
-                } else {
-                    RawTextBlock(text = text, leftF = box.leftF, topF = box.topF, rightF = box.rightF, bottomF = box.bottomF)
-                }
-            } finally {
-                crop.recycle()
+            // Bez finally { crop.recycle() } schválně: recognizeCropWithMlKit níž nemá
+            // invokeOnCancellation na svém suspendCancellableCoroutine, takže při zrušení
+            // stránkové korutiny uprostřed ML Kit volání by recycle() mohl běžet, zatímco
+            // ML Kit ještě čte nativní buffer bitmapy - riziko nativního pádu (audit finding
+            // Important #5). minSdk 26 / ART bitmapy uklidí GC normálně, není potřeba ruční
+            // recycle ani složitější cancellation-aware guard.
+            val mangaOcrText = withTimeoutOrNull(MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS) {
+                mangaOcrPipeline.recognizeCrop(crop)
+            }
+            val text = if (!mangaOcrText.isNullOrBlank()) mangaOcrText else recognizeCropWithMlKit(crop)
+            if (text.isNullOrBlank()) {
+                null
+            } else {
+                RawTextBlock(
+                    text = text,
+                    leftF = box.leftF,
+                    topF = box.topF,
+                    rightF = box.rightF,
+                    bottomF = box.bottomF,
+                    lineCount = lineCountForBox(box, mlKitLines),
+                )
             }
         }
+    }
+
+    /**
+     * Kolik ML-Kit "lines" (viz [recognizeLines]) padá středem svého boxu dovnitř `box`
+     * (celobublinový YOLO box, viz [BubbleBoxDetector]) - obnovuje [RawTextBlock.lineCount]
+     * pro manga-ocr cestu, která čte celou bublinu najednou a žádné vlastní řádky nemá (viz
+     * audit finding Important #3). Containment na středu bodu je záměrně jednoduché - stačí
+     * nebýt tiše špatně, nemusí to být pixel-perfektní; ML Kit řádky navíc nejsou primárním
+     * zdrojem textu na téhle větvi, jen geometrickým vodítkem.
+     *
+     * Když padne nula řádků dovnitř (ML Kit na tuhle bublinu nic nenašel/box se nekryje),
+     * vrací se 1 - stejný výchozí stav jako [RawTextBlock.lineCount] měl předtím.
+     */
+    private fun lineCountForBox(box: DetectedBubbleBox, mlKitLines: List<RawTextBlock>): Int {
+        val count = mlKitLines.count { line ->
+            val centerX = (line.leftF + line.rightF) / 2f
+            val centerY = (line.topF + line.bottomF) / 2f
+            centerX in box.leftF..box.rightF && centerY in box.topF..box.bottomF
+        }
+        return count.coerceAtLeast(1)
     }
 
     /**
@@ -450,7 +489,12 @@ class OcrEngine @Inject constructor(
             e.report("translate:ocrEngine:mangaOcrMlKitFallback")
             return null
         }
-        return result.textBlocks.flatMap { it.lines }.joinToString(" ") { it.text }.ifBlank { null }
+        // joinToString("") bez mezer, ne " ": MangaOcrPostProcess.postProcess (manga-ocr
+        // cesta) stripuje VŠECHNY mezery, takže tenhle ML-Kit fallback musí produkovat
+        // konzistentní text bez ohledu na to, která cesta bublinu přečetla - jinak by stejný
+        // downstream překladový prompt viděl jednou text s mezerami a jednou bez (audit
+        // finding Minor #2).
+        return result.textBlocks.flatMap { it.lines }.joinToString("") { it.text }.ifBlank { null }
     }
 
     /**

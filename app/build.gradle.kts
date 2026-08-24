@@ -111,6 +111,14 @@ android {
         }
     }
 
+    // Bez tohohle se .onnx assety v APK deflate-komprimuji - AssetManager by je pak musel
+    // před čtením plně dekomprimovat, což je zbytečné navíc u velkých binárních modelů a
+    // dělá ensureModelFileFromAsset (viz MangaOcrPipeline) o to pomalejší/pamětově dražší
+    // (audit finding Critical #1b). AGP 8+ DSL - `aaptOptions` je starší ekvivalent.
+    androidResources {
+        noCompress += "onnx"
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
