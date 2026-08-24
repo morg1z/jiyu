@@ -162,9 +162,12 @@ class WebViewMangaCloudSession(
                         // Turnstile flow ve strance ma nahodnou prodlevu 10-20s pred POST
                         // /auth/alive - drive appka VZDY cekala pevnych 24s bez ohledu na
                         // to, jak rychle flow doopravdy dobehl ("MangaCloud dlouho se
-                        // nacita" v uzivatelskych hlasenich). Ted se kontroluje opakovane
-                        // po 700ms, aby se zdroj zpristupnil hned, jak je cookie hotova,
-                        // stejny vzor jako CloudflareInterceptor.solveCloudflareSynchronously.
+                        // nacita" v uzivatelskych hlasenich). Prvni kontrola proto necka
+                        // az 8s (driv nez muze POST realne dobehnout ani v nejrychlejsim
+                        // pripade - kontrolovat driv by riskovalo chytit nejakou jinou
+                        // *.mangacloud.org cookie, napr. Cloudflaruv vlastni __cf_bm, jako
+                        // falesny uspech), pak uz jen po 700ms - stejny vzor jako
+                        // CloudflareInterceptor.solveCloudflareSynchronously.
                         val poll = object : Runnable {
                             override fun run() {
                                 if (latch.count == 0L) return
@@ -177,7 +180,7 @@ class WebViewMangaCloudSession(
                                 }
                             }
                         }
-                        mainHandler.postDelayed(poll, 700L)
+                        mainHandler.postDelayed(poll, 8_000L)
                     }
                 }
                 CookieManager.getInstance().setAcceptCookie(true)
