@@ -93,7 +93,12 @@ class SourceBrowseViewModel @Inject constructor(
                 if (page.isEmpty()) {
                     _hasMore.value = false
                 } else {
-                    _results.value = _results.value + page
+                    // Nekteri zdroje vraceji pri strankovani prekryvajici se/duplicitni
+                    // polozky (nestabilni razeni mezi requesty) - bez distinctBy tu stejna
+                    // sourceId+url dvojice skoncila v seznamu dvakrat, coz LazyVerticalGrid
+                    // (key = sourceId+url v SourceBrowseScreen) shodilo s "Key already used"
+                    // (nahlaseny pad appky).
+                    _results.value = (_results.value + page).distinctBy { it.sourceId + it.url }
                     _hasMore.value = true
                 }
             } catch (e: Exception) {
@@ -184,7 +189,7 @@ class SourceBrowseViewModel @Inject constructor(
             _error.value = null
             try {
                 val page = repository.getPopular(sourceId, 1, filter)
-                _results.value = page
+                _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
@@ -211,7 +216,7 @@ class SourceBrowseViewModel @Inject constructor(
             _error.value = null
             try {
                 val page = repository.search(sourceId, query, 1, filter)
-                _results.value = page
+                _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
