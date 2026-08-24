@@ -4,6 +4,20 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v1.2.58
+
+### Oprava: "Srolování stránky" mělo jinou matematiku ohybu než originál PlayLikeCurl
+Styl "Srolování stránky" (OpenGL) byl port knihovny PlayLikeCurl (karacken.curl), ale se dvěma
+vlastními odchylkami - jinou vlnovou délkou sinusu a svislým "kónickým" zeslabováním ohybu podle
+výšky stránky. Vrátil jsem matematiku v `GLPage`/`GLPageFront`/`GLPageLeft` 1:1 na originál -
+zbytek (ovládání gestem, textury, ostatní styly a nastavení) beze změny. Přidán regresní test
+(`GLPageRollMathTest`), co hlídá, že se tahle matematika znovu nerozjede od originálu.
+
+Pozor: tohle vrací i vlastnost originálu, že při podržení prstu v napůl otočené pozici může být
+ohyb vidět jako "spirála/trubička" místo hladkého oblouku - originál tenhle styl používal jen na
+krátkou (300ms) automatickou animaci, kde to nebylo vidět. Zkus to prosím a dej vědět, jestli je
+to takhle v pořádku, nebo jestli to chceš zase upravit.
+
 ## v1.2.57
 
 ### Oprava: Mořská vlna byla na zařízení rozbitá (roztrhaný/posunutý obsah)
