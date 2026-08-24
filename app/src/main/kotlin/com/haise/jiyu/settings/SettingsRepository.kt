@@ -85,6 +85,7 @@ object SettingsKeys {
     val NOTIFY_DOWNLOADS       = booleanPreferencesKey("notify_downloads")
     val BACKUP_FOLDER_URI      = stringPreferencesKey("backup_folder_uri")
     val CLOUDFLARE_CLEARANCE_CACHE = stringPreferencesKey("cloudflare_clearance_cache")
+    val MANGACLOUD_SESSION_CACHE = stringPreferencesKey("mangacloud_session_cache")
 
     /**
      * Potvrdil uživatel, že je mu aspoň [com.haise.jiyu.util.ADULT_AGE_YEARS] let? Odemyká

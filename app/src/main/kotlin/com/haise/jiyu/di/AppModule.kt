@@ -257,6 +257,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideMangaCloudSession(@ApplicationContext context: Context): MangaCloudSession =
-        WebViewMangaCloudSession(context)
+    fun provideMangaCloudSession(
+        @ApplicationContext context: Context,
+        dataStore: DataStore<Preferences>,
+    ): MangaCloudSession = WebViewMangaCloudSession(context, dataStore)
 }

@@ -9,12 +9,21 @@ import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import com.haise.jiyu.settings.SettingsKeys
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -75,15 +84,51 @@ internal class FailureCooldown(
  * (tedy i pro api. subdoménu). Bez teto cookie API vraci 409/401 i na
  * cistá GET volani bez auth.
  */
-class WebViewMangaCloudSession(private val context: Context) : MangaCloudSession {
+class WebViewMangaCloudSession(
+    private val context: Context,
+    private val dataStore: DataStore<Preferences>,
+) : MangaCloudSession {
 
     private val webBase = "https://mangacloud.org"
     private val apiBase = "https://api.mangacloud.org"
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val cachedCookie = AtomicReference<String?>(null)
     private val cachedExpiresAt = AtomicLong(0)
     private val sessionTtlMs = TimeUnit.MINUTES.toMillis(20)
     private val failureCooldown = FailureCooldown(TimeUnit.MINUTES.toMillis(2))
+
+    init {
+        loadPersistedSession()
+    }
+
+    // Session prezila jen v pameti - kazdy studeny start appky tak vynutil novy
+    // 24-30s WebView bootstrap, i kdyz predchozi cookie by na serveru jeste
+    // klidne mohla platit (viz stejny vzor v CloudflareInterceptor, jen s
+    // vlastnim klicem, protoze tohle NENI Cloudflare cf_clearance, ale
+    // vlastni relacni cookie MangaCloud API).
+    private fun loadPersistedSession() {
+        try {
+            val json = runBlocking { dataStore.data.first()[SettingsKeys.MANGACLOUD_SESSION_CACHE] }
+            if (json.isNullOrBlank()) return
+            val obj = JSONObject(json)
+            val expiresAt = obj.optLong("expiresAt")
+            val cookie = obj.optString("cookie")
+            if (expiresAt > System.currentTimeMillis() && cookie.isNotBlank()) {
+                cachedCookie.set(cookie)
+                cachedExpiresAt.set(expiresAt)
+            }
+        } catch (_: Exception) { /* poskozeny/prazdny zaznam - zacneme bez cache */ }
+    }
+
+    private fun persistSessionAsync(cookie: String, expiresAt: Long) {
+        ioScope.launch {
+            try {
+                val json = JSONObject().put("cookie", cookie).put("expiresAt", expiresAt).toString()
+                dataStore.edit { it[SettingsKeys.MANGACLOUD_SESSION_CACHE] = json }
+            } catch (_: Exception) { /* perzistence je jen optimalizace, nesmi shodit request */ }
+        }
+    }
 
     override fun getCookie(): String? {
         if (cachedCookie.get() != null && System.currentTimeMillis() < cachedExpiresAt.get()) {
@@ -95,8 +140,10 @@ class WebViewMangaCloudSession(private val context: Context) : MangaCloudSession
             failureCooldown.recordFailure()
             return null
         }
+        val expiresAt = System.currentTimeMillis() + sessionTtlMs
         cachedCookie.set(cookie)
-        cachedExpiresAt.set(System.currentTimeMillis() + sessionTtlMs)
+        cachedExpiresAt.set(expiresAt)
+        persistSessionAsync(cookie, expiresAt)
         return cookie
     }
 
@@ -104,17 +151,33 @@ class WebViewMangaCloudSession(private val context: Context) : MangaCloudSession
     private fun bootstrapViaWebView(): String? {
         val latch = CountDownLatch(1)
         mainHandler.post {
-            val webView = WebView(context).apply {
+            lateinit var webView: WebView
+            webView = WebView(context).apply {
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                 }
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
-                        // Turnstile flow ve strance ma nahodnou prodlevu 10-20s
-                        // pred POST /auth/alive - pockame dost dlouho, aby stihl
-                        // dobehnout i s rezervou na sitovy round-trip.
-                        postDelayed({ latch.countDown() }, 24_000L)
+                        // Turnstile flow ve strance ma nahodnou prodlevu 10-20s pred POST
+                        // /auth/alive - drive appka VZDY cekala pevnych 24s bez ohledu na
+                        // to, jak rychle flow doopravdy dobehl ("MangaCloud dlouho se
+                        // nacita" v uzivatelskych hlasenich). Ted se kontroluje opakovane
+                        // po 700ms, aby se zdroj zpristupnil hned, jak je cookie hotova,
+                        // stejny vzor jako CloudflareInterceptor.solveCloudflareSynchronously.
+                        val poll = object : Runnable {
+                            override fun run() {
+                                if (latch.count == 0L) return
+                                val cookies = CookieManager.getInstance().getCookie(apiBase)
+                                if (!cookies.isNullOrBlank()) {
+                                    latch.countDown()
+                                    webView.destroy()
+                                } else {
+                                    mainHandler.postDelayed(this, 700L)
+                                }
+                            }
+                        }
+                        mainHandler.postDelayed(poll, 700L)
                     }
                 }
                 CookieManager.getInstance().setAcceptCookie(true)
