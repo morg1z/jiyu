@@ -80,7 +80,11 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get("$base${manga.url}"))
-            doc.select("div.list-chapters a[href^=/c/]").mapNotNull { a ->
+            // Web mezitim zmenil obal z <div class="list-chapters"> na
+            // <ul class="list-chapters at-series"> (overeno zive) - selektor
+            // vazany na konkretni tag "div" pak nenasel nic, "zadne kapitoly"
+            // pro kazdy titul. Bez tag-vazby matchuje obojí.
+            doc.select(".list-chapters a[href^=/c/]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val name = a.attr("title").ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
                 val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
