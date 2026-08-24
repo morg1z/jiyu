@@ -62,6 +62,7 @@ fun ReaderScreen(
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     val pages               by viewModel.pages.collectAsState()
+    val pageReferer         by viewModel.pageReferer.collectAsState()
     val comickUnavailable   by viewModel.comickUnavailable.collectAsState()
     val loading             by viewModel.loading.collectAsState()
     val translateMode       by viewModel.translateMode.collectAsState()
@@ -337,6 +338,7 @@ fun ReaderScreen(
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
+                referer = pageReferer,
             )
         }
 

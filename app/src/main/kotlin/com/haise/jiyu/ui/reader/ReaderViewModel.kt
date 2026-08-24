@@ -93,6 +93,12 @@ class ReaderViewModel @Inject constructor(
     private val _pages = MutableStateFlow<List<String>>(emptyList())
     val pages: StateFlow<List<String>> = _pages.asStateFlow()
 
+    // Referer hlavicka pro stahovani obrazku aktualni kapitoly - viz
+    // MangaRepository.sourceHomepage. Jeden referer pro celou kapitolu (ne per-stranka),
+    // protoze vsechny stranky kapitoly patri stejnemu zdroji.
+    private val _pageReferer = MutableStateFlow<String?>(null)
+    val pageReferer: StateFlow<String?> = _pageReferer.asStateFlow()
+
     private val _comickUnavailable = MutableStateFlow(false)
     val comickUnavailable: StateFlow<Boolean> = _comickUnavailable.asStateFlow()
 
@@ -695,6 +701,7 @@ class ReaderViewModel @Inject constructor(
                         e.report("reader:loadChapter:getChapterPages")
                         null
                     }
+                    _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
                     val isNovel = rawPages?.any { it.imageUrl == "novel://text" } ?: false
                     _isNovelSource.value = isNovel
                     when {

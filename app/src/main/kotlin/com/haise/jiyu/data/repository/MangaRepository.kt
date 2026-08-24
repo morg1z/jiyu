@@ -325,6 +325,15 @@ class MangaRepository @Inject constructor(
         return source.getPageList(chapter)
     }
 
+    /**
+     * Domovska URL zdroje pro dany [sourceId] - pouziva se jako `Referer` hlavicka pri
+     * stahovani obrazku stranek (viz ReaderViewModel.pageReferer). Rada webu ma
+     * hotlink-protection na obrazkovem CDN (kontroluje, ze Referer sedi na jejich vlastni
+     * domenu) - bez tehle hlavicky appka dosud stahovala obrazky stranek uplne bez
+     * Refereru, coz se u takovych zdroju projevovalo jako cerne/nenactene stranky.
+     */
+    suspend fun sourceHomepage(sourceId: String): String? = sourceManager.getById(sourceId)?.homepageUrl
+
     suspend fun setDownloadStatus(chapterEntityId: String, status: DownloadStatus) =
         chapterDao.setDownloadStatus(chapterEntityId, status)
 

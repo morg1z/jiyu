@@ -68,13 +68,18 @@ fun RetryableAsyncImage(
     // vrstvy (aktuální/další/předchozí) vypínají - tam se prolnutí stejně nikdy nestihne ani
     // uvidět (2 ze 3 vrstev navíc vůbec nejsou na obrazovce, jen se rasterizují).
     disableCrossfade: Boolean = false,
+    // Domovska URL zdroje (viz MangaRepository.sourceHomepage) - posila se jako Referer
+    // hlavicka. Rada webu ma na obrazkovem CDN hotlink-protection (kontroluje, ze Referer
+    // sedi na jejich vlastni domenu) - appka dosud stahovala obrazky stranek uplne bez
+    // Refereru, coz se u takovych zdroju projevovalo jako cerne/nenactene stranky.
+    referer: String? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var retryTrigger by remember(url) { mutableStateOf(0) }
     var isError by remember(url) { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        val request = remember(url, retryTrigger, cropBorders, disableCrossfade) {
+        val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
             val scramble = ScrambledImageUrl.parse(url)
             val transforms = buildList<Transformation> {
                 if (cropBorders) add(CropBordersTransformation())
@@ -84,6 +89,7 @@ fun RetryableAsyncImage(
                 .data(url)
                 .apply { if (transforms.isNotEmpty()) transformations(transforms) }
                 .apply { if (disableCrossfade) transitionFactory(Transition.Factory.NONE) }
+                .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
                 .build()
         }
         AsyncImage(

@@ -123,6 +123,8 @@ fun MangaReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    // Viz RetryableAsyncImage.referer.
+    referer: String? = null,
 ) {
     // Pinch-to-zoom stav — žije tady (jediný spotřebitel), ne v ReaderContent -
     // rememberSaveable, aby otočení obrazovky (config change) nezahodilo rozostřený zoom.
@@ -330,6 +332,7 @@ fun MangaReader(
                     flippedBubbles = flippedBubbles,
                     onToggleBubbleFlip = onToggleBubbleFlip,
                     onEditBubble = onEditBubble,
+                    referer = referer,
                 )
             }
         }
@@ -356,6 +359,8 @@ fun MangaGroupContent(
     // Viz RetryableAsyncImage.disableCrossfade - curl čtečky (jediní volající s true) tímhle
     // zabrání zamrazení bitmapy uprostřed prolínací animace.
     disableCrossfade: Boolean = false,
+    // Viz RetryableAsyncImage.referer.
+    referer: String? = null,
 ) {
     if (indices.size == 1) {
         var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
@@ -374,6 +379,7 @@ fun MangaGroupContent(
                     onImageSize = { intrinsicSize = it },
                     onLoadedChange = { imageLoaded = it },
                     disableCrossfade = disableCrossfade,
+                    referer = referer,
                 )
                 if (translateMode) {
                     val blocks = translatedPages[indices[0]]
@@ -419,6 +425,7 @@ fun MangaGroupContent(
                         onImageSize = { pageIntrinsicSize = it },
                         onLoadedChange = { loaded -> loadedFlags[i] = loaded },
                         disableCrossfade = disableCrossfade,
+                        referer = referer,
                     )
                     if (translateMode) {
                         val blocks = translatedPages[idx]

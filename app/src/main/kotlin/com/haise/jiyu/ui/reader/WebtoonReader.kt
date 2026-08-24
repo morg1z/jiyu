@@ -89,6 +89,8 @@ fun WebtoonReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    // Viz RetryableAsyncImage.referer.
+    referer: String? = null,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -252,6 +254,7 @@ fun WebtoonReader(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                referer = referer,
             )
             if (segIdx != segments.lastIndex) {
                 item(key = "boundary:${seg.chapterId}") {
@@ -276,6 +279,7 @@ private fun LazyListScope.webtoonSegmentItems(
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit,
+    referer: String?,
 ) {
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
         WebtoonPage(
@@ -288,6 +292,7 @@ private fun LazyListScope.webtoonSegmentItems(
             flippedBubbles = flippedBubbles,
             onToggleBubbleFlip = onToggleBubbleFlip,
             onEditBubble = onEditBubble,
+            referer = referer,
         )
     }
 }
@@ -357,6 +362,7 @@ private fun WebtoonPage(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    referer: String? = null,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -371,6 +377,7 @@ private fun WebtoonPage(
             imageModifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { size = it },
+            referer = referer,
         )
         // ContentScale.FillWidth nemá letterbox - vykreslený obrázek VŽDY přesně
         // odpovídá naměřenému `size` (žádné mezery po stranách/nahoře/dole na rozdíl

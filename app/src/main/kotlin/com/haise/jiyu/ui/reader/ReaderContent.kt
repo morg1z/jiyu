@@ -119,6 +119,8 @@ fun ReaderContent(
     onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
+    // Viz RetryableAsyncImage.referer.
+    referer: String? = null,
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
 
@@ -186,6 +188,7 @@ fun ReaderContent(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                referer = referer,
             )
         } else if (pageCurlEnabled) {
             MangaPageCurlReader(
@@ -215,6 +218,7 @@ fun ReaderContent(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                referer = referer,
             )
         } else {
             MangaReader(
@@ -242,6 +246,7 @@ fun ReaderContent(
                 volumeKeysNav = volumeKeysNav,
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
+                referer = referer,
             )
         }
 

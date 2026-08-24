@@ -94,6 +94,8 @@ fun MangaPageCurlReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    // Viz RetryableAsyncImage.referer.
+    referer: String? = null,
 ) {
     val resolvedCurlStyle = resolveCurlStyle(curlStyle)
     // Pinch-to-zoom - nezávisí na kapitole (rememberSaveable přežije rotaci); resetuje se
@@ -280,6 +282,7 @@ fun MangaPageCurlReader(
                     onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                     onAllImagesLoaded = { currentLoaded = it },
                     disableCrossfade = true,
+                    referer = referer,
                 )
             }
             LaunchedEffect(currentIndices, pages, translateMode, translatedPages, widthPx, heightPx, currentLoaded) {
@@ -320,6 +323,7 @@ fun MangaPageCurlReader(
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                         onAllImagesLoaded = { nextLoaded = it },
                         disableCrossfade = true,
+                        referer = referer,
                     )
                 }
             }
@@ -348,6 +352,7 @@ fun MangaPageCurlReader(
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                         onAllImagesLoaded = { prevLoaded = it },
                         disableCrossfade = true,
+                        referer = referer,
                     )
                 }
             }
