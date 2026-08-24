@@ -11,7 +11,6 @@ import com.haise.jiyu.source.manhuabuddy.ManhuaBuddySource
 import com.haise.jiyu.source.woopread.WoopReadSource
 import com.haise.jiyu.source.dynasty.DynastySource
 import com.haise.jiyu.source.hitomi.HitomiSource
-import com.haise.jiyu.source.mangapark.MangaParkSource
 import com.haise.jiyu.source.mangafire.MangaFireSource
 import com.haise.jiyu.source.mangago.MangagoSource
 import com.haise.jiyu.source.asurascans.AsuraScansSource
@@ -143,7 +142,6 @@ class SourceManager @Inject constructor(
     nhentaiSource: NhentaiSource,
     webtoonSource: WebtoonSource,
     dynastySource: DynastySource,
-    mangaParkSource: MangaParkSource,
     mangaFireSource: MangaFireSource,
     novelFullSource: NovelFullSource,
     freeWebNovelSource: FreeWebNovelSource,
@@ -284,7 +282,11 @@ class SourceManager @Inject constructor(
         // případ, že by se to v budoucnu vrátilo).
         webtoonSource,
         dynastySource,
-        mangaParkSource,
+        // MangaPark odstraněno 2026-08-24 - domena mangapark.page uz neni skutecny
+        // manga web, ale SEO/AI-generovana "content farm" stranka (masivni klicovkovy
+        // text "MangaPark vs MangaDex vs Manganelo", genericke FAQ, zadne skutecne
+        // odkazy na kapitoly) - proto "zadne vysledky" hlasene uzivatelem. Viz
+        // MangaParkSource.kt (ponechano pro pripad navratu na funkcni domenu).
         novelFullSource,
         freeWebNovelSource,
         mangagoSource,
