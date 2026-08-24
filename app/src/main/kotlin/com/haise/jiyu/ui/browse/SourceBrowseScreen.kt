@@ -78,9 +78,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
 import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SManga
@@ -242,7 +244,7 @@ fun SourceBrowseScreen(
                     }
                     items(results, key = { it.sourceId + it.url }) { manga ->
                         val isOpening = openingManga?.let { it.sourceId == manga.sourceId && it.url == manga.url } == true
-                        BrowseMangaCard(manga = manga, isLoading = isOpening, onClick = {
+                        BrowseMangaCard(manga = manga, isLoading = isOpening, referer = source?.homepageUrl, onClick = {
                             viewModel.openManga(manga, onOpenManga)
                         }, onCoverMissing = { viewModel.fetchCoverIfMissing(manga) })
                     }
@@ -361,7 +363,7 @@ private fun SourceBrowseHeader(
 }
 
 @Composable
-private fun BrowseMangaCard(manga: SManga, isLoading: Boolean = false, onClick: () -> Unit, onCoverMissing: () -> Unit) {
+private fun BrowseMangaCard(manga: SManga, isLoading: Boolean = false, referer: String? = null, onClick: () -> Unit, onCoverMissing: () -> Unit) {
     // Karta se zkomponuje jen kdyz je (blizko) ve viewportu LazyVerticalGrid - staci tedy
     // spustit dotazeni tady, zadne rucni sledovani scrollu netreba. Klic je sourceId+url,
     // aby se pri odscrollovani a navratu nespustilo znovu (fetchCoverIfMissing si navic
@@ -394,8 +396,14 @@ private fun BrowseMangaCard(manga: SManga, isLoading: Boolean = false, onClick: 
                 )
             },
     ) {
+        val coverContext = LocalContext.current
         SubcomposeAsyncImage(
-            model = manga.coverUrl,
+            model = remember(manga.coverUrl, referer) {
+                ImageRequest.Builder(coverContext)
+                    .data(manga.coverUrl)
+                    .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
+                    .build()
+            },
             contentDescription = manga.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),

@@ -869,6 +869,15 @@ class SourceManager @Inject constructor(
     suspend fun getById(id: String): MangaSource? = rawSources().find { it.id == id }
 
     /**
+     * Synchronní varianta [getById] - pro Compose kartičky, co zobrazují obálku a potřebují
+     * `homepageUrl` zdroje jako Referer hlavičku (viz BrowseMangaCard), bez zavádění suspend/
+     * LaunchedEffect jen kvůli téhle jedné hodnotě. Bezpečné, protože `_cache` je v okamžiku
+     * vykreslování manga kartiček už vždy naplněný (ty kartičky samy pocházejí ze zdroje v
+     * tomhle cache) - `.value` tak nikdy nevrátí prázdno v situaci, kdy by na tom zaleželo.
+     */
+    fun getByIdSync(id: String): MangaSource? = _cache.value.find { it.id == id }
+
+    /**
      * Zdroje pro [com.haise.jiyu.source.comick.ComicKChapterResolver] - narozdíl od
      * [getAll] NEaplikuje globální [SettingsRepository.showAdultSources] toggle. O
      * zahrnutí isAdult zdrojů do křížového hledání se tam rozhoduje per titul (podle
