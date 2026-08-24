@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -70,6 +71,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -475,8 +477,14 @@ private fun AdultBadgeCube(size: Dp = 18.dp, fontSize: androidx.compose.ui.unit.
             text = stringResource(R.string.browse_source_adult_badge),
             color = Color.White,
             fontSize = fontSize,
+            // Vychozi radkovani pridava nad/pod pismeny neviditelny prostor podle metrik
+            // fontu, takze i s Alignment.Center v obalu vypadal text mimo stred (blize
+            // hornimu okraji). lineHeight = fontSize + textAlign to srovna presne na stred.
+            lineHeight = fontSize,
+            textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
+            modifier = Modifier.wrapContentHeight(unbounded = true),
         )
     }
 }
