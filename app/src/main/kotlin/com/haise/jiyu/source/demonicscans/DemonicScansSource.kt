@@ -158,8 +158,14 @@ class DemonicScansSource @Inject constructor(
             val doc = Jsoup.parse(get("$base${chapter.url}"))
             val rawUrls = doc.select("img.imgholder").mapNotNull { img ->
                 val src = img.attr("src")
-                // Vyfiltrovat reklamní banner ("free_ads.jpg"), který má taky class="imgholder".
-                if (!src.contains("demoniclibs.com")) return@mapNotNull null
+                // Bug fix - puvodne se povolovaly jen obrazky z "demoniclibs.com" (allowlist
+                // jedne konkretni CDN domeny), ta uz ale neni to, odkud web skutecne servíruje
+                // obrazky (overeno zive - aktualne demonicscans.org/readermc.org) - allowlist
+                // tak vyfiltroval UPLNE VSECHNY obrazky, ne jen reklamni banner, kvuli cemuz
+                // getPageList vzdy vratil prazdno ("kapitolu se nepodarilo nacist"). Misto
+                // povolovani jedne domeny se ted vyluci jen znamy reklamni vzor - odolnejsi
+                // vuci budoucim zmenam CDN.
+                if (src.isBlank() || src.contains("free_ads") || src.contains("/ads/")) return@mapNotNull null
                 src
             }
             rawUrls.flatMapIndexed { pageIndex, url -> sliceIfNeeded(chapter, pageIndex, url) }
