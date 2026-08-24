@@ -761,6 +761,7 @@
     <string name="browse_lang_all">Vše</string>
     <string name="browse_no_sources_match">Žádné zdroje neodpovídají filtru</string>
     <string name="browse_source_menu_desc">Možnosti zdroje</string>
+    <string name="browse_source_adult_badge">18+</string>
     <string name="browse_favorites_section">Oblíbené</string>
     <string name="browse_source_favorite">Přidat do oblíbených</string>
     <string name="browse_source_unfavorite">Odebrat z oblíbených</string>

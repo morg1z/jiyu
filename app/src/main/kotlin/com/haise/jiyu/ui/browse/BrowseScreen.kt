@@ -458,9 +458,27 @@ private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
                 lineHeight = 15.sp,
             )
             Spacer(Modifier.height(4.dp))
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = contentTypeLabel(source.contentType), color = TextSecondary, fontSize = 10.sp, maxLines = 1)
                 Text(text = " · ${languageFlag(source.language)} ${source.language.uppercase()}", color = TextSecondary, fontSize = 10.sp, maxLines = 1)
+                // Viz SourceCard - stejny 18+ odznak, sdilena logika (source.isAdult).
+                if (source.isAdult) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Danger.copy(alpha = 0.22f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.browse_source_adult_badge),
+                            color = Danger,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
         }
         Box(
@@ -604,13 +622,36 @@ private fun SourceCard(
             lineHeight = 14.sp,
         )
         Spacer(Modifier.height(3.dp))
-        Text(
-            text = "${contentTypeLabel(source.contentType)} · ${languageFlag(source.language)} ${source.language.uppercase()}",
-            color = TextSecondary,
-            fontSize = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${contentTypeLabel(source.contentType)} · ${languageFlag(source.language)} ${source.language.uppercase()}",
+                color = TextSecondary,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // 18+ odznak - source.isAdult drzi kazdy zdroj sam (viz MangaSource.isAdult),
+            // dosud pouzivane jen pro filtrovani/skryvani, nikde vizualne nezobrazene -
+            // uzivatel na prvni pohled nepoznal, ktery zdroj ma dospely obsah.
+            if (source.isAdult) {
+                Spacer(Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Danger.copy(alpha = 0.22f))
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.browse_source_adult_badge),
+                        color = Danger,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
     }
 
     if (showReportDialog) {
