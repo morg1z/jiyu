@@ -58,7 +58,7 @@ class BubbleBoxDetector @Inject constructor(
                     nonMaxSuppression(raw, iouThreshold).map { it.toPageNormalized(params, bitmap.width, bitmap.height) }
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             e.report("translate:bubbleBoxDetector:detect")
             emptyList()
         }
