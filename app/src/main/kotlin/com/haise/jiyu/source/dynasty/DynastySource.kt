@@ -98,7 +98,12 @@ class DynastySource @Inject constructor(
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get("$base${manga.url}"))
-            doc.select(".chapter-list dd a[href*='/chapters/']").mapIndexed { i, el ->
+            // Web vypisuje kapitoly od nejnovejsi - cislo se puvodne pocitalo primo z
+            // DOM poradi (i+1) a AZ POTOM se seznam otocil (.reversed()), coz obratilo
+            // jen poradi ZOBRAZENI, ne uz priradena cisla (nejnovejsi kapitola dostala
+            // cislo 1). Radici prepinac Nejnovejsi/Nejstarsi v MangaDetailViewModel radi
+            // podle chapterNumber, takze s takhle obracenymi cisly vypadalo rozbite.
+            doc.select(".chapter-list dd a[href*='/chapters/']").reversed().mapIndexed { i, el ->
                 val href = el.attr("href").removePrefix(base)
                 val name = el.text().trim().ifBlank { "Chapter ${i + 1}" }
                 SChapter(
@@ -109,7 +114,7 @@ class DynastySource @Inject constructor(
                     chapterNumber = (i + 1).toFloat(),
                     dateUpload = 0L,
                 )
-            }.reversed()
+            }
         } catch (_: Exception) { emptyList() }
     }
 

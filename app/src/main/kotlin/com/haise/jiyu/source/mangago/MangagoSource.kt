@@ -99,7 +99,16 @@ class MangagoSource @Inject constructor(
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get("$base${manga.url}"))
-            doc.select("#chapter_table tr td a, .chapter_list li a").mapIndexed { i, a ->
+            val links = doc.select("#chapter_table tr td a, .chapter_list li a")
+            // Web vypisuje kapitoly od nejnovejsi (DOM poradi), puvodne se ale cislo
+            // kapitoly pocitalo primo z tohohle poradi (i+1) a AZ POTOM se cely seznam
+            // otocil (.reversed()) - to obratilo poradi ZOBRAZENI, ale ne uz priradena
+            // CISLA (nejnovejsi kapitola tak dostala cislo 1, nejstarsi nejvyssi cislo).
+            // MangaDetailViewModel radi podle chapterNumber (prepinac Nejnovejsi/
+            // Nejstarsi) - s obracenymi cisly vypadalo razeni rozbite. Oprava: napred
+            // otocit poradi prvku (na chronologicke, nejstarsi->nejnovejsi), az pak
+            // cislovat indexem.
+            links.reversed().mapIndexed { i, a ->
                 SChapter(
                     sourceId = id, mangaUrl = manga.url,
                     url = a.attr("href").removePrefix(base),
@@ -107,7 +116,7 @@ class MangagoSource @Inject constructor(
                     chapterNumber = (i + 1).toFloat(),
                     dateUpload = 0L,
                 )
-            }.reversed()
+            }
         } catch (_: Exception) { emptyList() }
     }
 
