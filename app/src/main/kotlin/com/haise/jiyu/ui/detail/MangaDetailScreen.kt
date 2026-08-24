@@ -174,6 +174,14 @@ fun MangaDetailScreen(
     var chapterGridView by remember { mutableStateOf(false) }
     var groupByVolume by remember { mutableStateOf(false) }
     var chapterPage by remember { mutableStateOf(0) }
+    // Bug fix - stránka stránkovaného seznamu kapitol (viz "else" větev níž, `pageChapters`)
+    // se dřív nikdy neresetovala při přepnutí Nejnovější/Nejstarší ani při filtrování - kdo
+    // byl např. na stránce 4 a přepnul řazení, uviděl stránku 4 úplně jiného (obráceného)
+    // seznamu, tedy zdánlivě náhodný výsek kapitol. Vypadalo to jako "řazení nefunguje",
+    // i když samotný sort byl v pořádku - jen zůstal ukazovat na starou pozici v novém pořadí.
+    LaunchedEffect(sortAscending, chapterFilter, statusFilter, selectedScanlator) {
+        chapterPage = 0
+    }
     // Hromadne akce nad prectenim (oznacit vse starsi/vse jako prectene) meni stav
     // desitek kapitol najednou bez moznosti jednoho tlacitka na vraceni zpet - proto
     // se nespousti primo z menu, ale az po potvrzeni v dialogu nize.
