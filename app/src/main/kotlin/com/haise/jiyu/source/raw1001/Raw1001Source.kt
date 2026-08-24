@@ -46,7 +46,15 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
                 if (!mangaHref.matches(href)) return@mapNotNull null
                 val img = a.selectFirst("img") ?: return@mapNotNull null
                 val title = img.attr("alt").trim().ifBlank { return@mapNotNull null }
-                val cover = img.attr("data-src").ifBlank { img.attr("src") }.trim().takeIf { it.startsWith("http") }
+                // Bug fix - cover URL je na webu relativni cesta ("/uploads/..."), ne
+                // absolutni URL - "startsWith(http)" test vsechno vyfiltroval, coverUrl
+                // vzdy vyslo null (nahlaseno jako "covery se nenacitaji").
+                val rawCover = img.attr("data-src").ifBlank { img.attr("src") }.trim()
+                val cover = when {
+                    rawCover.startsWith("http") -> rawCover
+                    rawCover.startsWith("/") -> "$base$rawCover"
+                    else -> null
+                }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
             }.distinctBy { it.url }
         } catch (_: Exception) { emptyList() }

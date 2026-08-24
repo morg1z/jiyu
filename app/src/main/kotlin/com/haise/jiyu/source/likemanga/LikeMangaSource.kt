@@ -46,7 +46,11 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         val title = el.selectFirst("p.title-manga a")?.text()?.trim()
             ?: link.attr("title").trim().takeIf { it.isNotBlank() }
             ?: return null
-        val coverRaw = el.selectFirst("img")?.attr("src")?.trim().orEmpty()
+        // data-src prednostne pred src (lazy-loading placeholder) - stejny vzor jako u
+        // MangaMikan/Raw1001, kde "src" bylo prazdne/placeholder a skutecna URL byla v data-src.
+        val coverEl = el.selectFirst("img")
+        val coverRaw = coverEl?.attr("data-src")?.trim()?.ifBlank { null }
+            ?: coverEl?.attr("src")?.trim().orEmpty()
         return SManga(
             sourceId = id,
             url = href,

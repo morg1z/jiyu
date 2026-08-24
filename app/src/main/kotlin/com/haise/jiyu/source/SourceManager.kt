@@ -78,7 +78,6 @@ import com.haise.jiyu.source.comick.ComicKSource
 import com.haise.jiyu.source.toongod.ToongodSource
 import com.haise.jiyu.source.webtooni.WebtooniSource
 import com.haise.jiyu.source.manhwabuddy.ManhwaBuddySource
-import com.haise.jiyu.source.manhwaraw18.ManhwaRaw18Source
 import com.haise.jiyu.source.manga18club.Manga18ClubSource
 import com.haise.jiyu.source.manhwasusu.ManhwaSusuSource
 import com.haise.jiyu.source.ehentai.EHentaiSource
@@ -208,7 +207,6 @@ class SourceManager @Inject constructor(
     toongodSource: ToongodSource,
     webtooniSource: WebtooniSource,
     manhwaBuddySource: ManhwaBuddySource,
-    manhwaRaw18Source: ManhwaRaw18Source,
     manga18ClubSource: Manga18ClubSource,
     manhwaSusuSource: ManhwaSusuSource,
     eHentaiSource: EHentaiSource,
@@ -407,15 +405,8 @@ class SourceManager @Inject constructor(
         // uploadera, web běží na jiném WP pluginu (wp-theme-init-manga).
         // Vyžadovalo by vlastní MangaSource, viz project_jiyu_american_comics_audit
         // / manga source audit poznámky - zatím nepřidáno.
-        // manhwaz.com pouziva vlastni permalinky ("/webtoon/{slug}" misto
-        // "/manga/{slug}", "/genre/manga?page=N" pro archiv, "/search?s=..."
-        // pro hledani) - proto vlastni popularUrl/searchUrl misto vychozich.
-        MadaraSource(
-            "manhwaz", "Manhwaz", "https://manhwaz.com", client,
-            contentTypeOverride = "MANHWA",
-            popularUrl = { root, page, _ -> "$root/genre/manga?page=$page" },
-            searchUrl = { root, query, page -> "$root/search?s=$query&page=$page" },
-        ),
+        // Manhwaz odstraneno 2026-08-24 - manhwaz.com neodpovida (TCP timeout, overeno
+        // curlem i realnym prohlizecem) - server je nedostupny, ne bot-detekce.
         // ── Francouzské zdroje 🇫🇷 ──────────────────────────────────────────
         japscanSource,
         // animesama: doména anime-sama.fr mrtvá, přesunuto na anime-sama.to.
@@ -607,7 +598,8 @@ class SourceManager @Inject constructor(
         toongodSource,
         webtooniSource,
         manhwaBuddySource,
-        manhwaRaw18Source,
+        // ManhwaRaw18 odstraneno 2026-08-24 - manhwaraw18.com nema DNS zaznam (domena
+        // uz neexistuje, overeno curlem).
         manga18ClubSource,
         manhwaSusuSource,
         // ── Dávka 2026-08-13 - hentai/doujin zdroje (isAdult=true) ────────────────

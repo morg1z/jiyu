@@ -41,7 +41,19 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
     private fun parseCard(a: Element): SManga? {
         val href = a.attr("href").ifBlank { return null }
         val title = a.attr("title").trim().ifBlank { return null }
-        val cover = a.selectFirst("img.cover")?.attr("src")?.trim()?.takeIf { it.startsWith("http") }
+        // Bug fix - "src" u img.cover je jen prazdny/placeholder atribut (lazy-loading), i
+        // kdyz komentar u tridy uz spravne rikal, ze hotova URL je v "data-src" - kod se ale
+        // divam na "src", takze coverUrl vzdy vyslo null (nahlaseno jako "covery se nenacitaji").
+        // Navic je "data-src" relativni cesta ("/i.php?..."), ne absolutni URL, takze i pri
+        // spravnem atributu by "startsWith(http)" test vyfiltroval vsechno - treba prefixovat base.
+        val raw = a.selectFirst("img.cover")?.attr("data-src")?.trim()?.ifBlank { null }
+            ?: a.selectFirst("img.cover")?.attr("src")?.trim()?.ifBlank { null }
+        val cover = when {
+            raw == null -> null
+            raw.startsWith("http") -> raw
+            raw.startsWith("/") -> "$base$raw"
+            else -> null
+        }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
