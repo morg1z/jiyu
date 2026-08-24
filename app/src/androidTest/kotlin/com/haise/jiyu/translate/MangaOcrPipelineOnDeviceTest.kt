@@ -71,6 +71,7 @@ class MangaOcrPipelineOnDeviceTest {
 
     @Test
     fun recognizeCrop_returnsNonNullTextForSyntheticJapanese() = runBlocking {
+        assumeRealOnnxAssets(context, "models/manga_ocr_encoder.onnx", "models/manga_ocr_decoder.onnx")
         val crop = japaneseCrop("こんにちは")
         val text = pipeline.recognizeCrop(crop)
         Log.i("MangaOcrProbe", "recognizeCrop vratil: \"$text\"")
@@ -79,6 +80,12 @@ class MangaOcrPipelineOnDeviceTest {
 
     @Test
     fun detectAndRecognize_findsBubbleAndReturnsText() = runBlocking {
+        assumeRealOnnxAssets(
+            context,
+            "models/comic_bubble_detector.onnx",
+            "models/manga_ocr_encoder.onnx",
+            "models/manga_ocr_decoder.onnx",
+        )
         val bitmap = pageWithJapaneseBubble()
         val blocks = pipeline.detectAndRecognize(bitmap)
         Log.i("MangaOcrProbe", "detectAndRecognize nalezl bloku: ${blocks.size}")

@@ -58,6 +58,12 @@ class MangaOcrFallbackOnDeviceTest {
 
     @Test
     fun recognize_happyPath_returnsText() = runBlocking {
+        assumeRealOnnxAssets(
+            targetContext,
+            "models/comic_bubble_detector.onnx",
+            "models/manga_ocr_encoder.onnx",
+            "models/manga_ocr_decoder.onnx",
+        )
         val bubbleBoxDetector = BubbleBoxDetector(targetContext)
         val engine = OcrEngine(
             BubbleMaskSegmenter(targetContext),
@@ -72,6 +78,9 @@ class MangaOcrFallbackOnDeviceTest {
 
     @Test
     fun recognize_fallsBackToMlKit_whenMangaOcrPipelineCannotLoadModel() = runBlocking {
+        // Jen box detektor - MangaOcrPipeline je tu SCHVALNE zkonstruovany bez assetu (viz
+        // komentar tridy), takze na jeho LFS obsahu tenhle test nezavisi.
+        assumeRealOnnxAssets(targetContext, "models/comic_bubble_detector.onnx")
         val bubbleBoxDetector = BubbleBoxDetector(targetContext)
         // MangaOcrPipeline zkonstruovany s kontextem TEST APK (ne cilove appky) - ten nema
         // assets/models/ * .onnx zabundlovane, takze kazde recognizeCrop uvnitr selze na
