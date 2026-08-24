@@ -820,6 +820,7 @@
     <string name="search_empty_hint">Zadej název mangy a prohledej\nvšechny zdroje najednou</string>
     <string name="search_error">Chyba</string>
     <string name="search_source_error">Zdroj vrátil chybu</string>
+    <string name="comick_browse_search_history">NEDÁVNO HLEDANÉ</string>
 
     <!-- Účet -->
     <string name="account_error_prefix">Chyba: %1$s</string>

@@ -66,6 +66,7 @@ object SettingsKeys {
     val APP_MODE = stringPreferencesKey("app_mode")
     val SHOW_ADULT_SOURCES     = booleanPreferencesKey("show_adult_sources")
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
+    val COMICK_SEARCH_HISTORY  = stringPreferencesKey("comick_search_history")
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
     val LIBRARY_GRID_MODE      = booleanPreferencesKey("library_grid_mode")
     val DOWNLOAD_ONLY_WIFI     = booleanPreferencesKey("download_only_wifi")
@@ -500,6 +501,28 @@ class SettingsRepository @Inject constructor(
     suspend fun removeSavedSearch(query: String) = dataStore.edit { prefs ->
         val existing = prefs[SettingsKeys.SAVED_SEARCHES]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
         prefs[SettingsKeys.SAVED_SEARCHES] = existing.filter { it != query }.joinToString("|||")
+    }
+
+    /**
+     * Automaticky zaznamenaná historie hledání v ComicK agregovaném režimu (na rozdíl
+     * od [savedSearches] výše, což jsou ruční záložky přes tlačítko) - viz ComicK vlastní
+     * "Recent" seznam po kliknutí na vyhledávací pole.
+     */
+    val comickSearchHistory: Flow<List<String>> =
+        dataStore.data.map { prefs ->
+            val raw = prefs[SettingsKeys.COMICK_SEARCH_HISTORY] ?: return@map emptyList()
+            raw.split("|||").filter { it.isNotBlank() }
+        }
+
+    /** Nejnovější dotaz jde navrch; starší duplicitní výskyt stejného dotazu se smaže, aby se posunul dopředu místo zdvojení. */
+    suspend fun addComickSearchHistory(query: String) = dataStore.edit { prefs ->
+        val existing = prefs[SettingsKeys.COMICK_SEARCH_HISTORY]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
+        prefs[SettingsKeys.COMICK_SEARCH_HISTORY] = (listOf(query) + existing.filter { it != query }).take(10).joinToString("|||")
+    }
+
+    suspend fun removeComickSearchHistory(query: String) = dataStore.edit { prefs ->
+        val existing = prefs[SettingsKeys.COMICK_SEARCH_HISTORY]?.split("|||")?.filter { it.isNotBlank() } ?: emptyList()
+        prefs[SettingsKeys.COMICK_SEARCH_HISTORY] = existing.filter { it != query }.joinToString("|||")
     }
 
     val cropBorders: Flow<Boolean> =

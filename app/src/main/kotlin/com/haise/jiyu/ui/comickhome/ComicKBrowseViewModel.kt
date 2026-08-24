@@ -41,6 +41,12 @@ class ComicKBrowseViewModel @Inject constructor(
     val showAdultContent: StateFlow<Boolean> = settings.showAdultSources
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    private val settingsRepository = settings
+
+    /** Automaticky zaznamenaná historie hledání - viz [SettingsRepository.comickSearchHistory]. */
+    val searchHistory: StateFlow<List<String>> = settings.comickSearchHistory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
@@ -92,7 +98,29 @@ class ComicKBrowseViewModel @Inject constructor(
         _query.value = text
     }
 
-    fun search() = loadFirstPage()
+    fun search() {
+        recordHistory()
+        loadFirstPage()
+    }
+
+    /** Zaznamená aktuální dotaz do historie - viz [searchHistory]. Volá se při odeslání
+     * hledání (Enter/IME) a při otevření mangy z rozepsaného hledání ([openManga]), tedy
+     * v obou reálných místech, kde uživatel dotaz "potvrdí". Prázdný dotaz se nezaznamenává. */
+    private fun recordHistory() {
+        val q = _query.value.trim()
+        if (q.isBlank()) return
+        viewModelScope.launch { settingsRepository.addComickSearchHistory(q) }
+    }
+
+    fun removeHistoryItem(query: String) {
+        viewModelScope.launch { settingsRepository.removeComickSearchHistory(query) }
+    }
+
+    /** Vyplní dotaz z historie a rovnou spustí hledání - viz [ComicKBrowseScreen]. */
+    fun useHistoryItem(query: String) {
+        _query.value = query
+        search()
+    }
 
     fun applyFilters(newFilters: ComicKSearchFilters) {
         _filters.value = newFilters
@@ -131,6 +159,7 @@ class ComicKBrowseViewModel @Inject constructor(
 
     fun openManga(manga: SManga, onOpened: (String) -> Unit) {
         if (_openingManga.value != null) return
+        recordHistory()
         _openingManga.value = manga
         viewModelScope.launch {
             try {

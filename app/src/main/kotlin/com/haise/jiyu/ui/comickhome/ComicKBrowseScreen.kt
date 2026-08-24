@@ -55,11 +55,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -112,9 +114,17 @@ fun ComicKBrowseScreen(
     val openingManga by viewModel.openingManga.collectAsState()
     val openError by viewModel.openError.collectAsState()
     val showAdultContent by viewModel.showAdultContent.collectAsState()
+    val searchHistory by viewModel.searchHistory.collectAsState()
 
     var showFilterSheet by remember { mutableStateOf(false) }
+    var searchFieldFocused by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
+
+    // Zobrazi se, kdyz je pole zaostrene A prazdne A neco v historii je - jakmile
+    // uzivatel zacne psat, prepne se zpet na dosavadni zive filtrovani vysledku
+    // (uzivatelsky pozadavek: "jak to ma ComicK" - viz jejich vlastni "Recent" seznam).
+    val showHistory = searchFieldFocused && query.isBlank() && searchHistory.isNotEmpty()
 
     LaunchedEffect(openError) {
         openError?.let {
@@ -164,7 +174,10 @@ fun ComicKBrowseScreen(
                         singleLine = true,
                         textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { viewModel.search() }),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            viewModel.search()
+                            focusManager.clearFocus()
+                        }),
                         decorationBox = { inner ->
                             Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
                                 if (query.isEmpty()) {
@@ -173,7 +186,7 @@ fun ComicKBrowseScreen(
                                 inner()
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).onFocusChanged { searchFieldFocused = it.isFocused },
                     )
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setQuery(""); viewModel.search() }, modifier = Modifier.size(28.dp)) {
@@ -205,6 +218,46 @@ fun ComicKBrowseScreen(
         Box(modifier = Modifier.fillMaxSize().background(screenGradient).padding(innerPadding)) {
             val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             when {
+                showHistory -> LazyColumn(
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp + navBottom),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.comick_browse_search_history),
+                            color = Violet,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        )
+                    }
+                    items(searchHistory, key = { it }) { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                    viewModel.useHistoryItem(item)
+                                    focusManager.clearFocus()
+                                }
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(15.dp))
+                            Text(
+                                text = item,
+                                color = TextPrimary,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(start = 12.dp),
+                            )
+                            IconButton(onClick = { viewModel.removeHistoryItem(item) }, modifier = Modifier.size(28.dp)) {
+                                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
                 loading && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { JiyuLoadingIndicator() }
                 error != null && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
