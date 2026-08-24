@@ -14,6 +14,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -455,16 +457,42 @@ private fun SourceIcon(source: MangaSource, size: Dp, cornerRadius: Dp, fontSize
 }
 
 /**
+ * Malý odznak "18+" přilepený na roh ikony zdroje - dřív stál v textovém řádku
+ * s typem/jazykem, kde ho u delších názvů useklo ellipsis a u úzkých 3-sloupcových
+ * karet nebyl vidět vůbec. Na ikoně je vidět vždy, bez ohledu na délku textu.
+ */
+@Composable
+private fun BoxScope.AdultBadgeOverlay() {
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset(x = 4.dp, y = (-4).dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Danger)
+            .padding(horizontal = 3.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.browse_source_adult_badge),
+            color = Color.White,
+            fontSize = 7.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
  * Zvýrazněná karta pro karusel oblíbených zdrojů nad hlavní mřížkou - stejné
  * vizuální prvky jako [SourceCard] (monogram/favicon, typ obsahu, jazyk), ale
- * větší a s odznakem srdíčka v rohu, aby oblíbené zdroje šly najít na první
- * pohled bez scrollování celé mřížky.
+ * s odznakem srdíčka v rohu, aby oblíbené zdroje šly najít na první pohled
+ * bez scrollování celé mřížky. Zmenšeno oproti původní verzi (150dp/48dp ikona) -
+ * působilo to v karuselu nad mřížkou zbytečně objemně.
  */
 @Composable
 private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .width(150.dp)
+            .width(120.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(NightBlue)
             .border(1.dp, Pink.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
@@ -473,54 +501,39 @@ private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
                 indication = null,
                 onClick = onClick,
             )
-            .padding(12.dp),
+            .padding(10.dp),
     ) {
         Column {
-            SourceIcon(source = source, size = 48.dp, cornerRadius = 12.dp, fontSize = 16.sp)
-            Spacer(Modifier.height(10.dp))
+            Box {
+                SourceIcon(source = source, size = 38.dp, cornerRadius = 10.dp, fontSize = 13.sp)
+                if (source.isAdult) AdultBadgeOverlay()
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = source.name,
                 color = TextPrimary,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 15.sp,
+                lineHeight = 14.sp,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = contentTypeLabel(source.contentType), color = TextSecondary, fontSize = 10.sp, maxLines = 1)
-                Text(text = " · ${languageFlag(source.language)} ${source.language.uppercase()}", color = TextSecondary, fontSize = 10.sp, maxLines = 1)
-                // Viz SourceCard - stejny 18+ odznak, sdilena logika (source.isAdult).
-                if (source.isAdult) {
-                    Spacer(Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Danger.copy(alpha = 0.22f))
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.browse_source_adult_badge),
-                            color = Danger,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                        )
-                    }
-                }
+                Text(text = contentTypeLabel(source.contentType), color = TextSecondary, fontSize = 9.sp, maxLines = 1)
+                Text(text = " · ${languageFlag(source.language)} ${source.language.uppercase()}", color = TextSecondary, fontSize = 9.sp, maxLines = 1)
             }
         }
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(22.dp)
+                .size(20.dp)
                 .clip(RoundedCornerShape(50))
                 .background(Pink.copy(alpha = 0.22f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(TablerIcons.Heart, contentDescription = null, tint = Pink, modifier = Modifier.size(12.dp))
+            Icon(TablerIcons.Heart, contentDescription = null, tint = Pink, modifier = Modifier.size(11.dp))
         }
     }
 }
@@ -556,7 +569,10 @@ private fun SourceCard(
         // Typ obsahu + jazyk jsou ale spojené do jednoho řádku pod názvem místo
         // dřívějších dvou zvlášť + samostatného chip-boxu - čistší bez ztráty místa.
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            SourceIcon(source = source, size = 36.dp, cornerRadius = 10.dp, fontSize = 14.sp)
+            Box {
+                SourceIcon(source = source, size = 36.dp, cornerRadius = 10.dp, fontSize = 14.sp)
+                if (source.isAdult) AdultBadgeOverlay()
+            }
             Spacer(Modifier.weight(1f))
             if (isFavorite) {
                 Icon(
@@ -617,36 +633,15 @@ private fun SourceCard(
             lineHeight = 14.sp,
         )
         Spacer(Modifier.height(3.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "${contentTypeLabel(source.contentType)} · ${languageFlag(source.language)} ${source.language.uppercase()}",
-                color = TextSecondary,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            // 18+ odznak - source.isAdult drzi kazdy zdroj sam (viz MangaSource.isAdult),
-            // dosud pouzivane jen pro filtrovani/skryvani, nikde vizualne nezobrazene -
-            // uzivatel na prvni pohled nepoznal, ktery zdroj ma dospely obsah.
-            if (source.isAdult) {
-                Spacer(Modifier.width(4.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Danger.copy(alpha = 0.22f))
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.browse_source_adult_badge),
-                        color = Danger,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+        Text(
+            // 18+ odznak presunut na ikonu (viz AdultBadgeOverlay) - tady drive useklo
+            // ellipsis u delsich nazvu/typu a v uzkem 3-sloupcovem gridu nebyl videt vubec.
+            text = "${contentTypeLabel(source.contentType)} · ${languageFlag(source.language)} ${source.language.uppercase()}",
+            color = TextSecondary,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 
     if (showReportDialog) {
