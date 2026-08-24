@@ -69,6 +69,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -391,7 +393,65 @@ private fun languageFlag(code: String): String = when (code.lowercase()) {
 /** URL veřejné favicon služby pro doménu webu zdroje - appka žádná loga zdrojů nebundluje. */
 private fun faviconUrlFor(homepageUrl: String): String {
     val domain = homepageUrl.removePrefix("https://").removePrefix("http://").substringBefore("/")
-    return "https://www.google.com/s2/favicons?domain=$domain&sz=64"
+    return "https://www.google.com/s2/favicons?domain=$domain&sz=128"
+}
+
+/** Druhá šance, když Google favicon službě chybí záznam pro doménu nebo selže. */
+private fun faviconFallbackUrlFor(homepageUrl: String): String {
+    val domain = homepageUrl.removePrefix("https://").removePrefix("http://").substringBefore("/")
+    return "https://icons.duckduckgo.com/ip3/$domain.ico"
+}
+
+/**
+ * Ikona zdroje - skutečné logo webu (favicon), pokud se podaří stáhnout; jinak
+ * barevný monogram z iniciál názvu. Google's s2 favicon služba pro spoustu domén
+ * nemá záznam vůbec, proto se jako druhá šance zkouší DuckDuckGo, než se appka
+ * vzdá na monogram. Monogram se schová hned, jak se podaří načíst SKUTEČNÉ logo -
+ * dřív zůstával vykreslený POD faviconem porád, takže u průhledných/malých ikon
+ * prosvítal kolem okrajů (nahlášeno jako "písmenka za logem").
+ */
+@Composable
+private fun SourceIcon(source: MangaSource, size: Dp, cornerRadius: Dp, fontSize: TextUnit) {
+    val initials = remember(source.name) {
+        source.name.trim().split(" ")
+            .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar() }
+            .take(2)
+            .joinToString("")
+    }
+    val accent = remember(source.id) { accentFor(source.id) }
+    val homepage = source.homepageUrl
+    var attempt by remember(source.id) { mutableStateOf(0) }
+    var loaded by remember(source.id) { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(accent.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!loaded) {
+            Text(text = initials.ifBlank { "?" }, color = accent, fontSize = fontSize, fontWeight = FontWeight.Bold)
+        }
+        if (homepage != null && attempt < 2) {
+            AsyncImage(
+                model = if (attempt == 0) faviconUrlFor(homepage) else faviconFallbackUrlFor(homepage),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(size / 12)
+                    .alpha(if (loaded) 1f else 0f),
+                onState = { state ->
+                    when (state) {
+                        is AsyncImagePainter.State.Success -> loaded = true
+                        is AsyncImagePainter.State.Error -> attempt = if (attempt == 0) 1 else 2
+                        else -> {}
+                    }
+                },
+            )
+        }
+    }
 }
 
 /**
@@ -402,14 +462,6 @@ private fun faviconUrlFor(homepageUrl: String): String {
  */
 @Composable
 private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
-    val initials = remember(source.name) {
-        source.name.trim().split(" ")
-            .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar() }
-            .take(2)
-            .joinToString("")
-    }
-    val accent = remember(source.id) { accentFor(source.id) }
-
     Box(
         modifier = Modifier
             .width(150.dp)
@@ -424,28 +476,7 @@ private fun FeaturedSourceCard(source: MangaSource, onClick: () -> Unit) {
             .padding(12.dp),
     ) {
         Column {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(accent.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(text = initials.ifBlank { "?" }, color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                source.homepageUrl?.let { homepage ->
-                    var showFavicon by remember(source.id) { mutableStateOf(false) }
-                    AsyncImage(
-                        model = faviconUrlFor(homepage),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .padding(4.dp)
-                            .alpha(if (showFavicon) 1f else 0f),
-                        onState = { state -> showFavicon = state is AsyncImagePainter.State.Success },
-                    )
-                }
-            }
+            SourceIcon(source = source, size = 48.dp, cornerRadius = 12.dp, fontSize = 16.sp)
             Spacer(Modifier.height(10.dp))
             Text(
                 text = source.name,
@@ -503,13 +534,6 @@ private fun SourceCard(
     onToggleFavorite: () -> Unit,
 ) {
     val context = LocalContext.current
-    val initials = remember(source.name) {
-        source.name.trim().split(" ")
-            .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar() }
-            .take(2)
-            .joinToString("")
-    }
-    val accent = remember(source.id) { accentFor(source.id) }
     var showMenu by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
 
@@ -532,36 +556,7 @@ private fun SourceCard(
         // Typ obsahu + jazyk jsou ale spojené do jednoho řádku pod názvem místo
         // dřívějších dvou zvlášť + samostatného chip-boxu - čistší bez ztráty místa.
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(accent.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = initials.ifBlank { "?" },
-                    color = accent,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                // Favicona webu zdroje přes veřejnou službu (zdroje nemají bundlované
-                // logo) - dokud se nenačte (nebo web faviconu nemá/blokuje), zůstává
-                // vidět barevný monogram pod ní, žádné bliknutí prázdného místa.
-                source.homepageUrl?.let { homepage ->
-                    var showFavicon by remember(source.id) { mutableStateOf(false) }
-                    AsyncImage(
-                        model = faviconUrlFor(homepage),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .padding(3.dp)
-                            .alpha(if (showFavicon) 1f else 0f),
-                        onState = { state -> showFavicon = state is AsyncImagePainter.State.Success },
-                    )
-                }
-            }
+            SourceIcon(source = source, size = 36.dp, cornerRadius = 10.dp, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
             if (isFavorite) {
                 Icon(
