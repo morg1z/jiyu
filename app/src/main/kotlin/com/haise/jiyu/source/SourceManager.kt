@@ -685,7 +685,9 @@ class SourceManager @Inject constructor(
         // (build cesta /_vcomics/..., identicka struktura dat) - overeno zive na obou,
         // proto spolecna generic trida VComicsSource misto dvou skoro identickych kopii.
         VComicsSource("kaynscan", "Kayn Scan", "https://kaynscan.org", client),
-        VComicsSource("kenscans", "Ken Scans", "https://kenscans.org", client),
+        // Ken Scans presunuto na kencomics.com 2026-08-24 - kenscans.org presmerovava
+        // (overeno zive), ale primy zapis odolnejsi nez spolehani na redirect.
+        VComicsSource("kenscans", "Ken Scans", "https://kencomics.com", client),
         hadesScansSource,
         // Dragon Tea (dragontea.ink) - puvodne pridano s contentTypeOverride = "NOVEL" (odhad
         // podle nazvu vlastni taxonomy "novel-genre" ve URL, web byl pri pridavani blokovany
