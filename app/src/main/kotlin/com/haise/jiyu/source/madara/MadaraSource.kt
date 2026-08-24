@@ -70,6 +70,17 @@ class MadaraSource(
 
     private val root get() = baseUrl.trimEnd('/')
 
+    companion object {
+        // Bez explicitniho User-Agent/Referer pouzival OkHttp svuj vlastni
+        // ("okhttp/4.x") - snadno rozpoznatelny jako bot, coz nekterym webum
+        // (napr. linkmanga.com/Mangalink, nahlaseno jako HTTP 403) stacilo k
+        // odmitnuti requestu, i kdyz web samotny zadny JS/Cloudflare challenge
+        // nema (na rozdil od skutecne Cloudflare-chranenych webu, kde tohle
+        // samo o sobe nestaci).
+        private const val BROWSER_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
@@ -152,6 +163,8 @@ class MadaraSource(
                 val request = Request.Builder()
                     .url("${manga.url.trimEnd('/')}/ajax/chapters/")
                     .post(FormBody.Builder().add("action", "manga_get_chapters").build())
+                    .header("User-Agent", BROWSER_USER_AGENT)
+                    .header("Referer", manga.url)
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) Jsoup.parse(response.body?.string().orEmpty(), manga.url) else null
@@ -250,7 +263,11 @@ class MadaraSource(
     }
 
     private fun fetchDocument(url: String): Document {
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", BROWSER_USER_AGENT)
+            .header("Referer", baseUrl)
+            .build()
         client.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Chyba ${response.code} pri nacitani $url" }
             val body = response.body?.string().orEmpty()
