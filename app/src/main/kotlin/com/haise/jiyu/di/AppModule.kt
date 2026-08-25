@@ -22,16 +22,24 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import com.haise.jiyu.source.SourceRateLimitedException
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import com.haise.jiyu.source.mangacloud.MangaCloudSession
 import com.haise.jiyu.source.mangacloud.WebViewMangaCloudSession
 import okhttp3.CipherSuite
 import okhttp3.ConnectionSpec
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.TlsVersion
+import okhttp3.dnsoverhttps.DnsOverHttps
 import java.io.IOException
+import java.net.InetAddress
+import java.net.UnknownHostException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -194,6 +202,78 @@ private class HotlinkRefererInterceptor : Interceptor {
     }
 }
 
+/**
+ * Na HTTP 429 vyhodí [SourceRateLimitedException] místo obyčejné odpovědi - viz [Throwable.toFriendlyMessage]
+ * pro srozumitelnou hlášku uživateli. Výjimka záměrně NENÍ IOException, takže ji [RetryInterceptor]
+ * (umístěný před tímhle v řetězci) nezachytí a nebude zbytečně opakovat request, který stejně
+ * zůstane rate-limitovaný.
+ */
+private class RateLimitInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val response = chain.proceed(chain.request())
+        if (response.code == 429) {
+            val retryAfterMs = response.header("Retry-After")?.let { parseRetryAfterMs(it) } ?: 0L
+            response.close()
+            throw SourceRateLimitedException(retryAfterMs)
+        }
+        return response
+    }
+}
+
+/**
+ * `internal` (ne `private`) a mimo třídu, aby to šlo přímo zavolat z čistého JVM testu
+ * (stejný vzor jako `isCloudflareBlocked` v `CloudflareInterceptor.kt`). Parsuje `Retry-After`
+ * hlavičku - buď počet sekund (RFC 7231), nebo HTTP-date formát. `null`, když ani jedno
+ * neodpovídá.
+ */
+internal fun parseRetryAfterMs(header: String): Long? {
+    header.toLongOrNull()?.let { return it * 1000 }
+    return try {
+        ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().toEpochMilli() - System.currentTimeMillis()
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * DNS-over-HTTPS přes Cloudflare - pomáhá na sítích, kde ISP/router DNS pro manga zdroje
+ * blokuje nebo zpomaluje (běžné u některých poskytovatelů/zemí). Bootstrap IP adresy jsou
+ * nutné, aby appka vůbec našla `cloudflare-dns.com` bez kruhové závislosti na DNS, které se
+ * má teprve použít - stejné adresy, jaké má Cloudflare veřejně zdokumentované jako svůj
+ * resolver (1.1.1.1/1.0.0.1). Při selhání (`UnknownHostException`) appka spadne zpátky na
+ * systémové DNS - DoH se tím nikdy nemůže appku "zaseknout", jen v nejhorším případě nepomůže.
+ */
+private object CloudflareDoh : Dns {
+    private val bootstrapClient = OkHttpClient.Builder().build()
+
+    private val delegate: Dns by lazy {
+        DnsOverHttps.Builder().client(bootstrapClient)
+            .url("https://cloudflare-dns.com/dns-query".toHttpUrl())
+            .bootstrapDnsHosts(
+                listOfNotNull(
+                    tryGetByIp("1.1.1.1"),
+                    tryGetByIp("1.0.0.1"),
+                    tryGetByIp("2606:4700:4700::1111"),
+                    tryGetByIp("2606:4700:4700::1001"),
+                ),
+            )
+            .build()
+    }
+
+    override fun lookup(hostname: String): List<InetAddress> = try {
+        delegate.lookup(hostname)
+    } catch (_: UnknownHostException) {
+        Dns.SYSTEM.lookup(hostname)
+    }
+
+    private fun tryGetByIp(ip: String): InetAddress? = try {
+        InetAddress.getByName(ip)
+    } catch (_: UnknownHostException) {
+        null
+    }
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -203,9 +283,11 @@ object AppModule {
     fun provideOkHttpClient(cloudflare: CloudflareInterceptor): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .dns(CloudflareDoh)
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(ThrottleInterceptor(maxConcurrentPerHost = 5))
         .addInterceptor(RetryInterceptor(maxRetries = 3))
+        .addInterceptor(RateLimitInterceptor())
         .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)
         .build()
@@ -216,7 +298,9 @@ object AppModule {
     fun provideImageHttpClient(cloudflare: CloudflareInterceptor): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .dns(CloudflareDoh)
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
+        .addInterceptor(RateLimitInterceptor())
         .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)
         .build()

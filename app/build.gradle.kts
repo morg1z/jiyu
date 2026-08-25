@@ -163,6 +163,7 @@ dependencies {
 
     // Síť a parsování
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20240303")
 

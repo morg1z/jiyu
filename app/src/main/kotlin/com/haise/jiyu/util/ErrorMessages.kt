@@ -1,5 +1,6 @@
 package com.haise.jiyu.util
 
+import com.haise.jiyu.source.SourceRateLimitedException
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -10,6 +11,11 @@ import java.net.UnknownHostException
  * Java výjimky nebo obecného "Chyba sítě" pro všechno.
  */
 fun Throwable.toFriendlyMessage(): String = when (this) {
+    is SourceRateLimitedException -> if (retryAfterMs > 0) {
+        "Příliš mnoho požadavků - zkus to znovu za ${(retryAfterMs / 1000).coerceAtLeast(1)}s"
+    } else {
+        "Příliš mnoho požadavků - zkus to znovu za chvíli"
+    }
     is UnknownHostException    -> "Server nedostupný nebo špatná adresa zdroje"
     is SocketTimeoutException  -> "Vypršel časový limit připojení"
     is IOException             -> "Chyba sítě - zkontroluj připojení k internetu"
