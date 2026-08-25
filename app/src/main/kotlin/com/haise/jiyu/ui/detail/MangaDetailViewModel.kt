@@ -658,7 +658,21 @@ class MangaDetailViewModel @Inject constructor(
                 repository.refreshChapters(mangaId, sManga)
                 repository.refreshMangaDetails(mangaId, sManga)
             } catch (e: Exception) {
-                _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
+                // Bezny refresh selhal - zkusi se jeste najit titul podle nazvu na STEJNEM
+                // zdroji (web mohl prestavet URL, titul porad existuje) drivnez se ukaze
+                // chyba. Cokoliv v recovery selze -> tise se spadne zpet na PUVODNI chybu,
+                // recovery nikdy nezhorsi soucasne chovani (viz MangaRepository.recoverMangaLink).
+                val recovered = try { repository.recoverMangaLink(mangaId) } catch (_: Exception) { false }
+                if (recovered) {
+                    _errorMessage.value = null
+                    val fresh = repository.getManga(mangaId)
+                    if (fresh != null) {
+                        val freshManga = SManga(fresh.sourceId, fresh.url, fresh.title, fresh.coverUrl, fresh.description, fresh.status, contentType = fresh.contentType)
+                        try { repository.refreshMangaDetails(mangaId, freshManga) } catch (_: Exception) { /* kosmeticke detaily, neni kriticke */ }
+                    }
+                } else {
+                    _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
+                }
             } finally {
                 _isRefreshing.value = false
             }
