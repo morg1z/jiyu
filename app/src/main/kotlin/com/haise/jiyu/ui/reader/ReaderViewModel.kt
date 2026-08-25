@@ -2,6 +2,8 @@ package com.haise.jiyu.ui.reader
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
+import coil.Coil
+import coil.request.ImageRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
@@ -231,6 +233,9 @@ class ReaderViewModel @Inject constructor(
     private var preloadJob: Job? = null
     private var novelPreloadJob: Job? = null
     private var mangaTranslatePreloadJob: Job? = null
+
+    /** Indexy stránek AKTUÁLNÍ kapitoly, pro které už proběhl [prefetchPagesFrom] - viz reset v [loadChapter]. */
+    private val prefetchedPageIndices = mutableSetOf<Int>()
 
     private val _webtoonScrollOffset = MutableStateFlow(0)
     val webtoonScrollOffset: StateFlow<Int> = _webtoonScrollOffset.asStateFlow()
@@ -607,6 +612,7 @@ class ReaderViewModel @Inject constructor(
     private suspend fun loadChapter(id: String) {
         _loading.value = true
         _pages.value = emptyList()
+        prefetchedPageIndices.clear()
         _translatedPages.value = emptyMap()
         // Klíč je "$pageIndex:$bubbleIndex" bez chapterId - stránkování se v každé kapitole
         // čísluje znovu od 0, takže bez resetu by "otočená" bublina 3:2 z minulé kapitoly
@@ -724,6 +730,7 @@ class ReaderViewModel @Inject constructor(
                 }
             }
         }
+        prefetchPagesFrom(_initialPage.value)
         lastPageChangeMs = System.currentTimeMillis()
         _loading.value = false
         // Kazde plne nacteni kapitoly (jumpToChapter/navigateNext/navigatePrev/pocatecni otevreni)
@@ -789,6 +796,32 @@ class ReaderViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.report("reader:preloadNextChapterPages")
             }
+        }
+    }
+
+    /**
+     * Předstáhne obrázky nadcházejících stránek AKTUÁLNÍ kapitoly (viz [computePrefetchIndices])
+     * do Coil cache, dřív než na ně dojde řada v čtečce - řeší "kapitola se dlouho dokresluje
+     * po stránkách". Volá se po dokončení [loadChapter] (od initialPage) a při každé změně
+     * stránky (viz [onPageChanged], od `index + 1`). Fire-and-forget - selhání jednotlivého
+     * požadavku se tiše zahodí, skutečné zobrazení stránky pak proběhne normální cestou přes
+     * [RetryableAsyncImage] s vlastním retry UI.
+     */
+    private fun prefetchPagesFrom(fromIndex: Int) {
+        val pages = _pages.value
+        val indices = computePrefetchIndices(fromIndex, pages.size, prefetchedPageIndices)
+        if (indices.isEmpty()) return
+        val referer = _pageReferer.value
+        val imageLoader = Coil.imageLoader(context)
+        for (index in indices) {
+            val url = pages[index]
+            if (url.isBlank()) continue
+            prefetchedPageIndices += index
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
+                .build()
+            imageLoader.enqueue(request)
         }
     }
 
@@ -953,6 +986,7 @@ class ReaderViewModel @Inject constructor(
 
     fun onPageChanged(index: Int) {
         _currentPage.value = index
+        prefetchPagesFrom(index + 1)
 
         val total = _pages.value.size
         if (total > 0 && index >= total - 3 && _hasNextChapter.value) preloadNextChapter()
