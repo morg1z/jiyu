@@ -29,6 +29,16 @@
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**
 
+# ONNX Runtime (manga-ocr, bublinovy detektor) - nativni .so kod si Java tridy
+# (OnnxTensor, TensorInfo, OrtSession, ...) hleda pres JNI GetMethodID/FindClass podle
+# natvrdo zapsaneho nazvu (napr. "ai/onnxruntime/TensorInfo"). Bez -keep je R8 v release
+# buildu prejmenuje/odstrani a nativni volani spadne na
+# "JNI DETECTED ERROR IN APPLICATION: java_class == null" (fatalni SIGABRT primo v
+# OrtSession.run, videno v produkcnim logcatu - appka pri prekladu tvrde spadla).
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+
 # Kotlin coroutines
 -keepclassmembernames class kotlinx.** {
     volatile <fields>;
