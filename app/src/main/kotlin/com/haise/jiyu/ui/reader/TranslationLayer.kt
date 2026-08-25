@@ -48,6 +48,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -141,6 +142,16 @@ fun imageDisplayRect(intrinsicSizePx: Size, containerSizeDp: Size, contentScale:
     val offsetY = (containerSizeDp.height - scaledHeight) / 2f
     return Rect(Offset(offsetX, offsetY), Size(scaledWidth, scaledHeight))
 }
+
+/**
+ * Smí se bublinový overlay vůbec vykreslit? Musí existovat přeložené bloky A stránka pod
+ * nimi musí být VIDĚT (úspěšně načtená bitmapa, ne Loading/Error stav Coilu) - jinak text
+ * plave nad prázdným/rozbitým místem, kam nepatří (nahlášeno: timeout načtení stránky
+ * nechal viset osamocenou přeloženou bublinu na bílé ploše, zatímco zbytek kresby chyběl).
+ * Volající si drží `imageLoaded`/`loadedFlags[i]` z [RetryableAsyncImage.onLoadedChange].
+ */
+internal fun shouldShowTranslationOverlay(hasBlocks: Boolean, imageLoaded: Boolean): Boolean =
+    hasBlocks && imageLoaded
 
 /**
  * Vrstva všech (ne-SFX) přeložených bublin jedné stránky - jediné místo, odkud se volá
@@ -485,6 +496,23 @@ private val ComicNeueItalic = FontFamily(Font(R.font.comic_neue_italic, FontWeig
 private val ComicNeueBoldItalic = FontFamily(Font(R.font.comic_neue_bold_italic, FontWeight.Bold, FontStyle.Italic))
 
 /**
+ * Exo 2 (variabilní font, SIL OFL licence, https://github.com/google/fonts/tree/main/ofl/exo2,
+ * plná podpora české diakritiky ověřena přes fontTools) - geometrický "sci-fi/herní" řez pro
+ * SYSTEM bubliny (herní stat-boxy typu "God's Legion Support" / "Lucian" / "L-Rank
+ * Stellar-Commander"). Dřív dostávaly stejný komiksový ComicNeueRegular jako běžná řeč, což
+ * vizuálně vytrhávalo z atmosféry herního UI (nahlášeno uživatelem). Jeden .ttf pokrývá celou
+ * škálu vah přes FontVariation osu, stejný vzor jako [com.haise.jiyu.ui.theme.InterFontFamily].
+ */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun exo2Weight(weight: Int) = Font(
+    resId = R.font.exo2_variable,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
+)
+
+private val Exo2System = FontFamily(exo2Weight(500), exo2Weight(700))
+
+/**
  * Loguje, kdyz odhad nativni velikosti pisma ([estimateNativeFontPx]) narazil na strop sazby
  * a jestli pri tom v bublině zbylo nevyuzite misto (viz onCapProbe parametr [fitFontSizeToBox]/
  * [fitTextToShape]). Zatim cistě observabilita: `adb logcat -s NativeFontCap` pri beznem
@@ -508,7 +536,8 @@ private fun logTinyBubbleBox(originalText: String, widthDp: Float, minHeightDp: 
 private fun fontFamilyFor(bubbleType: BubbleType): FontFamily = when (bubbleType) {
     BubbleType.SHOUT -> ComicNeueBold
     BubbleType.THOUGHT, BubbleType.WHISPER -> ComicNeueItalic
-    BubbleType.SPEECH, BubbleType.NARRATION, BubbleType.SYSTEM, BubbleType.SFX -> ComicNeueRegular
+    BubbleType.SYSTEM -> Exo2System
+    BubbleType.SPEECH, BubbleType.NARRATION, BubbleType.SFX -> ComicNeueRegular
 }
 
 /**

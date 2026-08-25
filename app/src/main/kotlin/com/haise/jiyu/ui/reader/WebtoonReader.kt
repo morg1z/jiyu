@@ -365,6 +365,12 @@ private fun WebtoonPage(
     referer: String? = null,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
+    // `size` z onSizeChanged se nastaví, jakmile Compose obrázek ZALOŽÍ (i během
+    // Loading/Error stavu Coilu) - samo o sobě tedy neříká nic o tom, jestli je stránka
+    // vůbec vidět. imageLoaded sleduje AsyncImagePainter.State.Success (viz ReaderImage.kt),
+    // bez něj bublina plavala nad bílým/rozbitým místem, když se stránka nestihla/nešla
+    // načíst (viz shouldShowTranslationOverlay).
+    var imageLoaded by remember(pageUrl) { mutableStateOf(false) }
     val density = LocalDensity.current
 
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -377,6 +383,7 @@ private fun WebtoonPage(
             imageModifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { size = it },
+            onLoadedChange = { imageLoaded = it },
             referer = referer,
         )
         // ContentScale.FillWidth nemá letterbox - vykreslený obrázek VŽDY přesně
@@ -384,7 +391,9 @@ private fun WebtoonPage(
         // od MangaReaderu, kde se imageRect počítá přes imageDisplayRect), takže stačí
         // holý obdélník (0,0)..(šířka,výška) a stejný sdílený BubbleOverlayLayer jako
         // v MangaReaderu (ReaderPager.kt) - viz TranslationLayer.kt.
-        if (translateMode && translatedBlocks.isNotEmpty() && size != IntSize.Zero) {
+        if (translateMode && size != IntSize.Zero &&
+            shouldShowTranslationOverlay(hasBlocks = translatedBlocks.isNotEmpty(), imageLoaded = imageLoaded)
+        ) {
             val imageRect = remember(size) {
                 with(density) { Rect(0f, 0f, size.width.toDp().value, size.height.toDp().value) }
             }

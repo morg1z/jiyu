@@ -383,7 +383,7 @@ fun MangaGroupContent(
                 )
                 if (translateMode) {
                     val blocks = translatedPages[indices[0]]
-                    if (!blocks.isNullOrEmpty()) {
+                    if (shouldShowTranslationOverlay(hasBlocks = !blocks.isNullOrEmpty(), imageLoaded = imageLoaded) && blocks != null) {
                         // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
                         // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
                         // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
@@ -429,7 +429,7 @@ fun MangaGroupContent(
                     )
                     if (translateMode) {
                         val blocks = translatedPages[idx]
-                        if (!blocks.isNullOrEmpty()) {
+                        if (shouldShowTranslationOverlay(hasBlocks = !blocks.isNullOrEmpty(), imageLoaded = loadedFlags[i]) && blocks != null) {
                             val imageRect = remember(pageIntrinsicSize, maxWidth, maxHeight, resolvedContentScale) {
                                 pageIntrinsicSize?.let {
                                     imageDisplayRect(it, Size(maxWidth.value, maxHeight.value), resolvedContentScale)
