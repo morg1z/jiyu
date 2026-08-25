@@ -209,6 +209,16 @@ class GeminiUltraPromptTest {
     }
 
     @Test
+    fun `the system prompt instructs preserving leading and trailing ellipses`() {
+        // Nahlaseno uzivatelem: pocatecni/koncove "..." (napr. "...FORGET ABOUT THE ENEMY...",
+        // "AND NOW WE'RE ON THE LOSING SIDE...") se v prekladu skoro vzdy ztraceji, i kdyz
+        // nesou dulezity dramaticky/vypustkovy tón (typicke pro Vagabond). Zadna dosavadni
+        // cast promptu to nezminovala vubec.
+        val prompt = GeminiUltraPrompt.buildSystemPrompt(emptyMap())
+        assertTrue("prompt musi mit vyhrazenou sekci pro vypustky", prompt.contains("=== VÝPUSTKY"))
+    }
+
+    @Test
     fun `the system prompt forbids moving text between bubbles`() {
         val prompt = GeminiUltraPrompt.buildSystemPrompt(emptyMap())
         assertTrue(prompt.contains("VĚTY PŘES VÍC BUBLIN"))
@@ -236,6 +246,29 @@ class GeminiUltraPromptTest {
         val prompt = GeminiUltraPrompt.buildUserPrompt(listOf(bubble("HELLO", topF = 0.1f, bottomF = 0.2f)))
 
         assertFalse(prompt.contains("CO UŽ ZAZNĚLO"))
+    }
+
+    // ── Strukturovaná pole (viz mergeNearbyLines/STRUCTURED_FIELD_HEIGHT_RATIO) ──────────
+
+    @Test
+    fun `a bubble with structured multi-line text instructs the model to preserve line order and count`() {
+        // BubbleMerge.mergeNearbyLines spojuje ruzne vysoke radky (popisek/jmeno/podtitul)
+        // znakem noveho radku misto mezerou - bez instrukce v promptu je model beztak
+        // spoji do jedne prosaicke vety a preklad pak preteka pres box (nahlaseno uzivatelem).
+        val prompt = GeminiUltraPrompt.buildUserPrompt(
+            listOf(bubble("God's Legion Support\nLucian\nL-Rank Stellar-Commander", topF = 0.1f, bottomF = 0.3f)),
+        )
+        assertTrue(
+            "vicerádkový text musí dostat instrukci k zachování řádků",
+            prompt.contains("Zachovej") && prompt.contains("řádk"),
+        )
+    }
+
+    @Test
+    fun `a normal single-line bubble carries no line-preservation instruction`() {
+        val prompt = GeminiUltraPrompt.buildUserPrompt(listOf(bubble("HELLO", topF = 0.1f, bottomF = 0.2f)))
+
+        assertFalse(prompt.contains("Zachovej"))
     }
 
     @Test

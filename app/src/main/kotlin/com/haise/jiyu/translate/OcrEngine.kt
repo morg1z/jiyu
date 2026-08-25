@@ -117,6 +117,16 @@ private fun logShapeCoverage(total: Int, withShape: Int) {
 }
 
 /**
+ * Loguje, kdyz [mergeNearbyLines] rozpozná strukturovaná pole (viz
+ * [STRUCTURED_FIELD_HEIGHT_RATIO]) a spojí je zalomením místo mezerou. Práh není změřený na
+ * reálném zařízení - čistě observabilita: `adb logcat -s StructuredFieldMerge` při běžném
+ * čtení ukáže skutečné poměry výšek a hodnotu půjde podle dat doladit.
+ */
+private fun logStructuredFieldMerge(heightRatio: Float) {
+    Log.d("StructuredFieldMerge", "heightRatio=%.2fx".format(heightRatio))
+}
+
+/**
  * Loguje confidence, kterou ML Kit vraci u kazdeho rozpoznaneho radku, ale appka ji dosud
  * nikdy necetla ani nikam nezapisovala. `OcrPreprocessOnDeviceTest` zmerila na SYNTETICKEM
  * (strojove vykresenem) textu, ze confidence nepredikuje spolehlive spatne cteni - ale sama
@@ -291,7 +301,11 @@ class OcrEngine @Inject constructor(
             sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, lines), rightToLeft = true)
         } else {
             sortIntoReadingOrder(
-                mergeNearbyLines(lines) { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
+                mergeNearbyLines(
+                    lines,
+                    noWallBetween = { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
+                    onStructuredFieldMerge = ::logStructuredFieldMerge,
+                ),
                 // Rozhoduje ROZPOZNANÝ jazyk, ne ten nastavený - pod "Auto" byl nastavený jazyk
                 // doslova "Auto", takže japonská stránka dostala pořadí zleva doprava a model
                 // četl repliky pozpátku.

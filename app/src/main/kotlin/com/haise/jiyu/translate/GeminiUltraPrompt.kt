@@ -234,6 +234,13 @@ object GeminiUltraPrompt {
             Pokud si nejsi jistý slabičnou hranicí, radši žádný ­ nevkládej (nezalomené slovo
             je lepší než špatně rozdělené).
 
+            === VÝPUSTKY (...) ===
+            Když originál začíná nebo končí výpustkou "...", zachovej ji přesně na stejném místě
+            v překladu - nese dramatickou pauzu/dokreslení tónu (typické u trailing-off replik,
+            přerušované řeči nebo napojení na sousední bublinu) a NENÍ to jen stylistický
+            přebytek, který se dá zkrátit. "...FORGET ABOUT THE ENEMY..." -> "...Zapomeň na
+            nepřítele..." (NE "Zapomeň na nepřítele" bez výpustek).
+
             === JMÉNA, MÍSTA A NÁZVY (anglicky, ale skloňuj) ===
             Jména postav, měst, organizací a pojmenovaných technik/schopností NEPŘEKLÁDEJ do
             češtiny - použij zavedený anglický přepis (počítá se fanouškovský i oficiální anglický
@@ -381,6 +388,19 @@ object GeminiUltraPrompt {
             // rozsypany zacatek vety (`EVERY- ONE DON'T SCATTER...`). Viz [joinHyphenatedLineBreaks].
             val text = joinHyphenatedLineBreaks(bubble.raw.text).replace("\"", "'")
             sb.append("TEXT: \"$text\"\n")
+            // Radky spojene BubbleMerge.mergeNearbyLines jako strukturovana pole (viz
+            // STRUCTURED_FIELD_HEIGHT_RATIO/STRUCTURED_FIELD_MIN_LINES - napr. herni "stat
+            // box" popisek/jmeno/podtitul) nesou znak noveho radku primo v TEXT. Bez tyhle
+            // instrukce je model beztak slepi do jedne plynule vety (nahlaseno uzivatelem -
+            // "Legie Boha - podpora Lucian, hodnost L..." pretekajici pres box mista jmena
+            // vizualne vyzdvizeneho jako v originale).
+            if (text.contains('\n')) {
+                sb.append(
+                    "(Tenhle text má ${text.count { it == '\n' } + 1} řádky oddělené polí (ne " +
+                        "plynulou větu). Zachovej PŘESNĚ tenhle počet řádků a jejich pořadí, " +
+                        "každý přelož zvlášť a odděl znakem \\n.)\n",
+                )
+            }
         }
         return sb.toString()
     }

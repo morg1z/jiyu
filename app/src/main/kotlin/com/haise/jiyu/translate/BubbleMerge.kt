@@ -77,9 +77,37 @@ private fun shouldMergeVerticalColumns(a: RawTextBlock, b: RawTextBlock): Boolea
  * řádky. Union-Find nad dvojicovým testem: O(n²), ale n (řádků na stránku) bývá v řádu
  * jednotek až nízkých desítek, takže to není problém výkonu.
  */
+/**
+ * Nad touhle mezí poměru nejvyšší/nejnižší výšky řádku ve sloučené skupině už nejde o
+ * běžné zvýraznění prvního slova věty, ale o vizuálně ODLIŠNÁ POLE - typicky herní/systémový
+ * "stat box" (popisek/jméno/podtitul, např. "God's Legion Support" / "Lucian" / "L-Rank
+ * Stellar-Commander"). Takové řádky se spojovaly MEZEROU do jedné prosaické věty, která pak
+ * přetekla přes box a ztratila vizuální hierarchii (nahlášeno uživatelem).
+ *
+ * Poměr výšek SÁM O SOBĚ ale nestačí - viz [shouldMerge] dok. komentář (zvýraznění prvního
+ * slova, "WH" vs zbytek věty) a [BubbleMergeTest]: tenhle konkrétní testovací blok "b" v
+ * sobě slučuje dva reálné řádky ML Kit do jednoho ("YOU ASK ME ANY..."), takže jeho výška
+ * v testu vychází 0,0292 - poměr proti "WH" (0,0083) je ~3,5x, tedy klidně nad libovolně
+ * rozumnou mezí, přestože jde jen o zvýraznění v JEDNÉ větě. Proto se navíc vyžaduje aspoň
+ * [STRUCTURED_FIELD_MIN_LINES] řádků ve skupině - zvýraznění prvního slova je vždy jen
+ * DVOUDÍLNÝ vzor (důraz + zbytek věty), kdežto stat-box mívá 3+ oddělených polí. Kombinace
+ * obou podmínek je proto mnohem bezpečnější než poměr výšek samotný.
+ *
+ * Přesná hranice NENÍ změřená na reálném zařízení (na rozdíl od [VERTICAL_GAP_TOLERANCE]) -
+ * jen odhad s bezpečnou rezervou nad jediným změřeným datovým bodem (1,30x pro DVOUŘÁDKový
+ * případ, který teď navíc podmínka [STRUCTURED_FIELD_MIN_LINES] sama vyloučí). `adb logcat -s
+ * StructuredFieldMerge` při běžném čtení ukáže skutečné rozložení a hodnotu bude potřeba
+ * podle dat doladit.
+ */
+internal const val STRUCTURED_FIELD_HEIGHT_RATIO = 1.8f
+
+/** Viz [STRUCTURED_FIELD_HEIGHT_RATIO] - zvýraznění prvního slova je vždy 2dílné, stat-box 3+. */
+internal const val STRUCTURED_FIELD_MIN_LINES = 3
+
 internal fun mergeNearbyLines(
     lines: List<RawTextBlock>,
     noWallBetween: (RawTextBlock, RawTextBlock) -> Boolean = { _, _ -> true },
+    onStructuredFieldMerge: (heightRatio: Float) -> Unit = {},
 ): List<RawTextBlock> {
     if (lines.isEmpty()) return emptyList()
     val parent = IntArray(lines.size) { it }
@@ -112,8 +140,18 @@ internal fun mergeNearbyLines(
         } else {
             members.sortedWith(compareBy({ it.topF }, { it.leftF }))
         }
+        // Svisle sazenym sloupcum (japonstina) je "vyska" na jinou notu nez sirka - pomer
+        // vysek by tam nedaval smysl. Struktura poli se navic tyka jen vodorovneho letteringu
+        // (herni UI boxy), takze u sloupcu se poznamka o strukturovanych polich neresi vubec.
+        val heights = if (vertical) emptyList() else group.map { it.bottomF - it.topF }
+        val minHeight = heights.minOrNull() ?: 0f
+        val maxHeight = heights.maxOrNull() ?: 0f
+        val isStructuredFields = !vertical && group.size >= STRUCTURED_FIELD_MIN_LINES && minHeight > 0f &&
+            (maxHeight / minHeight) >= STRUCTURED_FIELD_HEIGHT_RATIO
+        if (isStructuredFields) onStructuredFieldMerge(maxHeight / minHeight)
+        val joiner = if (isStructuredFields) "\n" else " "
         RawTextBlock(
-            text = group.joinToString(" ") { it.text },
+            text = group.joinToString(joiner) { it.text },
             leftF = group.minOf { it.leftF },
             topF = group.minOf { it.topF },
             rightF = group.maxOf { it.rightF },

@@ -58,6 +58,30 @@ class BubbleMergeTest {
         val merged = mergeNearbyLines(listOf(a, b))
 
         assertEquals(1, merged.size)
+        // Pomer vysek (0.01083/0.0083 =~ 1.30x) je pod STRUCTURED_FIELD_HEIGHT_RATIO - jde o
+        // bezne zvyrazneni prvniho slova v JEDNE vete, ne oddelena pole - text musi zustat
+        // spojeny mezerou, aby preklad slo prirozene preformatovat (viz merge-radku spojene
+        // mezerou vs. \n nize).
+        assertFalse(merged[0].text.contains('\n'))
+    }
+
+    @Test
+    fun `merges structurally distinct fields with line breaks preserved instead of flattened into one sentence`() {
+        // Reprodukuje uzivatelskou zpetnou vazbu (herni "system" stat-box, napr.
+        // "God's Legion Support" / "Lucian" / "L-Rank Stellar-Commander"): tri radky ruzne
+        // vysky (popisek/jmeno/podtitul), drive spojene MEZEROU do jedne prosaicke vety,
+        // ktera pak pretekla pres box a ztratila vizualni hierarchii. Pomer nejvyssi/nejnizsi
+        // vysky (0.05/0.02 = 2.5x) je jasne nad STRUCTURED_FIELD_HEIGHT_RATIO (na rozdil od
+        // testu "bold emphasis" vys, kde byl pomer jen ~1.30x) - jde o odlisna pole, ne o
+        // vetu s durazem.
+        val label = block("God's Legion Support", 0.20f, 0.10f, 0.80f, 0.12f) // vyska 0.02
+        val name = block("Lucian", 0.20f, 0.135f, 0.80f, 0.185f) // vyska 0.05
+        val subtitle = block("L-Rank Stellar-Commander", 0.20f, 0.20f, 0.80f, 0.22f) // vyska 0.02
+
+        val merged = mergeNearbyLines(listOf(label, name, subtitle))
+
+        assertEquals(1, merged.size)
+        assertEquals("God's Legion Support\nLucian\nL-Rank Stellar-Commander", merged[0].text)
     }
 
     @Test
@@ -110,7 +134,7 @@ class BubbleMergeTest {
         val b = block("Nazdar", 0.30f, 0.145f, 0.50f, 0.185f)
         // Bez veta by se sloučily (stejné jako "merges two vertically stacked lines" výše) -
         // noWallBetween teď vrátí false, jako by tam skutečně byla vizuální hranice.
-        val merged = mergeNearbyLines(listOf(a, b)) { _, _ -> false }
+        val merged = mergeNearbyLines(listOf(a, b), noWallBetween = { _, _ -> false })
 
         assertEquals(2, merged.size)
     }
