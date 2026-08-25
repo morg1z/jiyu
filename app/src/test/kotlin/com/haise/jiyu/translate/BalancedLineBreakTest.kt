@@ -418,6 +418,44 @@ class BalancedLineBreakTest {
             maxLineWidthPx = maxLineWidthPx,
         )
 
+    // ── fitFixedLinesToShape (strukturovaná pole - žádné přeskládávání řádků) ──
+
+    /** Stejné hranaté měřítko jako [fitWideBox], ale bez slovního přeskládávání. */
+    private fun fitFixedWideBox(lines: List<String>, preferredFontSp: Float? = null) =
+        fitFixedLinesToShape(
+            lines = lines,
+            minFontSp = 6f,
+            maxFontSp = 36f,
+            shape = wideBoxShape(),
+            centerF = 0.5f,
+            shapeTopF = 0f,
+            shapeBottomF = 1f,
+            pageWidthPx = 1000f,
+            pageHeightPx = 1000f,
+            measureLine = { line, fontSp -> line.length * fontSp * 0.6f },
+            lineHeightPx = { fontSp -> fontSp * 1.25f },
+            preferredFontSp = preferredFontSp,
+        )
+
+    @Test
+    fun `structured fields keep their exact line boundaries, never repacked by width like a flowing sentence`() {
+        // Reprodukuje code-review nalez: fitTextToShape (slovni prebalovani podle sirky) by
+        // mohlo "God's Legion Support" / "Lucian" / "L-Rank Stellar-Commander" (jiz oddelene
+        // BubbleMerge.mergeNearbyLines pres STRUCTURED_FIELD_HEIGHT_RATIO) prerovnat do JINE
+        // sady radku podle zmerene sirky - presne to, co mel BubbleMerge/prompt fix zabranit.
+        val lines = listOf("Support", "Lucian", "Commander")
+        val layout = fitFixedWideBox(lines)
+
+        assertNotNull(layout)
+        assertEquals(lines, layout!!.lines)
+    }
+
+    @Test
+    fun `a line too wide for the shape at any size makes the whole fit fail, not silently reflow`() {
+        val lines = listOf("Support", "A".repeat(2000), "Commander")
+        assertNull(fitFixedWideBox(lines))
+    }
+
     @Test
     fun `never lays out wider than the box the text is actually rendered into`() {
         // Presne pripad z uzivatelskeho screenshotu: hranaty popiskovy ramecek, jehoz OBRYS je

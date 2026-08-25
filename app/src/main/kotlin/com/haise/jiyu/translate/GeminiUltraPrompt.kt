@@ -386,7 +386,17 @@ object GeminiUltraPrompt {
             sb.append("TYPE: ${bubbleTypeToText(bubble.bubbleType)}\n")
             // Lettering deli slova na konci radku pomlckou; bez spojeni dorazi k modelu
             // rozsypany zacatek vety (`EVERY- ONE DON'T SCATTER...`). Viz [joinHyphenatedLineBreaks].
-            val text = joinHyphenatedLineBreaks(bubble.raw.text).replace("\"", "'")
+            //
+            // NEPLATI pro strukturovana pole (mergeNearbyLines/STRUCTURED_FIELD_HEIGHT_RATIO) -
+            // jejich "\n" je zamerna hranice mezi popiskem/jmenem/podtitulem, ne zalomeny radek
+            // rozsypane vety. joinHyphenatedLineBreaks by "\n" po spojovnikovanem poli (napr.
+            // "Anti-" pred dalsim polem "Magic Field") smazala driv, nez ji vubec stihne
+            // zachytit kontrola "text.contains('\n')" niz (code-review nalez).
+            val text = if (bubble.raw.text.contains('\n')) {
+                bubble.raw.text.replace("\"", "'")
+            } else {
+                joinHyphenatedLineBreaks(bubble.raw.text).replace("\"", "'")
+            }
             sb.append("TEXT: \"$text\"\n")
             // Radky spojene BubbleMerge.mergeNearbyLines jako strukturovana pole (viz
             // STRUCTURED_FIELD_HEIGHT_RATIO/STRUCTURED_FIELD_MIN_LINES - napr. herni "stat

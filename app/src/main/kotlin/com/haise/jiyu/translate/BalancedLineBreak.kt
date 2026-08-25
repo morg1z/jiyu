@@ -268,6 +268,93 @@ fun fitTextToShape(
     return ShapedTextLayout(fontSp = fine, lines = best.first, centerYF = best.second)
 }
 
+/**
+ * Sazba PŘEDEM DANÝCH řádků do tvaru bubliny - na rozdíl od [fitTextToShape] žádné
+ * přeskládávání slov podle šířky, každý vstupní řádek zůstane svým vlastním řádkem.
+ *
+ * Existuje kvůli strukturovaným polím (viz `mergeNearbyLines`/`STRUCTURED_FIELD_HEIGHT_RATIO`
+ * v BubbleMerge.kt - typicky herní "stat box" popisek/jméno/podtitul, spojené znakem nového
+ * řádku místo mezerou právě proto, aby se NIKDY neslily zpátky do jedné plynulé věty). Kdyby
+ * takový text šel přes [fitTextToShape], `text.split(' ', '\n')` by "\n" smazalo na obyčejnou
+ * mezeru a [breakIntoLines] by řádky mohl přerovnat do jiné sady podle změřené šířky - přesně
+ * to, čemu měl [BubbleMerge] zabránit (code-review nález).
+ *
+ * Řádek, který se nevejde na svůj pás ani při [minFontSp], selže celé sazbě (vrátí null) -
+ * nezalamuje se dovnitř řádku (na rozdíl od [fitTextToShape], kde je to úloha
+ * [breakIntoLines]), protože pořadí/počet řádků musí zůstat přesně podle originálu.
+ */
+fun fitFixedLinesToShape(
+    lines: List<String>,
+    minFontSp: Float,
+    maxFontSp: Float,
+    shape: List<BubbleShapePoint>,
+    centerF: Float,
+    shapeTopF: Float,
+    shapeBottomF: Float,
+    pageWidthPx: Float,
+    pageHeightPx: Float,
+    measureLine: (line: String, fontSp: Float) -> Float,
+    lineHeightPx: (fontSp: Float) -> Float,
+    maxLineWidthPx: Float = Float.MAX_VALUE,
+    preferredFontSp: Float? = null,
+    centerYF: Float? = null,
+    onCapProbe: (preferredFontSp: Float, roomToGrow: Boolean) -> Unit = { _, _ -> },
+): ShapedTextLayout? {
+    if (lines.isEmpty() || shape.size < 2 || pageHeightPx <= 0f) return null
+    val shapeHeightF = shapeBottomF - shapeTopF
+    if (shapeHeightF <= 0f) return null
+    val searchCeiling = preferredFontSp?.coerceIn(minFontSp, maxFontSp) ?: maxFontSp
+    val lineCount = lines.size
+
+    /** Střed, na který se blok vycentroval, nebo null, když se řádky (v pevném pořadí/počtu) nevejdou. */
+    fun attempt(fontSp: Float): Float? {
+        val lineHeight = lineHeightPx(fontSp)
+        if (lineHeight <= 0f) return null
+        val blockHeightF = (lineCount * lineHeight) / pageHeightPx
+        if (blockHeightF > shapeHeightF) return null
+
+        val blockTopF = centerYF
+            ?.let { (it - blockHeightF / 2f).coerceIn(shapeTopF, shapeBottomF - blockHeightF) }
+            ?: (shapeTopF + (shapeHeightF - blockHeightF) / 2f)
+        val allowed = shapeLineWidths(
+            shape = shape,
+            centerF = centerF,
+            blockTopF = blockTopF,
+            blockBottomF = blockTopF + blockHeightF,
+            lineCount = lineCount,
+            pageWidthPx = pageWidthPx,
+        ).map { it.coerceAtMost(maxLineWidthPx) }
+
+        for (i in lines.indices) {
+            if (measureLine(lines[i], fontSp) > allowed[i]) return null
+        }
+        return blockTopF + blockHeightF / 2f
+    }
+
+    var coarse = searchCeiling
+    var centerResult = attempt(coarse)
+    while (centerResult == null && coarse - SHAPED_COARSE_STEP_SP >= minFontSp) {
+        coarse -= SHAPED_COARSE_STEP_SP
+        centerResult = attempt(coarse)
+    }
+    var bestCenter = centerResult ?: return null
+
+    var fine = coarse
+    while (fine + SHAPED_FINE_STEP_SP <= searchCeiling) {
+        val next = attempt(fine + SHAPED_FINE_STEP_SP) ?: break
+        fine += SHAPED_FINE_STEP_SP
+        bestCenter = next
+    }
+
+    if (preferredFontSp != null && searchCeiling < maxFontSp && fine >= searchCeiling) {
+        val probeSp = searchCeiling + SHAPED_FINE_STEP_SP
+        val roomToGrow = probeSp <= maxFontSp && attempt(probeSp) != null
+        onCapProbe(searchCeiling, roomToGrow)
+    }
+
+    return ShapedTextLayout(fontSp = fine, lines = lines, centerYF = bestCenter)
+}
+
 /** Pomocník - z indexů konců řádků (viz [breakIntoLines]) složí skutečné řádky textu. */
 fun assembleLines(words: List<String>, lineEnds: List<Int>): List<String> {
     val lines = mutableListOf<String>()

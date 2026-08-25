@@ -71,13 +71,6 @@ private fun shouldMergeVerticalColumns(a: RawTextBlock, b: RawTextBlock): Boolea
 }
 
 /**
- * Spojí OCR řádky, které leží blízko sebe (viz [shouldMerge]) A mezi kterými není vizuální
- * "zeď" (viz [noWallBetween], výchozí hodnota `{ _, _ -> true }` = stará čistě geometrická
- * logika, používaná v testech bez Bitmapy) do jednoho bloku - to bývá jedna bublina s víc
- * řádky. Union-Find nad dvojicovým testem: O(n²), ale n (řádků na stránku) bývá v řádu
- * jednotek až nízkých desítek, takže to není problém výkonu.
- */
-/**
  * Nad touhle mezí poměru nejvyšší/nejnižší výšky řádku ve sloučené skupině už nejde o
  * běžné zvýraznění prvního slova věty, ale o vizuálně ODLIŠNÁ POLE - typicky herní/systémový
  * "stat box" (popisek/jméno/podtitul, např. "God's Legion Support" / "Lucian" / "L-Rank
@@ -104,6 +97,13 @@ internal const val STRUCTURED_FIELD_HEIGHT_RATIO = 1.8f
 /** Viz [STRUCTURED_FIELD_HEIGHT_RATIO] - zvýraznění prvního slova je vždy 2dílné, stat-box 3+. */
 internal const val STRUCTURED_FIELD_MIN_LINES = 3
 
+/**
+ * Spojí OCR řádky, které leží blízko sebe (viz [shouldMerge]) A mezi kterými není vizuální
+ * "zeď" (viz [noWallBetween], výchozí hodnota `{ _, _ -> true }` = stará čistě geometrická
+ * logika, používaná v testech bez Bitmapy) do jednoho bloku - to bývá jedna bublina s víc
+ * řádky. Union-Find nad dvojicovým testem: O(n²), ale n (řádků na stránku) bývá v řádu
+ * jednotek až nízkých desítek, takže to není problém výkonu.
+ */
 internal fun mergeNearbyLines(
     lines: List<RawTextBlock>,
     noWallBetween: (RawTextBlock, RawTextBlock) -> Boolean = { _, _ -> true },

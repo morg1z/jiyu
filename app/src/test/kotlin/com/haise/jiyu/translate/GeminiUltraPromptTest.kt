@@ -272,6 +272,19 @@ class GeminiUltraPromptTest {
     }
 
     @Test
+    fun `a structured field ending in a hyphenated word keeps its line break, not swallowed as a wrapped word`() {
+        // Code-review nalez: joinHyphenatedLineBreaks (pro OCR radky rozlomene uprostred slova
+        // pri tisku, napr. "EVERY-\nONE" -> "EVERY-ONE") bezela PRED kontrolou "\n" a mohla
+        // spolknout znak noveho radku, ktery tam vlozil mergeNearbyLines jako hranici
+        // STRUKTUROVANEHO POLE (ne zalomeny radek vety) - kdyz pole nahodou konci
+        // spojovnikovanym slovem ("Anti-" pred dalsim polem "Magic Field").
+        val prompt = GeminiUltraPrompt.buildUserPrompt(
+            listOf(bubble("Anti-\nMagic Field", topF = 0.1f, bottomF = 0.3f)),
+        )
+        assertTrue("radky strukturovaneho pole se nesmi slit", prompt.contains("TEXT: \"Anti-\nMagic Field\""))
+    }
+
+    @Test
     fun `the context tail keeps the most recent lines, in their original order`() {
         val previous = listOf("první", "druhá", "třetí", "čtvrtá")
 

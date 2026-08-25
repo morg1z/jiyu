@@ -70,6 +70,7 @@ import com.haise.jiyu.translate.bubbleSkipReason
 import com.haise.jiyu.translate.estimateNativeFontPx
 import com.haise.jiyu.translate.fitFontSizeToBox
 import com.haise.jiyu.translate.hasTranslatableLetters
+import com.haise.jiyu.translate.fitFixedLinesToShape
 import com.haise.jiyu.translate.fitTextToShape
 import com.haise.jiyu.translate.isSuspiciouslyTinyBubbleBox
 import com.haise.jiyu.translate.largestInscribedRect
@@ -636,38 +637,70 @@ private fun AutoFitTranslatedText(
     // než u prostého vepsaného obdélníku. Řádky jdou do JEDNOHO Textu oddělené \n, takže
     // řádkování i centrování řeší Compose (žádné vykreslování řádek po řádku, které dřív
     // způsobovalo překrývající se řádky).
+    // Strukturovaná pole (viz BubbleMerge.mergeNearbyLines/STRUCTURED_FIELD_HEIGHT_RATIO) nesou
+    // "\n" mezi jednotlivými poli (popisek/jméno/podtitul) PRÁVĚ PROTO, aby se nikdy neslila
+    // zpátky do jedné plynulé věty. fitTextToShape by ale "\n" smazalo na obyčejnou mezeru
+    // (text.split(' ', '\n')) a breakIntoLines mohlo řádky přerovnat do jiné sady podle změřené
+    // šířky - přesně to, čemu měl BubbleMerge/prompt zabránit (nalezeno code-review). Takový
+    // text proto jde přes fitFixedLinesToShape, který řádky bere tak, jak přišly.
+    val isStructuredFieldText = text.contains('\n')
+    val measureLineWidth: (String, Float) -> Float = { line, fontSp ->
+        val style = TextStyle(fontSize = fontSp.sp, fontFamily = fontFamily)
+        val strokeReserve = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
+        textMeasurer.measure(text = line, style = style, softWrap = false).size.width + strokeReserve
+    }
+    val lineHeightForFontSp: (Float) -> Float = { fontSp -> with(density) { (fontSp * 1.25f).sp.toPx() } }
     val shapedLayout = if (shape != null && shapeCenterF != null && imageHeightDp > 0f && fitShapeBottomF > fitShapeTopF) {
-        val words = remember(text) { text.split(' ', '\n').filter { it.isNotBlank() } }
-        remember(text, shape, shapeCenterF, shapeCenterYF, fitShapeTopF, fitShapeBottomF, imageWidthDp, imageHeightDp, maxFontSp, fontFamily, renderableWidthPx, preferredFontSp) {
-            fitTextToShape(
-                words = words,
-                minFontSp = minFontSp,
-                maxFontSp = maxFontSp,
-                shape = shape,
-                centerF = shapeCenterF,
-                shapeTopF = fitShapeTopF,
-                shapeBottomF = fitShapeBottomF,
-                pageWidthPx = with(density) { imageWidthDp.dp.toPx() },
-                pageHeightPx = pageHeightPx,
-                measureWord = { word, fontSp ->
-                    val style = TextStyle(fontSize = fontSp.sp, fontFamily = fontFamily)
-                    val strokeReserve = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
-                    textMeasurer.measure(text = word, style = style, softWrap = false).size.width + strokeReserve
-                },
-                spaceWidth = { fontSp ->
-                    val style = TextStyle(fontSize = fontSp.sp, fontFamily = fontFamily)
-                    // Šířka mezery = rozdíl mezi "a a" a "aa" - měřit samotné " " je nespolehlivé,
-                    // protože měřič koncové mezery ořezává.
-                    val withSpace = textMeasurer.measure(text = "a a", style = style, softWrap = false).size.width
-                    val without = textMeasurer.measure(text = "aa", style = style, softWrap = false).size.width
-                    (withSpace - without).toFloat().coerceAtLeast(1f)
-                },
-                lineHeightPx = { fontSp -> with(density) { (fontSp * 1.25f).sp.toPx() } },
-                maxLineWidthPx = renderableWidthPx,
-                preferredFontSp = preferredFontSp,
-                centerYF = shapeCenterYF,
-                onCapProbe = ::logNativeFontCap,
-            )
+        if (isStructuredFieldText) {
+            val fixedLines = remember(text) { text.split('\n') }
+            remember(text, shape, shapeCenterF, shapeCenterYF, fitShapeTopF, fitShapeBottomF, imageWidthDp, imageHeightDp, maxFontSp, fontFamily, renderableWidthPx, preferredFontSp) {
+                fitFixedLinesToShape(
+                    lines = fixedLines,
+                    minFontSp = minFontSp,
+                    maxFontSp = maxFontSp,
+                    shape = shape,
+                    centerF = shapeCenterF,
+                    shapeTopF = fitShapeTopF,
+                    shapeBottomF = fitShapeBottomF,
+                    pageWidthPx = with(density) { imageWidthDp.dp.toPx() },
+                    pageHeightPx = pageHeightPx,
+                    measureLine = measureLineWidth,
+                    lineHeightPx = lineHeightForFontSp,
+                    maxLineWidthPx = renderableWidthPx,
+                    preferredFontSp = preferredFontSp,
+                    centerYF = shapeCenterYF,
+                    onCapProbe = ::logNativeFontCap,
+                )
+            }
+        } else {
+            val words = remember(text) { text.split(' ').filter { it.isNotBlank() } }
+            remember(text, shape, shapeCenterF, shapeCenterYF, fitShapeTopF, fitShapeBottomF, imageWidthDp, imageHeightDp, maxFontSp, fontFamily, renderableWidthPx, preferredFontSp) {
+                fitTextToShape(
+                    words = words,
+                    minFontSp = minFontSp,
+                    maxFontSp = maxFontSp,
+                    shape = shape,
+                    centerF = shapeCenterF,
+                    shapeTopF = fitShapeTopF,
+                    shapeBottomF = fitShapeBottomF,
+                    pageWidthPx = with(density) { imageWidthDp.dp.toPx() },
+                    pageHeightPx = pageHeightPx,
+                    measureWord = { word, fontSp -> measureLineWidth(word, fontSp) },
+                    spaceWidth = { fontSp ->
+                        val style = TextStyle(fontSize = fontSp.sp, fontFamily = fontFamily)
+                        // Šířka mezery = rozdíl mezi "a a" a "aa" - měřit samotné " " je nespolehlivé,
+                        // protože měřič koncové mezery ořezává.
+                        val withSpace = textMeasurer.measure(text = "a a", style = style, softWrap = false).size.width
+                        val without = textMeasurer.measure(text = "aa", style = style, softWrap = false).size.width
+                        (withSpace - without).toFloat().coerceAtLeast(1f)
+                    },
+                    lineHeightPx = lineHeightForFontSp,
+                    maxLineWidthPx = renderableWidthPx,
+                    preferredFontSp = preferredFontSp,
+                    centerYF = shapeCenterYF,
+                    onCapProbe = ::logNativeFontCap,
+                )
+            }
         }
     } else {
         null
