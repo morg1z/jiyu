@@ -319,6 +319,76 @@ class MangaRepository @Inject constructor(
         return entities.filterIndexed { index, _ -> rowIds[index] != -1L }
     }
 
+    /**
+     * Zkusí najít titul znovu NA STEJNÉM zdroji podle názvu, když jeho uložená URL přestala
+     * fungovat (web se přestavěl, titul samotný pořád existuje) - viz [findBestTitleMatch]/
+     * [planChapterMigration]. Nikdy nemění [MangaEntity.id] (stabilní identita napříč appkou -
+     * skutečný SQL ForeignKey z MangaCategoryEntity na ni nemá ON UPDATE CASCADE), jen
+     * url/detaily. Volá se jen jako fallback z MangaDetailViewModel.refreshChapters() po
+     * selhání běžného obnovení, nikdy pro zdroj ComicK (metadatový katalog, nemá vlastní
+     * "web" k opravě).
+     *
+     * Vrací true, pokud se povedlo najít a přemapovat.
+     */
+    suspend fun recoverMangaLink(mangaId: String): Boolean {
+        val existing = mangaDao.getById(mangaId) ?: return false
+        if (existing.sourceId == "comick") return false
+        val source = sourceManager.getById(existing.sourceId) ?: return false
+
+        val candidates = try {
+            source.search(existing.title)
+        } catch (_: Exception) {
+            return false
+        }
+        val match = findBestTitleMatch(candidates, existing.title) ?: return false
+        if (match.url == existing.url) return false
+
+        val newChapters = try {
+            source.getChapterList(match)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (newChapters.isEmpty()) return false
+
+        val oldChapters = chapterDao.getAllForManga(mangaId)
+        val plan = planChapterMigration(oldChapters, newChapters)
+
+        plan.relink.forEach { (old, new) ->
+            chapterDao.relink(
+                oldId = old.id,
+                newId = chapterId(new),
+                newUrl = new.url,
+                newName = new.name,
+                dateUpload = new.dateUpload,
+                scanlationGroup = new.scanlationGroup,
+                volume = new.volume,
+                groupsJson = serializeChapterGroups(new.groups),
+            )
+        }
+        if (plan.newOnly.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val entities = plan.newOnly.map { chapter ->
+                ChapterEntity(
+                    id = chapterId(chapter),
+                    mangaId = mangaId,
+                    sourceId = chapter.sourceId,
+                    url = chapter.url,
+                    name = chapter.name,
+                    chapterNumber = chapter.chapterNumber,
+                    dateUpload = chapter.dateUpload,
+                    scanlationGroup = chapter.scanlationGroup,
+                    volume = chapter.volume,
+                    groupsJson = serializeChapterGroups(chapter.groups),
+                    discoveredAt = now,
+                )
+            }
+            chapterDao.insertNewOnly(entities)
+        }
+
+        mangaDao.upsert(existing.copy(url = match.url, title = match.title, coverUrl = match.coverUrl ?: existing.coverUrl))
+        return true
+    }
+
     suspend fun getChapterPages(sourceId: String, chapterUrl: String, mangaUrl: String): List<com.haise.jiyu.source.Page> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
         val chapter = SChapter(sourceId, mangaUrl, chapterUrl, "", 0f, 0L)
