@@ -35,7 +35,22 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+/**
+ * Klient jen pro stahování bajtů obrázků (Coil - covery i stránky kapitol), oddělený od
+ * [provideOkHttpClient] použitého pro scraping HTML zdrojů. Na rozdíl od něj NEMÁ
+ * RetryInterceptor (3× opakování celého řetězce včetně Cloudflare řešení dokázalo natáhnout
+ * jeden nenačtený obrázek na přes minutu - appka na to působila "několikanásobně pomaleji"
+ * než srovnatelné čtečky) ani vlastní ThrottleInterceptor (OkHttpův vestavěný Dispatcher už
+ * defaultně limituje 5 souběžných požadavků na hostitele, takže dělal jen duplicitní práci).
+ * HotlinkRefererInterceptor a CloudflareInterceptor zůstávají - obrázkové CDN je taky občas
+ * vyžadují/mají za Cloudflare.
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ImageHttpClient
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -191,6 +206,17 @@ object AppModule {
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(ThrottleInterceptor(maxConcurrentPerHost = 5))
         .addInterceptor(RetryInterceptor(maxRetries = 3))
+        .addInterceptor(HotlinkRefererInterceptor())
+        .addInterceptor(cloudflare)
+        .build()
+
+    @Provides
+    @Singleton
+    @ImageHttpClient
+    fun provideImageHttpClient(cloudflare: CloudflareInterceptor): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(HotlinkRefererInterceptor())
         .addInterceptor(cloudflare)
         .build()

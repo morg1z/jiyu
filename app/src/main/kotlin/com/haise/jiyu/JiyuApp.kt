@@ -21,6 +21,7 @@ import com.google.firebase.crashlytics.crashlytics
 import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.deleteBrowsedManga
 import com.haise.jiyu.data.db.TranslatedPageDao
+import com.haise.jiyu.di.ImageHttpClient
 import com.haise.jiyu.download.CHANNEL_DOWNLOADS
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
 import com.haise.jiyu.work.CHANNEL_ID
@@ -41,6 +42,7 @@ class JiyuApp : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var httpClient: OkHttpClient
+    @Inject @ImageHttpClient lateinit var imageHttpClient: OkHttpClient
     @Inject lateinit var translatedPageDao: TranslatedPageDao
     @Inject lateinit var translatedNovelDao: TranslatedNovelDao
 
@@ -77,10 +79,10 @@ class JiyuApp : Application(), Configuration.Provider {
                         .maxSizeBytes(256L * 1024 * 1024)
                         .build()
                 }
-                .okHttpClient(httpClient)
+                .okHttpClient(imageHttpClient)
                 .crossfade(true)
                 .respectCacheHeaders(false)
-                .components { add(MangaPlusImageFetcher.Factory(httpClient)) }
+                .components { add(MangaPlusImageFetcher.Factory(imageHttpClient)) }
                 .build()
         )
 
