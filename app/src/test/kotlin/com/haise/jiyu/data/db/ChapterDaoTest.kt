@@ -8,6 +8,7 @@ import com.haise.jiyu.data.db.entity.DownloadStatus
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -85,5 +86,29 @@ class ChapterDaoTest {
         val result = dao.getById("ch-1")!!
         assertEquals(false, result.read)
         assertEquals(DownloadStatus.NOT_DOWNLOADED, result.downloadStatus)
+    }
+
+    @Test
+    fun `relink preserves read and download state while changing id and url`() = runTest {
+        dao.insertNewOnly(listOf(chapter("old-id", read = true, status = DownloadStatus.DOWNLOADED, chapterNumber = 5f)))
+
+        dao.relink(
+            oldId = "old-id",
+            newId = "new-id",
+            newUrl = "https://new.example.com/ch5",
+            newName = "Chapter 5 (renamed)",
+            dateUpload = 123456L,
+            scanlationGroup = "Some Group",
+            volume = "2",
+            groupsJson = null,
+        )
+
+        val relinked = dao.getById("new-id")!!
+        assertEquals(true, relinked.read)
+        assertEquals(DownloadStatus.DOWNLOADED, relinked.downloadStatus)
+        assertEquals("https://new.example.com/ch5", relinked.url)
+        assertEquals("Chapter 5 (renamed)", relinked.name)
+        assertEquals("Some Group", relinked.scanlationGroup)
+        assertNull(dao.getById("old-id"))
     }
 }

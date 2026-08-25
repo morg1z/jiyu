@@ -54,6 +54,25 @@ interface ChapterDao {
     @Query("UPDATE chapter SET lastScrollOffset = :offset, lastReadAt = :lastReadAt WHERE id = :id")
     suspend fun updateScrollOffset(id: String, offset: Int, lastReadAt: Long)
 
+    /** Přemapuje kapitolu na novou URL/id při opravě odkazu (viz MangaRepository.recoverMangaLink) -
+     * záměrně NEMĚNÍ read/lastPageRead/lastReadAt/lastScrollOffset/downloadStatus/localPath/
+     * pageCount/discoveredAt, aby uživatel o postup čtení/stažené soubory nepřišel. */
+    @Query("""
+        UPDATE chapter SET id = :newId, url = :newUrl, name = :newName, dateUpload = :dateUpload,
+               scanlationGroup = :scanlationGroup, volume = :volume, groupsJson = :groupsJson
+        WHERE id = :oldId
+    """)
+    suspend fun relink(
+        oldId: String,
+        newId: String,
+        newUrl: String,
+        newName: String,
+        dateUpload: Long,
+        scanlationGroup: String?,
+        volume: String?,
+        groupsJson: String?,
+    )
+
     // Manga/kapitola id se generuje deterministicky ze zdroje+URL (viz MangaRepository.mangaId/
     // chapterId) a odebrání z knihovny mangu ani kapitoly nemaže (jen inLibrary = false, viz
     // MangaDao.setInLibrary) - bez tohohle resetu by opetovne pridani te same mangy tise
