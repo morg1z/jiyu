@@ -7,6 +7,12 @@
     <string name="widget_cover_config_title">Vyber titul pro widget</string>
     <string name="widget_cover_config_empty">V knihovně zatím nic není.</string>
     <string name="widget_cover_unconfigured">Klepnutím nastav titul</string>
+    <string name="widget_shelf_title">Jiyu – Regál</string>
+    <string name="widget_shelf_description">Knihovna nebo vybraná kategorie jako mřížka obálek</string>
+    <string name="widget_shelf_config_title">Vyber kategorii pro widget</string>
+    <string name="widget_shelf_config_empty">V knihovně/kategorii zatím nic není.</string>
+    <string name="widget_shelf_unconfigured">Klepnutím nastav kategorii</string>
+    <string name="widget_shelf_all_library">Celá knihovna</string>
 
     <!-- Onboarding -->
     <string name="onb_welcome_title">Vítej v Jiyu</string>

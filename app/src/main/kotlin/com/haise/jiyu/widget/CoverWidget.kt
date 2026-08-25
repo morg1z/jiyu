@@ -92,7 +92,7 @@ private data class CoverWidgetData(val item: ContinueReadingItem, val coverBitma
 /** Coil uz je globalne nakonfigurovany v JiyuApp.onCreate (disk cache, MangaPlusImageFetcher
  * atd.) - `Coil.imageLoader(context)` znovupouziva presne tenhle sdileny loader. Hardware
  * bitmapy nejdou pouzit v RemoteViews (widget bezi mimo appku), proto allowHardware(false). */
-private suspend fun loadCoverBitmap(context: Context, url: String?): Bitmap? {
+internal suspend fun loadCoverBitmap(context: Context, url: String?): Bitmap? {
     if (url.isNullOrBlank()) return null
     return try {
         val loader = Coil.imageLoader(context)
