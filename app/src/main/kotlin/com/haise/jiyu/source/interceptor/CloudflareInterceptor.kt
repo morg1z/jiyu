@@ -124,8 +124,14 @@ class CloudflareInterceptor @Inject constructor(
 
         val response = chain.proceed(requestToTry)
         if (!isCloudflareBlocked(response)) return response
+        val unsolvable = isUnsolvableWafBlock(response)
         response.close()
         if (cached != null) clearanceCache.remove(host)
+
+        if (unsolvable) {
+            failureCache[host] = System.currentTimeMillis()
+            return chain.proceed(request)
+        }
 
         if (isInFailureCooldown(host)) return chain.proceed(request)
 
@@ -272,4 +278,23 @@ internal fun isCloudflareBlocked(response: Response): Boolean {
         body.contains("jschl_vc") ||
         body.contains("cf_clearance") ||
         (response.header("Server")?.contains("cloudflare") == true && response.code == 403)
+}
+
+/**
+ * Nektere WAF (typicky Wordfence, i kdyz bezi za Cloudflare) na skutecny hard
+ * block (IP/rate-limit, ne resitelna vyzva) vraci stranku bez jakekoli
+ * CAPTCHY/Turnstile widgetu k vyreseni - "Sorry, you have been blocked".
+ * Ukazovat na tohle interaktivni WebView dialog uzivateli nema smysl (neni
+ * co resit) a jen by po kazdem vyprseni [CloudflareInterceptor.failureCooldownMs]
+ * zase vyskocil znovu - presne tenhle vzorec uzivatel nahlasil jako "kazdou
+ * chvili skacou picoviny" pro fmcdn.mfcdn.net (MangaFire CDN). Detekce cili
+ * primo na tenhle konkretni pripad, specifictejsi nez [isCloudflareBlocked],
+ * aby nezachytila i skutecne resitelne vyzvy (Managed Challenge/Turnstile),
+ * ktere pro uzivatele smysl ukazat porad maji.
+ */
+internal fun isUnsolvableWafBlock(response: Response): Boolean {
+    if (response.code != 403) return false
+    val body = response.peekBody(8 * 1024).string()
+    return body.contains("you have been blocked", ignoreCase = true) &&
+        body.contains("security service", ignoreCase = true)
 }

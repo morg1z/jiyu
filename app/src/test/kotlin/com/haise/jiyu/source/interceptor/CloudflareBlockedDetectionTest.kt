@@ -53,4 +53,30 @@ class CloudflareBlockedDetectionTest {
         val resp = response(403, mapOf("Server" to "nginx"), body = "Forbidden")
         assertFalse(isCloudflareBlocked(resp))
     }
+
+    @Test
+    fun `wordfence-style hard block page is detected as unsolvable`() {
+        val resp = response(
+            403,
+            body = """
+                <h1>Sorry, you have been blocked</h1>
+                <p>You are unable to access mfcdn.net</p>
+                <h2>Why have I been blocked?</h2>
+                <p>This website is using a security service to protect itself from online attacks.</p>
+            """.trimIndent(),
+        )
+        assertTrue(isUnsolvableWafBlock(resp))
+    }
+
+    @Test
+    fun `solvable managed challenge is not flagged as unsolvable`() {
+        val resp = response(403, mapOf("cf-mitigated" to "challenge"), body = "<title>Just a moment...</title>")
+        assertFalse(isUnsolvableWafBlock(resp))
+    }
+
+    @Test
+    fun `503 hard block body is not flagged - only 403 carries this signature`() {
+        val resp = response(503, body = "you have been blocked - security service")
+        assertFalse(isUnsolvableWafBlock(resp))
+    }
 }
