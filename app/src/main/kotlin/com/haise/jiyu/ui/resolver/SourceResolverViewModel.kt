@@ -23,6 +23,22 @@ import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.floor
 
+/**
+ * Early-exit (viz [SourceResolverViewModel] init) smi vybrat zdroj JEN kdyz ma skoro
+ * vsechny kapitoly, ne jen tu jednu pozadovanou - nahlaseny bug: zdroj mel jmenem
+ * sedici prekladatelskou skupinu i pozadovanou kapitolu, ale jinak byl neuplny
+ * (chybely kapitoly jinde v serii). 90% hranice necha prostor pro rozdil v tom, jak
+ * rychle ktery web zverejnuje nejnovejsi kapitolu (ComicK muze mit o par kapitol vic).
+ * `totalComicKChapters <= 0` znamena, ze jeste nemame spolehlivy udaj o celkovem
+ * poctu (nemelo by nastat, ale radeji nebrzdit early-exit na chybejicich datech).
+ */
+internal fun isCompleteEnoughForEarlyExit(matchedChapterCount: Int, totalComicKChapters: Int): Boolean {
+    if (totalComicKChapters <= 0) return true
+    return matchedChapterCount >= totalComicKChapters * EARLY_EXIT_COMPLETENESS_THRESHOLD
+}
+
+private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
+
 @HiltViewModel
 class SourceResolverViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -182,7 +198,8 @@ class SourceResolverViewModel @Inject constructor(
                         // uz jasna volba (nejsilnejsi 2 kriteria z razeni v onCompletion), takže
                         // rovnou otevre a zbytek hledani zrusi (viz searchJob).
                         if (!hasAutoResolved && candidate.hasRequestedChapter &&
-                            (candidate.isFavorite || matchesPreferredGroup(candidate))
+                            (candidate.isFavorite || matchesPreferredGroup(candidate)) &&
+                            isCompleteEnoughForEarlyExit(candidate.matchedChapterCount, _totalComicKChapters.value)
                         ) {
                             hasAutoResolved = true
                             selectCandidate(candidate)
