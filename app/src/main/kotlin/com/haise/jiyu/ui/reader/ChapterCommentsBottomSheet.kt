@@ -8,8 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -45,6 +46,7 @@ fun ChapterCommentsBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -96,6 +98,8 @@ private fun ChapterCommentRow(comment: ChapterComment) {
     }
 }
 
+/** "před 2 h", "před 3 dny" apod. - stejny vzor jako MangaDetailScreen.commentRelativeTime
+ * (karty/pomocne funkce se v kodu nesdileji mezi soubory, zavedena konvence appky). */
 private fun chapterCommentRelativeTime(createdAtMs: Long): String {
     if (createdAtMs <= 0L) return ""
     val diffMin = (System.currentTimeMillis() - createdAtMs) / 60_000L

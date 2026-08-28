@@ -325,7 +325,6 @@ class SourceManager @Inject constructor(
         MadaraSource(
             "wuxiaworldsite", "Wuxiaworld.site", "https://wuxiaworld.site", client,
             contentTypeOverride = "NOVEL",
-            selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ),
             popularUrl = { root, page, orderby -> "$root/novels-list/page/$page/?m_orderby=$orderby" },
         ),
         // "demonscans" (demonscans.net) odstraneno 2026-07-24 - domena uplne prestala

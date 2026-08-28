@@ -120,16 +120,18 @@ class ReaderViewModel @Inject constructor(
     fun loadChapterComments() {
         if (_chapterComments.value.isNotEmpty() || commentsJob?.isActive == true) return
         val chapter = currentChapter ?: return
-        commentsJob = viewModelScope.launch {
+        lateinit var job: Job
+        job = viewModelScope.launch {
             _commentsLoading.value = true
             try {
                 _chapterComments.value = repository.getChapterComments(chapter.sourceId, chapter.url)
             } catch (e: Exception) {
                 e.report("reader:loadChapterComments")
             } finally {
-                _commentsLoading.value = false
+                if (commentsJob === job) _commentsLoading.value = false
             }
         }
+        commentsJob = job
     }
 
     // Jednorazova hlaska "tahle kapitola byla dotazena z jineho zdroje" - viz
@@ -649,6 +651,7 @@ class ReaderViewModel @Inject constructor(
         prefetchedPageIndices.clear()
         _translatedPages.value = emptyMap()
         _chapterComments.value = emptyList()
+        _commentsSupported.value = false
         commentsJob?.cancel()
         commentsJob = null
         // Klíč je "$pageIndex:$bubbleIndex" bez chapterId - stránkování se v každé kapitole

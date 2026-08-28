@@ -107,4 +107,32 @@ class NativeWpCommentsTest {
 
         assertEquals(emptyList<ChapterComment>(), parseNativeWpComments(doc(html)))
     }
+
+    @Test
+    fun `nested reply inside parent comment does not pollute parent content and appears as its own entry`() {
+        val html = """
+            <li class="comment" id="comment-1">
+              <article class="comment-body">
+                <div class="comment-author">Parent</div>
+                <div class="comment-content"><p>Parent text</p></div>
+              </article>
+              <ul class="children">
+                <li class="comment" id="comment-2">
+                  <article class="comment-body">
+                    <div class="comment-author">Child</div>
+                    <div class="comment-content"><p>Child reply text</p></div>
+                  </article>
+                </li>
+              </ul>
+            </li>
+        """.trimIndent()
+
+        val result = parseNativeWpComments(doc(html))
+
+        assertEquals(2, result.size)
+        val parent = result.first { it.author == "Parent" }
+        assertEquals("Parent text", parent.content)
+        val child = result.first { it.author == "Child" }
+        assertEquals("Child reply text", child.content)
+    }
 }

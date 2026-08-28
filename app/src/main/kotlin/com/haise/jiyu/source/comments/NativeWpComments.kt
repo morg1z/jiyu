@@ -12,7 +12,8 @@ fun parseNativeWpComments(doc: Document): List<ChapterComment> {
     return doc.select("li.comment").mapNotNull { li ->
         val body = li.selectFirst("article.comment-body") ?: li
         val author = body.selectFirst(".comment-author")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
-        val content = body.select(".comment-content p").joinToString("\n") { it.text().trim() }.ifBlank { return@mapNotNull null }
+        val content = (body.selectFirst(".comment-content")?.select("p") ?: emptyList())
+            .joinToString("\n") { it.text().trim() }.ifBlank { return@mapNotNull null }
         val id = li.attr("id").removePrefix("comment-").ifBlank { "$author:$content".hashCode().toString() }
         val createdAt = body.selectFirst(".comment-metadata a")?.text()?.trim()
             ?.let { runCatching { dateFormat.parse(it)?.time }.getOrNull() } ?: 0L

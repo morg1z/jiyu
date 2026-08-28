@@ -109,4 +109,30 @@ class WpDiscuzCommentsTest {
 
         assertEquals(emptyList<ChapterComment>(), parseWpDiscuzComments(doc(html)))
     }
+
+    @Test
+    fun `nested reply inside parent comment does not pollute parent content and appears as its own entry`() {
+        val html = """
+            <div class="wpd-comment-wrap">
+              <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author">Parent</div>
+                <div class="wpd-comment-text"><p>Parent text</p></div>
+                <div class="wpd-comment-wrap">
+                  <div class="wpd-comment-right" id="comment-2">
+                    <div class="wpd-comment-author">Child</div>
+                    <div class="wpd-comment-text"><p>Child reply text</p></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+        """.trimIndent()
+
+        val result = parseWpDiscuzComments(doc(html))
+
+        assertEquals(2, result.size)
+        val parent = result.first { it.author == "Parent" }
+        assertEquals("Parent text", parent.content)
+        val child = result.first { it.author == "Child" }
+        assertEquals("Child reply text", child.content)
+    }
 }
