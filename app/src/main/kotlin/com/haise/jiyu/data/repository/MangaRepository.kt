@@ -410,6 +410,9 @@ class MangaRepository @Inject constructor(
     suspend fun markDownloaded(chapterEntityId: String, localPath: String, pageCount: Int) =
         chapterDao.markDownloaded(chapterEntityId, DownloadStatus.DOWNLOADED, localPath, pageCount)
 
+    suspend fun setVerifiedPageCount(chapterEntityId: String, count: Int, isFallback: Boolean, fallbackChapterId: String? = null) =
+        chapterDao.setVerifiedPageCount(chapterEntityId, count, isFallback, fallbackChapterId)
+
     suspend fun updateReadProgress(chapterEntityId: String, read: Boolean, lastPageRead: Int, lastReadAt: Long = 0L) =
         chapterDao.updateProgress(chapterEntityId, read, lastPageRead, lastReadAt)
 

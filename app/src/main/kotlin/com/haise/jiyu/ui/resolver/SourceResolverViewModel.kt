@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
+import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.comick.ComicKChapterResolver
@@ -187,13 +188,7 @@ class SourceResolverViewModel @Inject constructor(
                         //    uz to jen odlisuje kompletni zdroj od neuplneho
                         // 5. nejmensi vzdalenost nejblizsi dostupne kapitoly od cile (kdyz ani jeden
                         //    kandidat pozadovanou kapitolu nema)
-                        val sorted = _candidates.value.sortedWith(
-                            compareByDescending<ResolvedCandidate> { it.isFavorite }
-                                .thenByDescending { matchesPreferredGroup(it) }
-                                .thenByDescending { it.hasRequestedChapter }
-                                .thenByDescending { it.matchedChapterCount }
-                                .thenBy { it.nearestChapterDistance ?: Float.MAX_VALUE }
-                        )
+                        val sorted = rankedCandidates()
                         _candidates.value = sorted
                         // Uzivatelsky pozadavek: appka ma vzdycky sama vybrat a rovnou otevrit
                         // nejvhodnejsi zdroj podle poradi vyse - rucni seznam (SourceResolverScreen)
@@ -247,6 +242,21 @@ class SourceResolverViewModel @Inject constructor(
         return preferredGroupTokens.any { token -> sourceName.contains(token) || token.contains(sourceName) }
     }
 
+    /**
+     * Sdilene razeni kandidatu - stejna priorita jako drive primo v [onCompletion] (oblibeny >
+     * shoda skupiny > ma pozadovanou kapitolu > nejuplnejsi pokryti > nejblizsi kapitola).
+     * Pouziva se jak pro finalni serazeny seznam pro uzivatele, tak pro vyber alternativ v
+     * [resolveCompleteChapter].
+     */
+    private fun rankedCandidates(): List<ResolvedCandidate> =
+        _candidates.value.sortedWith(
+            compareByDescending<ResolvedCandidate> { it.isFavorite }
+                .thenByDescending { matchesPreferredGroup(it) }
+                .thenByDescending { it.hasRequestedChapter }
+                .thenByDescending { it.matchedChapterCount }
+                .thenBy { it.nearestChapterDistance ?: Float.MAX_VALUE }
+        )
+
     fun selectCandidate(candidate: ResolvedCandidate) {
         val target = requestedChapterNumber ?: return
         _resolving.value = true
@@ -258,6 +268,7 @@ class SourceResolverViewModel @Inject constructor(
                 if (bestMatch == null) {
                     _error.value = appContext.getString(R.string.resolver_chapter_missing_after_select)
                 } else {
+                    val finalChapter = resolveCompleteChapter(candidate, bestMatch, target)
                     // Realny zdroj (ktery appka jen tise pouziva na pozadi) se do knihovny
                     // NEPRIDAVA (viz MangaRepository.openPreview) - proto se "precteno" musi
                     // rucne propsat zpet na SKUTECNY ComicK titul (ten uzivatel ma v knihovne),
@@ -269,7 +280,7 @@ class SourceResolverViewModel @Inject constructor(
                         repository.updateReadProgress(chapterId, read = true, lastPageRead = 0, lastReadAt = System.currentTimeMillis())
                         repository.updateLastReadChapter(comicKId, chapterId)
                     }
-                    _openedChapterId.value = bestMatch.id
+                    _openedChapterId.value = finalChapter.id
                 }
             } catch (e: Exception) {
                 e.report("resolver:selectCandidate")
@@ -277,6 +288,65 @@ class SourceResolverViewModel @Inject constructor(
             } finally {
                 _resolving.value = false
             }
+        }
+    }
+
+    /**
+     * Zkontroluje, jestli ma [bestMatch] podezrele malo stranek (viz [isSuspiciouslyShort]), a
+     * pokud ano, tise zkusi az 3 dalsi jiz nalezene kandidaty (viz [rankedCandidates]) - kdyz
+     * nejaky ma vic stranek, appka na nej kapitolu presmeruje. Vysledek se trvale zapise (viz
+     * ChapterEntity.verifiedPageCount/fallbackChapterId), takze se pri pristim otevreni teto
+     * kapitoly cely tenhle proces preskoci (viz prvni vetev nize).
+     */
+    private suspend fun resolveCompleteChapter(candidate: ResolvedCandidate, bestMatch: ChapterEntity, target: Float): ChapterEntity {
+        // Uz drive overeno - bud zustava, nebo presmerovat na drive nalezenou nahradu.
+        if (bestMatch.verifiedPageCount != null) {
+            val redirectId = bestMatch.fallbackChapterId
+            if (redirectId != null) {
+                repository.getChapter(redirectId)?.let { return it }
+            }
+            return bestMatch
+        }
+
+        // Skutecny pocet stranek puvodniho kandidata.
+        val originalPages = try {
+            repository.getChapterPages(bestMatch.sourceId, bestMatch.url, candidate.manga.url)
+        } catch (e: Exception) {
+            e.report("resolver:fallback:originalPages")
+            return bestMatch // network selhal - kontrola se proste neprovede, dnesni chovani
+        }
+
+        // V poradku - zapamatovat a skoncit.
+        if (!isSuspiciouslyShort(originalPages.size)) {
+            repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false)
+            return bestMatch
+        }
+
+        // Podezrele kratka - zkusit az 3 dalsi jiz nalezene kandidaty se stejnou kapitolou.
+        val checked = mutableListOf<Pair<ChapterEntity, Int>>()
+        val alternatives = rankedCandidates().filter { it.hasRequestedChapter && it.source.id != candidate.source.id }.take(3)
+        for (alt in alternatives) {
+            try {
+                val altMangaId = repository.openPreview(alt.manga)
+                val altChapters = repository.getAllChapters(altMangaId)
+                val altChapter = altChapters.firstOrNull { abs(it.chapterNumber - target) < 0.01f } ?: continue
+                val altPages = repository.getChapterPages(altChapter.sourceId, altChapter.url, alt.manga.url)
+                checked.add(altChapter to altPages.size)
+            } catch (e: Exception) {
+                e.report("resolver:fallback:altPages:${alt.source.id}")
+            }
+        }
+
+        // Vybrat nejlepsi (nebo zustat u puvodni).
+        val better = pickBetterAlternative(originalPages.size, checked)
+        return if (better == null) {
+            repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false)
+            bestMatch
+        } else {
+            repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false, fallbackChapterId = better.id)
+            val betterPageCount = checked.first { it.first.id == better.id }.second
+            repository.setVerifiedPageCount(better.id, betterPageCount, isFallback = true)
+            better
         }
     }
 }
