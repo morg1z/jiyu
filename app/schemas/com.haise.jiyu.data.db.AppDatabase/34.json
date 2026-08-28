@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 34,
-    "identityHash": "436885edeb297b2f13998876e2cce7fb",
+    "identityHash": "d0505d58a5983795575737efdba5289c",
     "entities": [
       {
         "tableName": "manga",
@@ -298,7 +298,7 @@
       },
       {
         "tableName": "chapter",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mangaId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `url` TEXT NOT NULL, `name` TEXT NOT NULL, `chapterNumber` REAL NOT NULL, `dateUpload` INTEGER NOT NULL, `read` INTEGER NOT NULL, `lastPageRead` INTEGER NOT NULL, `lastReadAt` INTEGER NOT NULL, `lastScrollOffset` INTEGER NOT NULL, `downloadStatus` TEXT NOT NULL, `localPath` TEXT, `pageCount` INTEGER NOT NULL, `scanlationGroup` TEXT, `volume` TEXT, `groupsJson` TEXT, `discoveredAt` INTEGER NOT NULL, `verifiedPageCount` INTEGER, `isFallbackSource` INTEGER NOT NULL, `fallbackChapterId` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `mangaId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `url` TEXT NOT NULL, `name` TEXT NOT NULL, `chapterNumber` REAL NOT NULL, `dateUpload` INTEGER NOT NULL, `read` INTEGER NOT NULL, `lastPageRead` INTEGER NOT NULL, `lastReadAt` INTEGER NOT NULL, `lastScrollOffset` INTEGER NOT NULL, `downloadStatus` TEXT NOT NULL, `localPath` TEXT, `pageCount` INTEGER NOT NULL, `scanlationGroup` TEXT, `volume` TEXT, `groupsJson` TEXT, `discoveredAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -403,22 +403,6 @@
             "columnName": "discoveredAt",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "verifiedPageCount",
-            "columnName": "verifiedPageCount",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "isFallbackSource",
-            "columnName": "isFallbackSource",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "fallbackChapterId",
-            "columnName": "fallbackChapterId",
-            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -950,7 +934,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '436885edeb297b2f13998876e2cce7fb')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd0505d58a5983795575737efdba5289c')"
     ]
   }
 }

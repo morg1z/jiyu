@@ -42,6 +42,13 @@ private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
 
 private const val SUSPICIOUSLY_SHORT_PAGE_FLOOR = 6
 
+/** Strop na kontrolu kompletnosti kapitoly (viz resolveCompleteChapter) - stejny duvod jako
+ * ReaderViewModel.CHAPTER_LOAD_TIMEOUT_MS (RetryInterceptor x CloudflareInterceptor umi viset
+ * beze jakekoli vyjimky i pres minutu). Kratsi nez tam (45s) - u alternativnich kandidatu jde
+ * jen o spekulativni kontrolu (appka ma vzdy fallback na puvodni bestMatch), ne o skutecne
+ * cteni, na ktere uzivatel primo ceka. */
+private const val FALLBACK_PAGE_CHECK_TIMEOUT_MS = 15_000L
+
 /** Kapitola s min poctem stranek je podezrela z neuplnosti - viz nahlaseny bug (MangaK/The
  * Raider/kap.19: 5 stranek vs. 11-19 u sousednich). Zaporne/nulove hodnoty (getPageList
  * selhalo/prazdne) jsou taky podezrele. */
@@ -310,11 +317,14 @@ class SourceResolverViewModel @Inject constructor(
 
         // Skutecny pocet stranek puvodniho kandidata.
         val originalPages = try {
-            repository.getChapterPages(bestMatch.sourceId, bestMatch.url, candidate.manga.url)
+            kotlinx.coroutines.withTimeoutOrNull(FALLBACK_PAGE_CHECK_TIMEOUT_MS) {
+                repository.getChapterPages(bestMatch.sourceId, bestMatch.url, candidate.manga.url)
+            }
         } catch (e: Exception) {
             e.report("resolver:fallback:originalPages")
-            return bestMatch // network selhal - kontrola se proste neprovede, dnesni chovani
+            null
         }
+        if (originalPages == null) return bestMatch // network selhal/timeout - kontrola se proste neprovede, dnesni chovani
 
         // V poradku - zapamatovat a skoncit.
         if (!isSuspiciouslyShort(originalPages.size)) {
@@ -327,11 +337,14 @@ class SourceResolverViewModel @Inject constructor(
         val alternatives = rankedCandidates().filter { it.hasRequestedChapter && it.source.id != candidate.source.id }.take(3)
         for (alt in alternatives) {
             try {
-                val altMangaId = repository.openPreview(alt.manga)
-                val altChapters = repository.getAllChapters(altMangaId)
-                val altChapter = altChapters.firstOrNull { abs(it.chapterNumber - target) < 0.01f } ?: continue
-                val altPages = repository.getChapterPages(altChapter.sourceId, altChapter.url, alt.manga.url)
-                checked.add(altChapter to altPages.size)
+                val altResult = kotlinx.coroutines.withTimeoutOrNull(FALLBACK_PAGE_CHECK_TIMEOUT_MS) {
+                    val altMangaId = repository.openPreview(alt.manga)
+                    val altChapters = repository.getAllChapters(altMangaId)
+                    val altChapter = altChapters.firstOrNull { abs(it.chapterNumber - target) < 0.01f } ?: return@withTimeoutOrNull null
+                    val altPages = repository.getChapterPages(altChapter.sourceId, altChapter.url, alt.manga.url)
+                    altChapter to altPages.size
+                }
+                if (altResult != null) checked.add(altResult)
             } catch (e: Exception) {
                 e.report("resolver:fallback:altPages:${alt.source.id}")
             }
@@ -340,7 +353,15 @@ class SourceResolverViewModel @Inject constructor(
         // Vybrat nejlepsi (nebo zustat u puvodni).
         val better = pickBetterAlternative(originalPages.size, checked)
         return if (better == null) {
-            repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false)
+            // Na early-exit ceste (viz init{} - "hasAutoResolved") se hledani zrusi driv, nez
+            // stihne najit dalsi kandidaty - kdyz checked zustalo prazdne, nevime jeste, jestli
+            // opravdu neni lepsi zdroj, jen ze se zadny nestihl zkusit. Nezapisovat verifiedPageCount
+            // v tomhle konkretnim pripade, aby se kontrola priste (az uz bude _candidates bohatsi)
+            // zopakovala - jinak by early-exit cesta (nejcastejsi) tenhle fallback temer vzdy proste
+            // vypla natrvalo hned pri prvnim pokusu (nalezeno finalnim whole-branch review).
+            if (!(hasAutoResolved && checked.isEmpty())) {
+                repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false)
+            }
             bestMatch
         } else {
             repository.setVerifiedPageCount(bestMatch.id, originalPages.size, isFallback = false, fallbackChapterId = better.id)
