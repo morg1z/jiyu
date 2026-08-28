@@ -395,6 +395,14 @@ class MangaRepository @Inject constructor(
         return source.getPageList(chapter)
     }
 
+    suspend fun getChapterComments(sourceId: String, chapterUrl: String): List<com.haise.jiyu.source.comments.ChapterComment> {
+        val source = sourceManager.getById(sourceId) ?: return emptyList()
+        return source.getChapterComments(SChapter(sourceId, "", chapterUrl, "", 0f, 0L))
+    }
+
+    suspend fun sourceSupportsChapterComments(sourceId: String): Boolean =
+        sourceManager.getById(sourceId)?.supportsChapterComments ?: false
+
     /**
      * Domovska URL zdroje pro dany [sourceId] - pouziva se jako `Referer` hlavicka pri
      * stahovani obrazku stranek (viz ReaderViewModel.pageReferer). Rada webu ma

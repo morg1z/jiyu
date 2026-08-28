@@ -104,6 +104,34 @@ class ReaderViewModel @Inject constructor(
     private val _comickUnavailable = MutableStateFlow(false)
     val comickUnavailable: StateFlow<Boolean> = _comickUnavailable.asStateFlow()
 
+    private val _chapterComments = MutableStateFlow<List<com.haise.jiyu.source.comments.ChapterComment>>(emptyList())
+    val chapterComments: StateFlow<List<com.haise.jiyu.source.comments.ChapterComment>> = _chapterComments.asStateFlow()
+
+    private val _commentsLoading = MutableStateFlow(false)
+    val commentsLoading: StateFlow<Boolean> = _commentsLoading.asStateFlow()
+
+    /** true, pokud AKTUALNI zdroj kapitoly komentare vubec poskytuje (viz MangaSource.
+     * supportsChapterComments) - ridi, jestli se tlacitko "Komentare" v ctecce vubec zobrazi. */
+    private val _commentsSupported = MutableStateFlow(false)
+    val commentsSupported: StateFlow<Boolean> = _commentsSupported.asStateFlow()
+
+    private var commentsJob: Job? = null
+
+    fun loadChapterComments() {
+        if (_chapterComments.value.isNotEmpty() || commentsJob?.isActive == true) return
+        val chapter = currentChapter ?: return
+        commentsJob = viewModelScope.launch {
+            _commentsLoading.value = true
+            try {
+                _chapterComments.value = repository.getChapterComments(chapter.sourceId, chapter.url)
+            } catch (e: Exception) {
+                e.report("reader:loadChapterComments")
+            } finally {
+                _commentsLoading.value = false
+            }
+        }
+    }
+
     // Jednorazova hlaska "tahle kapitola byla dotazena z jineho zdroje" - viz
     // SourceResolverViewModel.resolveCompleteChapter a ChapterEntity.isFallbackSource.
     private val _fallbackNotice = MutableStateFlow<String?>(null)
@@ -620,6 +648,9 @@ class ReaderViewModel @Inject constructor(
         _pages.value = emptyList()
         prefetchedPageIndices.clear()
         _translatedPages.value = emptyMap()
+        _chapterComments.value = emptyList()
+        commentsJob?.cancel()
+        commentsJob = null
         // Klíč je "$pageIndex:$bubbleIndex" bez chapterId - stránkování se v každé kapitole
         // čísluje znovu od 0, takže bez resetu by "otočená" bublina 3:2 z minulé kapitoly
         // zůstala otočená i na stránce 3 v nové kapitole, i když jde o úplně jinou bublinu.
@@ -636,6 +667,7 @@ class ReaderViewModel @Inject constructor(
 
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
+        _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
         if (chapter.isFallbackSource) {
             _fallbackNotice.value = context.getString(R.string.reader_fallback_source_notice)
         }
