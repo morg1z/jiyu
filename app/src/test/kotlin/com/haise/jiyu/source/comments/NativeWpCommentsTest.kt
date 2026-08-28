@@ -93,4 +93,18 @@ class NativeWpCommentsTest {
         assertEquals(0L, result[0].createdAt)
         assertNull(result[0].avatarUrl)
     }
+
+    @Test
+    fun `comment with blank content is skipped`() {
+        val html = """
+            <li class="comment" id="comment-1">
+              <article class="comment-body">
+                <div class="comment-author">Ivy</div>
+                <div class="comment-content"><p></p></div>
+              </article>
+            </li>
+        """.trimIndent()
+
+        assertEquals(emptyList<ChapterComment>(), parseNativeWpComments(doc(html)))
+    }
 }

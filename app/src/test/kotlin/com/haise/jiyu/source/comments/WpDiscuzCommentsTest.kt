@@ -95,4 +95,18 @@ class WpDiscuzCommentsTest {
         assertEquals(0L, result[0].createdAt)
         assertNull(result[0].avatarUrl)
     }
+
+    @Test
+    fun `comment with blank content is skipped`() {
+        val html = """
+            <div class="wpd-comment-wrap">
+              <div class="wpd-comment-right" id="comment-1">
+                <div class="wpd-comment-author">Henry</div>
+                <div class="wpd-comment-text"><p></p></div>
+              </div>
+            </div>
+        """.trimIndent()
+
+        assertEquals(emptyList<ChapterComment>(), parseWpDiscuzComments(doc(html)))
+    }
 }
