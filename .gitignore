@@ -31,3 +31,7 @@ relnotes.tmp
 
 # Superpowers brainstorming companion - dočasné mockupy, ne zdrojový kód
 .superpowers/
+
+# Stará scratch data z živého zkoumání zdrojů (curl dumpy stránek apod.) - ne zdrojový kód,
+# přesunuto sem z C:\Users\ilekr\Desktop\masaze, kde omylem skončilo.
+/scratch/
