@@ -110,4 +110,14 @@ interface MangaSource {
      * implementace prostě vrátí url beze změny.
      */
     suspend fun getImageUrl(page: Page): String = page.url
+
+    /** Zdroj poskytuje komentare k JEDNOTLIVYM kapitolam (ne jen k titulu) - viz [getChapterComments].
+     * Vychozi = zadny zdroj neposkytuje, appka tak nemusi zkouset stahovat komentare u zdroje,
+     * ktery zadne nema. */
+    val supportsChapterComments: Boolean get() = false
+
+    /** Komentare ke KONKRETNI kapitole. Vola se az line, kdyz uzivatel otevre panel komentaru v
+     * ctecce (viz ReaderViewModel) - NE automaticky pri otevreni kapitoly, aby appka nedelala
+     * network navic u vetsiny cteni, kdy uzivatel komentare vubec neotevre. */
+    suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> = emptyList()
 }

@@ -15,6 +15,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
 
+enum class MadaraCommentStyle { WPDISCUZ, NATIVE_WP }
+
 /**
  * CSS selektory pro parsování Madara markupu. Výchozí hodnoty odpovídají
  * nezměněnému Madara tématu; pole s `null` v [CustomSourceEntity] použijí
@@ -35,6 +37,10 @@ data class MadaraSelectors(
     val chapterList: String = "li.wp-manga-chapter",
     val pageImage: String = "div.reading-content img, div.page-break img",
     val novelContent: String = "div.reading-content p",
+    /** null = zdroj (tenhle konkretni web) komentare k pripadne kapitole neposkytuje, nebo
+     * pouziva Disqus (nescrapovatelny bez JS) - vetsina Madara webu. Nastavuje se explicitne
+     * jen pro zive overene weby (viz SourceManager.kt). */
+    val commentStyle: MadaraCommentStyle? = null,
 ) {
     companion object {
         val DEFAULT = MadaraSelectors()
@@ -73,6 +79,20 @@ class MadaraSource(
     override val contentType: String get() = contentTypeOverride
     override val homepageUrl: String get() = baseUrl
     override val isAdult: Boolean get() = isAdultOverride
+
+    override val supportsChapterComments: Boolean get() = selectors.commentStyle != null
+
+    override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
+        withContext(Dispatchers.IO) {
+            val style = selectors.commentStyle ?: return@withContext emptyList()
+            try {
+                val doc = fetchDocument(chapter.url)
+                when (style) {
+                    MadaraCommentStyle.WPDISCUZ -> com.haise.jiyu.source.comments.parseWpDiscuzComments(doc)
+                    MadaraCommentStyle.NATIVE_WP -> com.haise.jiyu.source.comments.parseNativeWpComments(doc)
+                }
+            } catch (_: Exception) { emptyList() }
+        }
 
     private val root get() = baseUrl.trimEnd('/')
 

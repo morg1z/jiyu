@@ -22,6 +22,7 @@ import com.haise.jiyu.source.comicskingdom.ComicsKingdomSource
 import com.haise.jiyu.source.novelfull.NovelFullSource
 import com.haise.jiyu.source.freewebnovel.FreeWebNovelSource
 import com.haise.jiyu.source.nhentai.NhentaiSource
+import com.haise.jiyu.source.madara.MadaraCommentStyle
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
@@ -324,6 +325,7 @@ class SourceManager @Inject constructor(
         MadaraSource(
             "wuxiaworldsite", "Wuxiaworld.site", "https://wuxiaworld.site", client,
             contentTypeOverride = "NOVEL",
+            selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ),
             popularUrl = { root, page, orderby -> "$root/novels-list/page/$page/?m_orderby=$orderby" },
         ),
         // "demonscans" (demonscans.net) odstraneno 2026-07-24 - domena uplne prestala
@@ -361,7 +363,7 @@ class SourceManager @Inject constructor(
         //     mangatoto (mangatoto.com) - doména vypršela a byla zabrána
         //     spekulantem, teď je to obecný thajský WordPress SEO blog bez
         //     jakéhokoliv manga obsahu.
-        MadaraSource("manhuahot",     "Manhua Hot",         "https://manhuahot.com",        client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuahot", "Manhua Hot", "https://manhuahot.com", client, contentTypeOverride = "MANHUA", selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.NATIVE_WP)),
         // manhuarm (manhuarmtl.com) odstraněno 2026-08-04 - web žije a vrací plnou
         // stránku (ne parking/blok), ale katalog je prázdný: žádná karta na "/manga/",
         // "/manga/?m_orderby=views" ani "/listing-big-thumbnail/". Ne chyba selektoru -
@@ -374,14 +376,15 @@ class SourceManager @Inject constructor(
             contentTypeOverride = "MANHWA",
             popularUrl = { root, page, orderby -> "$root/webtoons/page/$page/?m_orderby=$orderby" },
         ),
-        MadaraSource("mangazin",      "Mangazin",           "https://mangazin.org",         client, contentTypeOverride = "MANHUA"),
+        MadaraSource("mangazin", "Mangazin", "https://mangazin.org", client, contentTypeOverride = "MANHUA", selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ)),
         MadaraSource("cocomic",       "Cocomic",            "https://cocomic.co",           client, contentTypeOverride = "MANHWA"),
         MadaraSource(
             "mangagg", "MangaGG", "https://mangagg.com", client,
             contentTypeOverride = "MANHUA",
+            selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ),
             popularUrl = { root, page, orderby -> "$root/comic/page/$page/?m_orderby=$orderby" },
         ),
-        MadaraSource("mangaread",     "MangaRead",          "https://www.mangaread.org",    client, contentTypeOverride = "MANGA"),
+        MadaraSource("mangaread", "MangaRead", "https://www.mangaread.org", client, contentTypeOverride = "MANGA", selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ)),
         // CoffeManga odstraneno 2026-08-24 - coffeemanga.ink vraci 404 i na hlavni
         // strance (overeno zive), cela domena je mrtva.
         MadaraSource("mangasushi",    "Mangasushi",         "https://mangasushi.org",       client, contentTypeOverride = "MANGA"),
@@ -630,6 +633,7 @@ class SourceManager @Inject constructor(
         MadaraSource(
             "mangadistrict", "Manga District", "https://mangadistrict.com", client,
             contentTypeOverride = "MANHWA", isAdultOverride = true,
+            selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.NATIVE_WP),
             popularUrl = { root, page, orderby -> "$root/series/page/$page/?m_orderby=$orderby" },
         ),
         // Manhwa18 (manhwa18.today) - plne vychozi Madara cesty, zadny prepis netreba.
@@ -728,7 +732,7 @@ class SourceManager @Inject constructor(
         // (table.infotable misto div.imptdt), viz komentar ve tride.
         lagoonScansSource,
         // ManhuaNext - genuine nezmeneny Madara, zadny prepis netreba.
-        MadaraSource("manhuanext", "ManhuaNext", "https://manhuanext.com", client, contentTypeOverride = "MANHUA"),
+        MadaraSource("manhuanext", "ManhuaNext", "https://manhuanext.com", client, contentTypeOverride = "MANHUA", selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ)),
         // Timeless Toons a Genz Toons bezi na stejne sdilene komercni sablone (CDN
         // "cdn.meowing.org", identicka struktura) - overeno zive na obou, proto
         // spolecna generic trida MeowingToonsSource. ManhwaFreak (v seznamu pozadavku)
