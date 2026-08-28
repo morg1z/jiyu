@@ -109,6 +109,9 @@ fun ReaderScreen(
     val novelTranslatedText  by viewModel.novelTranslatedText.collectAsState()
     val novelTranslating     by viewModel.novelTranslating.collectAsState()
     val glossary             by viewModel.glossary.collectAsState()
+    val chapterComments       by viewModel.chapterComments.collectAsState()
+    val commentsLoading       by viewModel.commentsLoading.collectAsState()
+    val commentsSupported     by viewModel.commentsSupported.collectAsState()
     val pageScale            by viewModel.pageScale.collectAsState()
     val jumpToPage           by viewModel.jumpToPage.collectAsState()
     val allChapters          by viewModel.allChaptersFlow.collectAsState()
@@ -338,6 +341,10 @@ fun ReaderScreen(
                 glossary = glossary,
                 onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
+                chapterComments = chapterComments,
+                commentsLoading = commentsLoading,
+                commentsSupported = commentsSupported,
+                onShowComments = { viewModel.loadChapterComments() },
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = { pageIndex, bubbleIndex -> viewModel.toggleBubbleFlip(pageIndex, bubbleIndex) },
                 onEditBubble = { pageIndex, originalText, currentText ->

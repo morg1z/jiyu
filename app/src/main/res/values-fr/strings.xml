@@ -649,6 +649,8 @@
     <string name="reader_chapter_load_failed">Impossible de charger le chapitre.</string>
     <string name="reader_translate_chapter_desc">Traduction du chapitre</string>
     <string name="reader_glossary_button">Glossaire</string>
+    <string name="reader_comments_button">Commentaires</string>
+    <string name="reader_comments_empty">Ce chapitre n\'a pas encore de commentaires</string>
     <string name="reader_original_toggle">Original</string>
     <string name="reader_translate_toggle">Traduire</string>
     <string name="reader_translation_word">Traduction</string>

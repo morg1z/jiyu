@@ -113,6 +113,10 @@ fun ReaderContent(
     glossary: List<GlossaryEntity> = emptyList(),
     onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
     onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
+    chapterComments: List<com.haise.jiyu.source.comments.ChapterComment> = emptyList(),
+    commentsLoading: Boolean = false,
+    commentsSupported: Boolean = false,
+    onShowComments: () -> Unit = {},
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
@@ -123,6 +127,7 @@ fun ReaderContent(
     referer: String? = null,
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
+    var showCommentsSheet by remember { mutableStateOf(false) }
 
     // Přednačtení stránek do Coil cache
     val preloadContext = androidx.compose.ui.platform.LocalContext.current
@@ -286,6 +291,8 @@ fun ReaderContent(
                     onSourceLanguageChange = onSourceLanguageChange,
                     onTargetLanguageChange = onTargetLanguageChange,
                     onShowGlossary = { showGlossarySheet = true },
+                    onShowComments = { showCommentsSheet = true; onShowComments() },
+                    commentsSupported = commentsSupported,
                     pageCount = pages.size,
                     currentPage = currentPage,
                     onJumpToPage = onJumpToPage,
@@ -346,6 +353,14 @@ fun ReaderContent(
             onAdd = onAddGlossaryEntry,
             onRemove = onRemoveGlossaryEntry,
             onDismiss = { showGlossarySheet = false },
+        )
+    }
+
+    if (showCommentsSheet) {
+        ChapterCommentsBottomSheet(
+            comments = chapterComments,
+            loading = commentsLoading,
+            onDismiss = { showCommentsSheet = false },
         )
     }
 

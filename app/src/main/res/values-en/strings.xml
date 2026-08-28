@@ -652,6 +652,8 @@
     <string name="reader_chapter_load_failed">Couldn\'t load the chapter.</string>
     <string name="reader_translate_chapter_desc">Chapter translation</string>
     <string name="reader_glossary_button">Glossary</string>
+    <string name="reader_comments_button">Comments</string>
+    <string name="reader_comments_empty">This chapter has no comments yet</string>
     <string name="reader_original_toggle">Original</string>
     <string name="reader_translate_toggle">Translate</string>
     <string name="reader_translation_word">Translation</string>

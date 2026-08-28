@@ -289,6 +289,8 @@ fun ReaderBottomPanel(
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
     onShowGlossary: () -> Unit,
+    onShowComments: () -> Unit = {},
+    commentsSupported: Boolean = false,
     pageCount: Int,
     currentPage: Int,
     onJumpToPage: (Int) -> Unit,
@@ -447,6 +449,8 @@ fun ReaderBottomPanel(
                 onSourceLanguageChange = onSourceLanguageChange,
                 onTargetLanguageChange = onTargetLanguageChange,
                 onShowGlossary = onShowGlossary,
+                onShowComments = onShowComments,
+                commentsSupported = commentsSupported,
                 pageCount = pageCount,
                 currentPage = currentPage,
                 onJumpToPage = onJumpToPage,
@@ -484,6 +488,8 @@ private fun ReaderAdvancedSheetContent(
     onSourceLanguageChange: (String) -> Unit,
     onTargetLanguageChange: (String) -> Unit,
     onShowGlossary: () -> Unit,
+    onShowComments: () -> Unit = {},
+    commentsSupported: Boolean = false,
     pageCount: Int,
     currentPage: Int,
     onJumpToPage: (Int) -> Unit,
@@ -654,6 +660,19 @@ private fun ReaderAdvancedSheetContent(
                     .clickable(onClick = onShowGlossary)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
+            if (commentsSupported) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    stringResource(R.string.reader_comments_button),
+                    color = Color(0xFF8B5CF6),
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.White.copy(alpha = 0.1f))
+                        .clickable(onClick = onShowComments)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
         }
 
         // Page scrubber

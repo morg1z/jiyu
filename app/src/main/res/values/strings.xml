@@ -702,6 +702,8 @@
     <string name="reader_chapter_load_failed">Kapitolu se nepodařilo načíst.</string>
     <string name="reader_translate_chapter_desc">Překlad kapitoly</string>
     <string name="reader_glossary_button">Slovník</string>
+    <string name="reader_comments_button">Komentáře</string>
+    <string name="reader_comments_empty">Tahle kapitola zatím nemá komentáře</string>
     <string name="reader_original_toggle">Originál</string>
     <string name="reader_translate_toggle">Přeložit</string>
     <string name="reader_translation_word">Překlad</string>
