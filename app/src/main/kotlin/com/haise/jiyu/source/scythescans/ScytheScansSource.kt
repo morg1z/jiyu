@@ -30,6 +30,7 @@ class ScytheScansSource @Inject constructor(private val client: OkHttpClient) : 
     override val id = "scythescans"
     override val name = "Scythe Scans"
     override val homepageUrl get() = base
+    override val supportsChapterComments: Boolean get() = true
     private val base = "https://scythescans.com"
 
     private fun get(url: String): String {
@@ -153,4 +154,11 @@ class ScytheScansSource @Inject constructor(private val client: OkHttpClient) : 
             }
         } catch (_: Exception) { emptyList() }
     }
+
+    override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
+        withContext(Dispatchers.IO) {
+            try {
+                com.haise.jiyu.source.comments.parseWpDiscuzComments(Jsoup.parse(get(chapter.url)))
+            } catch (_: Exception) { emptyList() }
+        }
 }

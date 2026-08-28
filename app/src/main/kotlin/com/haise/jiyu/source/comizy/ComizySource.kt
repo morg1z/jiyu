@@ -34,6 +34,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
     override val name = "Comizy"
     override val contentType: String get() = "MANHWA"
     override val homepageUrl get() = base
+    override val supportsChapterComments: Boolean get() = true
     private val base = "https://comizy.io"
 
     private fun get(url: String): String {
@@ -126,4 +127,13 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
             (0 until images.length()).map { i -> Page(i, images.getString(i), images.getString(i)) }
         } catch (_: Exception) { emptyList() }
     }
+
+    override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
+        withContext(Dispatchers.IO) {
+            try {
+                val ic = pageProps(nextData(get(chapter.url)) ?: return@withContext emptyList())
+                    .getJSONObject("initialChapter")
+                com.haise.jiyu.source.comments.parseMangaReaderJsonComments(ic)
+            } catch (_: Exception) { emptyList() }
+        }
 }
