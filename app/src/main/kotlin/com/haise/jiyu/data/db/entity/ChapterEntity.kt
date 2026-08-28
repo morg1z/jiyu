@@ -56,7 +56,7 @@ data class ChapterEntity(
      * SourceResolverViewModel. Ridi jednorazovou hlasku v ctecce (ReaderViewModel.loadChapter). */
     val isFallbackSource: Boolean = false,
     /** Kdyz appka pri kontrole tehle (puvodni, kratke) kapitoly najde lepsi alternativu, ulozi
-     * sem ID kapitoly, na kterou se ma miste ni presmerovat - viz SourceResolverViewModel. Bez
+     * sem ID kapitoly, na kterou se ma misto ni presmerovat - viz SourceResolverViewModel. Bez
      * tohohle by se PUVODNI (kratky) radek nikdy neoznacil jako "jiz overeno" a appka by
      * kontrolu opakovala pri kazdem otevireni znovu, protoze selectCandidate vzdy nejdriv najde
      * puvodniho "nejvhodnejsiho" kandidata, ne rovnou tu nahradni kapitolu. null = beze zmeny. */
