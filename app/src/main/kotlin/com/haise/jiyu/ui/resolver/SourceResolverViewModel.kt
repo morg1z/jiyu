@@ -39,6 +39,23 @@ internal fun isCompleteEnoughForEarlyExit(matchedChapterCount: Int, totalComicKC
 
 private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
 
+private const val SUSPICIOUSLY_SHORT_PAGE_FLOOR = 6
+
+/** Kapitola s min poctem stranek je podezrela z neuplnosti - viz nahlaseny bug (MangaK/The
+ * Raider/kap.19: 5 stranek vs. 11-19 u sousednich). Zaporne/nulove hodnoty (getPageList
+ * selhalo/prazdne) jsou taky podezrele. */
+internal fun isSuspiciouslyShort(pageCount: Int): Boolean = pageCount < SUSPICIOUSLY_SHORT_PAGE_FLOOR
+
+/** Ze seznamu uz OVERENYCH alternativ (kandidat, pocet stranek) vybere tu s nejvic strankami,
+ * pokud prekonava jak puvodni pocet, tak minimalni prah - jinak null (puvodni kapitola je porad
+ * nejlepsi dostupna moznost, i kdyz je kratka - napr. MangaK/kap.19, kde zadna alternativa
+ * nemela vic). Pri shode poctu stranek zustava puvodni (>, ne >=). */
+internal fun <T> pickBetterAlternative(originalPageCount: Int, alternatives: List<Pair<T, Int>>): T? =
+    alternatives
+        .filter { (_, count) -> count >= SUSPICIOUSLY_SHORT_PAGE_FLOOR && count > originalPageCount }
+        .maxByOrNull { (_, count) -> count }
+        ?.first
+
 @HiltViewModel
 class SourceResolverViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
