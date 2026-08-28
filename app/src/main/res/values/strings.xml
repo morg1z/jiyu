@@ -753,6 +753,7 @@
     <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
     <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>
     <string name="reader_error_rate_limited">Denní limit AI překladů vyčerpán, zkus to prosím později</string>
+    <string name="reader_fallback_source_notice">Tato kapitola byla dotažena z jiného zdroje, protože původní verze byla neúplná.</string>
     <string name="reader_on_device_warning">Není nastaven žádný cloudový klíč — zobrazená verze je hrubý místní náhled.</string>
 
     <!-- Procházet -->

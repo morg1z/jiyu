@@ -104,6 +104,12 @@ class ReaderViewModel @Inject constructor(
     private val _comickUnavailable = MutableStateFlow(false)
     val comickUnavailable: StateFlow<Boolean> = _comickUnavailable.asStateFlow()
 
+    // Jednorazova hlaska "tahle kapitola byla dotazena z jineho zdroje" - viz
+    // SourceResolverViewModel.resolveCompleteChapter a ChapterEntity.isFallbackSource.
+    private val _fallbackNotice = MutableStateFlow<String?>(null)
+    val fallbackNotice: StateFlow<String?> = _fallbackNotice.asStateFlow()
+    fun clearFallbackNotice() { _fallbackNotice.value = null }
+
     /** true pokud je nastavený Supabase/Groq/Gemini klíč - jinak překlad jede jen přes on-device ML Kit. */
     val isApiKeyConfigured = translateRepository.isApiKeyConfigured
 
@@ -630,6 +636,9 @@ class ReaderViewModel @Inject constructor(
 
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
+        if (chapter.isFallbackSource) {
+            _fallbackNotice.value = context.getString(R.string.reader_fallback_source_notice)
+        }
         _chapterTitle.value = chapter.name
         _currentChapterId.value = chapter.id
         // Presna pozice (stranka + scroll) se pamatuje jen POSITION_FRESHNESS_MS od posledniho

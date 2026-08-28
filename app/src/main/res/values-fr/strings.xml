@@ -695,6 +695,7 @@
     <string name="reader_page_load_failed">Échec du chargement de la page</string>
     <string name="reader_error_missing_supabase_url">SUPABASE_URL manquant dans local.properties - la traduction n\'a nulle part où appeler</string>
     <string name="reader_error_translation_failed">Échec de la traduction du chapitre, réessayez</string>
+    <string name="reader_fallback_source_notice">Ce chapitre a été récupéré depuis une autre source car la version originale était incomplète.</string>
     <string name="reader_error_rate_limited">Limite quotidienne de traduction IA atteinte, réessayez plus tard</string>
     <string name="reader_on_device_warning">Aucune clé API cloud configurée — aperçu local approximatif affiché.</string>
 

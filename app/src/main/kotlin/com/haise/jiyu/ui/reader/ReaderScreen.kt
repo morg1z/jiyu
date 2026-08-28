@@ -87,6 +87,7 @@ fun ReaderScreen(
     val readerTextScale     by viewModel.readerTextScale.collectAsState()
     val doublePageSpread    by viewModel.doublePageSpread.collectAsState()
     val translationError    by viewModel.translationError.collectAsState()
+    val fallbackNotice     by viewModel.fallbackNotice.collectAsState()
     val fullscreenEnabled   by viewModel.fullscreenEnabled.collectAsState()
     val readerTheme         by viewModel.readerTheme.collectAsState()
     val isOfflineChapter    by viewModel.isOfflineChapter.collectAsState()
@@ -202,6 +203,13 @@ fun ReaderScreen(
         if (translationError != null) {
             delay(4_000L)
             viewModel.clearTranslationError()
+        }
+    }
+
+    LaunchedEffect(fallbackNotice) {
+        if (fallbackNotice != null) {
+            delay(4_000L)
+            viewModel.clearFallbackNotice()
         }
     }
 
@@ -410,6 +418,23 @@ fun ReaderScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Text(translationError.orEmpty(), color = Color.White, fontSize = 13.sp)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = fallbackNotice != null,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF37474F).copy(alpha = 0.92f))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(fallbackNotice.orEmpty(), color = Color.White, fontSize = 13.sp)
             }
         }
     }
