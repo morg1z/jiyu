@@ -111,4 +111,37 @@ class ChapterDaoTest {
         assertEquals("Some Group", relinked.scanlationGroup)
         assertNull(dao.getById("old-id"))
     }
+
+    @Test
+    fun `setVerifiedPageCount writes count and isFallback without touching other fields`() = runTest {
+        dao.insertNewOnly(listOf(chapter("ch-1", read = true, status = DownloadStatus.DOWNLOADED)))
+
+        dao.setVerifiedPageCount("ch-1", count = 5, isFallback = false)
+
+        val result = dao.getById("ch-1")!!
+        assertEquals(5, result.verifiedPageCount)
+        assertEquals(false, result.isFallbackSource)
+        assertNull(result.fallbackChapterId)
+        assertEquals(true, result.read)
+        assertEquals(DownloadStatus.DOWNLOADED, result.downloadStatus)
+    }
+
+    @Test
+    fun `setVerifiedPageCount can record a redirect to a better chapter`() = runTest {
+        dao.insertNewOnly(listOf(chapter("short-ch", chapterNumber = 19f)))
+        dao.insertNewOnly(listOf(chapter("better-ch", chapterNumber = 19f)))
+
+        dao.setVerifiedPageCount("short-ch", count = 5, isFallback = false, fallbackChapterId = "better-ch")
+        dao.setVerifiedPageCount("better-ch", count = 13, isFallback = true)
+
+        val short = dao.getById("short-ch")!!
+        assertEquals(5, short.verifiedPageCount)
+        assertEquals(false, short.isFallbackSource)
+        assertEquals("better-ch", short.fallbackChapterId)
+
+        val better = dao.getById("better-ch")!!
+        assertEquals(13, better.verifiedPageCount)
+        assertEquals(true, better.isFallbackSource)
+        assertNull(better.fallbackChapterId)
+    }
 }

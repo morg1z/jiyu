@@ -100,6 +100,7 @@ class AppDatabaseMigrationTest {
                 AppDatabase.MIGRATION_31_32,
                 AppDatabase.MIGRATION_32_33,
                 AppDatabase.MIGRATION_33_34,
+                AppDatabase.MIGRATION_34_35,
             )
             .build()
 
@@ -175,6 +176,19 @@ class AppDatabaseMigrationTest {
         val ch2 = ch.copy(id = "ch2", discoveredAt = 555L)
         chapters.upsertAll(listOf(ch2))
         assertEquals(555L, chapters.getById("ch2")?.discoveredAt)
+
+        // MIGRATION_34_35: verifiedPageCount/isFallbackSource/fallbackChapterId pridane na
+        // chapter (verifiedPageCount/fallbackChapterId nullable, isFallbackSource NOT NULL
+        // default 0 pro existujici radky), musi byt citelne/zapisovatelne a prezit round-trip.
+        val ch2Before = chapters.getById("ch2")!!
+        assertEquals(null, ch2Before.verifiedPageCount)
+        assertEquals(false, ch2Before.isFallbackSource)
+        assertEquals(null, ch2Before.fallbackChapterId)
+        chapters.setVerifiedPageCount("ch2", count = 5, isFallback = false, fallbackChapterId = "ch1")
+        val ch2After = chapters.getById("ch2")!!
+        assertEquals(5, ch2After.verifiedPageCount)
+        assertEquals(false, ch2After.isFallbackSource)
+        assertEquals("ch1", ch2After.fallbackChapterId)
 
         db.close()
         context.deleteDatabase(dbName)

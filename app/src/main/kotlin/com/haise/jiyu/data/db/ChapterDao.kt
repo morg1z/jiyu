@@ -73,6 +73,12 @@ interface ChapterDao {
         groupsJson: String?,
     )
 
+    @Query("""
+        UPDATE chapter SET verifiedPageCount = :count, isFallbackSource = :isFallback,
+               fallbackChapterId = :fallbackChapterId WHERE id = :id
+    """)
+    suspend fun setVerifiedPageCount(id: String, count: Int, isFallback: Boolean, fallbackChapterId: String? = null)
+
     // Manga/kapitola id se generuje deterministicky ze zdroje+URL (viz MangaRepository.mangaId/
     // chapterId) a odebrání z knihovny mangu ani kapitoly nemaže (jen inLibrary = false, viz
     // MangaDao.setInLibrary) - bez tohohle resetu by opetovne pridani te same mangy tise

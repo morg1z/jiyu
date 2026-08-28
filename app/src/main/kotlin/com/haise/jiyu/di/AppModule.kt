@@ -341,6 +341,7 @@ object AppModule {
                 AppDatabase.MIGRATION_31_32,
                 AppDatabase.MIGRATION_32_33,
                 AppDatabase.MIGRATION_33_34,
+                AppDatabase.MIGRATION_34_35,
             )
             .build()
 
