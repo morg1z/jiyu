@@ -50,6 +50,15 @@ OCR→bubble→layout→LLM→glosář pipeline), `ui` (21 obrazovek), `update`,
 | B4 | P2 | ui/reader/ReaderPager | `BoxWithConstraints` v hot-path čtečky (jeden na KAŽDOU stránku) nepoužíval svůj scope - zbytečná subkompozice | Zbytečný výkonový náklad při každém otočení stránky | `BoxWithConstraints` → `Box` | **Opraveno** (lint `UnusedBoxWithConstraintsScope`) |
 | B5 | P3 | res/values-{en,es,fr}/strings.xml | 18 řetězců chybělo v překladech, `lintDebug` kvůli tomu **padal** (19 errorů) | CI/release lint check byl rozbitý | Doplněny anglické/španělské/francouzské překlady | **Opraveno** (`lintDebug` teď čistý) |
 | B6 | P1 | translate/TranslateChapterWorker | `Result.retry()` bez stropu na JAKKOUKOLI výjimku (i trvalou) | Kapitola s trvale rozbitým parsováním/smazanou stránkou by se donekonečna zkoušela přeložit na pozadí | Strop 3 pokusů, stejný vzor jako `SyncWorker`/`AutoBackupWorker`/`ChapterUpdateWorker` | **Opraveno** |
+| B7 | P1 | ui/duplicates/DuplicateDetectorViewModel | `viewModelScope.launch` bez try/catch (SupervisorJob nemá vlastní handler) + chybějící `finally` u `isLoading` | Chyba z `getAllLibraryManga()` by appku TVRDĚ SPADLA (ne jen nechala obrazovku točit se) | try/catch (report + tichý no-op) + finally pro isLoading | **Opraveno, regresní test** |
+
+Systematicky prohledáno (Phase 17): všech 8 ViewModelů s `isLoading`/`_loading` flagem
+a všech `viewModelScope.launch` bez jediného `catch` v souboru (5 kandidátů). Jediný
+skutečný nález byl B7 - zbytek (`BrowseViewModel`, `CustomCssViewModel`,
+`OnboardingViewModel` - čisté DataStore zápisy; `DownloadManagerViewModel` - jediné
+riziko, `ChapterStorage.deleteRecursively`, má VLASTNÍ interní try/catch+report;
+`HistoryViewModel` - čisté Room DAO volání) má zanedbatelné riziko selhání, konzistentní
+s tím, jak zbytek projektu podobná nízkoriziková volání řeší.
 
 ### 3.1 Rozdělaná práce nalezená v working directory (ne moje, z dřívějška v tomhle sezení)
 
@@ -107,7 +116,12 @@ jen pokračování do zbylých fází.
 
 ## 6. Database
 
-Viz sekce 1 (migrace) a 3. Indexy/N+1 dotazy `NEAUDITOVÁNO`.
+Viz sekce 1 (migrace) a 3. Zkontrolováno: žádný N+1 vzor (loop přes
+manga se dotazem na kapitoly per-item) - agregační dotazy
+(`observeUnreadCounts`, `observeTotalCounts`, `observeDownloadedCountPerManga`)
+používají `GROUP BY` přesně proto, aby se tomuhle vyhnuly. `ChapterEntity`
+má i složené indexy odpovídající skutečným query vzorům
+(`mangaId+read`, `mangaId+chapterNumber`), ne jen jednosloupcové.
 
 ## 7. Translation
 
@@ -122,8 +136,31 @@ Viz B4. Zbytek (paměť, bitmap pressure, webtoon scroll, process death)
 
 ## 9. Sources
 
-`NEAUDITOVÁNO`. ~120 zdrojů, sdílené šablony (`ComicSiteSource`,
-`MadaraSource`) existují a odpovídají pravidlu #3 z CLAUDE.md.
+Zkontrolováno staticky (bez zařízení): **žádný P0/P1 nález.**
+- Žádné duplicitní `id` mezi ~122 zdroji (ověřeno strojově, `override val id`).
+- Rate limiting je SPRÁVNĚ centralizovaný v `AppModule`'s OkHttp interceptoru
+  (`SourceRateLimitedException` na HTTP 429), ne rozházený po jednotlivých
+  zdrojích - první dojem "jen 1 soubor to používá" byl false positive
+  (hledáno jen v `source/`, skutečné místo je `di/`).
+- Žádný nebezpečný `.select(...).first()!!.text()` vzor; `!!` se v celém
+  `source/` adresáři nevyskytuje ANI JEDNOU.
+- Custom Madara zdroj (uživatelem zadaná URL + volitelné CSS selektory,
+  `SourceManager.kt:816-839`) padá na rozumné výchozí selektory při
+  prázdném vstupu; neplatný CSS selektor od uživatele by za běhu vyhodil
+  `Selector.SelectorParseException`, ale ten je zachycen na úrovni
+  ViewModelu (`SourceBrowseViewModel` - `catch (e: Exception) { ... toFriendlyMessage() }`),
+  takže nejde o pád appky, jen o chybovou hlášku na obrazovce.
+
+`REQUIRES DECISION` (architektura, ne bug): `SourceManager`'s konstruktor má
+~122 injektovaných parametrů (jeden na zdroj). Funguje to, ale každý nový
+zdroj = zásah do tří míst (import, parametr konstruktoru, `staticSources`
+seznam). Hilt multibinding (`@IntoSet`) by tohle zjednodušil, ale je to
+mechanický refaktor přes ~120 souborů - vysoké riziko/nízký okamžitý přínos,
+neprovedeno bez výslovného zadání.
+
+## 9.1 ComicK / resolver
+
+`NEAUDITOVÁNO` do hloubky - jen letmo zkontrolováno v předchozích sezeních.
 
 ## 10. Sync
 
@@ -153,13 +190,19 @@ Viz sekce 3 kompletní tabulka + 3.1.
 
 ## 16. Remaining issues
 
-Fáze 2 (Compose recomposition detail), 5, 11, 13 (výkon), 14 (baterie/RAM
-při velké knihovně), 17-24 zatím neprošly. Toto je živý dokument -
-pokračování v dalších sezeních.
+Hotovo dnes: 0 (mapa), 1 (build/lint baseline), 3+3.1 (nálezy B1-B7),
+4 (security - čisto), 6 (DB - čisto), 9 (sources - čisto + 1 architektonická
+poznámka). Zbývá: 2 (Compose recomposition detail), 5/14 (skutečný
+výkon/paměť - vyžaduje profiling na zařízení, ne jen statické čtení kódu),
+9.1 (ComicK resolver do hloubky), 10 (auth edge-cases), 11 (sync - jen
+částečně přes B-nálezy), 13 (zbytek download systému mimo idempotenci),
+18 (UX), 19 (testing gaps mimo to, co se dopisovalo cestou), 20 (dead code
+- potřebuje referenční sweep), 21 (dependencies verze/bezpečnost), 22-24.
 
 ## 17. Recommended roadmap
 
-1. Commitnout dnešní opravy (B1-B6 + 3.1).
-2. Rozhodnout prioritu dalšího sezení: Reader výkon/paměť, Sources
-   dedup/error handling, nebo Sync konfliktové řešení - viz otázka uživateli.
-3. Získat reálná logcat data pro B2 (`adb logcat -s BubbleWallCheck`).
+1. ~~Commitnout dnešní opravy~~ - hotovo (3 commity: 580d803, 17e31f6,
+   e7d5a83, ac585b6).
+2. Získat reálná logcat data pro B2 (`adb logcat -s BubbleWallCheck`).
+3. Pokračovat zbylými fázemi (viz sekce 16) v dalších sezeních - reálný
+   výkon/paměť vyžaduje profiler na zařízení, ne statickou analýzu.
