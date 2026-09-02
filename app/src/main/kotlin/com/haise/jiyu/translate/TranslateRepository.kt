@@ -9,6 +9,7 @@ import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
 import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 import com.haise.jiyu.util.report
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -258,7 +259,22 @@ class TranslateRepository @Inject constructor(
                     // místo aby nechal viset celou dávku na neurčito.
                     val raw = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
                         val bitmap = bitmapLoadSemaphore.withPermit { pageBitmapLoader.load(pages[pageIndex]) }
-                        bitmap?.let { bmp -> ocrSemaphore.withPermit { ocrEngine.recognize(bmp, sourceLanguage) } } ?: emptyList()
+                        bitmap?.let { bmp ->
+                            ocrSemaphore.withPermit {
+                                // coroutineScope níž zruší VŠECHNY sourozenecké stránky, jakmile
+                                // jedna vyhodí výjimku - jedna poškozená/nepodporovaná bitmapa by
+                                // tak shodila OCR celé dávky (třeba 53 z 54 stránek), ne jen sebe.
+                                // PageBitmapLoader.load má stejnou ochranu o pár řádků výš.
+                                try {
+                                    ocrEngine.recognize(bmp, sourceLanguage)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    e.report("translate:ocr:recognize")
+                                    emptyList()
+                                }
+                            }
+                        } ?: emptyList()
                     } ?: emptyList()
                     pageIndex to BubbleClassifier.classifyPage(raw)
                 }

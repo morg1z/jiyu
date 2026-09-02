@@ -662,6 +662,12 @@ class ReaderViewModel @Inject constructor(
         translationJob?.cancel()
         translationJob = null
         _translationProgress.value = null
+        // Bez tohohle by rozjeté "Přeložit vše" z PŘEDCHOZÍ kapitoly dál běželo ve stejném
+        // viewModelScope a jeho onPageReady zapisoval bloky staré kapitoly do
+        // _translatedPages, které si teď čte UI nové kapitoly - špatný překlad na špatné
+        // stránce. _batchTranslating navíc zůstávalo true a blokovalo nové "Přeložit vše"
+        // na nové kapitole, dokud starý job nedoběhl sám.
+        cancelBatchTranslation()
         _novelTranslateMode.value = false
         _novelTranslatedText.value = null
         novelTranslationJob?.cancel()

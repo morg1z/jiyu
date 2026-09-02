@@ -67,7 +67,14 @@ class SyncRepository @Inject constructor(
                 mangaId = c.mangaId,
                 read = c.read,
                 lastPageRead = c.lastPageRead,
-                updatedAt = now,
+                // Skutečný čas POSLEDNÍ ZMĚNY čtení na tomhle zařízení (ChapterEntity.lastReadAt,
+                // aktualizuje ho každé otočení stránky - viz ChapterDao.updateProgress/
+                // updateScrollOffset), NE čas tohohle push volání. Kdyby se sem posílalo `now`,
+                // periodický push by na serveru "posunul čas" i u kapitol, které se od
+                // posledního pushe vůbec nezměnily - a pullFromCloud níž (poměr updatedAt vs.
+                // lastReadAt) by pak mohl novější reálný postup na DRUHÉM zařízení tiše
+                // přepsat starší hodnotou jen proto, že tohle zařízení zrovna udělalo prázdný push.
+                updatedAt = c.lastReadAt,
             )
         }
         if (chapterDtos.isNotEmpty()) {
@@ -83,7 +90,21 @@ class SyncRepository @Inject constructor(
             .select { filter { eq("user_id", userId) } }
             .decodeList<MangaSyncDto>()
 
-        val localIds = mangaRepository.getAllLibraryManga().map { it.id }.toSet()
+        val libraryManga = mangaRepository.getAllLibraryManga()
+        val localIds = libraryManga.map { it.id }.toSet()
+
+        // Odebrání z knihovny na JINÉM zařízení se dřív nikdy nepropagovalo zpátky - pull
+        // uměl jen vkládat nové tituly, ne rušit staré. syncNow() (jediné volající místo)
+        // vždy nejdřív pushToCloud() a až pak tohle, takže remote v tuhle chvíli už odráží
+        // aktuální lokální knihovnu TOHOTO zařízení - pokud přesto říká inLibrary=false u
+        // titulu, co tu pořád je, odebral ho prokazatelně jiný přístroj.
+        val remoteMangaById = remoteManga.associateBy { it.id }
+        libraryManga.forEach { local ->
+            if (remoteMangaById[local.id]?.inLibrary == false) {
+                mangaRepository.removeFromLibrary(local.id)
+            }
+        }
+
         val toInsertManga = remoteManga
             .filter { it.inLibrary && it.id !in localIds }
             .map { dto ->
@@ -107,10 +128,18 @@ class SyncRepository @Inject constructor(
         val localChapters = mangaRepository.getAllLibraryChapters()
         val localMap = localChapters.associateBy { it.id }
 
+        // Dřív se přejímal remote stav, jen když remote.read a lokálně to ještě přečtené
+        // nebylo - jenže jednou přečtenou kapitolu (read=true) pak nešlo NIKDY dál
+        // synchronizovat: postup v jejím dalším čtení na jednom zařízení se ke druhému
+        // už nikdy nedostal, ať čas uplynul jakkoli. Teď se porovnává skutečný čas
+        // poslední změny na obou stranách (remote.updatedAt viz pushToCloud výš vs. lokální
+        // ChapterEntity.lastReadAt) - kdo měnil později, ten vyhrává, i uvnitř už přečtené
+        // kapitoly (další stránka, případně i zpětné "označit nepřečteno").
         val toUpdate = remoteChapters.mapNotNull { remote ->
             val local = localMap[remote.id] ?: return@mapNotNull null
-            if (remote.read && !local.read) local.copy(read = true, lastPageRead = remote.lastPageRead)
-            else null
+            if (remote.updatedAt > local.lastReadAt) {
+                local.copy(read = remote.read, lastPageRead = remote.lastPageRead, lastReadAt = remote.updatedAt)
+            } else null
         }
         if (toUpdate.isNotEmpty()) {
             mangaRepository.upsertAllChapters(toUpdate)

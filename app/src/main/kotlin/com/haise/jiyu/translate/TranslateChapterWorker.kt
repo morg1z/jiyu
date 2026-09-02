@@ -118,7 +118,10 @@ class TranslateChapterWorker @AssistedInject constructor(
             nm?.cancel(notificationId)
             // Retry, ne failure: nejčastější důvod je vyčerpaná kvóta nebo výpadek sítě, a obojí
             // přejde. Dokončené stránky zůstávají v cache, takže opakování začne tam, kde skončilo.
-            Result.retry()
+            // Strop 3 pokusů jako u SyncWorker/AutoBackupWorker/ChapterUpdateWorker - bez něj by
+            // TRVALÁ chyba (rozbitý parser jen na téhle kapitole, permanentně smazaná stránka u
+            // zdroje) zkoušela pořád dokola na neurčito, místo aby se jednou ohlásila jako selhání.
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 

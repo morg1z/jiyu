@@ -28,7 +28,9 @@ class AutoBackupWorker @AssistedInject constructor(
             if (folderUri != null) backupToSaf(folderUri) else backupToAppStorage()
             Result.success()
         } catch (_: Exception) {
-            Result.retry()
+            // Trvalá chyba (např. uživatel odebral oprávnění k SAF složce) by se jinak
+            // opakovala navždy při každém periodickém běhu - stejný strop jako SyncWorker.
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 

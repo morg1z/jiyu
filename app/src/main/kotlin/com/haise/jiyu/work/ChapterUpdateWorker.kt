@@ -77,7 +77,11 @@ class ChapterUpdateWorker @AssistedInject constructor(
             }
             Result.success()
         } catch (e: Exception) {
-            Result.retry()
+            // Strop pokusů jako u SyncWorker/AutoBackupWorker - trvalá chyba (rozbitá DB
+            // dotaz, chybějící oprávnění) by se jinak opakovala navždy při každém
+            // periodickém běhu.
+            e.report("work:chapterUpdate")
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 

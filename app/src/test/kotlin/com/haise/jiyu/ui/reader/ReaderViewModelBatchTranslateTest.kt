@@ -199,6 +199,58 @@ class ReaderViewModelBatchTranslateTest {
     }
 
     @Test
+    fun `navigating to another chapter cancels a stale batch translation instead of leaking its results`() = runBlocking {
+        val chapter2 = ChapterEntity(
+            id = "ch2", mangaId = "m1", sourceId = "src", url = "/ch2",
+            name = "Chapter 2", chapterNumber = 2f, dateUpload = 0L, pageCount = 1,
+        )
+        coEvery { repository.getChapter("ch2") } returns chapter2
+        coEvery { repository.getAllChapters("m1") } returns listOf(chapter, chapter2)
+        coEvery { repository.getChapterPages("src", "/ch2", any()) } returns listOf(
+            com.haise.jiyu.source.Page(0, "q1.jpg", "q1.jpg"),
+        )
+
+        // Simuluje "Prelozit vse" kapitoly 1 zaseknute uprostred - napr. pomaly OCR/LLM
+        // pozadavek, ktery jeste nedobehl v okamziku, kdy uzivatel odejde na dalsi kapitolu.
+        val ch1Gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery {
+            translateRepository.translateChapter(eq("ch1"), any(), any(), any(), any(), any())
+        } coAnswers {
+            ch1Gate.await()
+            @Suppress("UNCHECKED_CAST")
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            onPageReady(0, listOf(block("STARY PREKLAD Z KAPITOLY 1")))
+        }
+        coEvery {
+            translateRepository.translateChapter(eq("ch2"), any(), any(), any(), any(), any())
+        } coAnswers {
+            @Suppress("UNCHECKED_CAST")
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            onPageReady(0, listOf(block("Nova kapitola")))
+        }
+
+        val vm = viewModel()
+        vm.translateAllPages()
+        assertTrue("preklad kapitoly 1 bezi na pozadi", vm.batchTranslating.value)
+
+        vm.jumpToChapter("ch2")
+
+        // Stary batchJob kapitoly 1 tu jeste visi na ch1Gate - kdyby ho navigace nezrusila,
+        // dobehne AZ TEO a jeho onPageReady zapise blok "STARY PREKLAD..." do _translatedPages,
+        // ktere uz UI cte jako obsah kapitoly 2 (obe kapitoly maji stranku s indexem 0).
+        ch1Gate.complete(Unit)
+
+        assertTrue(
+            "navigace na jinou kapitolu musi zrusit rozjety batch preklad predchozi kapitoly",
+            vm.translatedPages.value.values.none { pages -> pages.any { it.translatedText == "STARY PREKLAD Z KAPITOLY 1" } },
+        )
+        assertFalse(
+            "stary batchTranslating flag nesmi zustat viset a blokovat preklad nove kapitoly",
+            vm.batchTranslating.value,
+        )
+    }
+
+    @Test
     fun `translated pages are exposed to the UI as they arrive`() = runBlocking {
         stubTranslateChapter(0 to listOf(block("Prvni")), 1 to listOf(block("Druha")))
 

@@ -16,6 +16,7 @@ import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.util.ScrambledImageUrl
 import com.haise.jiyu.util.TileScrambleBitmap
+import com.haise.jiyu.util.report
 import com.haise.jiyu.work.CHANNEL_ID
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -107,13 +108,20 @@ class ChapterDownloadWorker @AssistedInject constructor(
                     }
                     ChapterStorage.writePage(applicationContext, chapterDirPath, "%03d.%s".format(index, extension), bytes)
                     val fraction = (index + 1).toFloat() / pages.size
-                    nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
-                        .setSmallIcon(android.R.drawable.stat_sys_download)
-                        .setContentTitle("Stahování kapitoly")
-                        .setContentText("${index + 1} / ${pages.size} stránek")
-                        .setProgress(pages.size, index + 1, false)
-                        .setOngoing(true)
-                        .build())
+                    // Vlastní try/catch: zamítnuté POST_NOTIFICATIONS (Android 13+) by SecurityException
+                    // z notify() jinak spadlo do stejného catch níž jako chyba stahování a shodilo by
+                    // celou kapitolu kvůli notifikaci, ne kvůli skutečnému problému se stahováním.
+                    try {
+                        nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+                            .setSmallIcon(android.R.drawable.stat_sys_download)
+                            .setContentTitle("Stahování kapitoly")
+                            .setContentText("${index + 1} / ${pages.size} stránek")
+                            .setProgress(pages.size, index + 1, false)
+                            .setOngoing(true)
+                            .build())
+                    } catch (e: SecurityException) {
+                        e.report("download:notify:progress")
+                    }
                     setProgress(workDataOf(
                         KEY_PROGRESS to fraction,
                         KEY_CHAPTER_ENTITY_ID to chapterEntityId,
@@ -135,6 +143,15 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 throw e
             } catch (e: Exception) {
                 nm.cancel(progressId)
+                // Přechodná síťová chyba (výpadek, timeout, DNS) dostane pár automatických
+                // pokusů - dřív jakákoli chyba rovnou trvale selhala a uživatel musel
+                // vždycky stahování ručně spustit znovu, i u obyčejného zakolísání sítě.
+                // Trvalé chyby (rozbitý parser, chybějící stránky) po stropu pokusů skončí
+                // stejně jako dřív. Strop 3 sedí se stejným vzorem v SyncWorker.
+                if (e is java.io.IOException && runAttemptCount < 3) {
+                    repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
+                    return@withContext Result.retry()
+                }
                 repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
                 if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, e)
                 Result.failure()
