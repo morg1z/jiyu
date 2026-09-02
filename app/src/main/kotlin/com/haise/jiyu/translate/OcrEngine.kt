@@ -127,6 +127,21 @@ private fun logStructuredFieldMerge(heightRatio: Float) {
 }
 
 /**
+ * Loguje výsledek [hasWallBetween] pro KAŽDOU dvojici kandidátů, kterou geometrie
+ * ([shouldMerge]) vůbec pustí dál - viz doc komentář [hasWallBetween]'s `onWallCheck`. Bez
+ * skutečných dat ze zařízení nejde bezpečně rozhodnout, jestli nahlášené "text přes celou
+ * obrazovku" u kaskádové/"sněhulákové" repliky vzniká tady (zeď se nenajde, dva bubliny se
+ * spojí do jednoho přeširokého bloku), nebo až v detekci tvaru/rozvržení po sloučení -
+ * `adb logcat -s BubbleWallCheck` při přečtení nahlášené stránky ukáže, který z obou je to.
+ */
+private fun logWallCheck(aText: String, bText: String, wallHits: Int, totalSamples: Int, hasWall: Boolean) {
+    Log.d(
+        "BubbleWallCheck",
+        "hits=$wallHits/$totalSamples wall=$hasWall a=\"${aText.take(24)}\" b=\"${bText.take(24)}\"",
+    )
+}
+
+/**
  * Loguje confidence, kterou ML Kit vraci u kazdeho rozpoznaneho radku, ale appka ji dosud
  * nikdy necetla ani nikam nezapisovala. `OcrPreprocessOnDeviceTest` zmerila na SYNTETICKEM
  * (strojove vykresenem) textu, ze confidence nepredikuje spolehlive spatne cteni - ale sama
@@ -303,7 +318,16 @@ class OcrEngine @Inject constructor(
             sortIntoReadingOrder(
                 mergeNearbyLines(
                     lines,
-                    noWallBetween = { a, b -> !hasWallBetween(pixelSource, bitmap.width, bitmap.height, a, b) },
+                    noWallBetween = { a, b ->
+                        !hasWallBetween(
+                            pixelSource,
+                            bitmap.width,
+                            bitmap.height,
+                            a,
+                            b,
+                            onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
+                        )
+                    },
                     onStructuredFieldMerge = ::logStructuredFieldMerge,
                 ),
                 // Rozhoduje ROZPOZNANÝ jazyk, ne ten nastavený - pod "Auto" byl nastavený jazyk

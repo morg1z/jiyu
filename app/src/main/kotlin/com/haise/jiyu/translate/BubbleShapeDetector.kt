@@ -327,10 +327,17 @@ object BubbleShapeDetector {
         val roughArea = (boundRight - boundLeft + 1).toLong() * (boundBottom - boundTop + 1)
         val totalPixels = width.toLong() * height.toLong()
         val maxAreaFraction = (4 * roughArea).toFloat() / totalPixels
+        val textAreaPx = textAreaPx(leftF, topF, rightF, bottomF, width, height)
 
         // Zkusíme ještě jednou flood-fill s omezenou plochou odhadnutou z rychlého
         // paprskového průzkumu. Když bublina není uzavřená a unikne, vrátí se na
         // konzervativní obdélník. Jinak vrátíme plný per-row kontur.
+        //
+        // textAreaPx se posílá i sem (dřív ne) - viz [MAX_SHAPE_TO_TEXT_AREA_RATIO]. Bez
+        // něj tenhle druhý pokus přijal i uzavřenou, ale OBROVSKOU plochu (otevřený bílý
+        // prostor panelu, uzavřený až jeho okrajem daleko od textu) jako platnou "bublinu" -
+        // nahlášeno jako titulková replika bez bubliny, kde záplata zamazala půl bílého
+        // pozadí až po nejbližší kresbu, místo aby zůstala těsně u původního textu.
         val contour = detectShape(
             source = source,
             width = width,
@@ -339,10 +346,14 @@ object BubbleShapeDetector {
             bgColorArgb = bgColorArgb,
             colorDistanceThreshold = colorDistanceThreshold,
             maxAreaFraction = maxAreaFraction.coerceIn(0.001f, 0.25f),
-            textAreaPx = 0,
+            textAreaPx = textAreaPx,
             onRatioMeasured = { _, _ -> },
         )
         if (contour != null) return contour
+
+        // Stejný poměrový strop i na "syrový" paprskový obdélník níž - jinak by neuzavřená
+        // (nebo poměrem odmítnutá) plocha skončila v tomhle fallbacku úplně bez kontroly.
+        if (textAreaPx > 0 && roughArea > textAreaPx * MAX_SHAPE_TO_TEXT_AREA_RATIO) return null
 
         return (0 until SAMPLE_COUNT).map { i ->
             val frac = i / (SAMPLE_COUNT - 1).toFloat()

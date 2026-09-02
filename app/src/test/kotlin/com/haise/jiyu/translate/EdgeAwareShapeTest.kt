@@ -2,6 +2,7 @@ package com.haise.jiyu.translate
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -77,5 +78,44 @@ class EdgeAwareShapeTest {
         )
 
         assertEquals(null, shape)
+    }
+
+    /**
+     * Reprodukce nahlášeného bugu: titulková/vyprávěcí replika bez bubliny, položená přímo
+     * v otevřeném bílém prostoru panelu (žádný obrys, žádná kresba blízko textu). Otevřená
+     * plocha kolem textu je uzavřená až okrajem panelu daleko od textu (360x260 px), takže
+     * projde i vnitřním plošným stropem [BubbleShapeDetector] (0,25 stránky) - jenže proti OCR
+     * textu (20x10 px) je to poměr 468x, hluboko za [BubbleShapeDetector]'s MAX_SHAPE_TO_TEXT_AREA_RATIO
+     * (45x) změřeným na skutečných uniklých výplních. Bez kontroly poměru na tomhle druhém
+     * pokusu (paprskový fallback volá vnitřní detectShape s textAreaPx = 0, tedy s kontrolou
+     * VYPNUTOU) se vrátí obrovský obdélník - přesně to, co uživatel nahlásil jako "zamazání
+     * přes půl bílého pozadí" a zakrytí kresby daleko od původního textu.
+     */
+    @Test
+    fun `edge aware shape rejects an open background far larger than its own text`() {
+        val w = 400
+        val h = 1200
+        val pixels = IntArray(w * h) { 0xFF000000.toInt() } // black artwork everywhere
+        // Open uniform panel background - bounded only by the page edges, far from the text.
+        for (y in 500..759) {
+            for (x in 20..379) {
+                pixels[y * w + x] = 0xFFFFFFFF.toInt()
+            }
+        }
+        val source = TestPixelSource(w, h, pixels)
+
+        val shape = BubbleShapeDetector.edgeAwareShape(
+            source = source,
+            width = w,
+            height = h,
+            leftF = 190f / w,
+            topF = 620f / h,
+            rightF = 209f / w,
+            bottomF = 629f / h,
+            bgColorArgb = 0xFFFFFFFF.toInt(),
+            colorDistanceThreshold = 40,
+        )
+
+        assertNull("obrys 468x vetsi nez vlastni text neni bublina, ale otevrene pozadi", shape)
     }
 }

@@ -210,6 +210,16 @@ private fun ringColor(source: PixelSource, width: Int, height: Int, block: RawTe
  * vazba - bublina "IF I'D KNOWN...IN THE FIRST PLACE." se v překladu objevila jen jako
  * "THE FIRST PLACE.", protože se takhle rozdělila na dvě). Střed PŘEKRYVU je tam, kde spojující
  * výplň nejspíš leží, ať jsou bloky sesazené sebevíc stranou.
+ *
+ * @param onWallCheck pozorovací hák (stejný vzor jako [BubbleShapeDetector.detectShape]'s
+ *   `onRatioMeasured`) - zavolá se vždy s naměřeným počtem zásahů a výsledkem. Slouží k
+ *   nasbírání reálné distribuce z běžného čtení (volající zaloguje), protože práh "víc než
+ *   polovina vzorků" je kompromis mezi dvěma PROTICHŮDNÝMI nahlášenými chybami - tenký vodoznak
+ *   v mezeře nesmí spustit "zeď" (viz test níž), ale tenký OBRYS dvou překrývajících se, ale
+ *   VIZUÁLNĚ samostatných bublin (kaskádová/"sněhuláková" replika - viz
+ *   [MIN_HORIZONTAL_OVERLAP_RATIO] v BubbleContinuation.kt) zeď najít MUSÍ, a rovná úsečka jím
+ *   může projít stejně krátce jako vodoznakem. Bez reálných dat ze zařízení nejde bezpečně
+ *   rozhodnout, kterým směrem práh doladit, aniž by se vrátila jedna z dřívějších chyb.
  */
 fun hasWallBetween(
     source: PixelSource,
@@ -218,6 +228,7 @@ fun hasWallBetween(
     a: RawTextBlock,
     b: RawTextBlock,
     colorDistanceThreshold: Int = 40,
+    onWallCheck: (wallHits: Int, totalSamples: Int, hasWall: Boolean) -> Unit = { _, _, _ -> },
 ): Boolean {
     if (width <= 0 || height <= 0) return false
 
@@ -268,5 +279,7 @@ fun hasWallBetween(
     // narazí. Tenký/diagonální vodoznak nastříknutý přes bublinu (viz uživatelská zpětná
     // vazba - "VORTEXSCANS.COM" ležící mezi dvěma půlkami jedné bubliny) protne přímou
     // úsečku typicky jen v 1-2 bodech z 5 - jediný zásah proto nesmí stačit na verdikt "zeď".
-    return wallHits > gapFractions.size / 2
+    val hasWall = wallHits > gapFractions.size / 2
+    onWallCheck(wallHits, gapFractions.size, hasWall)
+    return hasWall
 }

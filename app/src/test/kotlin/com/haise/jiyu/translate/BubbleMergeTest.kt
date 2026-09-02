@@ -232,4 +232,24 @@ class BubbleMergeTest {
 
         assertFalse(hasWallBetween(canvas, 400, 400, a, b))
     }
+
+    @Test
+    fun `onWallCheck reports the observed hit count and verdict`() {
+        val canvas = FakeCanvas(400, 400, 0xFF000000.toInt())
+        canvas.fillRect(14, 14, 186, 86, 0xFFFFFFFF.toInt())
+        canvas.fillRect(14, 194, 186, 266, 0xFFFFFFFF.toInt())
+        val a = block("HOW DID YOU MANAGE", 20f / 400, 20f / 400, 180f / 400, 80f / 400)
+        val b = block("THIS IS MAKIMA", 20f / 400, 200f / 400, 180f / 400, 260f / 400)
+        var reportedHits: Int? = null
+        var reportedTotal: Int? = null
+        var reportedWall: Boolean? = null
+
+        hasWallBetween(canvas, 400, 400, a, b, onWallCheck = { hits, total, wall ->
+            reportedHits = hits; reportedTotal = total; reportedWall = wall
+        })
+
+        assertEquals(5, reportedTotal)
+        assertTrue("skutecna zed mezi bublinami musi zasahnout vetsinu z 5 vzorku", reportedHits!! > 2)
+        assertEquals(true, reportedWall)
+    }
 }
