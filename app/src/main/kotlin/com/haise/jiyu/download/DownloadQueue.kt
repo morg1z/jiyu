@@ -3,6 +3,7 @@ package com.haise.jiyu.download
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -40,7 +41,18 @@ class DownloadQueue @Inject constructor(
             .addTag("jiyu_download")
             .build()
 
-        WorkManager.getInstance(context).enqueue(request)
+        // enqueueUniqueWork + KEEP: bez tohohle by dvojtap na "Stáhnout", souběžný
+        // auto-download z ChapterUpdateWorker a ruční stažení ze stejné kapitoly, nebo
+        // opětovné zavolání enqueue() po restartu workeru mohly spustit DVA
+        // ChapterDownloadWorker souběžně nad stejnou kapitolou - oba by zapisovaly do
+        // stejných souborů stránek najednou. KEEP nechá už běžící/frontou čekající
+        // stažení v klidu doběhnout a novou práci nezaloží; jakmile skončí (úspěchem i
+        // chybou), další enqueue už projde normálně (typicky ruční retry).
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "download_${chapter.id}",
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
     }
 
     fun cancel(chapterId: String) {

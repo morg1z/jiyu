@@ -1068,4 +1068,23 @@
     <string name="translate_worker_notification_title">Translating – %1$s</string>
     <string name="translate_worker_notification_chapter">%1$s</string>
     <string name="detail_translate_enqueued">Queued for background translation</string>
+
+    <string name="widget_shelf_title">Jiyu – Shelf</string>
+    <string name="widget_shelf_description">Library or a chosen category as a grid of covers</string>
+    <string name="widget_shelf_config_title">Choose a category for the widget</string>
+    <string name="widget_shelf_config_empty">Nothing here yet in the library/category.</string>
+    <string name="widget_shelf_unconfigured">Tap to set a category</string>
+    <string name="widget_shelf_all_library">Whole library</string>
+    <string name="settings_reader_infinite_scroll_title">Infinite reading</string>
+    <string name="settings_reader_infinite_scroll_desc">In vertical (webtoon) mode, the app smoothly appends the next chapter below the current one instead of switching chapters</string>
+    <string name="settings_reader_curl_style_classic">Classic curl</string>
+    <string name="settings_reader_curl_style_roll">Page roll</string>
+    <string name="settings_reader_curl_style_cylinder">Thick scroll</string>
+    <string name="settings_reader_curl_style_wave">Sea wave</string>
+    <string name="reader_reset_chapter_desc">Reload chapter</string>
+    <string name="webtoon_chapter_boundary_finished">End: %1$s</string>
+    <string name="webtoon_chapter_boundary_next">Next: %1$s</string>
+    <string name="reader_home_desc">Home (Library)</string>
+    <string name="browse_source_adult_badge">18+</string>
+    <string name="comick_browse_search_history">RECENTLY SEARCHED</string>
 </resources>

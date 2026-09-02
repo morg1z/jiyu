@@ -1088,4 +1088,23 @@
     <string name="translate_worker_notification_title">Traduction – %1$s</string>
     <string name="translate_worker_notification_chapter">%1$s</string>
     <string name="detail_translate_enqueued">Ajouté à la file de traduction</string>
+
+    <string name="widget_shelf_title">Jiyu – Étagère</string>
+    <string name="widget_shelf_description">Bibliothèque ou catégorie choisie sous forme de grille de couvertures</string>
+    <string name="widget_shelf_config_title">Choisissez une catégorie pour le widget</string>
+    <string name="widget_shelf_config_empty">Rien pour l\'instant dans la bibliothèque/catégorie.</string>
+    <string name="widget_shelf_unconfigured">Touchez pour choisir une catégorie</string>
+    <string name="widget_shelf_all_library">Toute la bibliothèque</string>
+    <string name="settings_reader_infinite_scroll_title">Lecture infinie</string>
+    <string name="settings_reader_infinite_scroll_desc">En mode vertical (webtoon), l\'appli ajoute le chapitre suivant sous l\'actuel au lieu de changer de chapitre</string>
+    <string name="settings_reader_curl_style_classic">Rotation classique</string>
+    <string name="settings_reader_curl_style_roll">Enroulement de page</string>
+    <string name="settings_reader_curl_style_cylinder">Rouleau épais</string>
+    <string name="settings_reader_curl_style_wave">Vague marine</string>
+    <string name="reader_reset_chapter_desc">Recharger le chapitre</string>
+    <string name="webtoon_chapter_boundary_finished">Fin : %1$s</string>
+    <string name="webtoon_chapter_boundary_next">Suivant : %1$s</string>
+    <string name="reader_home_desc">Accueil (Bibliothèque)</string>
+    <string name="browse_source_adult_badge">18+</string>
+    <string name="comick_browse_search_history">RECHERCHES RÉCENTES</string>
 </resources>

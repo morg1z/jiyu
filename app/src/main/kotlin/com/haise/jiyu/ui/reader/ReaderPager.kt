@@ -254,7 +254,7 @@ fun MangaReader(
             userScrollEnabled = scale <= 1f,
         ) { groupIdx ->
             val indices = groups[groupIdx]
-            BoxWithConstraints(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
