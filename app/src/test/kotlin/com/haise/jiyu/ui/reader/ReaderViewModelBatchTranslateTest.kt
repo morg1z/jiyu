@@ -214,7 +214,7 @@ class ReaderViewModelBatchTranslateTest {
         // pozadavek, ktery jeste nedobehl v okamziku, kdy uzivatel odejde na dalsi kapitolu.
         val ch1Gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         coEvery {
-            translateRepository.translateChapter(eq("ch1"), any(), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
         } coAnswers {
             ch1Gate.await()
             @Suppress("UNCHECKED_CAST")
@@ -222,7 +222,7 @@ class ReaderViewModelBatchTranslateTest {
             onPageReady(0, listOf(block("STARY PREKLAD Z KAPITOLY 1")))
         }
         coEvery {
-            translateRepository.translateChapter(eq("ch2"), any(), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any())
         } coAnswers {
             @Suppress("UNCHECKED_CAST")
             val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)

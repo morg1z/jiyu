@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.util.normalizeMangaTitle
+import com.haise.jiyu.util.report
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,14 +34,22 @@ class DuplicateDetectorViewModel @Inject constructor(
     fun scan() {
         viewModelScope.launch {
             _isLoading.value = true
-            val library = repository.getAllLibraryManga()
-            val grouped = library
-                .groupBy { normalizeMangaTitle(it.title) }
-                .filter { (_, items) -> items.size > 1 }
-                .map { (key, items) -> DuplicateGroup(key, items.sortedBy { it.sourceId }) }
-                .sortedBy { it.normalizedTitle }
-            _groups.value = grouped
-            _isLoading.value = false
+            try {
+                val library = repository.getAllLibraryManga()
+                val grouped = library
+                    .groupBy { normalizeMangaTitle(it.title) }
+                    .filter { (_, items) -> items.size > 1 }
+                    .map { (key, items) -> DuplicateGroup(key, items.sortedBy { it.sourceId }) }
+                    .sortedBy { it.normalizedTitle }
+                _groups.value = grouped
+            } catch (e: Exception) {
+                // Bez catch by chyba z getAllLibraryManga() (napr. poskozeny radek v DB) byla
+                // nezachycena vyjimka ve viewModelScope (SupervisorJob nema vlastni handler) -
+                // ta appku spadne, ne jen necha obrazovku vecne tocit se.
+                e.report("duplicates:scan")
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
