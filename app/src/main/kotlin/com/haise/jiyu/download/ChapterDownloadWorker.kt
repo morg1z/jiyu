@@ -132,7 +132,16 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 repository.markDownloaded(chapterEntityId, chapterDirPath, pages.size)
 
                 if (settings.saveAsCbz.first()) {
-                    ChapterStorage.createCbz(applicationContext, chapterDirPath, chapterFolderName)
+                    // Vlastni try/catch: stranky uz jsou v tuhle chvili uspesne stazene a
+                    // markDownloaded() vyse uz kapitolu oznacil jako DOWNLOADED - kdyby
+                    // pripadna chyba pri baleni do CBZ spadla do vnejsiho catch, prepsala by
+                    // spravny stav zpatky na ERROR, i kdyz uzivatel ma vsechny stranky skutecne
+                    // v poradku na disku, jen bez volitelneho .cbz souboru navic.
+                    try {
+                        ChapterStorage.createCbz(applicationContext, chapterDirPath, chapterFolderName)
+                    } catch (e: Exception) {
+                        e.report("download:cbz")
+                    }
                 }
 
                 if (settings.notifyDownloads.first()) notifyDone(chapterEntityId)
@@ -215,9 +224,19 @@ class ChapterDownloadWorker @AssistedInject constructor(
         @Volatile private var currentSemaphore: Semaphore? = null
         @Volatile private var currentPermits: Int = -1
 
+        // Sdileny napric VSEMI bezicimi ChapterDownloadWorker instancemi zaroven - k tomu tu
+        // je (proces-wide throttle na "kolik kapitol se stahuje soubezne", ne per-worker).
+        // Zmena semaphore NA NOVOU INSTANCI, dokud stara drzi vydane permity, by limit
+        // porusila (dva ruzne objekty spolu nekomunikuji, takze by na chvili mohlo bezet
+        // az soucet obou kapacit soubezne) - proto se kapacita meni jen ve chvili, kdy je
+        // stara semaphore prokazatelne VOLNA (availablePermits == currentPermits, nikdo
+        // z ni nic nedrzi). Dokud bezi stare stahovani se starym limitem, novy pozadavek
+        // na jiny limit pockej az na jeho konec - o nekolik sekund pozdejsi projeveni
+        // zmeny nastaveni je nesrovnatelne bezpecnejsi nez docasne uplne vypnuty throttle.
         @Synchronized
         fun getSemaphore(permits: Int): Semaphore {
-            if (currentSemaphore == null || currentPermits != permits) {
+            val existing = currentSemaphore
+            if (existing == null || (currentPermits != permits && existing.availablePermits == currentPermits)) {
                 currentSemaphore = Semaphore(permits)
                 currentPermits = permits
             }
