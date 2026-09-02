@@ -176,13 +176,28 @@ Nízké - viz Executive summary (0 TODO, 0 GlobalScope, málo `!!`).
 
 ## 13. Dead code
 
-`NEAUDITOVÁNO` - potřebuje dedikovaný reference-count sweep.
+Strojový sweep (každá top-level `class`/`object` v `main/kotlin`, hledány
+reference odkudkoli v main+test) našel přesně **1 skutečně mrtvý soubor**:
+`source/manhwaraw18/ManhwaRaw18Source.kt` - zdroj byl odregistrován z
+`SourceManager` 2026-08-24 (komentář: "manhwaraw18.com nema DNS zaznam"),
+ale .kt soubor zůstal. **Smazáno** (e476b44). Zbytek "0 external refs"
+byly false positivy vysvětlitelné anotacemi (Hilt `@Module`) nebo referencí
+v manifestu (Activity), ne skutečně mrtvý kód.
+
+Nekontrolováno: top-level `fun` (jen `class`/`object`), a `ui/` Composables
+(mnohem těžší strojově odlišit "nepoužívané" od "volané přes navigační
+graf/reflection").
 
 ## 14. Dependencies
 
-`NEAUDITOVÁNO` do hloubky. Přidána 1 nová test-only závislost:
-`androidx.work:work-testing:2.9.1` (stejná verze jako `work-runtime-ktx`,
-jen `testImplementation`, nedostane se do APK).
+Přehled (`app/build.gradle.kts`, 45 `implementation` závislostí) - žádná
+zjevná duplicita (jeden image loader, jedna DI, jeden HTTP klient),
+všechny odpovídají "vše zdarma" pravidlu (MLKit/ONNX/Supabase/Firebase
+mají free tier bez karty). Verze NEKONTROLOVÁNY proti aktuálním
+released verzím - vyžaduje živý lookup (`./gradlew dependencyUpdates`
+plugin chybí), ne odhad z trénovacích dat. Přidána 1 nová test-only
+závislost: `androidx.work:work-testing:2.9.1` (stejná verze jako
+`work-runtime-ktx`, jen `testImplementation`, nedostane se do APK).
 
 ## 15. Fixed issues
 
