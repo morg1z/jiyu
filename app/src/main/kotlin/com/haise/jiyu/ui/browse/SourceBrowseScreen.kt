@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -84,7 +86,9 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
 import com.haise.jiyu.R
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
+import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import com.haise.jiyu.ui.theme.GlowCyan
@@ -266,6 +270,7 @@ fun SourceBrowseScreen(
         val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         BrowseFilterSheet(
             current = activeFilter,
+            source = source,
             sheetState = filterSheetState,
             onDismiss = { showFilterSheet = false },
             onApply = { newFilter ->
@@ -466,6 +471,7 @@ private fun BrowseMangaCard(manga: SManga, isLoading: Boolean = false, referer: 
 @Composable
 private fun BrowseFilterSheet(
     current: MangaFilter,
+    source: MangaSource?,
     sheetState: androidx.compose.material3.SheetState,
     onDismiss: () -> Unit,
     onApply: (MangaFilter) -> Unit,
@@ -474,6 +480,11 @@ private fun BrowseFilterSheet(
     var yearText by remember { mutableStateOf(current.year?.toString() ?: "") }
     var selectedSort by remember { mutableStateOf(current.sortBy) }
     var sortDropdownExpanded by remember { mutableStateOf(false) }
+    var selectedGenres by remember { mutableStateOf(current.genres) }
+    var showTagPicker by remember { mutableStateOf(false) }
+    // Labely vybranych tagu se dohledaji az kdyz uzivatel otevre picker (getAvailableTags
+    // muze delat network) - do te doby se ve shrnuti zobrazi jen pocet, ne jmena.
+    var selectedTagLabels by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     val statuses = listOf(
         null to stringResource(R.string.common_all),
@@ -517,6 +528,21 @@ private fun BrowseFilterSheet(
                             selectedContainerColor = Violet.copy(alpha = 0.3f),
                             selectedLabelColor = Violet,
                         ),
+                    )
+                }
+            }
+
+            if (source?.supportsTagFilter == true) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_tags_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                OutlinedButton(
+                    onClick = { showTagPicker = true },
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                ) {
+                    Text(
+                        if (selectedGenres.isEmpty()) stringResource(R.string.source_browse_tags_none)
+                        else stringResource(R.string.source_browse_tags_selected_count, selectedGenres.size),
+                        color = Color.White,
                     )
                 }
             }
@@ -578,7 +604,150 @@ private fun BrowseFilterSheet(
                             status = selectedStatus,
                             year = yearText.toIntOrNull(),
                             sortBy = selectedSort,
+                            genres = selectedGenres,
                         ))
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Violet),
+                ) {
+                    Text(stringResource(R.string.source_browse_apply))
+                }
+            }
+        }
+    }
+
+    if (showTagPicker && source != null) {
+        val tagSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        TagPickerSheet(
+            source = source,
+            selectedIds = selectedGenres,
+            knownLabels = selectedTagLabels,
+            sheetState = tagSheetState,
+            onDismiss = { showTagPicker = false },
+            onApply = { ids, labels ->
+                selectedGenres = ids
+                selectedTagLabels = labels
+                showTagPicker = false
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TagPickerSheet(
+    source: MangaSource,
+    selectedIds: List<String>,
+    knownLabels: Map<String, String>,
+    sheetState: androidx.compose.material3.SheetState,
+    onDismiss: () -> Unit,
+    onApply: (List<String>, Map<String, String>) -> Unit,
+) {
+    var allTags by remember { mutableStateOf<List<FilterTag>?>(null) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf(selectedIds.toSet()) }
+
+    LaunchedEffect(source.id) {
+        try {
+            allTags = source.getAvailableTags()
+        } catch (_: Exception) {
+            loadFailed = true
+        }
+    }
+
+    val filteredTags by remember {
+        derivedStateOf {
+            val tags = allTags.orEmpty()
+            if (query.isBlank()) tags else tags.filter { it.label.contains(query, ignoreCase = true) }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111B35),
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(stringResource(R.string.source_browse_tags_search_placeholder), color = Color(0xFFB0BEC5)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Violet,
+                    unfocusedBorderColor = Color(0xFFB0BEC5).copy(alpha = 0.3f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = Violet,
+                ),
+            )
+
+            when {
+                allTags == null && !loadFailed -> {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        JiyuLoadingIndicator()
+                    }
+                }
+                loadFailed || filteredTags.isEmpty() && query.isBlank() && allTags?.isEmpty() == true -> {
+                    Text(
+                        if (loadFailed) stringResource(R.string.source_browse_tags_load_failed) else stringResource(R.string.source_browse_tags_empty),
+                        color = Color(0xFFB0BEC5),
+                        modifier = Modifier.padding(32.dp),
+                    )
+                }
+                else -> {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filteredTags, key = { it.id }) { tag ->
+                            val isSelected = tag.id in selected
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(tag.id) {
+                                        detectTapGestures {
+                                            selected = if (isSelected) selected - tag.id else selected + tag.id
+                                        }
+                                    }
+                                    .padding(vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    tag.label,
+                                    color = if (isSelected) Violet else Color.White,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .height(20.dp)
+                                            .background(Violet, RoundedCornerShape(2.dp)),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { selected = emptySet() },
+                    modifier = Modifier.weight(1f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB0BEC5).copy(alpha = 0.4f)),
+                ) {
+                    Text(stringResource(R.string.source_browse_reset), color = Color(0xFFB0BEC5))
+                }
+                Button(
+                    onClick = {
+                        val labels = (allTags.orEmpty().associate { it.id to it.label }) + knownLabels
+                        onApply(selected.toList(), labels.filterKeys { it in selected })
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),

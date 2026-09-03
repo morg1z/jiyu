@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangadex
 
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.LanguageMap
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -46,6 +47,32 @@ class MangaDexSource @Inject constructor(
     private val apiBase = "https://api.mangadex.org"
     private val coverBase = "https://uploads.mangadex.org/covers"
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // /manga/tag je staticky seznam (~90 polozek), ktery se pri behu appky nemeni -
+    // stacit ho dotahnout jednou a v pameti sdilet mezi vsemi otevrenimi Filtru.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val json = get("$apiBase/manga/tag")
+            val data = json.optJSONArray("data") ?: return@withContext emptyList()
+            val tags = (0 until data.length()).mapNotNull { i ->
+                val tag = data.getJSONObject(i)
+                val attrs = tag.optJSONObject("attributes") ?: return@mapNotNull null
+                val name = attrs.optJSONObject("name")?.optString("en")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FilterTag(id = tag.getString("id"), label = name)
+            }.sortedBy { it.label }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        filter.genres.forEach { append("&includedTags[]=$it") }
+    }
+
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val offset = (page - 1) * 20
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
@@ -53,6 +80,7 @@ class MangaDexSource @Inject constructor(
             append("$apiBase/manga?title=$encodedQuery&limit=20&offset=$offset&includes[]=cover_art")
             filter.status?.let { append("&status[]=$it") }
             filter.year?.takeIf { it > 0 }?.let { append("&year=$it") }
+            appendGenreFilter(filter)
             appendSortParam(filter.sortBy)
         }
         parseMangaList(get(url))
@@ -65,6 +93,7 @@ class MangaDexSource @Inject constructor(
             append("&contentRating[]=safe&contentRating[]=suggestive")
             filter.status?.let { append("&status[]=$it") }
             filter.year?.takeIf { it > 0 }?.let { append("&year=$it") }
+            appendGenreFilter(filter)
             appendSortParam(filter.sortBy)
         }
         parseMangaList(get(url))

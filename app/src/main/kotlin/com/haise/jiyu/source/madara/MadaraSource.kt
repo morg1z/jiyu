@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.madara
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
@@ -74,6 +75,11 @@ class MadaraSource(
         { root, page, orderby -> "$root/manga/page/$page/?m_orderby=$orderby" },
     private val searchUrl: (root: String, query: String, page: Int) -> String =
         { root, query, page -> "$root/page/$page/?s=$query&post_type=wp-manga" },
+    // Standardni Madara "wp-manga-genre" taxonomie ma rewrite slug "genre" a stejnou
+    // /page/N/ paginaci jako archiv - overeno zive na toonily.com (odlisne tituly na
+    // strance 1 vs 2). Prepsatelne pro weby, kde je taxonomie jinak pojmenovana.
+    private val genreUrl: (root: String, slug: String, page: Int) -> String =
+        { root, slug, page -> "$root/genre/$slug/page/$page/" },
 ) : MangaSource {
 
     override val contentType: String get() = contentTypeOverride
@@ -109,8 +115,32 @@ class MadaraSource(
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // /search/ stranka je soucast madara-core pluginu (ne motivu), takze genre[]
+    // checkboxy tam maji napric weby stejny HTML tvar - lisi se jen skutecne
+    // hodnoty/slugy, ktere se ale nacitaji zive primo z webu, ne natvrdo.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDocument("$root/search/")
+            val tags = doc.select("label.genre-item").mapNotNull { label ->
+                val slug = label.selectFirst("input[name=genre[]]")?.attr("value")?.ifBlank { null } ?: return@mapNotNull null
+                val text = label.selectFirst("span")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = text)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreUrl(root, filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = searchUrl(root, q, page)
             parseMangaList(fetchDocument(url))
@@ -118,6 +148,13 @@ class MadaraSource(
 
     override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            // Genre archiv radi jen podle data zverejneni (zadny vlastni orderby) -
+            // pri vybranem tagu se filter.sortBy tise ignoruje, filtrovani ma prednost
+            // pred razenim. Kombinace vice tagu najednou madara-core nepodporuje (jen
+            // jeden genre per archivni stranka) - pri vice vybranych se pouzije prvni.
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreUrl(root, filter.genres.first(), page)))
+            }
             val orderby = when (filter.sortBy) {
                 "latest" -> "latest"
                 "title"  -> "alphabet"

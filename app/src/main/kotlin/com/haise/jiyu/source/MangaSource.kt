@@ -33,7 +33,14 @@ data class MangaFilter(
     val status: String? = null,
     val year: Int? = null,
     val sortBy: String = "popular",
+    /** Vybrané tagy/žánry (viz [MangaSource.getAvailableTags]) - obsahuje `id`
+     * z [FilterTag], ne zobrazovaný `label`. Prázdné = žádný tagový filtr. */
+    val genres: List<String> = emptyList(),
 )
+
+/** Jeden tag/žánr tak, jak ho nabízí konkrétní zdroj - `id` je hodnota, kterou
+ * zdroj sám používá v URL/query (slug, UUID...), `label` je text pro UI. */
+data class FilterTag(val id: String, val label: String)
 
 /** Překladatelská/scan skupina u konkrétní kapitoly - `slug` je nepovinný (ne každý zdroj ho má). */
 data class SGroup(val name: String, val slug: String? = null)
@@ -88,6 +95,16 @@ interface MangaSource {
 
     /** Zdroj s explicitním 18+ obsahem - viz SettingsRepository.showAdultSources a SourceManager (filtruje z Browse/hledání, ne z už přidané knihovny). Výchozí false. */
     val isAdult: Boolean get() = false
+
+    /** Zdroj nabízí vlastní seznam tagů/žánrů pro filtrování (viz [getAvailableTags]).
+     * Výchozí false = appka u tohohle zdroje sekci tagů ve Filtrech vůbec nezobrazí. */
+    val supportsTagFilter: Boolean get() = false
+
+    /** Seznam tagů/žánrů, které zdroj nabízí pro filtrování - buď natvrdo (ověřeno
+     * živě proti webu), nebo dotažený přímo z webu (např. z jeho vyhledávacího
+     * formuláře či vlastního API). Volá se až při otevření sekce tagů ve Filtrech,
+     * ne automaticky při načtení zdroje. Výchozí = prázdný seznam. */
+    suspend fun getAvailableTags(): List<FilterTag> = emptyList()
 
     /** Fulltextové hledání podle názvu. */
     suspend fun search(query: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga>

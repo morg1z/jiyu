@@ -820,6 +820,12 @@
     <string name="source_browse_sort_label">Řazení</string>
     <string name="source_browse_reset">Resetovat</string>
     <string name="source_browse_apply">Použít</string>
+    <string name="source_browse_tags_label">Tagy</string>
+    <string name="source_browse_tags_none">Žádné</string>
+    <string name="source_browse_tags_selected_count">Vybráno: %1$d</string>
+    <string name="source_browse_tags_search_placeholder">Začněte psát název žánru</string>
+    <string name="source_browse_tags_empty">Zdroj žádné tagy nenabízí</string>
+    <string name="source_browse_tags_load_failed">Tagy se nepodařilo načíst</string>
 
     <!-- Globální vyhledávání -->
     <string name="search_title">Globální vyhledávání</string>
