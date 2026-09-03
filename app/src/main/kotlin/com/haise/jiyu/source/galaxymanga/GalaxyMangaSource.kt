@@ -53,7 +53,9 @@ class GalaxyMangaSource @Inject constructor(private val client: OkHttpClient) : 
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/manga/?page=$page&order=popular")) } catch (_: Exception) { emptyList() }
+        // "order=update" pro Nejnovejsi overeno zive (uplne jina sada titulu nez "popular").
+        val orderby = if (filter.sortBy == "latest") "update" else "popular"
+        try { parseList(get("$base/manga/?page=$page&order=$orderby")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

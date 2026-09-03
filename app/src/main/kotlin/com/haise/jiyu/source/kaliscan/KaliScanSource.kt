@@ -57,7 +57,10 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseBookList(getHtml("$base/popular?page=$page")) } catch (_: Exception) { emptyList() }
+        // Overeno zive: /latest je samostatna, skutecne odlisna stranka od /popular,
+        // ne jen jina projekce stejnych dat.
+        val path = if (filter.sortBy == "latest") "latest" else "popular"
+        try { parseBookList(getHtml("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

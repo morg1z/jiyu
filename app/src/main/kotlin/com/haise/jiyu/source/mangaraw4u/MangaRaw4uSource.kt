@@ -41,7 +41,11 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/?page=$page"))
+            // /search?sort= ma stejnou strukturu karet jako uvodni strana, ale na rozdil
+            // od ni umi radit i podle "-updated_at" (Nejnovejsi) - overeno zivě, jina data
+            // nez u "-views" (Popularni).
+            val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
+            val doc = Jsoup.parse(get("$base/search?sort=$sort&page=$page"))
             doc.select("a.result-card").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val title = a.selectFirst(".result-card-title")?.text()?.trim() ?: return@mapNotNull null

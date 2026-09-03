@@ -51,8 +51,11 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (page > 1) return@withContext emptyList()
+            // /en/new ma stejnou strukturu karet jako /en/ranking, jen jinak razenou
+            // (overeno zive - odlisna prvni polozka) - pro "Nejnovejsi" tab.
+            val path = if (filter.sortBy == "latest") "/en/new" else "/en/ranking"
             try {
-                val doc = parseDocument("$base/en/ranking")
+                val doc = parseDocument("$base$path")
                 doc.select("div.comicItemCon a[href]").mapNotNull { a ->
                     val url = a.absUrl("href").ifBlank { return@mapNotNull null }
                     val img = a.selectFirst("img") ?: return@mapNotNull null

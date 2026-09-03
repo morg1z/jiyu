@@ -59,7 +59,11 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/browse?page=$page"))
+            // Bez parametru web sam defaultuje na sort=latest (viz <select name="sort">
+            // na strance, "Latest" je oznaceny selected) - vlastni "Popularni" razeni
+            // (7denni top views) je proto potreba zadat explicitne, overeno zive.
+            val sort = if (filter.sortBy == "latest") "latest" else "views7"
+            val doc = Jsoup.parse(get("$base/browse?sort=$sort&page=$page"))
             doc.select("a.card-manga").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }

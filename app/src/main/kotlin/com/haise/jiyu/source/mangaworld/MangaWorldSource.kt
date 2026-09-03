@@ -59,7 +59,8 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/archive?sort=most_read&page=$page")) } catch (_: Exception) { emptyList() }
+        val sort = if (filter.sortBy == "latest") "newest" else "most_read"
+        try { parseList(get("$base/archive?sort=$sort&page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -64,7 +64,10 @@ class EHentaiSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseListing(get("$base/?page=${page - 1}")) } catch (_: Exception) { emptyList() }
+        // Bez parametru web řadí čistě chronologicky (nejnovější nahrání) - "Populární"
+        // tab potřebuje samostatnou "/popular" stránku (ověřeno živě, jiný obsah).
+        val url = if (filter.sortBy == "popular") "$base/popular" else "$base/?page=${page - 1}"
+        try { parseListing(get(url)) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

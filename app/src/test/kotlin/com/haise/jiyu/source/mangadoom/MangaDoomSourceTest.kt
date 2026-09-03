@@ -27,6 +27,16 @@ class MangaDoomSourceTest {
         </body></html>
     """.trimIndent()
 
+    private val popularMangaHtml = """
+        <html><body>
+        <div class="manga-list-style">
+            <a href="https://manga-doom.com/test-series" title="Test Series">
+                <img src="https://manga-doom.com/pictures/1/cover.jpg" alt="Test Series">
+            </a>
+        </div>
+        </body></html>
+    """.trimIndent()
+
     private val detailHtml = """
         <html><body>
         <h5 class="widget-heading">Test Series</h5>
@@ -66,6 +76,7 @@ class MangaDoomSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path == "/" || path.startsWith("/?page=") -> MockResponse().setBody(popularHtml)
+                    path.startsWith("/popular-manga") -> MockResponse().setBody(popularMangaHtml)
                     path == "/test-series" -> MockResponse().setBody(detailHtml)
                     path == "/test-series/1/1" -> MockResponse().setBody(readerPage1Html)
                     path == "/test-series/1/2" -> MockResponse().setBody(readerPage2Html)

@@ -50,7 +50,10 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page > 1) "$base/sort/most-popular/$page" else "$base/sort/most-popular"
+            // "/sort/latest-release" pro Nejnovejsi overeno zive (uplne jina sada titulu
+            // nez "/sort/most-popular").
+            val sortPath = if (filter.sortBy == "latest") "latest-release" else "most-popular"
+            val url = if (page > 1) "$base/sort/$sortPath/$page" else "$base/sort/$sortPath"
             parseListing(Jsoup.parse(get(url)))
         } catch (_: Exception) { emptyList() }
     }

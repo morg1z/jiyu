@@ -44,7 +44,11 @@ class MangaGekoSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/jumbo/manga/?results=$page&filter=All"))
+            // Web sam bez parametru vraci "Latest Updated Manga" (viz <title> stranky) -
+            // teprve "hot=true" prepne na skutecne popularni/trending tituly (overeno
+            // zive, oba vraceji zcela odlisne seznamy).
+            val hotParam = if (filter.sortBy == "latest") "" else "&hot=true"
+            val doc = Jsoup.parse(get("$base/jumbo/manga/?results=$page&filter=All$hotParam"))
             doc.select("a.list-body[href^=/manga/]").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }

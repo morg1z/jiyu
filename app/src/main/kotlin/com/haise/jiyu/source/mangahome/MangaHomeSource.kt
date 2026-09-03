@@ -47,7 +47,10 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/directory/$page.html")) } catch (_: Exception) { emptyList() }
+        // "/latest/N.html" ma stejnou kartu (a.post-cover) jako "/directory/N.html",
+        // jen jiny zdroj razeni - overeno zive, vraci odlisne tituly.
+        val path = if (filter.sortBy == "latest") "/latest/$page.html" else "/directory/$page.html"
+        try { parseList(get("$base$path")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

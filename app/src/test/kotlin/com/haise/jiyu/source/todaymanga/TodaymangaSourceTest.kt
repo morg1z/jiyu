@@ -56,6 +56,8 @@ class TodaymangaSourceTest {
                 return when {
                     path.startsWith("/search") -> MockResponse().setBody(homeHtml)
                     path == "/" -> MockResponse().setBody(homeHtml)
+                    path.startsWith("/category/editor-pick") -> MockResponse().setBody(homeHtml)
+                    path.startsWith("/category/recent") -> MockResponse().setBody(homeHtml)
                     path == "/book/test-series" -> MockResponse().setBody(detailHtml)
                     path == "/book/test-series/chapter-list" -> MockResponse().setBody(chapterListHtml)
                     path == "/book/test-series/vol-1-ch-1" -> MockResponse().setBody(readerHtml)

@@ -72,9 +72,18 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Cely katalog uz je v jedne JSON odpovedi (allSeries) - razeni Popularni/
+            // Nejnovejsi jde udelat klientsky bez dalsiho pozadavku pres "popularityRank"
+            // (1 = nejpopularnejsi) a "last_edit" (unix cas posledni upravy kapitoly),
+            // oboje pole overena zive v datech, davaji viditelne odlisne poradi.
             val all = allSeries()
+            val sorted = if (filter.sortBy == "latest") {
+                all.sortedByDescending { it.optLong("last_edit", 0L) }
+            } else {
+                all.sortedBy { s -> s.optInt("popularityRank", -1).let { if (it < 0) Int.MAX_VALUE else it } }
+            }
             val from = (page - 1) * pageSize
-            if (from >= all.size) emptyList() else all.subList(from, minOf(from + pageSize, all.size)).mapNotNull(::seriesToManga)
+            if (from >= sorted.size) emptyList() else sorted.subList(from, minOf(from + pageSize, sorted.size)).mapNotNull(::seriesToManga)
         } catch (_: Exception) { emptyList() }
     }
 

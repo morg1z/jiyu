@@ -58,7 +58,10 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
     // titulu je "/list/all/all-onclick-{page}.html" (0-indexovane, razeno podle
     // poctu prokliku = "popularni"), ktery odkazuje primo na /novel/{slug}.html.
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/list/all/all-onclick-${page - 1}.html")) } catch (_: Exception) { emptyList() }
+        // overeno zive: "all-newstime" (razeno dle casu pridani) vraci jine
+        // poradi nez "all-onclick" (razeno dle poctu prokliku), stejny vzor strankovani.
+        val sort = if (filter.sortBy == "latest") "newstime" else "onclick"
+        try { parseList(get("$base/list/all/all-$sort-${page - 1}.html")) } catch (_: Exception) { emptyList() }
     }
 
     // Vyhledavani jde pres POST na EmpireCMS endpoint, ktery presmeruje

@@ -56,7 +56,8 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            parseList(get("$base/fictions/best-rated?page=$page"))
+            val path = if (filter.sortBy == "latest") "latest-updates" else "best-rated"
+            parseList(get("$base/fictions/$path?page=$page"))
         } catch (_: Exception) { emptyList() }
     }
 

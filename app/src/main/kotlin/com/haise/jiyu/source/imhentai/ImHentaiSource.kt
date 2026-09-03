@@ -50,6 +50,10 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
         val href = a.attr("href").ifBlank { return null }
         val title = thumb.selectFirst("h2.gallery_title a")?.text()?.trim()?.ifBlank { null }
             ?: a.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
+            // "/popular/" nema h2.gallery_title (jen div.caption > a s textem primo) -
+            // overeno zive, bez tohoto fallbacku by parseThumb vratil null pro VSECHNY
+            // polozky na te strance.
+            ?: thumb.selectFirst("div.caption a")?.text()?.trim()?.ifBlank { null }
             ?: return null
         val cover = a.selectFirst("img")?.let { img -> img.attr("data-src").ifBlank { img.attr("src") } }
             ?.trim()?.ifBlank { null }
@@ -61,7 +65,14 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/" else "$base/?page=$page"
+            // Overeno zive: homepage je razena podle nejnovejsich pridanych galerii
+            // (sestupne ID), zatimco "/popular/" ma vlastni zebricek popularity - jine
+            // ID poradi uz od druhe polozky. Obe podporuji strankovani pres "?page=N".
+            val url = if (filter.sortBy == "latest") {
+                if (page <= 1) "$base/" else "$base/?page=$page"
+            } else {
+                if (page <= 1) "$base/popular/" else "$base/popular/?page=$page"
+            }
             parseList(fetchDoc(url))
         } catch (_: Exception) { emptyList() }
     }

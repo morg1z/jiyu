@@ -50,7 +50,11 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/home.php?page=$page"))
+            // overereno zive: home.php je jen sada karuselu (Popular Now/Latest Chapter/
+            // Most Popular/Completed), zatimco new-chapters.php ma vlastni strankovanou
+            // mrizku razenou dle posledni aktualizace kapitoly - genuinne jina razeni.
+            val path = if (filter.sortBy == "latest") "new-chapters.php" else "home.php"
+            val doc = Jsoup.parse(get("$base/$path?page=$page"))
             doc.select("a.manga-cover-link").mapNotNull(::parseCard).distinctBy { it.url }
         } catch (_: Exception) { emptyList() }
     }

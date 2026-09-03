@@ -57,7 +57,11 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val items = pageProps(get("$base/ranking?page=$page")).optJSONArray("initialItems") ?: return@withContext emptyList()
+            // "/latest" je samostatna Next.js route s jinym klicem v pageProps ("items",
+            // ne "initialItems") - overeno zive, vraci odlisne tituly nez /ranking.
+            val (url, key) = if (filter.sortBy == "latest") "$base/latest?page=$page" to "items"
+                              else "$base/ranking?page=$page" to "initialItems"
+            val items = pageProps(get(url)).optJSONArray(key) ?: return@withContext emptyList()
             (0 until items.length()).map { itemToSManga(items.getJSONObject(it)) }
         } catch (_: Exception) { emptyList() }
     }

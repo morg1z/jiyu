@@ -41,6 +41,24 @@ class MangagoSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // "/list/?page=N" (Total: 20000+) je ve skutecnosti kompletni katalog A-Z,
+            // ne razeny podle popularity - "Popularni" zalozka appky ho pouziva jen jako
+            // vychozi/neutralni vypis. "Nejnovejsi" ma vlastni endpoint s JINOU strukturou
+            // karty (shodnou se search() vysledky - "#search_list li", div.left a[href],
+            // span.tit h2 a - overeno zive).
+            if (filter.sortBy == "latest") {
+                val doc = Jsoup.parse(get("$base/list/latest/all/$page/"))
+                return@withContext doc.select("#search_list li").mapNotNull { li ->
+                    val link = li.selectFirst("div.left a[href*='/read-manga/']") ?: return@mapNotNull null
+                    SManga(
+                        sourceId = id,
+                        url = link.attr("href").removePrefix(base),
+                        title = li.selectFirst("span.tit h2 a")?.text()?.trim()?.ifBlank { null }
+                            ?: return@mapNotNull null,
+                        coverUrl = li.selectFirst("div.left img")?.attr("src"),
+                    )
+                }
+            }
             // Puvodni "/list/allmanga/page/N/?o=views" je mrtve (Total: 0, zadna karta) -
             // aktualni vypis zije na "/list/?page=N" (Total: 20000+), overeno zivym
             // stazenim. Karta = ".listitem", obalka je v "data-src" (v "src" je jen

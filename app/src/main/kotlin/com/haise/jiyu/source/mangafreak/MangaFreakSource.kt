@@ -46,7 +46,11 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            parseList(get("$base/popular-manga${if (page > 1) "?page=$page" else ""}"))
+            // "latest" ma vlastni cestu (overeno zive), strankovani je v ceste, ne query
+            // stringu ("/Latest_Releases/2", ne "?page=2" jako u popular-manga).
+            val url = if (filter.sortBy == "latest") "$base/Latest_Releases${if (page > 1) "/$page" else ""}"
+                      else "$base/popular-manga${if (page > 1) "?page=$page" else ""}"
+            parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

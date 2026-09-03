@@ -71,7 +71,12 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
-            parseNovelList(get("$base/popular"))
+            // Homepage ma vlastni oznacenou sekci "Latest Chapters & Updates" se stejnou
+            // kartovou strukturou (a.novel-item/h3.ni-title) jako /popular - overeno zive
+            // (prvni polozka homepage grid mrizky se shoduje s prvni polozkou "uc-*"
+            // widgetu, ktery uz je oznacen jako "LATEST UPDATES" primo v HTML komentari webu).
+            val url = if (filter.sortBy == "latest") base else "$base/popular"
+            parseNovelList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

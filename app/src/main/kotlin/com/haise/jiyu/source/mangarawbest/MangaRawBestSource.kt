@@ -48,7 +48,11 @@ class MangaRawBestSource @Inject constructor(private val client: OkHttpClient) :
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/manga-list" else "$base/manga-list?page=$page"
+            // sort= overeno zivě (Alpine.js select na strance ma i "-created_at"/"name"/"-name",
+            // ale appka rozlisuje jen Popularni/Nejnovejsi) - vraci na "-views" vs "-updated_at"
+            // prokazatelne jine tituly, ne jen JS-only filtr bez vlivu na server-rendered vystup.
+            val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
+            val url = "$base/manga-list?sort=$sort&page=$page"
             val doc = Jsoup.parse(get(url))
             doc.select("a:has(.cover-frame)").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }

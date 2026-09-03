@@ -46,8 +46,13 @@ class TodaymangaSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
+        // Homepage mixala dohromady VSECHNY sekce (Editors' Choices, Recent Updated,
+        // Completed Popular...) do jednoho seznamu bez rozliseni - "Nejnovejsi" v appce
+        // tak vzdy vratilo uplne stejna data jako "Popularni". Vlastni /category/ stranky
+        // maji presne tohle rozliseni (a na rozdil od homepage skutecne strankuji).
+        val path = if (filter.sortBy == "latest") "/category/recent" else "/category/editor-pick"
         try {
-            val doc = Jsoup.parse(get("$base/"))
+            val doc = Jsoup.parse(get("$base$path"))
             doc.select("a[href^=/book/]:has(img)").mapNotNull(::parseCard).distinctBy { it.url }
         } catch (_: Exception) { emptyList() }
     }

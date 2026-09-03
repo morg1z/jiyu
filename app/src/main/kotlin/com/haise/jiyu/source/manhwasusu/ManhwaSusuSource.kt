@@ -70,6 +70,15 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // "Nejnovejsi" nema na tomhle webu vlastni strankovanou cestu (na rozdil od
+            // /popular) - jen pevnou sekci "Latest Updates" na uvodni strance (overeno
+            // zivě, jine tituly nez /popular). Stranka 1 ji tedy parsuje primo z domovske
+            // stranky, dalsi stranky uz nemaji odkud - prazdny seznam ukonci "nacist dal"
+            // stejne jako u vycerpane strankovane odpovedi.
+            if (filter.sortBy == "latest") {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseCards(Jsoup.parse(get("$base/"), base))
+            }
             val doc = Jsoup.parse(get("$base/popular?page=$page"), base)
             slicePage(parseCards(doc), page)
         } catch (_: Exception) { emptyList() }

@@ -107,9 +107,14 @@ class HitomiSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // index-all.nozomi je serazeny podle ID sestupne = nejnovejsi pridane
+            // galerie prvni. popular/today-all.nozomi je SAMOSTATNY index podle
+            // popularity, neni jen jina projekce toho stejneho - overeno zive
+            // (rozdilne, nenavazujici ID na stejne pozici).
+            val index = if (filter.sortBy == "popular") "popular/today-all.nozomi" else "index-all.nozomi"
             val start = (page - 1).toLong() * itemsPerPage * 4
             val end = start + itemsPerPage * 4 - 1
-            val ids = decodeNozomiIds(getRange("$ltnUrl/index-all.nozomi", start, end))
+            val ids = decodeNozomiIds(getRange("$ltnUrl/$index", start, end))
             fetchGalleryBlocks(ids)
         } catch (_: Exception) { emptyList() }
     }

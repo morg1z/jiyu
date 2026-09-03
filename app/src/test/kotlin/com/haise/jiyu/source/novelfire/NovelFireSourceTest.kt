@@ -58,6 +58,7 @@ class NovelFireSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/latest-release-novels") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/ranking") -> MockResponse().setBody(listHtml)
                     path.startsWith("/search") -> MockResponse().setBody(listHtml)
                     path == "/book/test-series" -> MockResponse().setBody(detailHtml)
                     path.startsWith("/book/test-series/chapters") -> MockResponse().setBody(chaptersHtml)

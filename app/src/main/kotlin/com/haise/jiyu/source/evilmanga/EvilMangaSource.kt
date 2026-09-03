@@ -55,7 +55,11 @@ class EvilMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         // selektory (.page-item-detail apod.) prozrazuji, ze web bezi na Madara sablone,
         // ktera ma archiv na standardni Madara ceste. Puvodni URL proto po projiti
         // Cloudflare vzdy vratila "0 vysledku", ne chybu.
-        try { parseList(get("$base/manga/page/$page/?m_orderby=")) } catch (_: Exception) { emptyList() }
+        // m_orderby hodnoty ("latest"/"views") jsou stejne jako u MadaraSource - Cloudflare
+        // JS challenge tady zabranila zivemu curl overeni konkretniho rozdilu v obsahu,
+        // ale parametr sam je standardni Madara konvence (overeno jinde, viz MadaraSource).
+        val orderby = if (filter.sortBy == "latest") "latest" else "views"
+        try { parseList(get("$base/manga/page/$page/?m_orderby=$orderby")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

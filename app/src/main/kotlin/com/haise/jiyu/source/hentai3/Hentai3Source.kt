@@ -59,8 +59,13 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseGalleryList(fetchDocument("$base/language/english?page=$page")) }
-        catch (_: Exception) { emptyList() }
+        // Bez parametru je vychozi razeni podle data (nejnovejsi) - "Popularni:" je
+        // tu jen bocni widget s vlastnim sort=popular (navic 24h/7d varianty, ktere
+        // appka nepouziva). Overeno zive: oba dotazy vraci skutecne odlisne seznamy.
+        try {
+            val sort = if (filter.sortBy == "popular") "?sort=popular&page=$page" else "?page=$page"
+            parseGalleryList(fetchDocument("$base/language/english$sort"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -53,7 +53,11 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/directory/" else "$base/directory/$page.html"
+            // Vychozi razeni bez parametru je uz samo o sobe "hot"/popularni (One Piece,
+            // Onepunch-Man na prvnich mistech) - "?latest" pro Nejnovejsi overeno zive
+            // (uplne jina sada titulu).
+            val sortParam = if (filter.sortBy == "latest") "?latest" else ""
+            val url = if (page <= 1) "$base/directory/$sortParam" else "$base/directory/$page.html$sortParam"
             val doc = Jsoup.parse(get(url))
             doc.select("p.manga-list-1-item-title > a[href]").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }

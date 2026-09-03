@@ -106,17 +106,32 @@ class MangaPlusSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val bytes = get("title_list/all_v3", "type=serializing&lang=eng&clang=eng")
-            val success = bytes.parseProto().msg(1) ?: return@withContext emptyList()
-            // title_list/all_v3 vraci obsah zabaleny v SearchView (field 35), ne uz
-            // v AllTitlesViewV2 (field 25) jako stary allV2 endpoint - AllTitlesGroup
-            // uvnitr je ale stejna struktura (SearchView.allTitlesGroup = field 3).
-            val view = success.msg(35) ?: return@withContext emptyList()
-            view.msgs(3)                       // repeated AllTitlesGroup
-                .flatMap { it.msgs(2) }        // repeated Title
-                .distinctBy { it.long(1) }
-                .map { it.toSManga() }
-                .filter { it.url.isNotEmpty() }
+            if (filter.sortBy == "latest") {
+                // title_list/updated vraci "Updates" feed (tituly serazene podle casu
+                // posledni aktualizace, pole 20 -> repeated UpdatedTitle{Title title=1,
+                // string updated_at=2}) - overeno zive: poradi je jine nez u
+                // title_list/all_v3 (ten je razeny do AllTitlesGroup, ne dle aktualnosti).
+                val bytes = get("title_list/updated", "lang=eng&clang=eng")
+                val success = bytes.parseProto().msg(1) ?: return@withContext emptyList()
+                val updated = success.msg(20) ?: return@withContext emptyList()
+                updated.msgs(1)                     // repeated UpdatedTitle
+                    .mapNotNull { it.msg(1) }        // Title
+                    .distinctBy { it.long(1) }
+                    .map { it.toSManga() }
+                    .filter { it.url.isNotEmpty() }
+            } else {
+                val bytes = get("title_list/all_v3", "type=serializing&lang=eng&clang=eng")
+                val success = bytes.parseProto().msg(1) ?: return@withContext emptyList()
+                // title_list/all_v3 vraci obsah zabaleny v SearchView (field 35), ne uz
+                // v AllTitlesViewV2 (field 25) jako stary allV2 endpoint - AllTitlesGroup
+                // uvnitr je ale stejna struktura (SearchView.allTitlesGroup = field 3).
+                val view = success.msg(35) ?: return@withContext emptyList()
+                view.msgs(3)                       // repeated AllTitlesGroup
+                    .flatMap { it.msgs(2) }        // repeated Title
+                    .distinctBy { it.long(1) }
+                    .map { it.toSManga() }
+                    .filter { it.url.isNotEmpty() }
+            }
         } catch (_: Exception) { emptyList() }
     }
 

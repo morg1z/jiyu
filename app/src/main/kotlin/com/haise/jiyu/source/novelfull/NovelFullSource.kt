@@ -36,7 +36,9 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/most-popular?page=$page"))
+            // overeno zive: /latest-release-novel vraci jine poradi nez /most-popular
+            val path = if (filter.sortBy == "latest") "latest-release-novel" else "most-popular"
+            val doc = Jsoup.parse(get("$base/$path?page=$page"))
             doc.select(".list-truyen .row").mapNotNull { row ->
                 val link = row.selectFirst("h3.truyen-title a") ?: return@mapNotNull null
                 SManga(

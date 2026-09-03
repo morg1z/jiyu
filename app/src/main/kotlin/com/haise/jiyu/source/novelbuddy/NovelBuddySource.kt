@@ -75,7 +75,11 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseItems(get("$api/titles/search?page=$page&limit=24")) } catch (_: Exception) { emptyList() }
+        // Bez "sort" API vraci stejne poradi jako "sort=latest"/"sort=newest" (overeno
+        // zivě, identicke vysledky) - vychozi chovani uz JE "Nejnovejsi", explicitni
+        // "sort=views" pro Popularni dava prokazatelne jiny (skutecne popularni) seznam.
+        val sortParam = if (filter.sortBy == "latest") "" else "&sort=views"
+        try { parseItems(get("$api/titles/search?page=$page&limit=24$sortParam")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

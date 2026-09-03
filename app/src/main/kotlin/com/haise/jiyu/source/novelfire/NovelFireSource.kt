@@ -54,7 +54,11 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/latest-release-novels?page=$page")) } catch (_: Exception) { emptyList() }
+        // /ranking (Popularni) pouziva jiny sablonovy layout (h2.title) nez
+        // /latest-release-novels (h4.novel-title) - parseList uz oboje umi
+        // (fallback na "h2.title a"), overeno zivě jako prokazatelne jine tituly.
+        val path = if (filter.sortBy == "latest") "latest-release-novels" else "ranking"
+        try { parseList(get("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

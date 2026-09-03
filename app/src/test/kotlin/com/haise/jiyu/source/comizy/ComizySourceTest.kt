@@ -47,6 +47,7 @@ class ComizySourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/latest") -> MockResponse().setBody(latestHtml)
+                    path.startsWith("/popular") -> MockResponse().setBody(latestHtml)
                     path.startsWith("/search") -> MockResponse().setBody(searchHtml)
                     path == "/test-manga" -> MockResponse().setBody(detailHtml)
                     path == "/test-manga/chapter-1" -> MockResponse().setBody(chapterHtml)

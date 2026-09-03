@@ -52,9 +52,31 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val offset = (page - 1) * 10
-            parseListJson(get("$base/search?offset=$offset&ajax=1"))
+            // "/search" JSON API nema zadny sort parametr (overeno zive - kazda
+            // vyzkousena kombinace sort=/orderby=/order= vratila bajtove identicky
+            // vysledek jako bez parametru). Homepage ale ma samostatnou HTML sekci
+            // "Latest Updates" (div.update-row), kterou API nevraci - proto se pro
+            // "latest" parsuje primo HTML homepage, ne JSON endpoint. Neni strankovana
+            // (fixni pocet polozek na homepage), stejny vzor jako KScansSource.getPopular.
+            if (filter.sortBy == "latest") {
+                if (page > 1) return@withContext emptyList()
+                parseLatestUpdates(get(base))
+            } else {
+                val offset = (page - 1) * 10
+                parseListJson(get("$base/search?offset=$offset&ajax=1"))
+            }
         } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseLatestUpdates(html: String): List<SManga> {
+        val doc = Jsoup.parse(html, base)
+        return doc.select("div.update-row").mapNotNull { row ->
+            val link = row.selectFirst("a.update-series-link") ?: return@mapNotNull null
+            val href = link.attr("href").ifBlank { return@mapNotNull null }
+            val title = link.text().trim().ifBlank { return@mapNotNull null }
+            val cover = row.selectFirst("a.update-thumb img")?.attr("src")?.ifBlank { null }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANHWA")
+        }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

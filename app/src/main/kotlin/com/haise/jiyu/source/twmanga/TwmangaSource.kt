@@ -50,8 +50,11 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
+        // overeno zive: /list/new ma jine poradi nez homepage (48 odlisnych titulu);
+        // ani jeden neni strankovany (?page= je ignorovano, staticky vypis).
+        val url = if (filter.sortBy == "latest") "$base/list/new" else "$base/"
         try {
-            val doc = Jsoup.parse(get("$base/"))
+            val doc = Jsoup.parse(get(url))
             doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
         } catch (_: Exception) { emptyList() }
     }

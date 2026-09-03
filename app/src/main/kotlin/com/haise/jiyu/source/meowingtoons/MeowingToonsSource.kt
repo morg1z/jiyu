@@ -60,8 +60,12 @@ class MeowingToonsSource(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
+        // overeno zive na obou webech (timelesstoons.org i genztoons.org): "/latest/"
+        // vraci stejnou kartovou strukturu jako "/library/", ale v poradi dle
+        // posledni aktualizace, ne shodnem s "/library/" - take bez strankovani.
+        val path = if (filter.sortBy == "latest") "$root/latest/" else "$root/library/"
         try {
-            parseLibrary(get("$root/library/"))
+            parseLibrary(get(path))
         } catch (_: Exception) { emptyList() }
     }
 

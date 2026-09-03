@@ -61,7 +61,10 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/series/" else "$base/series/page/$page/"
+            // MangaThemesia (stejny engine jako ThunderscansSource) - "order=update" pro
+            // Nejnovejsi je overeno zive (jina sada titulu nez vychozi abecedni razeni).
+            val orderby = if (filter.sortBy == "latest") "?order=update" else ""
+            val url = if (page <= 1) "$base/series/$orderby" else "$base/series/page/$page/$orderby"
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }

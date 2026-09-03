@@ -51,7 +51,10 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/directory/$page.html")) } catch (_: Exception) { emptyList() }
+        // Vychozi /directory/ razeni je Views (Popularni) - "Latest Updated" je zvlastni
+        // query string, ne cesta (overeno zivě, jine tituly nez vychozi razeni).
+        val sortSuffix = if (filter.sortBy == "latest") "?last_chapter_time.za" else ""
+        try { parseList(get("$base/directory/$page.html$sortSuffix")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

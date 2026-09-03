@@ -72,7 +72,11 @@ class OmegaScansSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            try { parseList(get("$apiBase/query?page=$page&perPage=20")) }
+            // Bez orderBy razeni API vraci podle total_views (nejpopularnejsi) - pro
+            // "Nejnovejsi" zalozku overeno zivě, ze orderBy=updated_at seradi podle
+            // skutecneho casu posledni aktualizace (sestupne).
+            val order = if (filter.sortBy == "latest") "&orderBy=updated_at" else ""
+            try { parseList(get("$apiBase/query?page=$page&perPage=20$order")) }
             catch (_: Exception) { emptyList() }
         }
 

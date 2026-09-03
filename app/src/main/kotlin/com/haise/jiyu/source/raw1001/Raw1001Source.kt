@@ -39,7 +39,11 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/all-manga/$page"))
+            // Bez parametru web razeni vraci podle posledni aktualizace (overeno zivě) -
+            // to je presne "Nejnovejsi", ne "Populární". Skutecnou popularitu dava az
+            // explicitni sort=views.
+            val url = if (filter.sortBy == "latest") "$base/all-manga/$page" else "$base/all-manga/$page?sort=views"
+            val doc = Jsoup.parse(get(url))
             val mangaHref = Regex("""^https://raw1001\.net/manga/[a-zA-Z0-9-]+$""")
             doc.select("a:has(img)").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }

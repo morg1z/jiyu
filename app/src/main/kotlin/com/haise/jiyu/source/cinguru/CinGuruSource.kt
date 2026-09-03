@@ -24,7 +24,10 @@ import javax.inject.Singleton
  *
  * Homepage (`/`) ma jen dve staticke sekce bez pagovani ("popular" - 5
  * polozek, "all" - 25 nejnovejsich) a nemeni se podle `?page=` - proto
- * getPopular vraci data jen pro page==1. Fulltextove hledani (`/search`) je
+ * getPopular vraci data jen pro page==1, ale obe sekce jsou v JEDNOM
+ * JSON payloadu - "Nejnovejsi" (filter.sortBy=="latest") tak muze cist
+ * "all" a "Popularni" cist "popular" bez dalsiho requestu navic.
+ * Fulltextove hledani (`/search`) je
  * v tehle appce cistě klientske (Next.js "nextExport" stranka bez
  * getServerSideProps) - v syrovem HTML/JSON z serveru nejsou zadna data,
  * takze search() tady neni podporovane a vraci prazdny seznam (stejny
@@ -92,8 +95,9 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val json = extractNextData(fetchHtml("$base/")) ?: return@withContext emptyList()
             val data = json.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("data") ?: return@withContext emptyList()
-            val all = data.optJSONArray("all") ?: return@withContext emptyList()
-            (0 until all.length()).mapNotNull { listItemToSManga(all.optJSONObject(it) ?: return@mapNotNull null) }
+            val key = if (filter.sortBy == "latest") "all" else "popular"
+            val items = data.optJSONArray(key) ?: return@withContext emptyList()
+            (0 until items.length()).mapNotNull { listItemToSManga(items.optJSONObject(it) ?: return@mapNotNull null) }
         } catch (_: Exception) { emptyList() }
     }
 

@@ -48,9 +48,17 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/" else "$base/?page=$page"
-            val doc = Jsoup.parse(get(url))
-            doc.select("div.manga-cover a[href]").mapNotNull(::parseCard)
+            // overereno zive: homepage (`/`) ma stejne razeni jako `/latest-chapters`,
+            // zatimco `/popular-manga` ma vlastni odlisne razeni a jinou znacku karet
+            // (`div.manga-list-style a[title]` misto `div.manga-cover a[href]`).
+            if (filter.sortBy == "latest") {
+                val url = if (page <= 1) "$base/" else "$base/?page=$page"
+                val doc = Jsoup.parse(get(url))
+                doc.select("div.manga-cover a[href]").mapNotNull(::parseCard)
+            } else {
+                val doc = Jsoup.parse(get("$base/popular-manga?page=$page"))
+                doc.select("div.manga-list-style a[title]:has(img)").mapNotNull(::parseCard)
+            }
         } catch (_: Exception) { emptyList() }
     }
 

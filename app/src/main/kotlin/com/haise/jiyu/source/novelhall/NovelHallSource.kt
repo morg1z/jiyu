@@ -50,7 +50,11 @@ class NovelHallSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/lastupdate.html" else "$base/lastupdate-$page.html"
+            // overeno zive: puvodne se pro "popularni" pouzival jen lastupdate.html
+            // (= "nejnovejsi"), pritom /ranking.html ma jine (skutecne popularitni)
+            // razeni a stejny strankovaci vzor "-{page}.html".
+            val slug = if (filter.sortBy == "latest") "lastupdate" else "ranking"
+            val url = if (page <= 1) "$base/$slug.html" else "$base/$slug-$page.html"
             val doc = Jsoup.parse(get(url))
             doc.select("table tr").mapNotNull { row ->
                 val link = row.selectFirst("td.w70 a") ?: return@mapNotNull null

@@ -71,6 +71,7 @@ class NovelHallSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/lastupdate") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/ranking") -> MockResponse().setBody(listHtml)
                     path.startsWith("/search-keyword-") -> MockResponse().setBody(searchHtml)
                     path == "/test-series-1/" -> MockResponse().setBody(detailHtml)
                     path == "/test-series-1/1.html" -> MockResponse().setBody(readerHtml)

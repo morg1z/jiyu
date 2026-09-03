@@ -67,6 +67,7 @@ class ImHentaiSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path == "/" -> MockResponse().setBody(homeHtml)
+                    path == "/popular/" -> MockResponse().setBody(homeHtml)
                     path == "/gallery/1714318/" -> MockResponse().setBody(detailHtml)
                     path == "/view/1714318/1/" -> MockResponse().setBody(readerHtml(1, "webp"))
                     path == "/view/1714318/2/" -> MockResponse().setBody(readerHtml(2, "jpg"))

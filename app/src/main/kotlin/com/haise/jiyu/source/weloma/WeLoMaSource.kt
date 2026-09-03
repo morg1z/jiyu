@@ -53,8 +53,12 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // "last_update" overeno zive - jiny poradek nez "views". Ostatni vyzkousene
+        // nazvy ("latest"/"update"/"new") web nerozezna a tise spadne na stejny
+        // (abecedni odzadu) fallback jako neplatna hodnota - jen "last_update" funguje.
+        val sort = if (filter.sortBy == "latest") "last_update" else "views"
         try {
-            val doc = Jsoup.parse(get("$base/manga-list.html?listType=pagination&page=$page&sort=views&sort_type=DESC"))
+            val doc = Jsoup.parse(get("$base/manga-list.html?listType=pagination&page=$page&sort=$sort&sort_type=DESC"))
             doc.select("div.thumb-item-flow").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }

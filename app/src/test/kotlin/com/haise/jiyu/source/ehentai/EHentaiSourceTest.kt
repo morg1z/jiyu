@@ -76,6 +76,7 @@ class EHentaiSourceTest {
                 val path = request.path.orEmpty().substringBefore("?")
                 return when {
                     path == "/" -> MockResponse().setBody(listingHtml)
+                    path == "/popular" -> MockResponse().setBody(listingHtml)
                     path == "/g/4108576/1e6649c50f/" -> MockResponse().setBody(detailHtml)
                     path == "/s/f2fbc8f828/4108576-1" -> MockResponse().setBody(readerPage1)
                     path == "/s/c1f838f83c/4108576-2" -> MockResponse().setBody(readerPage2)

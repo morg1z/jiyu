@@ -59,7 +59,10 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/popular?page=$page")) } catch (_: Exception) { emptyList() }
+        // /popular a /new-manga jsou samostatne cesty, ne query parametr - overeno zivě,
+        // vraci prokazatelne jine tituly.
+        val path = if (filter.sortBy == "latest") "new-manga" else "popular"
+        try { parseList(get("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

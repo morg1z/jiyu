@@ -72,7 +72,12 @@ class EAHentaiSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (page > 1) return@withContext emptyList()
-            try { parseGalleryList(fetchDocument(base)) }
+            // "/latest" je samostatna, chronologicky serazena stranka - overeno zive
+            // (jina sada ID galerii nez uvodni "/"), zatimco homepage misi cerstve s
+            // nejakym vlastnim vyberem webu ("popular"/featured neni verejne zvlast
+            // dostupne - web nema zadny "?sort="/"?order=" parametr ani odkaz v navigaci).
+            val url = if (filter.sortBy == "latest") "$base/latest" else base
+            try { parseGalleryList(fetchDocument(url)) }
             catch (_: Exception) { emptyList() }
         }
 

@@ -67,7 +67,11 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
             }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/browse?sortBy=New&page=$page")) } catch (_: Exception) { emptyList() }
+        // Puvodne vzdy "New" (tedy fakticky poradek pro "Nejnovejsi" bez ohledu na
+        // vybranou zalozku) - "Popular" overeno zive jako odlisna, spravna hodnota
+        // pro "Populární".
+        val sortBy = if (filter.sortBy == "latest") "New" else "Popular"
+        try { parseList(get("$base/browse?sortBy=$sortBy&page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -59,7 +59,10 @@ class HentaiZapSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            try { parseGalleryList(fetchDocument("$base/popular/?page=$page")) }
+            // Overeno zive: "/" je vlastni "nejnovejsi" feed webu, "/popular/" je
+            // samostatny popularitni zebricek - dva skutecne odlisne seznamy.
+            val path = if (filter.sortBy == "latest") "/?page=$page" else "/popular/?page=$page"
+            try { parseGalleryList(fetchDocument("$base$path")) }
             catch (_: Exception) { emptyList() }
         }
 

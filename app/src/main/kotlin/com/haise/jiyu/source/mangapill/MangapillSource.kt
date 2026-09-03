@@ -47,7 +47,15 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/search?q=&type=manga&status=&page=$page")) } catch (_: Exception) { emptyList() }
+        // overeno zive: /mangas/new (nove pridane tituly) je razeni odlisne od
+        // /search (razeno dle ID vzestupne = zavedena/popularni dila); /mangas/new
+        // nema strankovani (vzdy stejnych 50 polozek, overeno zive page=1 vs page=2).
+        if (filter.sortBy == "latest") {
+            if (page > 1) return@withContext emptyList()
+            try { parseList(get("$base/mangas/new")) } catch (_: Exception) { emptyList() }
+        } else {
+            try { parseList(get("$base/search?q=&type=manga&status=&page=$page")) } catch (_: Exception) { emptyList() }
+        }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

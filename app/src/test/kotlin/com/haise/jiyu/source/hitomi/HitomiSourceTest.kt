@@ -53,6 +53,8 @@ class HitomiSourceTest {
                 return when {
                     path == "/index-all.nozomi" -> MockResponse().setResponseCode(206)
                         .setBody(Buffer().write(nozomiBytes))
+                    path == "/popular/today-all.nozomi" -> MockResponse().setResponseCode(206)
+                        .setBody(Buffer().write(nozomiBytes))
                     path == "/galleryblock/42.html" -> MockResponse().setBody(galleryBlockHtml)
                     path == "/galleries/42.js" -> MockResponse().setBody(galleryInfoJs)
                     path == "/gg.js" -> MockResponse().setBody(ggJs)
@@ -106,6 +108,7 @@ class HitomiSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path == "/index-all.nozomi" -> MockResponse().setResponseCode(206).setBody(Buffer().write(nozomiBytes))
+                    path == "/popular/today-all.nozomi" -> MockResponse().setResponseCode(206).setBody(Buffer().write(nozomiBytes))
                     path == "/galleryblock/42.html" -> MockResponse().setBody(galleryBlockHtml)
                     path == "/galleries/42.js" -> MockResponse().setBody(galleryInfoJs)
                     path == "/gg.js" -> MockResponse().setBody(

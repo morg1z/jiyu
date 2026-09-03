@@ -59,7 +59,10 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            parseFeatures(get("$api/ck_feature_taxonomy?per_page=24&page=$page&orderby=count&order=desc"))
+            // "latest" = nejnovejsi pridany pasek (razeni podle WP term id, overeno zive
+            // ze vraci jine porati nez count), "popular" = nejvic dennich stripu (count).
+            val orderby = if (filter.sortBy == "latest") "id" else "count"
+            parseFeatures(get("$api/ck_feature_taxonomy?per_page=24&page=$page&orderby=$orderby&order=desc"))
         } catch (_: Exception) { emptyList() }
     }
 

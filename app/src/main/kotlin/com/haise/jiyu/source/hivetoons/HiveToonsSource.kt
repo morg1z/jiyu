@@ -64,7 +64,17 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
         // spravne odmitne jako cleartext (viz network_security_config.xml) a appka pak
         // tise skonci na prazdnem seznamu. Overeno logem site pripojeni na realnem
         // telefonu. S lomitkem uz web odpovi rovnou 200, zadne presmerovani.
-        try { parseList(get("$base/series/?page=$page")) } catch (_: Exception) { emptyList() }
+        try {
+            // "/latest-updates" ma overene jinou (skutecne cerstvejsi) razeni nez archiv
+            // "/series/" - live diff titulu od #2 potvrdil odlisne poradi. Stranka ale
+            // nema funkcni ?page= pagination (page 2 vraci identicky obsah jako page 1),
+            // proto pro page>1 vracime prazdny seznam misto duplicit.
+            if (filter.sortBy == "latest") {
+                if (page > 1) emptyList() else parseList(get("$base/latest-updates"))
+            } else {
+                parseList(get("$base/series/?page=$page"))
+            }
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

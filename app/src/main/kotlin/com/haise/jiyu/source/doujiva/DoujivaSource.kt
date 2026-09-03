@@ -60,7 +60,11 @@ class DoujivaSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            try { parseGalleryList(fetchDocument("$base/?page=$page")) }
+            // Bez parametru web řadí od nejnovějšího nahrání - "Populární" tab proto
+            // potřebuje explicitní "?sort=popular-all" (ověřeno živě, jinak vrací úplně
+            // jinou sadu titulů než skutečně populární výběr).
+            val sort = if (filter.sortBy == "popular") "&sort=popular-all" else ""
+            try { parseGalleryList(fetchDocument("$base/?page=$page$sort")) }
             catch (_: Exception) { emptyList() }
         }
 

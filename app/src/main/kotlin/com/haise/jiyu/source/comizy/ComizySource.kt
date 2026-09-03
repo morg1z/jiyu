@@ -63,7 +63,10 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val props = pageProps(nextData(get("$base/latest?page=$page")) ?: return@withContext emptyList())
+            // Puvodni kod vzdy cetl /latest, i pro "Popularni" - web ale ma i samostatnou
+            // /popular cestu se stejnym __NEXT_DATA__ tvarem (overeno zive, jine tituly).
+            val path = if (filter.sortBy == "latest") "latest" else "popular"
+            val props = pageProps(nextData(get("$base/$path?page=$page")) ?: return@withContext emptyList())
             val items = props.getJSONArray("items")
             (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
         } catch (_: Exception) { emptyList() }

@@ -62,7 +62,14 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val url = if (page <= 1) "$base/manga/" else "$base/manga/page/$page/"
+            // Overeno zive: "/latest/" ma jine (skutecne cerstvejsi) poradi titulu nez
+            // archiv "/manga/" uz od prvni polozky. "/latest/" ale nema funkcni dalsi
+            // strankovani (/page/N/ i ?page=N vraci bud identicky obsah, nebo presmerovani)
+            // - proto pro page>1 vracime prazdny seznam misto duplicit.
+            val url = if (filter.sortBy == "latest") {
+                if (page > 1) return@withContext emptyList()
+                "$base/latest/"
+            } else if (page <= 1) "$base/manga/" else "$base/manga/page/$page/"
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }

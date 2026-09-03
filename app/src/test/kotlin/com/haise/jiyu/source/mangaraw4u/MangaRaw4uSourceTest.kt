@@ -54,7 +54,7 @@ class MangaRaw4uSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path.startsWith("/?page=") -> MockResponse().setBody(popularHtml)
+                    path.startsWith("/search?sort=") -> MockResponse().setBody(popularHtml)
                     path.startsWith("/api/search") -> MockResponse().setBody(searchJson)
                     path == "/manga/test-series" -> MockResponse().setBody(detailHtml)
                     path == "/manga/test-series/chapter-1" -> MockResponse().setBody(pagesHtml)

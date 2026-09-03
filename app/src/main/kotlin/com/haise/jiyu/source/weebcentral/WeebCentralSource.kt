@@ -61,7 +61,11 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get(searchData("", page, "Popularity"))) } catch (_: Exception) { emptyList() }
+        // "Latest Updates" overeno zive - vraci jiny (a spravny) poradek nez "Popularity".
+        // Pozor: "Latest" samotne (bez "Updates") vraci 307 presmerovani na chybovou
+        // stranku - API prijima jen presne tenhle text.
+        val sort = if (filter.sortBy == "latest") "Latest Updates" else "Popularity"
+        try { parseList(get(searchData("", page, sort))) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -64,7 +64,8 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        try { parseList(get("$base/category/popular.html")) } catch (_: Exception) { emptyList() }
+        val path = if (filter.sortBy == "latest") "latest" else "popular"
+        try { parseList(get("$base/category/$path.html")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

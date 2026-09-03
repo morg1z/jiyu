@@ -61,8 +61,9 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            val sort = if (filter.sortBy == "latest") "newest" else "most-popular"
             try {
-                parseGalleryList(fetchDocument("$base/browse?sort=most-popular&page=$page"))
+                parseGalleryList(fetchDocument("$base/browse?sort=$sort&page=$page"))
             } catch (_: Exception) { emptyList() }
         }
 

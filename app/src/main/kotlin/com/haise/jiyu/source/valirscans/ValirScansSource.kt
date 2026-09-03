@@ -95,7 +95,11 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseListing(get("$base/api/series?page=$page")) } catch (_: Exception) { emptyList() }
+        // API bez parametru radi podle posledni aktualizace (overeno zive - stejny vysledek
+        // jako s vyslovnym "sort=latest"), "sort=popular" vraci jiny (hodnocenim/oblibou
+        // rizeny) poradek - overeno zive, obe hodnoty vraceji odlisne prvni polozky.
+        val sortParam = if (filter.sortBy == "latest") "" else "&sort=popular"
+        try { parseListing(get("$base/api/series?page=$page$sortParam")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -55,10 +55,14 @@ class WebtoonSource @Inject constructor(
     }
 
     // /en/genre/list uz vraci chybovou stranku - aktualni katalog je pod /en/originals
-    // (jednostrankovy vypis vsech Originals, ne strankovany "top 100" seznam).
+    // (jednostrankovy vypis vsech Originals, ne strankovany "top 100" seznam). /en/ranking
+    // ("WEBTOON - Popular Series") je samostatna, opravdu jinak razena stranka - overeno
+    // zive, prvni tituly se lisi od /en/originals. Zadnou zvlast "naposledy aktualizovano"
+    // stranku appka nenasla, "Nejnovejsi" tak zustava na puvodnim katalogu.
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        try { parseCardList(get("$base/en/originals")) }
+        val path = if (filter.sortBy == "latest") "/en/originals" else "/en/ranking"
+        try { parseCardList(get("$base$path")) }
         catch (_: Exception) { emptyList() }
     }
 

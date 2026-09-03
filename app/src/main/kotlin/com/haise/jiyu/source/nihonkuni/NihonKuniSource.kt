@@ -56,7 +56,8 @@ class NihonKuniSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/manga-list.html?page=$page")) } catch (_: Exception) { emptyList() }
+        val sort = if (filter.sortBy == "latest") "last_update" else "views"
+        try { parseList(get("$base/manga-list.html?sort=$sort&page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
