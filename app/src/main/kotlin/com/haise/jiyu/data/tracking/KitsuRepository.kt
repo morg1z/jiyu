@@ -24,6 +24,40 @@ data class KitsuManga(
     val synopsis: String?,
 )
 
+/** Vytaženo z [KitsuRepository.searchManga] jako čistá funkce, aby šlo otestovat bez OkHttp. */
+internal fun parseKitsuSearchResults(body: String): List<KitsuManga> {
+    val arr = JSONObject(body).getJSONArray("data")
+    return (0 until arr.length()).map { i ->
+        val item = arr.getJSONObject(i)
+        val attrs = item.getJSONObject("attributes")
+        val titles = attrs.optJSONObject("titles")
+        val title = titles?.optString("en")?.takeIf { it.isNotBlank() }
+            ?: titles?.optString("en_jp")?.takeIf { it.isNotBlank() }
+            ?: titles?.optString("ja_jp") ?: ""
+        val cover = attrs.optJSONObject("posterImage")?.optString("small")
+        val rating = attrs.optString("averageRating").toFloatOrNull()?.div(20f)
+        KitsuManga(
+            id = item.getString("id"),
+            title = title,
+            coverUrl = cover,
+            score = rating,
+            synopsis = attrs.optString("synopsis").take(200).takeIf { it.isNotBlank() },
+        )
+    }
+}
+
+/** Vytaženo z [KitsuRepository.getMyLibraryEntry] jako čistá funkce, aby šlo otestovat bez OkHttp. */
+internal fun parseKitsuLibraryEntry(body: String): KitsuUserEntry? {
+    val arr = JSONObject(body).optJSONArray("data") ?: return null
+    if (arr.length() == 0) return null
+    val attrs = arr.getJSONObject(0).getJSONObject("attributes")
+    return KitsuUserEntry(
+        status = attrs.optString("status").takeIf { it.isNotBlank() },
+        ratingTwenty = attrs.optInt("ratingTwenty", 0).takeIf { it > 0 },
+        progress = attrs.optInt("progress", 0).takeIf { it > 0 },
+    )
+}
+
 @Singleton
 class KitsuRepository @Inject constructor(
     private val httpClient: OkHttpClient,
@@ -37,24 +71,7 @@ class KitsuRepository @Inject constructor(
                 .header("Accept", "application/vnd.api+json")
                 .build()
             val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext emptyList()
-            val arr = JSONObject(body).getJSONArray("data")
-            (0 until arr.length()).map { i ->
-                val item = arr.getJSONObject(i)
-                val attrs = item.getJSONObject("attributes")
-                val titles = attrs.optJSONObject("titles")
-                val title = titles?.optString("en")?.takeIf { it.isNotBlank() }
-                    ?: titles?.optString("en_jp")?.takeIf { it.isNotBlank() }
-                    ?: titles?.optString("ja_jp") ?: ""
-                val cover = attrs.optJSONObject("posterImage")?.optString("small")
-                val rating = attrs.optString("averageRating").toFloatOrNull()?.div(20f)
-                KitsuManga(
-                    id = item.getString("id"),
-                    title = title,
-                    coverUrl = cover,
-                    score = rating,
-                    synopsis = attrs.optString("synopsis").take(200).takeIf { it.isNotBlank() },
-                )
-            }
+            parseKitsuSearchResults(body)
         } catch (_: Exception) { emptyList() }
     }
 
@@ -153,14 +170,7 @@ class KitsuRepository @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .build()
             val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
-            val arr = JSONObject(body).optJSONArray("data") ?: return@withContext null
-            if (arr.length() == 0) return@withContext null
-            val attrs = arr.getJSONObject(0).getJSONObject("attributes")
-            KitsuUserEntry(
-                status = attrs.optString("status").takeIf { it.isNotBlank() },
-                ratingTwenty = attrs.optInt("ratingTwenty", 0).takeIf { it > 0 },
-                progress = attrs.optInt("progress", 0).takeIf { it > 0 },
-            )
+            parseKitsuLibraryEntry(body)
         } catch (_: Exception) { null }
     }
 

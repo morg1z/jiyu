@@ -29,6 +29,37 @@ data class MuManga(
     val description: String?,
 )
 
+/** Vytaženo z [MangaUpdatesRepository.searchManga] jako čistá funkce, aby šlo otestovat bez OkHttp. */
+internal fun parseMuSearchResults(body: String): List<MuManga> {
+    val results = JSONObject(body).optJSONArray("results") ?: return emptyList()
+    return (0 until results.length()).map { i ->
+        val rec = results.getJSONObject(i).getJSONObject("record")
+        MuManga(
+            id = rec.getLong("series_id"),
+            title = rec.optString("title"),
+            coverUrl = rec.optJSONObject("image")?.optJSONObject("url")?.optString("thumb"),
+            year = rec.optString("year").toIntOrNull(),
+            description = rec.optString("description").take(200).takeIf { it.isNotBlank() },
+        )
+    }
+}
+
+/** Vytaženo z [MangaUpdatesRepository.getMyStatus] jako čistá funkce, aby šlo otestovat bez OkHttp. */
+internal fun parseMuListId(body: String): Int? =
+    JSONObject(body).optInt("list_id", -1).takeIf { it >= 0 }
+
+/** Vytaženo z [MangaUpdatesRepository.getMyStatus] jako čistá funkce, aby šlo otestovat bez OkHttp. */
+internal fun parseMuRating(body: String): Float? =
+    JSONObject(body).optDouble("rating", 0.0).takeIf { it > 0.0 }?.toFloat()
+
+/**
+ * Kombinuje výsledky obou volání [MangaUpdatesRepository.getMyStatus] - `null` jen když
+ * SELHALA OBĚ (žádná z API odpovědí nepřinesla nic užitečného), jinak vrátí status i s
+ * jedním chybějícím polem (např. list_id se podařilo, rating endpoint zrovna spadl).
+ */
+internal fun combineMuStatus(listId: Int?, rating: Float?): MuUserStatus? =
+    if (listId == null && rating == null) null else MuUserStatus(listId, rating)
+
 @Singleton
 class MangaUpdatesRepository @Inject constructor(
     private val httpClient: OkHttpClient,
@@ -88,17 +119,7 @@ class MangaUpdatesRepository @Inject constructor(
                 .post(json.toRequestBody("application/json".toMediaType()))
                 .build()
             val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext emptyList()
-            val results = JSONObject(body).optJSONArray("results") ?: return@withContext emptyList()
-            (0 until results.length()).map { i ->
-                val rec = results.getJSONObject(i).getJSONObject("record")
-                MuManga(
-                    id = rec.getLong("series_id"),
-                    title = rec.optString("title"),
-                    coverUrl = rec.optJSONObject("image")?.optJSONObject("url")?.optString("thumb"),
-                    year = rec.optString("year").toIntOrNull(),
-                    description = rec.optString("description").take(200).takeIf { it.isNotBlank() },
-                )
-            }
+            parseMuSearchResults(body)
         } catch (_: Exception) { emptyList() }
     }
 
@@ -148,8 +169,7 @@ class MangaUpdatesRepository @Inject constructor(
                 .let { req ->
                     httpClient.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            val json = JSONObject(resp.body?.string() ?: "{}")
-                            listId = json.optInt("list_id", -1).takeIf { it >= 0 }
+                            listId = parseMuListId(resp.body?.string() ?: "{}")
                         }
                     }
                 }
@@ -160,15 +180,14 @@ class MangaUpdatesRepository @Inject constructor(
                 .let { req ->
                     httpClient.newCall(req).execute().use { resp ->
                         if (resp.isSuccessful) {
-                            val json = JSONObject(resp.body?.string() ?: "{}")
-                            rating = json.optDouble("rating", 0.0).takeIf { it > 0.0 }?.toFloat()
+                            rating = parseMuRating(resp.body?.string() ?: "{}")
                         }
                     }
                 }
         } catch (e: Exception) {
             e.report("tracking:mangaupdates:rating")
         }
-        if (listId == null && rating == null) null else MuUserStatus(listId, rating)
+        combineMuStatus(listId, rating)
     }
 
     fun openMuPage(context: Context, seriesId: Long) {
