@@ -889,6 +889,7 @@
     <string name="downloads_manager_queued_status">Ve frontě</string>
     <string name="downloads_manager_error_status">Chyba</string>
     <string name="downloads_manager_error_desc">Stahování selhalo, klepnutím odstranit</string>
+    <string name="downloads_manager_delete_chapter_confirm_body">Smaže staženou kapitolu „%1$s“ z úložiště.</string>
 
     <!-- Duplikáty -->
     <string name="duplicates_title">Duplikáty</string>

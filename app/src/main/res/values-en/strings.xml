@@ -814,6 +814,7 @@
     <string name="downloads_manager_queued_status">Queued</string>
     <string name="downloads_manager_error_status">Error</string>
     <string name="downloads_manager_error_desc">Download failed, tap to remove</string>
+    <string name="downloads_manager_delete_chapter_confirm_body">Deletes the downloaded chapter "%1$s" from storage.</string>
 
     <!-- Duplicates -->
     <string name="duplicates_title">Duplicates</string>

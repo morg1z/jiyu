@@ -318,6 +318,8 @@ private fun ChapterDownloadRow(
     onDelete: () -> Unit,
     onCancel: () -> Unit = {},
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -349,7 +351,7 @@ private fun ChapterDownloadRow(
             when (chapter.downloadStatus) {
                 DownloadStatus.DOWNLOADED -> {
                     Text(stringResource(R.string.downloads_manager_page_count, chapter.pageCount), color = TextSecondary, fontSize = 11.sp)
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(32.dp)) {
                         Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.common_delete), tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     }
                 }
@@ -394,5 +396,20 @@ private fun ChapterDownloadRow(
                 )
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = Color(0xFF111B35),
+            title = { Text(stringResource(R.string.common_delete), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.downloads_manager_delete_chapter_confirm_body, chapter.name), color = Color(0xFFB0BEC5)) },
+            confirmButton = {
+                TextButton(onClick = { onDelete(); showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
+        )
     }
 }

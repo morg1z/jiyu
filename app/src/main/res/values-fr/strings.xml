@@ -811,6 +811,7 @@
     <string name="downloads_manager_queued_status">En attente</string>
     <string name="downloads_manager_error_status">Erreur</string>
     <string name="downloads_manager_error_desc">Échec du téléchargement, touchez pour supprimer</string>
+    <string name="downloads_manager_delete_chapter_confirm_body">Supprime le chapitre téléchargé « %1$s » du stockage.</string>
 
     <!-- Doublons -->
     <string name="duplicates_title">Doublons</string>

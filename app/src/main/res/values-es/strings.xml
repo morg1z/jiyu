@@ -811,6 +811,7 @@
     <string name="downloads_manager_queued_status">En cola</string>
     <string name="downloads_manager_error_status">Error</string>
     <string name="downloads_manager_error_desc">Fallo en la descarga, toca para eliminar</string>
+    <string name="downloads_manager_delete_chapter_confirm_body">Elimina el capítulo descargado "%1$s" del almacenamiento.</string>
 
     <!-- Duplicados -->
     <string name="duplicates_title">Duplicados</string>
