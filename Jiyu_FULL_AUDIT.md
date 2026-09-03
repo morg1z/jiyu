@@ -248,12 +248,18 @@ Viz B10, B11 (opraveno). Zkontrolováno navíc:
 Nízké - viz Executive summary (0 TODO, 0 GlobalScope, málo `!!`).
 
 **Testing gaps** (bodová kontrola 10 netriviálních tříd proti `app/src/test/`):
-`sync/SyncRepository` mělo nulové pokrytí - uzavřeno (viz 3.2). Stále nulové
-pokrytí: `auth/AuthRepository`, `auth/SecureSessionManager`,
-`data/tracking/{Kitsu,Mal,MangaUpdates}*`, `backup/{BackupManager,
-SettingsBackupManager}`. Nižší priorita než `SyncRepository` byla - jde
-většinou o tenké obálky nad SDK voláními (test by hlavně re-testoval mocky),
-ne o vlastní netriviální logiku jako byla LWW slučovací funkce.
+`sync/SyncRepository` mělo nulové pokrytí - uzavřeno (viz 3.2). `backup/BackupManager`
+byl FALSE POSITIVE prvního průchodu - `BackupRestoreTest.kt` (Robolectric, reálná
+in-memory Room DB) ho už pokrývá důkladně (4 testy včetně transakční atomicity);
+navíc doplněno čistě parsovací pokrytí (`parseBackupJson` vytažené mimo transakci,
+8 testů na zpětnou kompatibilitu starších formátů zálohy). Uzavřeno: `auth/AuthRepository`
+(`SessionStatus`→`JiyuUser` mapování vytažené jako `toJiyuUser()`, 6 testů - `UserInfo`/
+`UserSession` šlo nakonec zkonstruovat přímo, i pro obranné null-user větve),
+`auth/SecureSessionManager` (obranné chování při poškozené/chybějící session, 5 testů),
+`backup/SettingsBackupManager` (bezpečnostně citlivý `EXCLUDED_KEYS` filtr - auth
+tokeny se nikdy nesmí dostat do exportu - + typový dispatch při importu, 7 testů).
+Zbývá nepokryté: `data/tracking/{Kitsu,Mal,MangaUpdates}*` (tenké obálky nad SDK
+voláními, nejnižší priorita, testovací pokrytí probíhá).
 
 ## 13. Dead code
 
@@ -324,5 +330,81 @@ ne další kód.
 3. Rozhodnout společně s uživatelem otevřené `REQUIRES DECISION` body:
    account-switch userId scoping (sekce 10), Supabase/Ktor major-verze
    upgrade (sekce 14), `SourceManager` Hilt multibinding refaktor (sekce 9).
-4. Fáze 18-24 (UX hloubka, feature roadmap, konkurenční srovnání) až po
-   bodu 3 - jde o produktová rozhodnutí, ne o audit kódu.
+4. Fáze 18-24 (UX hloubka, feature roadmap, konkurenční srovnání) - návrh
+   hotov (sekce 18-19 níž), čeká na výběr uživatele, který nápad realizovat.
+
+## 18. Konkurenční srovnání (nápady, NE kopírování)
+
+Průzkum aktuálního (2026) stavu hlavních FOSS manga readerů - **cílem je
+inspirace vlastním řešením, ne přebírání designu/kódu 1:1**, v souladu s tím,
+jak vznikl zbytek appky.
+
+- **Mihon** (dřív Tachiyomi) - pluginový model zdrojů (samostatně
+  instalovatelné "extension store" balíčky), víc trackerů (8 vs. Jiyū 4,
+  ale navíc jen regionální Shikimori/Bangumi/Hikka), import vlastních
+  archivů jako knihovních položek, záloha jen jako lokální soubor (Jiyū má
+  vlastní cloud sync navíc - tady je Jiyū architektonicky napřed).
+- **Kotatsu** - **PIN/biometrický zámek appky** (nezávislý na zámku
+  systému), automatická cross-device synchronizace VŠECH dat appky (ne jen
+  knihovny), 1200+ katalogizovaných zdrojů + import CBZ archivů jako
+  lokálního zdroje, samostatný "updates feed" s doporučeními.
+- **Madomi** - jediný nalezený peer s AI překladem přímo v čtečce (JP/KR/CN),
+  ale vždy cloud-závislý (žádné on-device OCR) - potvrzuje, že Jiyū's OCR
+  pipeline (on-device + konfigurovatelný LLM) je v tomhle ohledu opravdu
+  vzácný, ne samozřejmý diferenciátor.
+- **Paperback** (iOS) - nedostatek dohledatelných detailů, nedoporučeno dál
+  zkoumat.
+
+**Funkce, které Jiyū pravděpodobně postrádá vůči tomuhle peer setu:**
+1. Zámek appky (PIN/biometrie) nezávislý na systémovém zámku.
+2. Globální/cross-source hledání (jedno zadání, sloučené výsledky napříč
+   povolenými zdroji) - Jiyū zatím prohledává jen po jednom zdroji.
+3. Import vlastního CBZ/ZIP archivu jako knihovní položky (bez online
+   zdroje) - přirozené doplnění k tomu, že Jiyū už CBZ umí EXPORTOVAT.
+4. Self-hosted server integrace (Komga-styl) jako alternativa k
+   scrapovaným zdrojům - větší, volitelná myšlenka.
+5. Komunitně sdílené balíčky zdrojů (Jiyū řeší podobnou potřebu jinak -
+   community listy sdílí SEZNAMY mang, ne konfigurace zdrojů).
+
+## 19. Návrh feature roadmapy (MUST/SHOULD/NICE/EXPERIMENTAL)
+
+Kategorizace vychází z (a) položek 18 výš, (b) `REQUIRES DECISION` bodů
+zjištěných v sekcích 5/9/10/14 výš ("co je špatně, i když to funguje").
+Nic z tohohle není naimplementováno - jde o návrh k výběru, ne hotovou práci.
+
+**MUST** (bezpečnost/spolehlivost, ne nová funkce):
+- Vyřešit account-switch `userId` scoping (sekce 10) - jediná položka
+  s reálným rizikem "cizí data na obrazovce", ne jen chybějící feature.
+
+**SHOULD** (jasná hodnota, přiměřená složitost):
+- **Zámek appky** (PIN/biometrie přes `androidx.biometric`) - Jiyū už má
+  incognito mód v čtečce, tohle je přirozené rozšíření "soukromí appky"
+  směru, ne cizí nápad naroubovaný odjinud. Odhad: střední (nová
+  lock-screen obrazovka + `BiometricPrompt` + nastavení, žádný zásah do
+  zbytku architektury).
+- **Import lokálního CBZ/ZIP jako knihovní položky** - symetrický protějšek
+  k už existujícímu `ChapterStorage.createCbz`. Implementačně čistý
+  (nová `MangaSource` implementace nad SAF/`DocumentFile`, žádný scraping).
+  Odhad: střední.
+- Rozšířit testy na `data/tracking/{Kitsu,Mal,MangaUpdates}*` (sekce 12) -
+  nižší riziko než SyncRepository, ale pořád nulové pokrytí.
+
+**NICE** (hodnota tam je, složitost/riziko vyšší):
+- **Globální cross-source hledání** - vyžaduje paralelní dotazy napříč
+  desítkami zdrojů s rozumným per-source timeoutem/rate-limitingem (ať
+  appka nezahltí cizí servery najednou) a UX pro postupně přicházející
+  částečné výsledky. Netriviální, ale žádná architektonická překážka
+  (`MangaSource.search` už existuje na každém zdroji).
+- Supabase/Ktor major-verze upgrade (sekce 14) - stará blokace (Kotlin
+  1.9.x) je prokazatelně zastaralá (projekt je na 2.2.21), ale samotná
+  migrace (`gotrue-kt`→`auth-kt` přejmenování, breaking changes) pořád
+  vyžaduje vyhrazené sezení + end-to-end test login/OAuth/sync na zařízení.
+- `SourceManager` Hilt multibinding refaktor (sekce 9) - vysoké riziko/
+  nízký okamžitý přínos, ale dlouhodobě usnadní přidávání zdrojů.
+
+**EXPERIMENTAL** (zajímavé, mimo jádro projektu):
+- Self-hosted server integrace (Komga-styl) pro powerusery, co si sami
+  hostují vlastní knihovnu - velký rozsah, nejasná návratnost pro
+  jednouživatelský portfolio projekt.
+- Řešení `sessionElapsed` rekompozice (sekce 5) - teprve po potvrzení
+  reálného dopadu přes Layout Inspector, ne naslepo.
