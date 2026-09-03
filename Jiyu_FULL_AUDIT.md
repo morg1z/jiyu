@@ -24,10 +24,12 @@ tohoto rozsahu (360 hlavních + 199 testovacích .kt souborů) bývá obvyklé:
 - Historie (`ANALYSIS_REPORT.md`, `CHANGELOG.md` u v1.2.58) ukazuje aktivní,
   disciplinovaný vývoj s regresními testy u opravených bugů.
 
-I přesto se našlo a opravilo několik reálných problémů - viz sekce 3, 15.
-Navíc: v pracovním adresáři leželo **rozdělané, necommitnuté** opravy ze
-čtyř workerů (viz sekce 15.1) - dokončeno, otestováno a mělo by se
-zkontrolovat/commitnout spolu s tímhle auditem.
+I přesto se našlo a opravilo 11 reálných problémů (B1-B11, sekce 3) napříč
+bublinovou detekcí, stahováním, syncem, čtečkou, ComicK zdrojem a UX - všechny
+otestované, commitnuté. Dva zbývající body vyžadují rozhodnutí uživatele, ne
+další kód (`REQUIRES DECISION`, sekce 9/10/14), a jeden potřebuje reálná data
+ze zařízení, ne statickou analýzu (B2 - sekce 3, `sessionElapsed` rekompozice
+- sekce 5).
 
 ## 2. Architecture
 
@@ -59,6 +61,21 @@ skutečný nález byl B7 - zbytek (`BrowseViewModel`, `CustomCssViewModel`,
 riziko, `ChapterStorage.deleteRecursively`, má VLASTNÍ interní try/catch+report;
 `HistoryViewModel` - čisté Room DAO volání) má zanedbatelné riziko selhání, konzistentní
 s tím, jak zbytek projektu podobná nízkoriziková volání řeší.
+
+| B8 | P2 | ui/reader/ReaderPager | Pinch/pan `graphicsLayer(scaleX=..., ...)` (property overload) čte `scale`/`panOffset` v KOMPOZICI, ne v draw fázi | `detectTransformGestures` mění tyhle hodnoty desítkykrát/s - každý update rekomponoval celý `Box` (obrázek + všechny bubliny v translate módu), ne jen redraw | Lambda overload `graphicsLayer { scaleX = ...; ... }` - čte state až v draw fázi | **Opraveno** |
+| B9 | P2 | source/comick/ComicKSource | `getChapterList()` stránkuje `while (true)` bez stropu, žádný timeout na volající straně (`MangaRepository.refreshChapters`) | Kdyby ComicK API vrátilo `pageSize` položek navěky (server bug/shoda počtu kapitol), funkce visí navěky - appka nespadne, jen věčný spinner na detailu mangy | Strop `maxPages = 500` (30 000 kapitol, hluboko nad realitou) | **Opraveno** |
+| B10 | P2 | ui/downloads/DownloadManagerScreen | Smazání JEDNÉ stažené kapitoly (`ChapterDownloadRow`) nemělo potvrzovací dialog, zatímco hromadné mazání (celá manga / všechny přečtené) ho mělo oboje | Nechtěný tap trvale smaže stažené soubory kapitoly z disku bez možnosti vrátit zpět | Přidán `AlertDialog` ve stejném stylu jako u hromadného mazání (jen pro `DOWNLOADED` stav - `ERROR` stav maže jen neúspěšný záznam, žádná data) | **Opraveno** |
+| B11 | P3 | ui/stats/ExtendedStatsViewModel | Export statistik (JSON/CSV) při chybě zobrazil `e.message` (surová výjimka) místo přátelské hlášky | Uživatel by u např. `SecurityException` ze Storage Access Frameworku viděl technický anglický text místo srozumitelné české hlášky | Vždy přátelský string, `e.report(...)` pro záznam skutečné příčiny | **Opraveno** |
+
+### 3.2 Testing gap uzavřen
+
+`sync/SyncRepository.kt` mělo nulové pokrytí testy, včetně přesně té LWW slučovací
+logiky, která se v tomhle sezení ručně opravovala (SYNC-1/SYNC-2) - nejrizikovější
+místo k tichému budoucímu zregresování. Vytažena jako čisté funkce
+(`ChapterEntity.mergeWithRemote`, `MangaSyncDto?.removedFromLibraryRemotely`,
+`internal`, beze změny chování) a pokryta 7 testy
+(`SyncRepositoryTest.kt`) - včetně regresního testu na PŮVODNÍ bug (jednou přečtená
+kapitola nešla nikdy dál synchronizovat).
 
 ### 3.1 Rozdělaná práce nalezená v working directory (ne moje, z dřívějška v tomhle sezení)
 
@@ -112,7 +129,33 @@ jen pokračování do zbylých fází.
 
 ## 5. Performance
 
-`NEAUDITOVÁNO` do hloubky - viz B4 (jediný nález zatím, z lintu).
+Viz B8 (opraveno). Zkontrolováno navíc, beze změn (žádný nález):
+- Coil `ImageLoader` (`JiyuApp.kt`) - 20 % paměti + 256 MB disk cache, rozumné meze.
+- `PREFETCH_WINDOW = 4` (`ChapterPagePrefetch.kt`) jen zahřívá Coil cache, nedrží
+  dekódované bitmapy v Compose stavu - žádný neomezený růst paměti.
+- `HorizontalPager` v `ReaderPager.kt` používá výchozí `beyondBoundsPageCount = 0` -
+  mimoobrazovkové stránky se nekomponují, nedrží se navíc v paměti.
+- `WebtoonReader.kt` má stabilní `key` u `itemsIndexed` - žádný chybějící-key
+  rekompoziční problém.
+
+`REQUIRES DECISION` (`NEEDS DEVICE DATA`, neopraveno): `ReaderScreen.kt` čte
+`viewModel.sessionElapsed` (1Hz tikající `StateFlow`) přímo v těle hlavního
+composable, vedle ~30 inline lambd bez `remember`, které se volají do
+`ReaderContent(...)` (~70 parametrů). Každý tik może znovu alokovat tyhle lambdy
+(nestabilní identita), což by mohlo bránit Compose "skip" optimalizaci downstream.
+- **Problém:** potenciální zbytečná rekompozice čtečky jednou za sekundu po celou
+  dobu čtení - reálný dopad nepotvrzen (vyžaduje Layout Inspector/Compose compiler
+  metriky na zařízení, ne jen statické čtení kódu).
+- **Možnosti:** (a) přesunout `collectAsState()` hlouběji (do `ReaderContent`/
+  `ReaderTopBar`) - vyžaduje změnu kontraktu `ReaderContent` (buď naváže na
+  ViewModel/Flow místo čistého `Long`, architektonický kompromis); (b) obalit
+  `remember`em všech ~30 lambd v `ReaderScreen.kt` - mechaničtější, ale riziko
+  "stale closure" bugu při špatně zvoleném klíči u tak velkého počtu lambd.
+- **Doporučení:** nejdřív změřit na zařízení (Layout Inspector), teprve pak
+  rozhodnout mezi (a)/(b) - neopravovat naslepo v nejsložitější/nejexponovanější
+  obrazovce appky bez potvrzených dat.
+- **Riziko/složitost:** (a) střední, jeden soubor navíc naváže na ViewModel;
+  (b) nízké-střední riziko na fix, ale vysoké riziko regrese při chybě (~30 míst).
 
 ## 6. Database
 
@@ -160,19 +203,57 @@ neprovedeno bez výslovného zadání.
 
 ## 9.1 ComicK / resolver
 
-`NEAUDITOVÁNO` do hloubky - jen letmo zkontrolováno v předchozích sezeních.
+Viz B9 (opraveno). Zkontrolováno navíc, beze změn:
+- Více scanlation skupin na kapitolu je ZÁMĚRNĚ ponecháno jako samostatné
+  `SChapter` položky (uživatel si vybere skupinu); `progressPercentFor` už
+  deduplikuje přes `floor(chapterNumber)`.
+- `hid` vs. slug použití je konzistentní v celém souboru, žádná záměna.
+- Jediný CDN host (`meo.comick.pictures`) bez fallbacku - ComicK ale reálně
+  žádný alternativní host nedokumentuje, jde o vlastnost upstream API, ne
+  o opravitelnou mezeru.
+- `ComicKChapterResolver.kt:170` už používá `withTimeoutOrNull(8_000)` -
+  zavedený vzor v projektu, kterým se inspirovala i oprava B9.
 
 ## 10. Sync
 
-`NEAUDITOVÁNO`.
+Viz sekce 3.1 (SYNC-1/SYNC-2, LWW) a 3.2 (testing gap uzavřen). Zkontrolováno
+navíc, beze změn (obojí už bylo správně):
+- `SyncWorker.doWork()` má strop 3 pokusů, stejný vzor jako zbytek projektu.
+- `AccountViewModel.syncNow()` obaluje `pushToCloud()`/`pullFromCloud()` do
+  try/catch a promítá `SyncState.Error` - výjimka ze Supabase (401, výpadek
+  sítě) uprostřed synchronizace appku nespadne.
+
+`REQUIRES DECISION` (znovu potvrzeno, NEOPRAVENO): žádná entita v `data/db/entity/`
+nemá `userId` sloupec. `AccountViewModel.signOut()` maže jen auth token, ne
+lokální DB - přepnutí účtu na stejném zařízení ukáže PŘEDCHOZÍ účet knihovnu/
+historii, dokud ji sync nepřepíše.
+- **Možnosti:** (a) smazat knihovnu/historii při `signOut()` - jednoduché,
+  ale zničí neodsynchronizovaná offline-only data; (b) `userId` sloupec +
+  migrace + scoping všech DAO dotazů - správné dlouhodobě, ale zasahuje
+  DAO/repository kontrakty na ~30+ místech.
+- **Doporučení:** (a) pokud appka nikdy neřeší víc účtů na jednom zařízení
+  jako reálný use-case; (b) jen pokud je to skutečný požadavek.
+- **Riziko/složitost:** (a) nízké, ~30 min; (b) vysoké, samostatné sezení.
 
 ## 11. UX
 
-`NEAUDITOVÁNO`.
+Viz B10, B11 (opraveno). Zkontrolováno navíc:
+- Prázdné stavy (knihovna, downloads) mají ikonu+titulek+CTA, v pořádku.
+- Žádná automaticky nalezená obrazovka pro smazání účtu (`ui/account/`) -
+  není nutně bug (Supabase self-delete by vyžadovalo edge funkci), jen
+  poznámka pro budoucí GDPR-styl "smazat moje data", pokud to bude cíl.
 
 ## 12. Technical debt
 
 Nízké - viz Executive summary (0 TODO, 0 GlobalScope, málo `!!`).
+
+**Testing gaps** (bodová kontrola 10 netriviálních tříd proti `app/src/test/`):
+`sync/SyncRepository` mělo nulové pokrytí - uzavřeno (viz 3.2). Stále nulové
+pokrytí: `auth/AuthRepository`, `auth/SecureSessionManager`,
+`data/tracking/{Kitsu,Mal,MangaUpdates}*`, `backup/{BackupManager,
+SettingsBackupManager}`. Nižší priorita než `SyncRepository` byla - jde
+většinou o tenké obálky nad SDK voláními (test by hlavně re-testoval mocky),
+ne o vlastní netriviální logiku jako byla LWW slučovací funkce.
 
 ## 13. Dead code
 
@@ -199,25 +280,49 @@ plugin chybí), ne odhad z trénovacích dat. Přidána 1 nová test-only
 závislost: `androidx.work:work-testing:2.9.1` (stejná verze jako
 `work-runtime-ktx`, jen `testImplementation`, nedostane se do APK).
 
+`NEEDS LIVE VERSION CHECK` (nelze potvrdit bez síťového dotazu, jen
+"vypadá to staře" odhad podle trénovacích dat): `io.github.jan-tennert.supabase`
+2.0.3 a `io.ktor:ktor-client-okhttp` 2.3.9 jsou ZÁMĚRNĚ přišpendlené
+(komentář v kódu: "poslední verze s Kotlin 1.9.x") - upgrade na novější řadu
+je svázaný s bumpem Kotlinu, ne drop-in výměna. `io.coil-kt:coil-compose` 2.6.0
+je taky předchozí generace (Coil 3.x je multiplatformní přepis). Žádná ze tří
+nemá známou CVE z trénovacích dat - jde o údržbový dluh, ne aktivní zranitelnost.
+`REQUIRES DECISION`: upgrade Supabase/Ktor na 3.x řadu je svázaný s Kotlin
+verzí napříč celým projektem - neprovedeno bez výslovného zadání a bez
+živého ověření kompatibility.
+
 ## 15. Fixed issues
 
 Viz sekce 3 kompletní tabulka + 3.1.
 
 ## 16. Remaining issues
 
-Hotovo dnes: 0 (mapa), 1 (build/lint baseline), 3+3.1 (nálezy B1-B7),
-4 (security - čisto), 6 (DB - čisto), 9 (sources - čisto + 1 architektonická
-poznámka). Zbývá: 2 (Compose recomposition detail), 5/14 (skutečný
-výkon/paměť - vyžaduje profiling na zařízení, ne jen statické čtení kódu),
-9.1 (ComicK resolver do hloubky), 10 (auth edge-cases), 11 (sync - jen
-částečně přes B-nálezy), 13 (zbytek download systému mimo idempotenci),
-18 (UX), 19 (testing gaps mimo to, co se dopisovalo cestou), 20 (dead code
-- potřebuje referenční sweep), 21 (dependencies verze/bezpečnost), 22-24.
+Hotovo: 0 (mapa), 1 (build/lint baseline), 3+3.1+3.2 (nálezy B1-B11 + testing
+gap na SyncRepository uzavřen), 4 (security - čisto), 6 (DB - čisto), 9
+(sources - čisto + 1 architektonická poznámka), 5 (performance - B8 + 1
+`REQUIRES DECISION`), 9.1 (ComicK - B9 + čisto), 10 (sync - čisto + 1
+`REQUIRES DECISION` na account-switch), 11 (UX - B10/B11 + 1 poznámka),
+12 (technical debt + testing gaps zmapované), 13 (dead code - hotovo), 14
+(dependencies - duplicity čisto + 3 `NEEDS LIVE VERSION CHECK`).
+
+Zbývá: B2 (kaskádové bubliny - čeká na reálná logcat data ze zařízení),
+`REQUIRES DECISION` account-switch userId scoping (sekce 10), Compose
+`sessionElapsed` rekompozice (sekce 5, `NEEDS DEVICE DATA`), testing gaps
+mimo SyncRepository (auth/tracker/backup třídy, sekce 12), Supabase/Ktor/
+Coil verze (sekce 14, `NEEDS LIVE VERSION CHECK`), a fáze mimo dosah
+statické analýzy: 18-24 (competitor comparison, feature roadmap MUST/
+SHOULD/NICE/EXPERIMENTAL) - vyžadují diskuzi/rozhodnutí s uživatelem,
+ne další kód.
 
 ## 17. Recommended roadmap
 
-1. ~~Commitnout dnešní opravy~~ - hotovo (3 commity: 580d803, 17e31f6,
-   e7d5a83, ac585b6).
-2. Získat reálná logcat data pro B2 (`adb logcat -s BubbleWallCheck`).
-3. Pokračovat zbylými fázemi (viz sekce 16) v dalších sezeních - reálný
-   výkon/paměť vyžaduje profiler na zařízení, ne statickou analýzu.
+1. ~~Commitnout dnešní opravy~~ - hotovo (commity 580d803 → b2b6499,
+   plus B8-B11 + SyncRepository testy z tohoto sezení).
+2. Získat reálná logcat data pro B2 (`adb logcat -s BubbleWallCheck`) a
+   Layout Inspector/Compose compiler metriky pro sekci 5 `sessionElapsed`
+   nález - obojí vyžaduje fyzické zařízení, ne další statické čtení kódu.
+3. Rozhodnout společně s uživatelem otevřené `REQUIRES DECISION` body:
+   account-switch userId scoping (sekce 10), Supabase/Ktor major-verze
+   upgrade (sekce 14), `SourceManager` Hilt multibinding refaktor (sekce 9).
+4. Fáze 18-24 (UX hloubka, feature roadmap, konkurenční srovnání) až po
+   bodu 3 - jde o produktová rozhodnutí, ne o audit kódu.
