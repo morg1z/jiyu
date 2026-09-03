@@ -19,23 +19,28 @@ data class JiyuUser(
     val avatarUrl: String?,
 )
 
+/**
+ * Vytaženo mimo [AuthRepository.currentUser] jako čistá funkce, aby šla otestovat
+ * bez mockování `SupabaseClient.auth` extension property (třetí-stranová Kotlin
+ * Multiplatform DSL, kterou MockK nejde spolehlivě mockovat).
+ */
+internal fun SessionStatus.toJiyuUser(): JiyuUser? = when (this) {
+    is SessionStatus.Authenticated -> {
+        val user = session.user ?: return null
+        JiyuUser(
+            id = user.id,
+            email = user.email,
+            displayName = user.userMetadata?.get("full_name")?.jsonPrimitive?.contentOrNull,
+            avatarUrl = user.userMetadata?.get("avatar_url")?.jsonPrimitive?.contentOrNull,
+        )
+    }
+    else -> null
+}
+
 @Singleton
 class AuthRepository @Inject constructor(private val supabase: SupabaseClient) {
 
-    val currentUser: Flow<JiyuUser?> = supabase.auth.sessionStatus.map { status ->
-        when (status) {
-            is SessionStatus.Authenticated -> {
-                val user = status.session.user ?: return@map null
-                JiyuUser(
-                    id = user.id,
-                    email = user.email,
-                    displayName = user.userMetadata?.get("full_name")?.jsonPrimitive?.contentOrNull,
-                    avatarUrl = user.userMetadata?.get("avatar_url")?.jsonPrimitive?.contentOrNull,
-                )
-            }
-            else -> null
-        }
-    }
+    val currentUser: Flow<JiyuUser?> = supabase.auth.sessionStatus.map { it.toJiyuUser() }
 
     fun isSignedIn(): Boolean = supabase.auth.currentSessionOrNull() != null
 
