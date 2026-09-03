@@ -313,12 +313,16 @@ fun MangaReader(
                     // Aplikuje pinch/double-tap transformaci na celou skupinu stránek najednou
                     // (obrázek + překladové bubliny), aby bubliny zůstaly na správném
                     // místě při zoomu, místo toho, aby zůstávaly na původní pozici.
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = panOffset.x,
-                        translationY = panOffset.y,
-                    ),
+                    // Lambda varianta (ne property-based přetížení) čte scale/panOffset až
+                    // v draw fázi, ne v kompozici - detectTransformGestures je mění při KAŽDÉM
+                    // pohybu prstu (desítky updatů/s), coz by jinak rekomponovalo celý Box
+                    // (obrázek + všechny bubliny v translate módu) na každý takový update.
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = panOffset.x
+                        translationY = panOffset.y
+                    },
             ) {
                 MangaGroupContent(
                     indices = indices,
