@@ -194,7 +194,11 @@ dependencies {
     // BubbleBoxDetector/BubbleMaskSegmenter) přímo na zařízení, žádné API/server.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
 
-    // Supabase — cloud sync + auth (2.0.3 je poslední verze s Kotlin 1.9.x)
+    // Supabase — cloud sync + auth. POZOR: komentář "2.0.3 je poslední verze s Kotlin 1.9.x"
+    // byl zastaralý - projekt je dávno na Kotlinu 2.2.21 (viz root build.gradle.kts), takže
+    // původní důvod přišpendlení už neplatí. I tak zůstává upgrade na 3.x (přejmenování
+    // gotrue-kt → auth-kt, breaking changes v Postgrest API) samostatný úkol vyžadující
+    // end-to-end otestování login/OAuth/sync na zařízení - viz Jiyu_FULL_AUDIT.md sekce 14.
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.0.3")
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.0.3")
     implementation("io.ktor:ktor-client-okhttp:2.3.9")
