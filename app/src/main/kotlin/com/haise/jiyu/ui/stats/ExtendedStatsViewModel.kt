@@ -9,6 +9,7 @@ import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.util.report
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,7 +139,11 @@ class ExtendedStatsViewModel @Inject constructor(
                 ?: error(context.getString(R.string.stats_export_open_file_error))
             _exportState.value = StatsExportState.Success(context.getString(R.string.stats_export_success_json))
         } catch (e: Exception) {
-            _exportState.value = StatsExportState.Error(e.message ?: context.getString(R.string.stats_export_generic_error))
+            // Vzdy prijatelna hlaska, i kdyz e.message je treba raw SecurityException ze
+            // Storage Access Frameworku - surova vyjimka do UI nepatri, e.report() ji
+            // zaznamena pro pripadne dalsi zkoumani.
+            e.report("stats:export:json")
+            _exportState.value = StatsExportState.Error(context.getString(R.string.stats_export_generic_error))
         }
     }
 
@@ -165,7 +170,8 @@ class ExtendedStatsViewModel @Inject constructor(
                 ?: error(context.getString(R.string.stats_export_open_file_error))
             _exportState.value = StatsExportState.Success(context.getString(R.string.stats_export_success_csv))
         } catch (e: Exception) {
-            _exportState.value = StatsExportState.Error(e.message ?: context.getString(R.string.stats_export_generic_error))
+            e.report("stats:export:csv")
+            _exportState.value = StatsExportState.Error(context.getString(R.string.stats_export_generic_error))
         }
     }
 }
