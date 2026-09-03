@@ -40,21 +40,11 @@ class SettingsBackupManager @Inject constructor(
     suspend fun exportToUri(uri: Uri): Result<Unit> = runCatching {
         val prefs = dataStore.data.first()
         val entries = JSONArray()
-        prefs.asMap().forEach { (key, value) ->
-            if (key.name in EXCLUDED_KEYS) return@forEach
-            val type = when (value) {
-                is Boolean -> "boolean"
-                is Int     -> "int"
-                is Long    -> "long"
-                is Float   -> "float"
-                is String  -> "string"
-                is Set<*>  -> "stringSet"
-                else       -> null
-            } ?: return@forEach
+        filterAndTagForExport(prefs.asMap().mapKeys { it.key.name }, EXCLUDED_KEYS).forEach { entry ->
             entries.put(JSONObject().apply {
-                put("key", key.name)
-                put("type", type)
-                put("value", if (value is Set<*>) JSONArray(value.toList()) else value)
+                put("key", entry.key)
+                put("type", entry.type)
+                put("value", if (entry.value is Set<*>) JSONArray(entry.value.toList()) else entry.value)
             })
         }
         val root = JSONObject().apply {
@@ -69,28 +59,80 @@ class SettingsBackupManager @Inject constructor(
     suspend fun importFromUri(uri: Uri): Result<Int> = runCatching {
         val json = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
             ?: error("Nelze otevřít soubor zálohy")
-        val root = JSONObject(json)
-        val entries = root.optJSONArray("settings") ?: JSONArray()
-        var count = 0
+        val entries = parseSettingsEntries(json, EXCLUDED_KEYS)
         dataStore.edit { prefs ->
-            for (i in 0 until entries.length()) {
-                val e = entries.getJSONObject(i)
-                val name = e.getString("key")
-                if (name in EXCLUDED_KEYS) continue
-                when (e.getString("type")) {
-                    "boolean" -> prefs[booleanPreferencesKey(name)] = e.getBoolean("value")
-                    "int"     -> prefs[intPreferencesKey(name)] = e.getInt("value")
-                    "long"    -> prefs[longPreferencesKey(name)] = e.getLong("value")
-                    "float"   -> prefs[floatPreferencesKey(name)] = e.getDouble("value").toFloat()
-                    "string"  -> prefs[stringPreferencesKey(name)] = e.getString("value")
+            entries.forEach { entry ->
+                when (entry.type) {
+                    "boolean" -> prefs[booleanPreferencesKey(entry.key)] = entry.value as Boolean
+                    "int" -> prefs[intPreferencesKey(entry.key)] = entry.value as Int
+                    "long" -> prefs[longPreferencesKey(entry.key)] = entry.value as Long
+                    "float" -> prefs[floatPreferencesKey(entry.key)] = entry.value as Float
+                    "string" -> prefs[stringPreferencesKey(entry.key)] = entry.value as String
                     "stringSet" -> {
-                        val arr = e.getJSONArray("value")
-                        prefs[stringSetPreferencesKey(name)] = (0 until arr.length()).map { arr.getString(it) }.toSet()
+                        @Suppress("UNCHECKED_CAST")
+                        prefs[stringSetPreferencesKey(entry.key)] = entry.value as Set<String>
                     }
+                    // "unknown" - neznamy typ z (napr. rucne upraveneho) souboru zalohy se
+                    // nikam nezapise, ale i puvodni kod ho pocital do vysledneho poctu -
+                    // zachovano beze zmeny chovani.
                 }
-                count++
             }
         }
-        count
+        entries.size
     }
+}
+
+/** Jeden záznam nastavení - typ určuje, jak se `value` zapíše do DataStore [Preferences]. */
+internal data class SettingsEntry(val key: String, val type: String, val value: Any)
+
+/**
+ * Vytaženo z [SettingsBackupManager.exportToUri] jako čistá funkce (bez [DataStore]/
+ * [Preferences] typů), aby šlo otestovat bez Android runtime.
+ */
+internal fun filterAndTagForExport(prefs: Map<String, Any>, excludedKeys: Set<String>): List<SettingsEntry> {
+    val result = mutableListOf<SettingsEntry>()
+    prefs.forEach { (name, value) ->
+        if (name in excludedKeys) return@forEach
+        val type = when (value) {
+            is Boolean -> "boolean"
+            is Int     -> "int"
+            is Long    -> "long"
+            is Float   -> "float"
+            is String  -> "string"
+            is Set<*>  -> "stringSet"
+            else       -> null
+        } ?: return@forEach
+        result.add(SettingsEntry(name, type, value))
+    }
+    return result
+}
+
+/**
+ * Vytaženo z [SettingsBackupManager.importFromUri] jako čistá funkce, aby šlo otestovat
+ * bez [DataStore]. Neznámý "type" (poškozený/ručně upravený soubor zálohy) vrátí záznam
+ * typu "unknown" místo pádu - stejné chování jako původní `when` bez `else` větve.
+ */
+internal fun parseSettingsEntries(json: String, excludedKeys: Set<String>): List<SettingsEntry> {
+    val root = JSONObject(json)
+    val entries = root.optJSONArray("settings") ?: JSONArray()
+    val result = mutableListOf<SettingsEntry>()
+    for (i in 0 until entries.length()) {
+        val e = entries.getJSONObject(i)
+        val name = e.getString("key")
+        if (name in excludedKeys) continue
+        val entry = when (e.getString("type")) {
+            "boolean" -> SettingsEntry(name, "boolean", e.getBoolean("value"))
+            "int" -> SettingsEntry(name, "int", e.getInt("value"))
+            "long" -> SettingsEntry(name, "long", e.getLong("value"))
+            "float" -> SettingsEntry(name, "float", e.getDouble("value").toFloat())
+            "string" -> SettingsEntry(name, "string", e.getString("value"))
+            "stringSet" -> {
+                val arr = e.getJSONArray("value")
+                SettingsEntry(name, "stringSet", (0 until arr.length()).map { arr.getString(it) }.toSet())
+            }
+            else -> SettingsEntry(name, "unknown", Unit)
+        }
+        result.add(entry)
+    }
+    return result
 }

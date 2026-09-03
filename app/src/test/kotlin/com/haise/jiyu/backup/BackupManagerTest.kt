@@ -1,0 +1,127 @@
+package com.haise.jiyu.backup
+
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Test
+
+/**
+ * Testy na [parseBackupJson] - čisté JSON→entity parsování vytažené z
+ * [BackupManager.restoreFromJson] mimo `db.withTransaction`, aby šlo otestovat bez
+ * Room databáze. Pokrývá hlavně zpětnou kompatibilitu se staršími formáty zálohy
+ * (chybějící pole, `version` bez hodnoty) - přesně to, co by při chybě potichu
+ * poškodilo obnovenou knihovnu, ne pád appky.
+ */
+class BackupManagerTest {
+
+    private fun manga(
+        id: String = "m1",
+        extra: JSONObject.() -> Unit = {},
+    ) = JSONObject().apply {
+        put("id", id)
+        put("sourceId", "src")
+        put("url", "/m1")
+        put("title", "Test Manga")
+        extra()
+    }
+
+    private fun backupJson(build: JSONObject.() -> Unit) = JSONObject().apply(build).toString()
+
+    @Test
+    fun `a backup from a newer app version is rejected with a friendly message, not silently misparsed`() {
+        val json = backupJson { put("version", BackupManager.BACKUP_VERSION + 1) }
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { parseBackupJson(json) }
+
+        assertEquals(true, ex.message?.contains("novější verze"))
+    }
+
+    @Test
+    fun `the oldest backups have no version field at all and are still accepted`() {
+        // version chybelo odjakziva u nejstarsich zaloh - optInt("version", 1) je bere
+        // jako format 1, ktery je <= BACKUP_VERSION, takze projdou.
+        val json = backupJson { put("manga", JSONArray()) }
+
+        val result = parseBackupJson(json)
+
+        assertEquals(0, result.manga.size)
+    }
+
+    @Test
+    fun `manga with only the required fields fills every optional field with its safe default`() {
+        val json = backupJson { put("manga", JSONArray().put(manga())) }
+
+        val result = parseBackupJson(json)
+        val m = result.manga.single()
+
+        assertNull("prazdny string se ma prevest na null, ne zustat prazdny", m.coverUrl)
+        assertNull(m.description)
+        assertNull(m.userRating)
+        assertNull(m.year)
+        assertNull(m.malId)
+        assertNull(m.malScore)
+        assertEquals("MANGA", m.contentType)
+        assertEquals(true, m.inLibrary)
+        assertEquals(false, m.autoDownload)
+    }
+
+    @Test
+    fun `a userRating of exactly 0 is a real rating, not treated as missing`() {
+        // optInt("userRating", -1).takeIf { it >= 0 } - regrese k chybe, kdyz by 0 (validni
+        // hodnoceni) omylem splynulo s "chybi" (driv by na to bylo snadne sáhnout spatnym
+        // defaultem/podminkou).
+        val json = backupJson { put("manga", JSONArray().put(manga { put("userRating", 0) })) }
+
+        val result = parseBackupJson(json)
+
+        assertEquals(0, result.manga.single().userRating)
+    }
+
+    @Test
+    fun `category assignments are flattened from each manga's categoryIds array`() {
+        val json = backupJson {
+            put("manga", JSONArray().put(
+                manga { put("categoryIds", JSONArray().put("catA").put("catB")) }
+            ))
+        }
+
+        val result = parseBackupJson(json)
+
+        assertEquals(listOf("m1" to "catA", "m1" to "catB"), result.categoryAssignments)
+    }
+
+    @Test
+    fun `chapterNumber survives a JSON round-trip as a float, including fractional chapters`() {
+        val json = backupJson {
+            put("chapters", JSONArray().put(JSONObject().apply {
+                put("id", "c1"); put("mangaId", "m1"); put("sourceId", "src"); put("url", "/c1")
+                put("name", "Ch 10.5"); put("chapterNumber", 10.5); put("dateUpload", 0L)
+                put("read", true); put("lastPageRead", 3)
+            }))
+        }
+
+        val result = parseBackupJson(json)
+
+        assertEquals(10.5f, result.chapters.single().chapterNumber, 0.001f)
+    }
+
+    @Test
+    fun `missing optional arrays (notes, tags, readHistory) parse as empty lists, not a crash`() {
+        val json = backupJson { put("version", 1) }
+
+        val result = parseBackupJson(json)
+
+        assertEquals(0, result.notes.size)
+        assertEquals(0, result.tags.size)
+        assertEquals(0, result.readHistory.size)
+        assertEquals(0, result.categories.size)
+        assertEquals(0, result.customSources.size)
+    }
+
+    @Test
+    fun `malformed JSON throws instead of silently returning an empty backup`() {
+        assertThrows(org.json.JSONException::class.java) { parseBackupJson("{ not valid json") }
+    }
+}

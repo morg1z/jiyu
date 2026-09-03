@@ -197,141 +197,164 @@ class BackupManager @Inject constructor(
      * knihovna zůstala v rozečteném stavu. Buď se obnoví všechno, nebo nic.
      */
     private suspend fun restoreFromJson(json: String): ImportStats = db.withTransaction {
-        val root = JSONObject(json)
+        val parsed = parseBackupJson(json)
 
-        // Verzi si export zapisoval odjakživa, ale import ji nikdy nečetl - novější formát
-        // by se tedy naparsoval jako ten současný a tiše nadělal nesmysly. Nejstarší zálohy
-        // pole nemají vůbec, ty bereme jako ten nejstarší formát a pouštíme dál.
-        val version = root.optInt("version", 1)
-        require(version <= BACKUP_VERSION) {
-            "Záloha je z novější verze aplikace (formát $version, tahle appka umí $BACKUP_VERSION). " +
-                "Aktualizuj Jiyu a zkus to znovu."
-        }
-
-        val catsArr = root.optJSONArray("categories") ?: JSONArray()
-        val categories = (0 until catsArr.length()).map { i ->
-            val c = catsArr.getJSONObject(i)
-            CategoryEntity(
-                id       = c.getString("id"),
-                name     = c.getString("name"),
-                colorHex = c.optString("colorHex", "#8B5CF6"),
-            )
-        }
-        repository.upsertAllCategories(categories)
-
-        val customSourcesArr = root.optJSONArray("customSources") ?: JSONArray()
-        val customSources = (0 until customSourcesArr.length()).map { i ->
-            val s = customSourcesArr.getJSONObject(i)
-            CustomSourceEntity(
-                id                  = s.getString("id"),
-                name                = s.getString("name"),
-                baseUrl             = s.getString("baseUrl"),
-                listItemSelector    = s.optString("listItemSelector").ifBlank { null },
-                titleLinkSelector   = s.optString("titleLinkSelector").ifBlank { null },
-                descriptionSelector = s.optString("descriptionSelector").ifBlank { null },
-                statusSelector      = s.optString("statusSelector").ifBlank { null },
-                chapterListSelector = s.optString("chapterListSelector").ifBlank { null },
-                pageImageSelector   = s.optString("pageImageSelector").ifBlank { null },
-            )
-        }
-        repository.upsertAllCustomSources(customSources)
-
-        val mangaArr = root.optJSONArray("manga") ?: JSONArray()
-        val mangaList = mutableListOf<MangaEntity>()
-        val catAssignments = mutableListOf<Pair<String, String>>()
-
-        for (i in 0 until mangaArr.length()) {
-            val m = mangaArr.getJSONObject(i)
-            val userRating = m.optInt("userRating", -1).takeIf { it >= 0 }
-            val year = m.optInt("year", 0).takeIf { it > 0 }
-            val malId = m.optInt("malId", 0).takeIf { it > 0 }
-            val malScore = m.optDouble("malScore", 0.0).takeIf { it > 0 }?.toFloat()
-            mangaList.add(
-                MangaEntity(
-                    id                      = m.getString("id"),
-                    sourceId                = m.getString("sourceId"),
-                    url                     = m.getString("url"),
-                    title                   = m.getString("title"),
-                    coverUrl                = m.optString("coverUrl").ifBlank { null },
-                    description             = m.optString("description").ifBlank { null },
-                    status                  = m.optString("status").ifBlank { null },
-                    author                  = m.optString("author").ifBlank { null },
-                    artist                  = m.optString("artist").ifBlank { null },
-                    genres                  = m.optString("genres", ""),
-                    year                    = year,
-                    contentType             = m.optString("contentType", "MANGA").ifBlank { "MANGA" },
-                    autoDownload            = m.optBoolean("autoDownload", false),
-                    userRating              = userRating,
-                    excludeFromUpdates      = m.optBoolean("excludeFromUpdates", false),
-                    malId                   = malId,
-                    malScore                = malScore,
-                    malStatus               = m.optString("malStatus").ifBlank { null },
-                    readerDirectionOverride = m.optString("readerDirectionOverride").ifBlank { null },
-                    addedAt                 = m.optLong("addedAt", 0L),
-                    inLibrary               = true,
-                    lastReadChapterId       = m.optString("lastReadChapterId").ifBlank { null },
-                    lastReadAt              = m.optLong("lastReadAt", 0L),
-                    readingStatus           = m.optString("readingStatus").ifBlank { null },
-                )
-            )
-            val ids = m.optJSONArray("categoryIds") ?: JSONArray()
-            for (j in 0 until ids.length()) catAssignments.add(m.getString("id") to ids.getString(j))
-        }
-        repository.upsertAllManga(mangaList)
-        repository.upsertAllMangaCategories(catAssignments)
-
-        val chapArr = root.optJSONArray("chapters") ?: JSONArray()
-        val chapters = (0 until chapArr.length()).map { i ->
-            val c = chapArr.getJSONObject(i)
-            ChapterEntity(
-                id            = c.getString("id"),
-                mangaId       = c.getString("mangaId"),
-                sourceId      = c.getString("sourceId"),
-                url           = c.getString("url"),
-                name          = c.getString("name"),
-                chapterNumber = c.getDouble("chapterNumber").toFloat(),
-                dateUpload    = c.getLong("dateUpload"),
-                read          = c.getBoolean("read"),
-                lastPageRead  = c.getInt("lastPageRead"),
-            )
-        }
-        repository.upsertAllChapters(chapters)
-
-        val notesArr = root.optJSONArray("notes") ?: JSONArray()
-        val notes = (0 until notesArr.length()).map { i ->
-            val n = notesArr.getJSONObject(i)
-            MangaNoteEntity(
-                mangaId   = n.getString("mangaId"),
-                content   = n.getString("content"),
-                updatedAt = n.optLong("updatedAt", System.currentTimeMillis()),
-            )
-        }
-        if (notes.isNotEmpty()) mangaNoteDao.upsertAll(notes)
-
-        val tagsArr = root.optJSONArray("tags") ?: JSONArray()
-        val tags = (0 until tagsArr.length()).map { i ->
-            val t = tagsArr.getJSONObject(i)
-            MangaTagEntity(mangaId = t.getString("mangaId"), tag = t.getString("tag"))
-        }
-        if (tags.isNotEmpty()) mangaTagDao.insertAll(tags)
-
-        val histArr = root.optJSONArray("readHistory") ?: JSONArray()
-        val history = (0 until histArr.length()).map { i ->
-            val h = histArr.getJSONObject(i)
-            ReadHistoryEntity(
-                chapterId   = h.getString("chapterId"),
-                mangaId     = h.getString("mangaId"),
-                mangaTitle  = h.getString("mangaTitle"),
-                coverUrl    = h.optString("coverUrl").ifBlank { null },
-                chapterName = h.getString("chapterName"),
-                readAt      = h.getLong("readAt"),
-            )
-        }
-        if (history.isNotEmpty()) readHistoryDao.upsertAll(history)
+        repository.upsertAllCategories(parsed.categories)
+        repository.upsertAllCustomSources(parsed.customSources)
+        repository.upsertAllManga(parsed.manga)
+        repository.upsertAllMangaCategories(parsed.categoryAssignments)
+        repository.upsertAllChapters(parsed.chapters)
+        if (parsed.notes.isNotEmpty()) mangaNoteDao.upsertAll(parsed.notes)
+        if (parsed.tags.isNotEmpty()) mangaTagDao.insertAll(parsed.tags)
+        if (parsed.readHistory.isNotEmpty()) readHistoryDao.upsertAll(parsed.readHistory)
 
         // Bez `return` - jsme uvnitř lambdy withTransaction, hodnota se vrací jako výraz.
-        ImportStats(mangaList.size, chapters.size, categories.size)
+        ImportStats(parsed.manga.size, parsed.chapters.size, parsed.categories.size)
     }
 
     data class ImportStats(val mangaCount: Int, val chapterCount: Int, val categoryCount: Int)
+}
+
+/** Výsledek [parseBackupJson] - vstup pro zápis v [BackupManager.restoreFromJson]. */
+internal data class ParsedBackup(
+    val categories: List<CategoryEntity>,
+    val customSources: List<CustomSourceEntity>,
+    val manga: List<MangaEntity>,
+    val categoryAssignments: List<Pair<String, String>>,
+    val chapters: List<ChapterEntity>,
+    val notes: List<MangaNoteEntity>,
+    val tags: List<MangaTagEntity>,
+    val readHistory: List<ReadHistoryEntity>,
+)
+
+/**
+ * Čisté parsování JSON→entity, vytažené z [BackupManager.restoreFromJson] mimo
+ * `db.withTransaction`, aby šlo otestovat bez Room databáze (žádná změna chování).
+ */
+internal fun parseBackupJson(json: String): ParsedBackup {
+    val root = JSONObject(json)
+
+    // Verzi si export zapisoval odjakživa, ale import ji nikdy nečetl - novější formát
+    // by se tedy naparsoval jako ten současný a tiše nadělal nesmysly. Nejstarší zálohy
+    // pole nemají vůbec, ty bereme jako ten nejstarší formát a pouštíme dál.
+    val version = root.optInt("version", 1)
+    require(version <= BackupManager.BACKUP_VERSION) {
+        "Záloha je z novější verze aplikace (formát $version, tahle appka umí ${BackupManager.BACKUP_VERSION}). " +
+            "Aktualizuj Jiyu a zkus to znovu."
+    }
+
+    val catsArr = root.optJSONArray("categories") ?: JSONArray()
+    val categories = (0 until catsArr.length()).map { i ->
+        val c = catsArr.getJSONObject(i)
+        CategoryEntity(
+            id       = c.getString("id"),
+            name     = c.getString("name"),
+            colorHex = c.optString("colorHex", "#8B5CF6"),
+        )
+    }
+
+    val customSourcesArr = root.optJSONArray("customSources") ?: JSONArray()
+    val customSources = (0 until customSourcesArr.length()).map { i ->
+        val s = customSourcesArr.getJSONObject(i)
+        CustomSourceEntity(
+            id                  = s.getString("id"),
+            name                = s.getString("name"),
+            baseUrl             = s.getString("baseUrl"),
+            listItemSelector    = s.optString("listItemSelector").ifBlank { null },
+            titleLinkSelector   = s.optString("titleLinkSelector").ifBlank { null },
+            descriptionSelector = s.optString("descriptionSelector").ifBlank { null },
+            statusSelector      = s.optString("statusSelector").ifBlank { null },
+            chapterListSelector = s.optString("chapterListSelector").ifBlank { null },
+            pageImageSelector   = s.optString("pageImageSelector").ifBlank { null },
+        )
+    }
+
+    val mangaArr = root.optJSONArray("manga") ?: JSONArray()
+    val mangaList = mutableListOf<MangaEntity>()
+    val catAssignments = mutableListOf<Pair<String, String>>()
+
+    for (i in 0 until mangaArr.length()) {
+        val m = mangaArr.getJSONObject(i)
+        val userRating = m.optInt("userRating", -1).takeIf { it >= 0 }
+        val year = m.optInt("year", 0).takeIf { it > 0 }
+        val malId = m.optInt("malId", 0).takeIf { it > 0 }
+        val malScore = m.optDouble("malScore", 0.0).takeIf { it > 0 }?.toFloat()
+        mangaList.add(
+            MangaEntity(
+                id                      = m.getString("id"),
+                sourceId                = m.getString("sourceId"),
+                url                     = m.getString("url"),
+                title                   = m.getString("title"),
+                coverUrl                = m.optString("coverUrl").ifBlank { null },
+                description             = m.optString("description").ifBlank { null },
+                status                  = m.optString("status").ifBlank { null },
+                author                  = m.optString("author").ifBlank { null },
+                artist                  = m.optString("artist").ifBlank { null },
+                genres                  = m.optString("genres", ""),
+                year                    = year,
+                contentType             = m.optString("contentType", "MANGA").ifBlank { "MANGA" },
+                autoDownload            = m.optBoolean("autoDownload", false),
+                userRating              = userRating,
+                excludeFromUpdates      = m.optBoolean("excludeFromUpdates", false),
+                malId                   = malId,
+                malScore                = malScore,
+                malStatus               = m.optString("malStatus").ifBlank { null },
+                readerDirectionOverride = m.optString("readerDirectionOverride").ifBlank { null },
+                addedAt                 = m.optLong("addedAt", 0L),
+                inLibrary               = true,
+                lastReadChapterId       = m.optString("lastReadChapterId").ifBlank { null },
+                lastReadAt              = m.optLong("lastReadAt", 0L),
+                readingStatus           = m.optString("readingStatus").ifBlank { null },
+            )
+        )
+        val ids = m.optJSONArray("categoryIds") ?: JSONArray()
+        for (j in 0 until ids.length()) catAssignments.add(m.getString("id") to ids.getString(j))
+    }
+
+    val chapArr = root.optJSONArray("chapters") ?: JSONArray()
+    val chapters = (0 until chapArr.length()).map { i ->
+        val c = chapArr.getJSONObject(i)
+        ChapterEntity(
+            id            = c.getString("id"),
+            mangaId       = c.getString("mangaId"),
+            sourceId      = c.getString("sourceId"),
+            url           = c.getString("url"),
+            name          = c.getString("name"),
+            chapterNumber = c.getDouble("chapterNumber").toFloat(),
+            dateUpload    = c.getLong("dateUpload"),
+            read          = c.getBoolean("read"),
+            lastPageRead  = c.getInt("lastPageRead"),
+        )
+    }
+
+    val notesArr = root.optJSONArray("notes") ?: JSONArray()
+    val notes = (0 until notesArr.length()).map { i ->
+        val n = notesArr.getJSONObject(i)
+        MangaNoteEntity(
+            mangaId   = n.getString("mangaId"),
+            content   = n.getString("content"),
+            updatedAt = n.optLong("updatedAt", System.currentTimeMillis()),
+        )
+    }
+
+    val tagsArr = root.optJSONArray("tags") ?: JSONArray()
+    val tags = (0 until tagsArr.length()).map { i ->
+        val t = tagsArr.getJSONObject(i)
+        MangaTagEntity(mangaId = t.getString("mangaId"), tag = t.getString("tag"))
+    }
+
+    val histArr = root.optJSONArray("readHistory") ?: JSONArray()
+    val history = (0 until histArr.length()).map { i ->
+        val h = histArr.getJSONObject(i)
+        ReadHistoryEntity(
+            chapterId   = h.getString("chapterId"),
+            mangaId     = h.getString("mangaId"),
+            mangaTitle  = h.getString("mangaTitle"),
+            coverUrl    = h.optString("coverUrl").ifBlank { null },
+            chapterName = h.getString("chapterName"),
+            readAt      = h.getLong("readAt"),
+        )
+    }
+
+    return ParsedBackup(categories, customSources, mangaList, catAssignments, chapters, notes, tags, history)
 }
