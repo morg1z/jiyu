@@ -257,9 +257,13 @@ navíc doplněno čistě parsovací pokrytí (`parseBackupJson` vytažené mimo 
 `UserSession` šlo nakonec zkonstruovat přímo, i pro obranné null-user větve),
 `auth/SecureSessionManager` (obranné chování při poškozené/chybějící session, 5 testů),
 `backup/SettingsBackupManager` (bezpečnostně citlivý `EXCLUDED_KEYS` filtr - auth
-tokeny se nikdy nesmí dostat do exportu - + typový dispatch při importu, 7 testů).
-Zbývá nepokryté: `data/tracking/{Kitsu,Mal,MangaUpdates}*` (tenké obálky nad SDK
-voláními, nejnižší priorita, testovací pokrytí probíhá).
+tokeny se nikdy nesmí dostat do exportu - + typový dispatch při importu, 7 testů),
+`data/tracking/{Kitsu,Mal,MangaUpdates}Repository` (JSON→doménové mapování - title
+fallback řetězec u Kitsu, "0 = není nastaveno" vzor u skóre/postupu na všech třech,
+kombinování dvou nezávislých API volání u MangaUpdates `getMyStatus` - 24 testů
+dohromady). Původní bodová kontrola 10 tříd je tímhle vyčerpaná - zbývá jen
+`Kitsu/MalAuthManager` (OAuth handshake, zámerně netestováno - sekvenční síťový tok
+bez netriviální čisté logiky, nízká návratnost).
 
 ## 13. Dead code
 
@@ -386,8 +390,6 @@ Nic z tohohle není naimplementováno - jde o návrh k výběru, ne hotovou prá
   k už existujícímu `ChapterStorage.createCbz`. Implementačně čistý
   (nová `MangaSource` implementace nad SAF/`DocumentFile`, žádný scraping).
   Odhad: střední.
-- Rozšířit testy na `data/tracking/{Kitsu,Mal,MangaUpdates}*` (sekce 12) -
-  nižší riziko než SyncRepository, ale pořád nulové pokrytí.
 
 **NICE** (hodnota tam je, složitost/riziko vyšší):
 - **Globální cross-source hledání** - vyžaduje paralelní dotazy napříč
