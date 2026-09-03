@@ -1,6 +1,7 @@
 package com.haise.jiyu.sync
 
 import com.haise.jiyu.auth.AuthRepository
+import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
@@ -8,6 +9,20 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Last-write-wins sloučení: kdo měnil naposled (skutečný čas změny, ne push-volání -
+ * viz komentář u [ChapterSyncDto.updatedAt] výše), ten vyhrává. `null` = lokální stav
+ * je novější nebo stejně starý, nic se nemění. Vytaženo jako čistá funkce mimo
+ * [SyncRepository.pullFromCloud], aby šla otestovat bez Postgrest/síťové vrstvy.
+ */
+internal fun ChapterEntity.mergeWithRemote(remote: ChapterSyncDto): ChapterEntity? =
+    if (remote.updatedAt > this.lastReadAt) {
+        copy(read = remote.read, lastPageRead = remote.lastPageRead, lastReadAt = remote.updatedAt)
+    } else null
+
+/** Odebrání z knihovny na JINÉM zařízení - viz komentář u volajícího místa v [SyncRepository.pullFromCloud]. */
+internal fun MangaSyncDto?.removedFromLibraryRemotely(): Boolean = this?.inLibrary == false
 
 @Serializable
 data class MangaSyncDto(
@@ -100,7 +115,7 @@ class SyncRepository @Inject constructor(
         // titulu, co tu pořád je, odebral ho prokazatelně jiný přístroj.
         val remoteMangaById = remoteManga.associateBy { it.id }
         libraryManga.forEach { local ->
-            if (remoteMangaById[local.id]?.inLibrary == false) {
+            if (remoteMangaById[local.id].removedFromLibraryRemotely()) {
                 mangaRepository.removeFromLibrary(local.id)
             }
         }
@@ -137,9 +152,7 @@ class SyncRepository @Inject constructor(
         // kapitoly (další stránka, případně i zpětné "označit nepřečteno").
         val toUpdate = remoteChapters.mapNotNull { remote ->
             val local = localMap[remote.id] ?: return@mapNotNull null
-            if (remote.updatedAt > local.lastReadAt) {
-                local.copy(read = remote.read, lastPageRead = remote.lastPageRead, lastReadAt = remote.updatedAt)
-            } else null
+            local.mergeWithRemote(remote)
         }
         if (toUpdate.isNotEmpty()) {
             mangaRepository.upsertAllChapters(toUpdate)
