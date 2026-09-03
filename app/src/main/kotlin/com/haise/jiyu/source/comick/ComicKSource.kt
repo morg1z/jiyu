@@ -500,8 +500,13 @@ class ComicKSource @Inject constructor(
             val chapters = mutableListOf<SChapter>()
             var page = 1
             val pageSize = 60
+            // Strop na počet stránek - bez něj by chybové/nekonečně se opakující API
+            // chování (server vždy vrátí přesně pageSize položek) zacyklilo tuhle funkci
+            // navždy (žádný pád, jen navěky visící "obnovuji kapitoly" na detailu mangy).
+            // 500 stránek * 60 = 30 000 kapitol, hluboko nad reálným maximem jakéhokoli titulu.
+            val maxPages = 500
 
-            while (true) {
+            while (page <= maxPages) {
                 val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
                 val json = getObject(url)
                 val arr = json.optJSONArray("chapters") ?: break
