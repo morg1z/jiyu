@@ -2,6 +2,7 @@ package com.haise.jiyu.source.vortexscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import javax.inject.Inject
@@ -37,6 +39,44 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
     private val base = "https://vortexscans.org"
     private val apiBase = "https://api.vortexscans.org"
 
+    // Frontend je hydratovany Astro island (viz komentar vyse) - filtrovaci UI vola
+    // vlastni JSON API `GET /api/query?view=archive&genreIds={id}&page=..&perPage=..`
+    // (zjisteno z bundlovaneho JS `_vcomics/DP1_5tmv.js`), zatimco seznam vsech
+    // dostupnych zanru je na `GET /api/genres`. Overeno zive: genreIds=9 (Horror)
+    // vraci jiny seznam titulu nez nefiltrovany dotaz.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val json = JSONArray(get("$apiBase/api/genres"))
+            val tags = (0 until json.length()).mapNotNull { i ->
+                val o = json.getJSONObject(i)
+                val id = o.optInt("id", -1).takeIf { it >= 0 } ?: return@mapNotNull null
+                val name = o.optString("name").trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = id.toString(), label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseQueryList(json: String): List<SManga> {
+        val posts = JSONObject(json).optJSONArray("posts") ?: return emptyList()
+        return (0 until posts.length()).mapNotNull { i ->
+            val p = posts.getJSONObject(i)
+            val slug = p.optString("slug").ifBlank { return@mapNotNull null }
+            val title = p.optString("postTitle").ifBlank { return@mapNotNull null }
+            val cover = p.optString("featuredImage").ifBlank { null }
+            SManga(sourceId = id, url = "/series/$slug", title = title, coverUrl = cover)
+        }
+    }
+
+    private fun genreQueryUrl(genreId: String, page: Int) =
+        "$apiBase/api/query?page=$page&perPage=20&view=archive&genreIds=$genreId"
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -61,7 +101,12 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
         // tise skonci na prazdnem seznamu. Overeno logem site pripojeni na realnem
         // telefonu (stejna pricina jako u HiveToonsSource - oba bezi na Astro). S
         // lomitkem uz web odpovi rovnou 200, zadne presmerovani.
-        try { parseList(get("$base/series/?page=$page")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseQueryList(get(genreQueryUrl(filter.genres.first(), page)))
+            }
+            parseList(get("$base/series/?page=$page"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {

@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.manga18club
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -63,14 +64,47 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
             SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = contentType)
         }.distinctBy { it.url }
 
+    // Zanry jsou vypsane v hlavnim menu ("Genres" rozbalovaci sub-menu na homepage)
+    // jako odkazy na `/manga-list/{slug}` - stejna archivni stranka jako karta
+    // "Categories" v detailu mangy. Overeno zive: /manga-list/romance vraci jina
+    // data nez /manga-list/romance/2 (druha stranka) - genuinne filtrovany vypis.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get(base), base)
+            val tags = doc.select("div.sub-menu a[href*=manga-list/]").mapNotNull { a ->
+                val slug = a.absUrl("href").trimEnd('/').substringAfterLast("/manga-list/").ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/manga-list/$slug" else "$base/manga-list/$slug/$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Genre archiv nema vlastni razeni v getPopular a nekombinuje vice zanru -
+            // pouzije se jen prvni vybrany tag (stejny vzor jako HadesScans/Madara).
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page)), base))
+            }
             parseListing(Jsoup.parse(get("$base/latest-release/$page"), base))
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page)), base))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val json = JSONObject(get("$base/search?search=$q"))
             val data = json.optJSONArray("data") ?: return@withContext emptyList()

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.asurascans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.URLEncoder
 import javax.inject.Inject
@@ -52,12 +54,61 @@ class AsuraScansSource @Inject constructor(private val client: OkHttpClient) : M
         }
     }
 
+    // Klientske "/browse?genre=..." parametry na hlavni Astro strance ticha ignoruje
+    // (overeno zive - HTML odpoved je bajtove identicka az na "data-country"). Skutecne
+    // filtrovani jede pres samostatny backend "api.asurascans.com/api/series?genre={slug}"
+    // (JSON, ktery hlavni stranka nacita klientsky pres JS) - overeno zive, ze vraci jen
+    // tituly, ktere maji dany slug ve svem "genres" poli (napr. "martial-arts": 8 vysledku
+    // misto 342 celkem). Vice zanru najednou se AND nekombinuje (opakovany "genre=" parametr
+    // vraci stejnych 8 jako jediny zadany), proto se pouziva jen prvni vybrany tag.
+    private val apiBase = "https://api.asurascans.com"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val json = JSONObject(get("$apiBase/api/genres"))
+            val arr = json.optJSONArray("data") ?: return@withContext emptyList()
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val slug = o.optString("slug").ifBlank { return@mapNotNull null }
+                val name = o.optString("name").ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseApiSeries(body: String): List<SManga> {
+        val arr = JSONObject(body).optJSONArray("data") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.getJSONObject(i)
+            val href = o.optString("public_url").ifBlank { return@mapNotNull null }
+            val title = o.optString("title").ifBlank { return@mapNotNull null }
+            val cover = o.optString("cover").ifBlank { null }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover)
+        }
+    }
+
+    private fun genreFilteredList(slug: String, page: Int): List<SManga> {
+        val encoded = URLEncoder.encode(slug, "UTF-8")
+        return parseApiSeries(get("$apiBase/api/series?page=$page&genre=$encoded"))
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/browse?page=$page")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) return@withContext genreFilteredList(filter.genres.first(), page)
+            parseList(get("$base/browse?page=$page"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) return@withContext genreFilteredList(filter.genres.first(), page)
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/browse?page=$page&q=$q"))
         } catch (_: Exception) { emptyList() }

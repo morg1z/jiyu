@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.webtooni
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -48,27 +49,57 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun parseDocument(url: String): Document = Jsoup.parse(get(url), url)
 
+    private fun parseCardList(doc: Document): List<SManga> =
+        doc.select("div.comicItemCon a[href]").mapNotNull { a ->
+            val url = a.absUrl("href").ifBlank { return@mapNotNull null }
+            val img = a.selectFirst("img") ?: return@mapNotNull null
+            val title = img.attr("alt").trim().ifBlank { return@mapNotNull null }
+            val cover = img.attr("data-src").trim().ifBlank { img.attr("src").trim() }.ifBlank { null }
+            SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
+        }.distinctBy { it.url }
+
+    // /en/genres ma seznam vsech zanru (odkazy na /en/genres/{Nazev}) - kazda genre
+    // stranka pouziva stejnou "div.comicItemCon" kartu jako /en/ranking a /en/new,
+    // overeno zive (Action vs. Ranking maji jine tituly). Zadne dalsi strankovani
+    // (stejne jako u ranking/new - appka proto vraci vysledky jen pro page == 1).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = parseDocument("$base/en/genres")
+            val tags = doc.select("a[href*=/en/genres/]").mapNotNull { a ->
+                val href = a.absUrl("href")
+                val slug = href.substringAfter("/en/genres/").trim('/').ifBlank { null } ?: return@mapNotNull null
+                if (slug.equals("All", ignoreCase = true) || slug.equals("New", ignoreCase = true)) return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (page > 1) return@withContext emptyList()
-            // /en/new ma stejnou strukturu karet jako /en/ranking, jen jinak razenou
-            // (overeno zive - odlisna prvni polozka) - pro "Nejnovejsi" tab.
-            val path = if (filter.sortBy == "latest") "/en/new" else "/en/ranking"
             try {
-                val doc = parseDocument("$base$path")
-                doc.select("div.comicItemCon a[href]").mapNotNull { a ->
-                    val url = a.absUrl("href").ifBlank { return@mapNotNull null }
-                    val img = a.selectFirst("img") ?: return@mapNotNull null
-                    val title = img.attr("alt").trim().ifBlank { return@mapNotNull null }
-                    val cover = img.attr("data-src").trim().ifBlank { img.attr("src").trim() }.ifBlank { null }
-                    SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
-                }.distinctBy { it.url }
+                if (filter.genres.isNotEmpty()) {
+                    return@withContext parseCardList(parseDocument("$base/en/genres/${filter.genres.first()}"))
+                }
+                // /en/new ma stejnou strukturu karet jako /en/ranking, jen jinak razenou
+                // (overeno zive - odlisna prvni polozka) - pro "Nejnovejsi" tab.
+                val path = if (filter.sortBy == "latest") "/en/new" else "/en/ranking"
+                parseCardList(parseDocument("$base$path"))
             } catch (_: Exception) { emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (page > 1) return@withContext emptyList()
+            if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query, "UTF-8")
                 val json = JSONArray(get("$base/api/complete-search?keyword=$q"))

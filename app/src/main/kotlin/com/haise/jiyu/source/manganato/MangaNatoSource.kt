@@ -2,6 +2,7 @@ package com.haise.jiyu.source.manganato
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -32,25 +33,56 @@ class MangaNatoSource @Inject constructor(private val client: OkHttpClient) : Ma
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // Panel "GENRES" (div.panel-category) je soucasti kazde stranky (sidebar) -
+    // dotahujeme z homepage a cachujeme, seznam se v behu appky nemeni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get(base))
+            val tags = doc.select("div.panel-category a[href*=/genre/]").mapNotNull { a ->
+                val href = a.attr("href")
+                if (href.contains("/genre/all")) return@mapNotNull null
+                val slug = href.substringAfterLast("/genre/").substringBefore("?").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseListItems(doc: org.jsoup.nodes.Document) =
+        // .list-story-item je pouzit i pro banner reklamy - ty maji href mimo /manga/
+        doc.select(".list-story-item[href*=/manga/]").mapNotNull { el ->
+            SManga(
+                sourceId = id,
+                url = el.attr("href").removePrefix(base),
+                title = el.attr("title").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null,
+                coverUrl = el.selectFirst("img")?.let {
+                    it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
+                }?.takeIf { it.startsWith("http") },
+            )
+        }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base/manga-list/hot-manga?page=$page"))
-            // .list-story-item je pouzit i pro banner reklamy - ty maji href mimo /manga/
-            doc.select(".list-story-item[href*=/manga/]").mapNotNull { el ->
-                SManga(
-                    sourceId = id,
-                    url = el.attr("href").removePrefix(base),
-                    title = el.attr("title").trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null,
-                    coverUrl = el.selectFirst("img")?.let {
-                        it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
-                    }?.takeIf { it.startsWith("http") },
-                )
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListItems(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page")))
             }
+            val doc = Jsoup.parse(get("$base/manga-list/hot-manga?page=$page"))
+            parseListItems(doc)
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListItems(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page")))
+            }
             val q = URLEncoder.encode(query.lowercase(), "UTF-8")
                 .replace("+", "_").replace("%20", "_")
             val doc = Jsoup.parse(get("$base/search/story/$q?page=$page"))

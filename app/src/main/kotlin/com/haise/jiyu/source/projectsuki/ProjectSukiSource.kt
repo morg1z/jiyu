@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.projectsuki
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -54,14 +55,44 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // "/genre/{slug}" jsou archivni stranky jednotlivych zanru (stejna karetni
+    // struktura "a:has(img.browse)" jako browse) - web nema zadnou dedikovanou
+    // stranku vypisujici VSECHNY zanry ("/genres", "/genre", "/tags" vraci 404),
+    // takze seznam je overeny rucne (kazdy slug 200 vs bogus slug 404 - overeno
+    // zive) misto zive natazeni. Genre archiv nema vlastni razeni - pri vybranem
+    // tagu se filter.sortBy ignoruje, kombinace vice zanru neni podporovana.
+    override val supportsTagFilter: Boolean get() = true
+
+    private val staticTags = listOf(
+        "action", "adventure", "comedy", "doujinshi", "drama", "ecchi", "fantasy",
+        "harem", "historical", "horror", "isekai", "josei", "mecha", "mystery",
+        "psychological", "romance", "seinen", "shoujo", "shounen", "smut", "sports",
+        "supernatural", "tragedy", "yaoi", "yuri",
+    ).map { FilterTag(id = it, label = it.split('-').joinToString(" ") { w -> w.replaceFirstChar(Char::uppercase) }) }
+
+    override suspend fun getAvailableTags(): List<FilterTag> = staticTags
+
+    private fun genreUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/genre/$slug" else "$base/genre/$slug/$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val doc = Jsoup.parse(get(genreUrl(filter.genres.first(), page)))
+                return@withContext doc.select("a:has(img.browse)").mapNotNull(::parseCard)
+            }
             val doc = Jsoup.parse(get("$base/browse/$page"))
             doc.select("a:has(img.browse)").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                val doc = Jsoup.parse(get(genreUrl(filter.genres.first(), page)))
+                doc.select("a:has(img.browse)").mapNotNull(::parseCard)
+            } catch (_: Exception) { emptyList() }
+        }
         if (page > 1) return@withContext emptyList()
         try {
             val q = URLEncoder.encode(query, "UTF-8")

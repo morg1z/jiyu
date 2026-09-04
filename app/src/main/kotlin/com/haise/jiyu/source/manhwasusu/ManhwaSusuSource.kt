@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.manhwasusu
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -68,8 +69,52 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
         return items.subList(from, minOf(items.size, from + itemsPerPage))
     }
 
+    // Detaily titulu odkazuji na "/tax/genre/{slug}/" archivni stranky (napr.
+    // "/tax/genre/action/"), ktere maji stejnou kumulativni "?page=N" strankovaci
+    // logiku jako /popular (overeno zive: action ?page=2 obsahuje puvodnich 18 +
+    // 18 novych titulu). Web nema zadnou dedikovanou "seznam vsech zanru"
+    // stranku ani filtr UI v poc atecnim HTML, takze seznam je rucne sestaveny
+    // ze zanru pozorovanych na realnych titulech a kazdy slug je overeny zive
+    // (vraci >0 polozek na /tax/genre/{slug}/).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = listOf(
+            "action" to "Action",
+            "adult" to "Adult",
+            "romance" to "Romance",
+            "drama" to "Drama",
+            "comedy" to "Comedy",
+            "fantasy" to "Fantasy",
+            "mature" to "Mature",
+            "webtoon" to "Webtoon",
+            "full-color" to "Full Color",
+            "explicit-sex" to "Explicit Sex",
+            "borderline-h" to "Borderline H",
+            "school-life" to "School Life",
+            "harem" to "Harem",
+            "supernatural" to "Supernatural",
+            "bl" to "BL",
+            "yuri" to "Yuri",
+            "horror" to "Horror",
+            "thriller" to "Thriller",
+            "ntr" to "NTR",
+        ).map { (slug, label) -> FilterTag(id = slug, label = label) }
+        cachedTags = tags
+        tags
+    }
+
+    private fun genreUrl(slug: String, page: Int) = "$base/tax/genre/$slug/?page=$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val doc = Jsoup.parse(get(genreUrl(filter.genres.first(), page)), base)
+                return@withContext slicePage(parseCards(doc), page)
+            }
             // "Nejnovejsi" nema na tomhle webu vlastni strankovanou cestu (na rozdil od
             // /popular) - jen pevnou sekci "Latest Updates" na uvodni strance (overeno
             // zivě, jine tituly nez /popular). Stranka 1 ji tedy parsuje primo z domovske
@@ -86,6 +131,10 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val doc = Jsoup.parse(get(genreUrl(filter.genres.first(), page)), base)
+                return@withContext slicePage(parseCards(doc), page)
+            }
             // Query je soucast cesty (/search/{term}), ne query stringu - proto
             // rucni prevod na %20 mista "+" z URLEncoder (overeno zive: %20 funguje, "+" ne).
             val q = URLEncoder.encode(query, "UTF-8").replace("+", "%20")

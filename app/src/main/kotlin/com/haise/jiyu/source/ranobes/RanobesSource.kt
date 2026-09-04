@@ -2,6 +2,7 @@ package com.haise.jiyu.source.ranobes
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -53,8 +54,39 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
         }
     }
 
+    // "/novels/" ma DLE filter formular se selectem zanru (name="n.genre") -
+    // stejne hodnoty jsou dostupne jako dedikovany katalog "/tags/genre/{Nazev}/"
+    // (mezery v nazvu zustavaji doslovne v URL) se stejnou kartovou strukturou
+    // (article.story) jako obycejny vypis, jen jina sada titulu (overeno zive:
+    // Action str.1 vs str.2 - jine tituly).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/novels/"))
+            val tags = doc.select("select[name='n.genre'] option").mapNotNull { opt ->
+                val value = opt.attr("value").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = opt.text().trim().ifBlank { value }
+                FilterTag(id = value, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(genre: String, page: Int): String {
+        val slug = URLEncoder.encode(genre, "UTF-8").replace("+", "%20")
+        return if (page <= 1) "$base/tags/genre/$slug/" else "$base/tags/genre/$slug/page/$page/"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val url = if (page <= 1) "$base/novels/" else "$base/novels/page/$page/"
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
@@ -65,6 +97,9 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
     // na "/search/{dotaz}/" se stejnou strukturou jako browse listing.
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/$q/"))
         } catch (_: Exception) { emptyList() }

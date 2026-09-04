@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.todaymanga
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -44,7 +45,38 @@ class TodaymangaSource @Inject constructor(private val client: OkHttpClient) : M
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // "/genre" ma seznam vsech zanru (~50, <a href="/genre/{slug}"><span>Label</span>...) s
+    // vlastni archivni strankou "/genre/{slug}" - overeno zive, vraci odlisny seznam titulu
+    // nez "/category/editor-pick"/"/category/recent".
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/genre"))
+            val tags = doc.select("a[href^=/genre/]").mapNotNull { a ->
+                val slug = a.attr("href").removePrefix("/genre/").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = a.selectFirst("span")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Genre archiv nema strankovani ani vlastni razeni - pri vybranem zanru se
+        // filter.sortBy ignoruje, jen prvni vybrany zanr se pouzije (kombinace vice
+        // zanru neni podporovana).
+        if (filter.genres.isNotEmpty()) {
+            if (page > 1) return@withContext emptyList()
+            return@withContext try {
+                val doc = Jsoup.parse(get("$base/genre/${filter.genres.first()}"))
+                doc.select("a[href^=/book/]:has(img)").mapNotNull(::parseCard).distinctBy { it.url }
+            } catch (_: Exception) { emptyList() }
+        }
         if (page > 1) return@withContext emptyList()
         // Homepage mixala dohromady VSECHNY sekce (Editors' Choices, Recent Updated,
         // Completed Popular...) do jednoho seznamu bez rozliseni - "Nejnovejsi" v appce
@@ -58,6 +90,7 @@ class TodaymangaSource @Inject constructor(private val client: OkHttpClient) : M
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         if (page > 1) return@withContext emptyList()
         try {
             val q = URLEncoder.encode(query, "UTF-8")

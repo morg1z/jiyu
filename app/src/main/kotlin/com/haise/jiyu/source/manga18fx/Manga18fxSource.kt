@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.manga18fx
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -73,8 +74,37 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
         }
 
+    // Zanry jsou v hlavnim menu jako rozbalovaci "Genres" sub-menu (`div.sub-menu.genre-menu`)
+    // s odkazy na `/manga-genre/{slug}` - stejna markup rodina jako Madara. Overeno zive:
+    // /manga-genre/romance vs. /manga-genre/romance?page=2 vraci genuinne jine karty.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDocument(base)
+            val tags = doc.select("div.sub-menu.genre-menu a[href*=manga-genre/]").mapNotNull { a ->
+                val slug = a.absUrl("href").trimEnd('/').substringAfterLast("/manga-genre/").ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/manga-genre/$slug" else "$base/manga-genre/$slug?page=$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            // Genre archiv nema vlastni razeni a nekombinuje vice zanru - pouzije se
+            // jen prvni vybrany tag (stejny vzor jako HadesScans/Madara).
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreUrl(filter.genres.first(), page)))
+            }
             // "latest" -> homepage feed strankovany /page/N, jinak /hot-manga?page=N (podle zobrazeni).
             val url = if (filter.sortBy == "latest") "$base/page/$page" else "$base/hot-manga?page=$page"
             parseMangaList(fetchDocument(url))
@@ -82,6 +112,9 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseMangaList(fetchDocument("$base/search?q=$q"))
         }

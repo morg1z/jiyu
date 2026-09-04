@@ -2,6 +2,7 @@ package com.haise.jiyu.source.webtoon
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -59,15 +60,44 @@ class WebtoonSource @Inject constructor(
     // ("WEBTOON - Popular Series") je samostatna, opravdu jinak razena stranka - overeno
     // zive, prvni tituly se lisi od /en/originals. Zadnou zvlast "naposledy aktualizovano"
     // stranku appka nenasla, "Nejnovejsi" tak zustava na puvodnim katalogu.
+    //
+    // /en/genres je seznam vsech zanru (a.snb_tab._snb_tab_a) - kazdy odkazuje na
+    // /en/genres/{slug}?sortOrder=MANA, ktera pouziva STEJNOU "ul.webtoon_list li" strukturu
+    // jako ostatni katalogove stranky (overeno zive - horror vs unfiltered maji jine tituly),
+    // takze staci znovupouzit parseCardList. Genre strankovani neni strankovane URL parametrem
+    // (jednostrankovy vypis), proto se dalsi stranky nedoplnuji.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/en/genres"))
+            val tags = doc.select("a.snb_tab._snb_tab_a").mapNotNull { a ->
+                val slug = a.absUrl("href").substringAfter("/genres/").substringBefore("?").ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        val path = if (filter.sortBy == "latest") "/en/originals" else "/en/ranking"
-        try { parseCardList(get("$base$path")) }
-        catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseCardList(get("$base/en/genres/${filter.genres.first()}?sortOrder=MANA"))
+            }
+            val path = if (filter.sortBy == "latest") "/en/originals" else "/en/ranking"
+            parseCardList(get("$base$path"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseCardList(get("$base/en/search?keyword=$q"))

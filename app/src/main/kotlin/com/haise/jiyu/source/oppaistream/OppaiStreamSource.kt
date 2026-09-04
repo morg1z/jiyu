@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.oppaistream
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -60,9 +61,40 @@ class OppaiStreamSource @Inject constructor(
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
         }.distinctBy { it.url }
 
+    // "/search" stranka ma checkbox panel zanru (h5.search-tag-box[genre=slug]) ktery
+    // JS posila do "api-search.php?...&genres=slug1,slug2" - stejna karetni struktura
+    // (div.in-grid) jako normalni load-more.php vypis, jen jina sada titulu (overeno
+    // zive: genres=yuri vs bez filtru - jine tituly).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDocument("$base/search?a=recent")
+            val tags = doc.select("h5.search-tag-box[genre]").mapNotNull { el ->
+                val slug = el.attr("genre").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = el.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreSearchUrl(query: String, page: Int, genres: List<String>): String {
+        val q = URLEncoder.encode(query, "UTF-8")
+        val g = URLEncoder.encode(genres.joinToString(","), "UTF-8")
+        return "$base/api-search.php?text=$q&order=&page=$page&limit=18&status=&genres=$g&blacklist="
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try {
+                if (filter.genres.isNotEmpty()) {
+                    return@withContext parseCardListing(fetchDocument(genreSearchUrl("", page, filter.genres)))
+                }
                 val offset = (page - 1) * 18
                 parseCardListing(fetchDocument("$base/load-more.php?amount=18&offset=$offset&chapters=0"))
             } catch (_: Exception) { emptyList() }
@@ -70,6 +102,11 @@ class OppaiStreamSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext try {
+                    parseCardListing(fetchDocument(genreSearchUrl(query.trim(), page, filter.genres)))
+                } catch (_: Exception) { emptyList() }
+            }
             if (query.isBlank()) return@withContext getPopular(page, filter)
             if (page > 1) return@withContext emptyList()
             try {

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.thunderscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -56,6 +57,33 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
         }
     }
 
+    // Archivni stranka "/comics/" ma sidebar s genre[] checkboxy (standardni MangaThemesia
+    // "genrez" panel, ciselne id) - stejny endpoint prijima "?genre[]=<id>" jako extra filtr,
+    // overeno zive (17 vs 30 titulu pro genre "Academy" vs bez filtru).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/comics/"))
+            val tags = doc.select("input.genre-item[name=genre[]]").mapNotNull { input ->
+                val value = input.attr("value").ifBlank { null } ?: return@mapNotNull null
+                val label = doc.selectFirst("label[for=${input.attr("id")}]")?.text()?.trim()?.ifBlank { null }
+                    ?: return@mapNotNull null
+                FilterTag(id = value, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun archiveUrl(page: Int, orderby: String, genreId: String?): String {
+        val base0 = if (page <= 1) "$base/comics/?order=$orderby" else "$base/comics/page/$page/?order=$orderby"
+        return if (genreId != null) "$base0&genre%5B%5D=$genreId" else base0
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val orderby = when (filter.sortBy) {
@@ -63,13 +91,16 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
                 "title"  -> "title"
                 else     -> "popular"
             }
-            val url = if (page <= 1) "$base/comics/?order=$orderby" else "$base/comics/page/$page/?order=$orderby"
+            val url = archiveUrl(page, orderby, filter.genres.firstOrNull())
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(archiveUrl(page, "popular", filter.genres.first())))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))
