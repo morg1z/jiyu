@@ -2,6 +2,7 @@ package com.haise.jiyu.source.comizy
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -63,6 +64,9 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreArchive(filter.genres.first(), page)
+            }
             // Puvodni kod vzdy cetl /latest, i pro "Popularni" - web ale ma i samostatnou
             // /popular cestu se stejnym __NEXT_DATA__ tvarem (overeno zive, jine tituly).
             val path = if (filter.sortBy == "latest") "latest" else "popular"
@@ -74,11 +78,51 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreArchive(filter.genres.first(), page)
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val props = pageProps(nextData(get("$base/search?q=$q&page=$page")) ?: return@withContext emptyList())
             val items = props.getJSONArray("ssrItems")
             (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
         } catch (_: Exception) { emptyList() }
+    }
+
+    // ─── Filtrování podle žánru ────────────────────────────────────────────────
+
+    override val supportsTagFilter: Boolean get() = true
+
+    // "/genres" stranka vrati kompletni (~70 polozek), staticky seznam zanru primo
+    // v __NEXT_DATA__ - overeno zive 2026-09-04, stejny vzor kesovani jako u
+    // ostatnich zdroju s vlastnim seznamem zanru.
+    @Volatile private var cachedGenres: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedGenres?.let { return@withContext it }
+        try {
+            val props = pageProps(nextData(get("$base/genres")) ?: return@withContext emptyList())
+            val arr = props.getJSONArray("genres")
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val slug = o.optString("slug").ifBlank { return@mapNotNull null }
+                val name = o.optString("name").ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = name)
+            }.sortedBy { it.label }
+            cachedGenres = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * "/genres/{slug}" archivni stranka - overeno zive, ze vraci jiny vysledek
+     * (a jinou pocitanou strankovaci strukturu) nez populardni/latest, a stranka
+     * respektuje "?page=N". Kombinace vice zanru najednou web nepodporuje - pri
+     * vice vybranych se pouzije prvni (stejny vzor jako u MadaraSource).
+     */
+    private fun parseGenreArchive(slug: String, page: Int): List<SManga> {
+        val props = pageProps(nextData(get("$base/genres/$slug?page=$page")) ?: return emptyList())
+        val items = props.getJSONArray("items")
+        return (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {

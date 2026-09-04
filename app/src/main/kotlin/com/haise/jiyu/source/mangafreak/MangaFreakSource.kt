@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangafreak
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -44,8 +45,43 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
 
+    // Genre archiv ("/Genre/{slug}/{page}") ma jinou strukturu karty ("div.ranking_item")
+    // nez popular/search vypis ("manga_poster" atd.) - overeno zive.
+    private fun parseGenreList(html: String): List<SManga> =
+        Jsoup.parse(html, base).select("div.ranking_item").mapNotNull { item ->
+            val link = item.selectFirst("a[href^=/Manga/]") ?: return@mapNotNull null
+            val href = link.attr("href")
+            val title = link.selectFirst("h3.title")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+            val cover = item.selectFirst(".ranking_item_image img")?.attr("src")?.trim()?.ifBlank { null }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover)
+        }
+
+    override val supportsTagFilter: Boolean get() = true
+
+    // "/Genre" vypisuje kompletni seznam zanru (~55 polozek) v "div.genre_list a" -
+    // staticky seznam, staci nacist jednou a sdilet mezi vsemi otevrenimi Filtry.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/Genre"), base)
+            val tags = doc.select("div.genre_list a[href^=/Genre/]").mapNotNull { a ->
+                val slug = a.attr("href").removePrefix("/Genre/").trim().ifBlank { null } ?: return@mapNotNull null
+                if (slug.equals("All", ignoreCase = true)) return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreList(get("$base/Genre/${filter.genres.first()}/$page"))
+            }
             // "latest" ma vlastni cestu (overeno zive), strankovani je v ceste, ne query
             // stringu ("/Latest_Releases/2", ne "?page=2" jako u popular-manga).
             val url = if (filter.sortBy == "latest") "$base/Latest_Releases${if (page > 1) "/$page" else ""}"
@@ -56,6 +92,9 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreList(get("$base/Genre/${filter.genres.first()}/$page"))
+            }
             val q   = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/$q"))
         } catch (_: Exception) { emptyList() }

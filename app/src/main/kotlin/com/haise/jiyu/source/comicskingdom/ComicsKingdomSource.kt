@@ -2,6 +2,7 @@ package com.haise.jiyu.source.comicskingdom
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -59,6 +60,9 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext getFeaturesByGenre(filter.genres.first(), page)
+            }
             // "latest" = nejnovejsi pridany pasek (razeni podle WP term id, overeno zive
             // ze vraci jine porati nez count), "popular" = nejvic dennich stripu (count).
             val orderby = if (filter.sortBy == "latest") "id" else "count"
@@ -68,9 +72,56 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext getFeaturesByGenre(filter.genres.first(), page)
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseFeatures(get("$api/ck_feature_taxonomy?search=$q&per_page=24&page=$page"))
         } catch (_: Exception) { emptyList() }
+    }
+
+    // ─── Filtrování podle žánru (ck_genre taxonomie) ──────────────────────────
+
+    override val supportsTagFilter: Boolean get() = true
+
+    // ck_genre je maly, staticky seznam (~19 polozek) - overeno zive 2026-09-04,
+    // stejny vzor kesovani jako u ostatnich zdroju s vlastnim tag API.
+    @Volatile private var cachedGenres: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedGenres?.let { return@withContext it }
+        try {
+            val arr = JSONArray(get("$api/ck_genre?per_page=100"))
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val genreId = o.optInt("id", -1).takeIf { it > 0 } ?: return@mapNotNull null
+                val name = o.optString("name").ifBlank { return@mapNotNull null }
+                FilterTag(id = genreId.toString(), label = name)
+            }.sortedBy { it.label }
+            cachedGenres = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * ck_genre taxonomie neni na feature (SManga) primo, ale na jednotlivych
+     * dennich paskach (ck_comic) - overeno zive: `/ck_comic?ck_genre={id}` vrati
+     * jednotlive stripy, kazdy s polem `ck_feature_taxonomy` odkazujicim na svuj
+     * feature. Nasbira se proto poslednich 100 stripu daneho zanru, z nich se
+     * vytahnou UNIKATNI feature id (v poradi prvniho vyskytu) a az ty se pouzi
+     * pro dotazeni skutecnych feature zaznamu - stejny tvar odpovedi jako
+     * bezny listing, takze [parseFeatures] jde znovupouzit beze zmeny.
+     */
+    private fun getFeaturesByGenre(genreId: String, page: Int): List<SManga> {
+        val comics = JSONArray(get("$api/ck_comic?ck_genre=$genreId&per_page=100&orderby=date&order=desc&_fields=ck_feature_taxonomy"))
+        val orderedIds = LinkedHashSet<Int>()
+        for (i in 0 until comics.length()) {
+            val ids = comics.getJSONObject(i).optJSONArray("ck_feature_taxonomy") ?: continue
+            for (j in 0 until ids.length()) orderedIds.add(ids.getInt(j))
+        }
+        val pageIds = orderedIds.toList().drop((page - 1) * 24).take(24)
+        if (pageIds.isEmpty()) return emptyList()
+        return parseFeatures(get("$api/ck_feature_taxonomy?include=${pageIds.joinToString(",")}&per_page=100"))
     }
 
     private fun assetUrl(post: JSONObject): String? {

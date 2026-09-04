@@ -2,6 +2,7 @@ package com.haise.jiyu.source.dynasty
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,7 +40,49 @@ class DynastySource @Inject constructor(
     // s jedinym klicem "#" (ne skutecne razeni podle pismene) - viz odpoved
     // {"tags":[{"#":[{"name":...,"permalink":...}, ...]}, ...],"current_page":1,"total_pages":17}.
     // Cover uz v listingu neni, doplni se az v getMangaDetails.
+    // ─── Filtrování podle tagu ───────────────────────────────────────────────
+
+    override val supportsTagFilter: Boolean get() = true
+
+    // "/tags" je staticky seznam (~120 polozek, overeno zive 2026-09-04) - stejny
+    // vzor kesovani jako u ostatnich zdroju s vlastnim seznamem tagu.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/tags"))
+            val tags = doc.select("dl.tag-list dd a[href^=/tags/]").mapNotNull { a ->
+                val slug = a.attr("href").removePrefix("/tags/").ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * "/tags/{slug}?view=groupings" - na rozdil od vychozi "Chapters" zalozky
+     * (jednorazove kapitoly/anthology prispevky) vraci SERIALY se stejnym
+     * "/series/{slug}" tvarem URL jako [getPopular]/[search] - overeno zive
+     * 2026-09-04. Kombinace vice tagu web nepodporuje - pri vice vybranych se
+     * pouzije prvni (stejny vzor jako u MadaraSource).
+     */
+    private fun parseTagArchive(slug: String, page: Int): List<SManga> {
+        val doc = Jsoup.parse(get("$base/tags/$slug?page=$page&view=groupings"))
+        return doc.select("ul.thumbnails.cover-list li a.thumbnail").mapNotNull { a ->
+            val href = a.attr("href").ifBlank { return@mapNotNull null }
+            val title = a.selectFirst("div.caption b")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+            val cover = a.selectFirst("img")?.attr("src")?.let { if (it.startsWith("//")) "https:$it" else it }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover)
+        }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (_: Exception) { emptyList() }
+        }
         try {
             val json = JSONObject(get("$base/series.json?page=$page"))
             val groups = json.optJSONArray("tags") ?: return@withContext emptyList()
@@ -64,6 +107,9 @@ class DynastySource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")

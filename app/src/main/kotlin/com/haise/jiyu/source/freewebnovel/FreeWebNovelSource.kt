@@ -2,6 +2,7 @@ package com.haise.jiyu.source.freewebnovel
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -48,8 +49,37 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             )
         }
 
+    // Homepage/kategorie odkazuji primo na "/genre/{Slug}" archivni stranky (WP-style
+    // slug s "+" mistu mezer) - stejna struktura seznamu (div.li) jako obycejny
+    // vypis, jen jina sada titulu (overeno zive: Horror str.1 vs str.2 - jine tituly).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get(base))
+            val tags = doc.select("a[href^=/genre/]").mapNotNull { a ->
+                val slug = a.attr("href").removePrefix("/genre/").trim('/').ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }.sortedBy { it.label }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int) =
+        if (page > 1) "$base/genre/$slug/$page" else "$base/genre/$slug"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Genre archiv nema vlastni razeni (jen jeden zanr na pozadavek, podobne
+            // jako u Madara genre archivu) - pri vybranem tagu se filter.sortBy ignoruje.
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
             // "/sort/latest-release" pro Nejnovejsi overeno zive (uplne jina sada titulu
             // nez "/sort/most-popular").
             val sortPath = if (filter.sortBy == "latest") "latest-release" else "most-popular"
@@ -60,6 +90,9 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseListing(Jsoup.parse(get("$base/search?searchkey=$q")))
         } catch (_: Exception) { emptyList() }

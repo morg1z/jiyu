@@ -2,6 +2,7 @@ package com.haise.jiyu.source.flamecomics
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -70,13 +71,41 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
     }
 
+    // Cely katalog (vcetne zanru kazde serie v poli "categories") uz je v jedne JSON
+    // odpovedi (allSeries) - zadny samostatny endpoint pro filtrovani podle zanru web
+    // nema, ale filtrovani klientsky nad uz stazenymi daty je funkcne rovnocenne a
+    // overene zive (ruzne zanry vraci ruzne sady titulu).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val categories = allSeries()
+                .flatMap { s -> s.optJSONArray("categories")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+            val tags = categories.map { FilterTag(id = it, label = it) }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun matchesGenres(s: JSONObject, genres: List<String>): Boolean {
+        if (genres.isEmpty()) return true
+        val categories = s.optJSONArray("categories")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
+        return genres.any { categories.contains(it) }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             // Cely katalog uz je v jedne JSON odpovedi (allSeries) - razeni Popularni/
             // Nejnovejsi jde udelat klientsky bez dalsiho pozadavku pres "popularityRank"
             // (1 = nejpopularnejsi) a "last_edit" (unix cas posledni upravy kapitoly),
             // oboje pole overena zive v datech, davaji viditelne odlisne poradi.
-            val all = allSeries()
+            val all = allSeries().filter { matchesGenres(it, filter.genres) }
             val sorted = if (filter.sortBy == "latest") {
                 all.sortedByDescending { it.optLong("last_edit", 0L) }
             } else {
@@ -90,7 +119,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = query.trim().lowercase()
-            val matches = allSeries().filter { it.optString("title").lowercase().contains(q) }
+            val matches = allSeries().filter { it.optString("title").lowercase().contains(q) && matchesGenres(it, filter.genres) }
             val from = (page - 1) * pageSize
             if (from >= matches.size) emptyList() else matches.subList(from, minOf(from + pageSize, matches.size)).mapNotNull(::seriesToManga)
         } catch (_: Exception) { emptyList() }

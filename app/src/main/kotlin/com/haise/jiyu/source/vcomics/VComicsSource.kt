@@ -2,6 +2,7 @@ package com.haise.jiyu.source.vcomics
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -58,6 +59,40 @@ class VComicsSource(
 
     private fun unescape(s: String): String = Parser.unescapeEntities(s, false)
 
+    // Katalog ("/series") podporuje filtr podle zanru pres query param "genres"
+    // (numericke ID, ne slug) - overeno zive na kencomics.com: "?genres=5" (Romance)
+    // vraci jiny (spravny) podset titulu nez nefiltrovany katalog, kombinuje se i se
+    // strankovanim ("&page=N"). Kombinace vice zanru najednou nebyla overena jako
+    // AND/OR, proto se stejne jako u MadaraSource pouzije jen prvni vybrany.
+    // Seznam dostupnych zanru je primo v tehle strance (stejny devalue JSON blob jako
+    // u ostatnich poli) - kazda polozka ma numericke "id" a "name", nasledovane
+    // "color" (odlisuje to od jinych "id"/"name" dvojic v datech, napr. u titulu).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    private val genreEntryRegex = Regex(
+        """&quot;id&quot;:\[0,(\d+)],&quot;name&quot;:\[0,&quot;(.*?)&quot;],&quot;color&quot;""",
+    )
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val html = get("$root/series")
+            val tags = genreEntryRegex.findAll(html)
+                .map { m -> FilterTag(id = m.groupValues[1], label = unescape(m.groupValues[2]).trim()) }
+                .distinctBy { it.id }
+                .filter { it.label.isNotBlank() }
+                .sortedBy { it.label }
+                .toList()
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(genreId: String, page: Int): String =
+        if (page <= 1) "$root/series?genres=$genreId" else "$root/series?genres=$genreId&page=$page"
+
     private val listItemRegex = Regex(
         """&quot;id&quot;:\[0,\d+],&quot;slug&quot;:\[0,&quot;(.*?)&quot;],&quot;postTitle&quot;:\[0,&quot;(.*?)&quot;],&quot;featuredImage&quot;:\[0,(?:&quot;(.*?)&quot;|null)],&quot;seriesType&quot;:\[0,&quot;(.*?)&quot;]""",
     )
@@ -85,6 +120,9 @@ class VComicsSource(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(get(genreUrl(filter.genres.first(), page)))
+            }
             val url = if (page <= 1) "$root/series" else "$root/series?page=$page"
             parseListing(get(url))
         } catch (_: Exception) { emptyList() }
@@ -93,8 +131,11 @@ class VComicsSource(
     // Server-side filtr na "/series" nefunguje (ověřeno živě) - místo něj se prohledá
     // prvních pár stránek katalogu a filtruje se podle titulku přímo v appce.
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (page > 1) return@withContext emptyList()
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(get(genreUrl(filter.genres.first(), page)))
+            }
+            if (page > 1) return@withContext emptyList()
             val q = query.trim()
             (1..5).flatMap { p ->
                 val url = if (p <= 1) "$root/series" else "$root/series?page=$p"

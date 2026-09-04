@@ -2,6 +2,7 @@ package com.haise.jiyu.source.galaxymanga
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -52,14 +53,55 @@ class GalaxyMangaSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    // "/manga" ma Advanced Search widget s checkboxy genre[]=<numericke id> (Mangastream
+    // sablona) - overeno zive, ze genre[]=3 ("Action") vraci jinou sadu titulu nez
+    // vychozi vypis. Vice zanru najednou (kombinace AND/OR reseno webem) neni potreba
+    // resit specialne, jen se pripoji vsechny vybrane.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga/"))
+            val tags = doc.select("ul.genrez li").mapNotNull { li ->
+                val input = li.selectFirst("input.genre-item") ?: return@mapNotNull null
+                val value = input.attr("value").ifBlank { null } ?: return@mapNotNull null
+                val label = li.selectFirst("label")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = value, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        filter.genres.forEach { append("&genre%5B%5D=$it") }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // "order=update" pro Nejnovejsi overeno zive (uplne jina sada titulu nez "popular").
         val orderby = if (filter.sortBy == "latest") "update" else "popular"
-        try { parseList(get("$base/manga/?page=$page&order=$orderby")) } catch (_: Exception) { emptyList() }
+        val url = buildString {
+            append("$base/manga/?page=$page&order=$orderby")
+            appendGenreFilter(filter)
+        }
+        try { parseList(get(url)) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Genre filtr kombinovany s fulltextem funguje jen na archivni "/manga/" strance
+            // (ne na obecnem WP "/?s=" hledani) - overeno zive.
+            if (filter.genres.isNotEmpty()) {
+                val q = URLEncoder.encode(query, "UTF-8")
+                val url = buildString {
+                    append("$base/manga/?s=$q&page=$page")
+                    appendGenreFilter(filter)
+                }
+                return@withContext parseList(get(url))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))

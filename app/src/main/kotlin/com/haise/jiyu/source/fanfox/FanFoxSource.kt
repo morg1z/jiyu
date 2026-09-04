@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.fanfox
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -51,8 +52,41 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // /search formular ma "Advanced Search" panel s genre tag-boxem (data-val=id, title=nazev) -
+    // staticky seznam (37 zanru, overeno zive), ktery se pri behu appky nemeni.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search"))
+            val tags = doc.select("div.tag-box a[data-val]").mapNotNull { a ->
+                val id = a.attr("data-val").ifBlank { null } ?: return@mapNotNull null
+                val label = a.attr("title").trim().ifBlank { a.text().trim() }.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = id, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Genre filtrovani (i vice zanru najednou) je dostupne jen pres /search formular
+    // (title muze byt prazdny) - overeno zive, ze ruzne zanry vraci ruzne sady titulu
+    // a jde je kombinovat s textovym hledanim ("title=") i strankovanim ("page=").
+    private fun searchWithGenresUrl(query: String, page: Int, filter: MangaFilter): String {
+        val q = URLEncoder.encode(query, "UTF-8")
+        val genres = filter.genres.joinToString(",")
+        return "$base/search?title=$q&genres=$genres&stype=1&page=$page"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val doc = Jsoup.parse(get(searchWithGenresUrl("", page, filter)))
+                return@withContext doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)
+            }
             // Vychozi razeni bez parametru je uz samo o sobe "hot"/popularni (One Piece,
             // Onepunch-Man na prvnich mistech) - "?latest" pro Nejnovejsi overeno zive
             // (uplne jina sada titulu).
@@ -65,6 +99,10 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val doc = Jsoup.parse(get(searchWithGenresUrl(query, page, filter)))
+                return@withContext doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?title=$q&page=$page"))
             doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)

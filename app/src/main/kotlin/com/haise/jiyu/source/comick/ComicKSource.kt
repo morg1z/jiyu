@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.comick
 
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.LanguageMap
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -54,10 +55,32 @@ class ComicKSource @Inject constructor(
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
+    override val supportsTagFilter: Boolean get() = true
+
+    /**
+     * [getAvailableTags] pro obecný filtr - znovupoužívá stejný živě dotažený a
+     * kešovaný seznam jako [getGenreList] (napříč všemi "group" - Genre/Theme/
+     * Format/...), jen namapovaný na [FilterTag]. Ověřeno živě 2026-09-04:
+     * `/v1.0/search?genres={slug}` filtruje podle slugu bez ohledu na jeho group
+     * (funguje stejně pro "isekai" i "reincarnation", i když ten druhý má group
+     * "Theme", ne "Genre") - `&genres[]=` proto stačí použít pro všechny vybrané
+     * hodnoty, samostatný `&tags=` param navíc nepotřebujeme.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> =
+        getGenreList().map { FilterTag(id = it.slug, label = it.name) }.sortedBy { it.label }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        filter.genres.forEach { append("&genres=${URLEncoder.encode(it, "UTF-8")}") }
+    }
+
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseComicList(getArray("$apiBase/v1.0/search?q=$q&limit=20&page=$page"))
+            val url = buildString {
+                append("$apiBase/v1.0/search?q=$q&limit=20&page=$page")
+                appendGenreFilter(filter)
+            }
+            parseComicList(getArray(url))
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
@@ -68,7 +91,11 @@ class ComicKSource @Inject constructor(
                 "title"  -> "title"
                 else     -> "follow"
             }
-            parseComicList(getArray("$apiBase/v1.0/search?sort=$sort&limit=20&page=$page"))
+            val url = buildString {
+                append("$apiBase/v1.0/search?sort=$sort&limit=20&page=$page")
+                appendGenreFilter(filter)
+            }
+            parseComicList(getArray(url))
         }
 
     /**

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.lagoonscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -50,8 +51,42 @@ class LagoonScansSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // Stejny "quickfilter" MangaThemesia formular jako na dalsich webech tehoz enginu -
+    // checkboxy `input[name=genre[]]` na listingu /manga/, hodnota je numericke ID
+    // WP taxonomie (ne slug), overeno zive (genre[]=14 = Shounen menil vysledky oproti
+    // nefiltrovanemu vypisu uz od druhe polozky).
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga/"), base)
+            val tags = doc.select("input[name=genre[]]").mapNotNull { input ->
+                val id = input.attr("value").ifBlank { return@mapNotNull null }
+                val label = input.parent()?.selectFirst("label")?.text()?.trim()?.ifBlank { null }
+                    ?: return@mapNotNull null
+                FilterTag(id = id, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Genre filtr se aplikuje jen na listing "/manga/" - kombinace s "?s=" fulltextovym
+    // hledanim overene zive nefunguje (WP search dotaz filtr tise ignoruje), takze pri
+    // vybranem tagu se - stejne jako u MadaraSource - pouzije rovnou filtrovany listing
+    // misto skutecneho hledani. Kombinace vice tagu najednou neoverena, pouziva se proto
+    // jen prvni vybrany (stejny vzor jako MadaraSource.genreUrl).
+    private fun genreUrl(page: Int, genreId: String): String =
+        if (page <= 1) "$base/manga/?genre[]=$genreId" else "$base/manga/page/$page/?genre[]=$genreId"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(page, filter.genres.first())))
+            }
             val orderby = when (filter.sortBy) {
                 "latest" -> "update"
                 "title"  -> "title"
@@ -64,6 +99,9 @@ class LagoonScansSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(page, filter.genres.first())))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))

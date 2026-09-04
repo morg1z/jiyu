@@ -2,6 +2,7 @@ package com.haise.jiyu.source.hadesscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -61,8 +62,37 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
         }
     }
 
+    // "/genres/" ma seznam vsech zanru (cx-genre-pill) s vlastni archivni strankou
+    // "/genres/{slug}/page/{page}/" - stejna struktura vypisu (article.cx-poster-card)
+    // jako obycejny katalog, jen jina sada titulu (overeno zive: Action str.1 vs str.2).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/genres/"))
+            val tags = doc.select("a.cx-genre-pill").mapNotNull { a ->
+                val slug = a.absUrl("href").trimEnd('/').substringAfterLast("/genres/").ifBlank { null } ?: return@mapNotNull null
+                val label = a.selectFirst("span.cx-genre-pill__name")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Genre archiv nema vlastni razeni - pri vybranem tagu se filter.sortBy
+            // ignoruje, kombinace vice zanru najednou neni podporovana (jen prvni vybrany).
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val url = if (page <= 1) "$base/manga/" else "$base/manga/page/$page/"
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
@@ -70,6 +100,9 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))

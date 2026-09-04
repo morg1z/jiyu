@@ -2,6 +2,7 @@ package com.haise.jiyu.source.kaliscan
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -56,15 +57,51 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
         }
     }
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // /genres je samostatna, staticka stranka se seznamem vsech zanru (~74 polozek) -
+    // overeno zive, ceka se pri behu appky nemeni. Kazdy zanr ma vlastni archivni
+    // stranku "/genres/{slug}?page=N", ktera pouziva stejnou kartovou strukturu
+    // (div.book-item) jako /popular a /latest, takze staci existujici parseBookList.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(getHtml("$base/genres"))
+            val tags = doc.select("ul.genre-list a[href^=/genres/]").mapNotNull { a ->
+                val slug = a.attr("href").substringAfterLast("/genres/").trim('/').ifBlank { null }
+                    ?: return@mapNotNull null
+                val label = a.attr("title").ifBlank { a.text() }.trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Genre archiv nema vlastni sort parametr (overeno zive) a kombinace vice tagu
+    // najednou neni podporovana - pri vice vybranych se pouzije jen prvni, stejny vzor
+    // jako MadaraSource.genreUrl.
+    private fun genreUrl(slug: String, page: Int) = "$base/genres/$slug?page=$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        // Overeno zive: /latest je samostatna, skutecne odlisna stranka od /popular,
-        // ne jen jina projekce stejnych dat.
-        val path = if (filter.sortBy == "latest") "latest" else "popular"
-        try { parseBookList(getHtml("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseBookList(getHtml(genreUrl(filter.genres.first(), page)))
+            }
+            // Overeno zive: /latest je samostatna, skutecne odlisna stranka od /popular,
+            // ne jen jina projekce stejnych dat.
+            val path = if (filter.sortBy == "latest") "latest" else "popular"
+            parseBookList(getHtml("$base/$path?page=$page"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseBookList(getHtml(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseBookList(getHtml("$base/search?keyword=$q&page=$page"))
         } catch (_: Exception) { emptyList() }
