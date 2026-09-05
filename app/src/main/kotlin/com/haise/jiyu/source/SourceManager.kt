@@ -320,6 +320,10 @@ class SourceManager @Inject constructor(
         MadaraSource("manhuaplus",    "Manhuaplus",         "https://manhuaplus.com",       client, contentTypeOverride = "MANHUA"),
         // ── Manhwa scanlation skupiny ────────────────────────────────────────
         MadaraSource("manhwatop",     "Manhwatop",          "https://manhwatop.com",        client, contentTypeOverride = "MANHWA"),
+        // ManhwaNex (manhwanex.com) - genuine nezmeneny Madara, zadny prepis netreba
+        // (overeno zive: page-item-detail archiv, wp-manga-chapter seznam kapitol,
+        // reading-content s wp-manga-chapter-img obrazky - vse na vychozich selektorech).
+        MadaraSource("manhwanex",     "ManhwaNex",          "https://manhwanex.com",        client, contentTypeOverride = "MANHWA"),
         // wuxiaworldsite: audit 2026-07-27 zjistil, ze vychozi "/manga/page/N/"
         // archiv vraci 404 - web ma vlastni taxonomy slug pro novely.
         MadaraSource(
