@@ -83,6 +83,7 @@ import com.haise.jiyu.source.manga18club.Manga18ClubSource
 import com.haise.jiyu.source.manhwasusu.ManhwaSusuSource
 import com.haise.jiyu.source.violetscans.VioletScansSource
 import com.haise.jiyu.source.manhwa210.Manhwa210Source
+import com.haise.jiyu.source.roliascan.RoliaScanSource
 import com.haise.jiyu.source.ehentai.EHentaiSource
 import com.haise.jiyu.source.asmhentai.AsmHentaiSource
 import com.haise.jiyu.source.hentainexus.HentaiNexusSource
@@ -214,6 +215,7 @@ class SourceManager @Inject constructor(
     manhwaSusuSource: ManhwaSusuSource,
     violetScansSource: VioletScansSource,
     manhwa210Source: Manhwa210Source,
+    roliaScanSource: RoliaScanSource,
     eHentaiSource: EHentaiSource,
     asmHentaiSource: AsmHentaiSource,
     hentaiNexusSource: HentaiNexusSource,
@@ -626,6 +628,15 @@ class SourceManager @Inject constructor(
         // vysledku pro dva ruzne dotazy), takze hledani je reseno lokalne nad
         // stazenym vypisem, stejny vzor jako u jinych zdroju bez funkcniho hledani.
         manhwa210Source,
+        // Rolia Scan (roliascan.com) - bespoke WordPress ("mangapeak" motiv) s
+        // vlastnim REST API. Vypis/hledani/zanrovy filtr jede pres jeden spolecny
+        // POST "/wp-json/manga/v1/load" (zadny nonce netreba, overeno zive).
+        // Seznam kapitol dotahuje JS z GET "/auth/manga-chapters" chraneny
+        // "anti-scraping tokenem", ktery je ale jen deterministicky
+        // md5(timestamp+"mng_ch_"+hodinaUTC) rozlousknuty z verejneho JS - zadny
+        // skutecny server-side secret. Stranky kapitoly (GET
+        // "/auth/chapter-content") uz zadny token nechteji.
+        roliaScanSource,
         // ManhwaRaw18 odstraneno 2026-08-24 - manhwaraw18.com nema DNS zaznam (domena
         // uz neexistuje, overeno curlem).
         manga18ClubSource,
