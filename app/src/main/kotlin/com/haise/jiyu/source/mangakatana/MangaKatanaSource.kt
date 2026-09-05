@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangakatana
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -44,12 +45,50 @@ class MangaKatanaSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    // Overeno zive: "/genres" je samostatna stranka s pokrocilym filtrem, jejiz
+    // "div.genres div.item" obsahuje pro kazdy zanr checkbox
+    // "input[name=include_genre_chk]" (atribut value = slug pro URL) a "span.name"
+    // s popiskem (55 zanru celkem). Samotne prochazeni podle jednoho zanru bezi na
+    // vlastni archivni ceste "/genre/{slug}" se strankovanim "/genre/{slug}/page/N"
+    // (stejna karta "div.item" jako getPopular/search) - zivym porovnanim potvrzeno,
+    // ze vysledky se od /latest lisi uz od druhe polozky. Kombinace vice zanru
+    // najednou tahle jednoducha cesta nepodporuje (jen jeden slug v URL).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/genres"))
+            val tags = doc.select("div.genres div.item").mapNotNull { item ->
+                val slug = item.selectFirst("input[name=include_genre_chk]")?.attr("value")?.ifBlank { null }
+                    ?: return@mapNotNull null
+                val label = item.selectFirst("span.name")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int): String =
+        if (page <= 1) "$base/genre/$slug" else "$base/genre/$slug/page/$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/latest/$page")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
+            parseList(get("$base/latest/$page"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/?search=$q&search_by=book_name&page=$page"))
         } catch (_: Exception) { emptyList() }

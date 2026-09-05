@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangamikan
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -57,13 +58,35 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // Select "genre" na /browse je server-rendered staticky seznam (~40 polozek),
+    // ktery se pri behu appky nemeni - stacit ho dotahnout jednou a v pameti sdilet
+    // mezi vsemi otevrenimi Filtru.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/browse"))
+            val tags = doc.select("select[name=genre] option[value]").mapNotNull { opt ->
+                val value = opt.attr("value").trim().ifBlank { return@mapNotNull null }
+                val label = opt.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             // Bez parametru web sam defaultuje na sort=latest (viz <select name="sort">
             // na strance, "Latest" je oznaceny selected) - vlastni "Popularni" razeni
             // (7denni top views) je proto potreba zadat explicitne, overeno zive.
             val sort = if (filter.sortBy == "latest") "latest" else "views7"
-            val doc = Jsoup.parse(get("$base/browse?sort=$sort&page=$page"))
+            val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
+            val doc = Jsoup.parse(get("$base/browse?sort=$sort&page=$page$genreParam"))
             doc.select("a.card-manga").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }
@@ -71,7 +94,8 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            val doc = Jsoup.parse(get("$base/browse?q=$q&page=$page"))
+            val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
+            val doc = Jsoup.parse(get("$base/browse?q=$q&page=$page$genreParam"))
             doc.select("a.card-manga").mapNotNull(::parseCard)
         } catch (_: Exception) { emptyList() }
     }

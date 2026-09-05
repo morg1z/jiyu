@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.ehentai
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -63,10 +64,53 @@ class EHentaiSource @Inject constructor(
         }
     }
 
+    // e-hentai nema maly zanrovy strom - jeho "tagy" (namespace-based female:/male:/
+    // parody:/character:/group:/artist:/other:) jsou stovky tisic unikatnich hodnot
+    // (stejny rad velikosti jako Hitomi/nhentai) bez lehkeho endpointu na jejich vypis.
+    // Ma ale mensi hrubsi "Category" system - 10 typu obsahu (Doujinshi, Manga,
+    // Artist CG, ...) zobrazenych jako checkboxy primo na homepage - to pouzivame
+    // jako nase FilterTag. Web kombinuje f_cats jako bitmasku kategorii KE SKRYTI
+    // (ne k zobrazeni), takze pro "zobraz jen tuto kategorii" se posle soucet vsech
+    // OSTATNICH hodnot (1023 = soucet vsech deseti bitu).
+    private object Categories {
+        const val ALL_MASK = 1023
+    }
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/"))
+            val tags = doc.select("div.cs[id^=cat_]").mapNotNull { div ->
+                val value = div.attr("id").removePrefix("cat_").toIntOrNull() ?: return@mapNotNull null
+                val label = div.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value.toString(), label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /** Vraci "f_cats=N" pro vybrany filter, nebo null kdyz zadny tag neni vybran. */
+    private fun catsFilterValue(filter: MangaFilter): String? {
+        val selected = filter.genres.mapNotNull { it.toIntOrNull() }.sum()
+        if (selected <= 0) return null
+        val excludeMask = Categories.ALL_MASK - selected
+        return "f_cats=$excludeMask"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // Bez parametru web řadí čistě chronologicky (nejnovější nahrání) - "Populární"
         // tab potřebuje samostatnou "/popular" stránku (ověřeno živě, jiný obsah).
-        val url = if (filter.sortBy == "popular") "$base/popular" else "$base/?page=${page - 1}"
+        val cats = catsFilterValue(filter)
+        val url = if (filter.sortBy == "popular") {
+            "$base/popular" + if (cats != null) "?$cats" else ""
+        } else {
+            "$base/?page=${page - 1}" + if (cats != null) "&$cats" else ""
+        }
         try { parseListing(get(url)) } catch (_: Exception) { emptyList() }
     }
 
@@ -74,7 +118,9 @@ class EHentaiSource @Inject constructor(
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
-            parseListing(get("$base/?f_search=$q&page=${page - 1}"))
+            val cats = catsFilterValue(filter)
+            val url = "$base/?f_search=$q&page=${page - 1}" + if (cats != null) "&$cats" else ""
+            parseListing(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

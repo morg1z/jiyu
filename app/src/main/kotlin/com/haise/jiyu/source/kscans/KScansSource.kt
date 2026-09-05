@@ -2,6 +2,7 @@ package com.haise.jiyu.source.kscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -36,7 +37,34 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
     override val id = "kscans"
     override val name = "kScans"
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
     private val base = "https://kscans.xyz"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    /**
+     * Web nema zadny server-side genre/tag endpoint ani query parametr (overeno
+     * zive - "?genre=", "/genre/{slug}", "/tag/{slug}" atd. vsechny vraci bud
+     * identicky katalog nebo homepage, bez ohledu na parametr). Zanry jsou ale
+     * uz soucasti kazde karty (span.category-tag - viz parseNovelList) a cely
+     * katalog je uz beztak jen na jedne strance bez strankovace (viz komentar
+     * u tridy), takze filtrovani se dela lokalne nad uz stazenym seznamem -
+     * zadny dodatecny pozadavek navic.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            parseNovelList(get("$base/popular")).flatMap { it.genres }
+                .distinct()
+                .map { FilterTag(id = it, label = it) }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
+    private fun applyGenreFilter(list: List<SManga>, filter: MangaFilter): List<SManga> =
+        if (filter.genres.isEmpty()) list
+        else list.filter { manga -> filter.genres.all { g -> manga.genres.any { it.equals(g, ignoreCase = true) } } }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -76,7 +104,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
             // (prvni polozka homepage grid mrizky se shoduje s prvni polozkou "uc-*"
             // widgetu, ktery uz je oznacen jako "LATEST UPDATES" primo v HTML komentari webu).
             val url = if (filter.sortBy == "latest") base else "$base/popular"
-            parseNovelList(get(url))
+            applyGenreFilter(parseNovelList(get(url)), filter)
         } catch (_: Exception) { emptyList() }
     }
 
@@ -84,7 +112,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
         if (query.isBlank()) return@withContext getPopular(page, filter)
         if (page > 1) return@withContext emptyList()
         try {
-            parseNovelList(postSearch(query))
+            applyGenreFilter(parseNovelList(postSearch(query)), filter)
         } catch (_: Exception) { emptyList() }
     }
 

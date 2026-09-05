@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentai20
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -57,14 +58,52 @@ class Hentai20Source @Inject constructor(private val client: OkHttpClient) : Man
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
         }
 
+    // Taxonomie archiv "/genres/{slug}/" (stejna "ts-mangastream" sablonova
+    // rodina jako Madara, ale vlastni trida - viz komentar u tridy) filtruje
+    // skutecne (overeno zive - odlisny obsah stranka od stranky i vuci
+    // nefiltrovanemu vypisu), pouziva stejny "div.bsx" listing markup jako
+    // /manga/ i vyhledavani, takze staci znovupouzit [parseMangaList].
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDocument("$base/manga/?page=1&order=popular")
+            val tags = doc.select("ul.genre li a[href]").mapNotNull { a ->
+                val href = a.attr("href")
+                // Widget vetsinu slugu odkazuje jako "/genres/{slug}/", ale par
+                // (napr. "action") jako "?taxonomy=wp-manga-genre&term={slug}" -
+                // oba tvary vedou na funkcni archiv, jen sjednotime id na slug.
+                val slug = Regex("""/genres/([^/?]+)/?""").find(href)?.groupValues?.get(1)
+                    ?: Regex("""[?&]term=([^&]+)""").find(href)?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            if (tags.isNotEmpty()) cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreArchiveUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreArchiveUrl(filter.genres.first(), page)))
+            }
             val order = if (filter.sortBy == "latest") "update" else "popular"
             parseMangaList(fetchDocument("$base/manga/?page=$page&order=$order"))
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseMangaList(fetchDocument(genreArchiveUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseMangaList(fetchDocument(url))

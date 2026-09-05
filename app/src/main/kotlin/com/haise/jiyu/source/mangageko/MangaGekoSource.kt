@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangageko
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
@@ -22,7 +24,53 @@ class MangaGekoSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "mangageko"
     override val name = "MangaGeko"
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
     private val base = "https://www.mgeko.cc"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    /**
+     * "/browse-comics/" je klientska JS aplikace (chip filtry) - samotna
+     * stranka zadne vysledky server-side nerenderuje, tahaji se pres JSON
+     * "/browse-comics/data/?include_genres=X&q=&page=N" (viz API_BASE_URL
+     * v inline JS stranky). Zanry pro "include_genres" jsou "data-value"
+     * atributy chipu `button.chip[data-group=include_genres]" na te same
+     * strance. Endpoint podporuje i kombinaci s textovym hledanim ("q=") a
+     * s vice zanry najednou (carkou oddelene, AND/union overeno zive -
+     * pocet vysledku odpovida ocekavani, ne stejnemu jako jeden zanr).
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val doc = Jsoup.parse(get("$base/browse-comics/"))
+            doc.select("button.chip[data-group=include_genres]").mapNotNull { chip ->
+                val value = chip.attr("data-value").ifBlank { return@mapNotNull null }
+                val label = chip.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = label)
+            }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
+    private fun parseBrowseCards(html: String): List<SManga> {
+        val doc = Jsoup.parse(html)
+        return doc.select("article.comic-card").mapNotNull { card ->
+            val a = card.selectFirst("h3.comic-card__title a") ?: return@mapNotNull null
+            val href = a.attr("href").ifBlank { return@mapNotNull null }
+            val title = a.text().trim().ifBlank { return@mapNotNull null }
+            val cover = card.selectFirst("img")?.attr("src")
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
+        }
+    }
+
+    private fun fetchBrowseComics(query: String, page: Int, filter: MangaFilter): List<SManga> {
+        val genres = URLEncoder.encode(filter.genres.joinToString(","), "UTF-8")
+        val sort = if (filter.sortBy == "latest") "latest" else "popular_all_time"
+        val q = if (query.isNotBlank()) "&q=${URLEncoder.encode(query, "UTF-8")}" else ""
+        val json = JSONObject(get("$base/browse-comics/data/?include_genres=$genres&sort=$sort&page=$page$q"))
+        return parseBrowseCards(json.optString("results_html"))
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -43,6 +91,9 @@ class MangaGekoSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { fetchBrowseComics("", page, filter) } catch (_: Exception) { emptyList() }
+        }
         try {
             // Web sam bez parametru vraci "Latest Updated Manga" (viz <title> stranky) -
             // teprve "hot=true" prepne na skutecne popularni/trending tituly (overeno
@@ -54,6 +105,9 @@ class MangaGekoSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { fetchBrowseComics(query, page, filter) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search/?search=$q&page=$page"))

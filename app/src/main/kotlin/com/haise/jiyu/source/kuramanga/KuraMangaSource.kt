@@ -2,6 +2,7 @@ package com.haise.jiyu.source.kuramanga
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -40,6 +41,32 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    // Overeno zive: "/search" HTML stranka obsahuje "div.genres-grid#genresDropdown"
+    // s kompletnim seznamem odkazu "<a href=/search?genre={Nazev}>{Nazev}</a>" (182
+    // polozek). Stejny JSON endpoint "/search?genre={Nazev}&offset=N&ajax=1" pouzity
+    // v getPopular/search uz genre parametr podporuje - zivym porovnanim potvrzeno
+    // (genre=Action vrati jen tituly, ktere maji "Action" mezi svymi "genres").
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search"))
+            val tags = doc.select("div.genres-grid a[href*=\"/search?genre=\"]").mapNotNull { a ->
+                val name = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = name, label = name)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        filter.genres.firstOrNull()?.let { append("&genre=${URLEncoder.encode(it, "UTF-8")}") }
+    }
+
     private fun parseListJson(json: String): List<SManga> {
         val arr = org.json.JSONObject(json).optJSONArray("data") ?: JSONArray()
         return (0 until arr.length()).mapNotNull { i ->
@@ -58,6 +85,14 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
             // "Latest Updates" (div.update-row), kterou API nevraci - proto se pro
             // "latest" parsuje primo HTML homepage, ne JSON endpoint. Neni strankovana
             // (fixni pocet polozek na homepage), stejny vzor jako KScansSource.getPopular.
+            if (filter.genres.isNotEmpty()) {
+                val offset = (page - 1) * 10
+                val url = buildString {
+                    append("$base/search?offset=$offset&ajax=1")
+                    appendGenreFilter(filter)
+                }
+                return@withContext parseListJson(get(url))
+            }
             if (filter.sortBy == "latest") {
                 if (page > 1) return@withContext emptyList()
                 parseLatestUpdates(get(base))
@@ -83,7 +118,11 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val offset = (page - 1) * 10
-            parseListJson(get("$base/search?name=$q&offset=$offset&ajax=1"))
+            val url = buildString {
+                append("$base/search?name=$q&offset=$offset&ajax=1")
+                appendGenreFilter(filter)
+            }
+            parseListJson(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

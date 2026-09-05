@@ -2,6 +2,7 @@ package com.haise.jiyu.source.kingofshojo
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -64,8 +65,56 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    // Jediny funkcni mechanismus zanroveho filtrovani je WP taxonomie archiv
+    // "/genres/{slug}/" (overeno zive - odlisne tituly stranka od stranky i vuci
+    // nefiltrovanemu vypisu). Widget "genre[]" checkboxu na /manga/ vypada jako
+    // Madara-style filtr, ale motiv ho sam odstranuje z DOM pres inline skript
+    // ($(".section .quickfilter").parent().remove()) a ?genres=slug parametr je
+    // tichy no-op (identicky vystup jako bez parametru) - overeno zive.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga/?order=update"))
+            val tags = doc.select("ul.genre li a[href]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = Regex("""/genres/([^/]+)/?""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            if (tags.isNotEmpty()) cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * Karty na "/genres/{slug}/" taxonomie archivu maji jiny (klasicky Madara-like
+     * "bsx") markup nez vlastni "/manga/" vypis a NEobsahuji atribut "rel" s
+     * postId - proto se pro ne postId ukladat neda a ukladame prazdny retezec
+     * (viz fallback v getChapterList, ktery si ho v tom pripade dotahne z detailu).
+     */
+    private fun parseGenreArchive(html: String): List<SManga> {
+        val doc = Jsoup.parse(html)
+        return doc.select("div.bsx").mapNotNull { card ->
+            val link = card.selectFirst("a[href]") ?: return@mapNotNull null
+            val href = link.attr("href").removePrefix(base)
+            val title = card.selectFirst("div.tt")?.text()?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val cover = card.selectFirst("img")?.attr("src")?.trim()?.ifBlank { null }
+            SManga(sourceId = id, url = encodeUrl(href, ""), title = title, coverUrl = cover, contentType = "MANHWA")
+        }
+    }
+
+    private fun genreArchiveUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreArchive(get(genreArchiveUrl(filter.genres.first(), page)))
+            }
             val url = if (page <= 1) "$base/manga/?order=update" else "$base/manga/page/$page/?order=update"
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
@@ -73,6 +122,9 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreArchive(get(genreArchiveUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/page/$page/?s=$q"))
         } catch (_: Exception) { emptyList() }
@@ -99,7 +151,16 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val postId = postIdOf(manga.url).ifBlank { return@withContext emptyList() }
+            var postId = postIdOf(manga.url)
+            if (postId.isBlank()) {
+                // Manga prisla ze zanroveho archivu ("/genres/{slug}/"), ktery
+                // neuvadi postId primo v karte - dotahneme ho z detailu (atribut
+                // data-id na div.bookmark - overeno zive, stejne id, jake pouziva
+                // web sam pro tenhle AJAX endpoint).
+                val detailDoc = Jsoup.parse(get("$base${pathOf(manga.url)}"))
+                postId = detailDoc.selectFirst("div.bookmark[data-id]")?.attr("data-id")?.trim().orEmpty()
+            }
+            if (postId.isBlank()) return@withContext emptyList()
             val html = postForm("$base/wp-admin/admin-ajax.php", mapOf("action" to "get_chapters", "id" to postId))
             val options = Jsoup.parse(html).select("option[value]")
             options.mapIndexedNotNull { i, opt ->

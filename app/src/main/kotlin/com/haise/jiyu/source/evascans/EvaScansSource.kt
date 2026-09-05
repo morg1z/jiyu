@@ -2,6 +2,7 @@ package com.haise.jiyu.source.evascans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,6 +40,36 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
     override val homepageUrl get() = base
     private val base = "https://evascans.org"
 
+    // Klasicky MangaThemesia genre filtr - "/series/" ma dropdown formular
+    // "form.filters" s checkboxy "input.genre-item[name=genre[]][value=ID]"
+    // + <label> textem (34 zanru, overeno zive). Filtr funguje jen na archivu
+    // "/series/?genre[]=ID" (i strankovane "/series/page/N/?genre[]=ID") -
+    // fulltext hledani "/?s=...&genre[]=ID" parametr ticha ignoruje (overeno
+    // zive - identicka sada vysledku s/bez genre[]), takze search() se stejne
+    // jako u MadaraSource (Vzor B) pri zvolenem zanru prepne na archiv misto
+    // fulltextu.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/series/"))
+            val tags = doc.select("input.genre-item[name=genre[]]").mapNotNull { input ->
+                val value = input.attr("value").ifBlank { return@mapNotNull null }
+                val label = doc.selectFirst("label[for=${input.attr("id")}]")?.text()?.trim()
+                    ?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = value, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(page: Int, genreId: String): String =
+        if (page <= 1) "$base/series/?genre[]=$genreId" else "$base/series/page/$page/?genre[]=$genreId"
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -61,18 +92,28 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            // MangaThemesia (stejny engine jako ThunderscansSource) - "order=update" pro
-            // Nejnovejsi je overeno zive (jina sada titulu nez vychozi abecedni razeni).
-            val orderby = if (filter.sortBy == "latest") "?order=update" else ""
-            val url = if (page <= 1) "$base/series/$orderby" else "$base/series/page/$page/$orderby"
+            val genre = filter.genres.firstOrNull()
+            val url = if (genre != null) {
+                genreUrl(page, genre)
+            } else {
+                // MangaThemesia (stejny engine jako ThunderscansSource) - "order=update" pro
+                // Nejnovejsi je overeno zive (jina sada titulu nez vychozi abecedni razeni).
+                val orderby = if (filter.sortBy == "latest") "?order=update" else ""
+                if (page <= 1) "$base/series/$orderby" else "$base/series/page/$page/$orderby"
+            }
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
+            val genre = filter.genres.firstOrNull()
+            val url = if (genre != null) {
+                genreUrl(page, genre)
+            } else {
+                val q = URLEncoder.encode(query, "UTF-8")
+                if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
+            }
             parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }

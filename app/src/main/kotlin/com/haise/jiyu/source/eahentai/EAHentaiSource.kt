@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.eahentai
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -42,8 +43,41 @@ class EAHentaiSource @Inject constructor(
     override val name = "EAHentai"
     override val isAdult = true
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
 
     private val base = "https://eahentai.com"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    /**
+     * "/tags" nema jeden endpoint se vsemi tagy najednou - je rozdeleny do
+     * abecedni navigace ("/tags?q=A" .. "/tags?q=Z", overeno zive ze zadne
+     * jine pismeno/kategorie neni potreba). Kazde pismeno vraci uz kompletni
+     * (nestrankovany) seznam pro dane pismeno - overeno zive na "S" (40 tagu,
+     * zadny "load more"/dalsi stranka v HTML). Samotne filtrovani pak jde
+     * pres uz existujici /search endpoint - tagy na eahentai jsou proste
+     * hledatelny text ("type=gallery&q=<tag>&p=<page>"), zadny samostatny
+     * "/tag/{slug}" archiv web nema.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            ('A'..'Z').flatMap { letter ->
+                try {
+                    val doc = fetchDocument("$base/tags?q=$letter")
+                    doc.select("a[href*=\"/search?type=gallery\"]").mapNotNull { a ->
+                        val href = a.attr("href")
+                        val raw = Regex("""[?&]q=([^&]+)""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
+                        val name = try { URLDecoder.decode(raw, "UTF-8") } catch (_: Exception) { null }
+                            ?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                        FilterTag(id = name, label = name)
+                    }
+                } catch (_: Exception) { emptyList() }
+            }.distinctBy { it.id }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
 
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
@@ -71,6 +105,12 @@ class EAHentaiSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext try {
+                    val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
+                    parseGalleryList(fetchDocument("$base/search?type=gallery&q=$tag&p=$page"))
+                } catch (_: Exception) { emptyList() }
+            }
             if (page > 1) return@withContext emptyList()
             // "/latest" je samostatna, chronologicky serazena stranka - overeno zive
             // (jina sada ID galerii nez uvodni "/"), zatimco homepage misi cerstve s
@@ -83,6 +123,10 @@ class EAHentaiSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            // "/search" nema zpusob jak kombinovat volny text s vybranym tagem (jedno
+            // "q=" pole slouzi pro obojí) - kdyz je vybrany tag, chovame se stejne jako
+            // vzorovy MadaraSource ("Vzor B") a prepneme na tagovy archiv misto textu.
+            if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
             if (query.isBlank()) return@withContext getPopular(page, filter)
             if (page > 1) return@withContext emptyList()
             try {

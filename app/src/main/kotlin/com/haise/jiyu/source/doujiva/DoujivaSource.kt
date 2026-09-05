@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.doujiva
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -40,6 +41,27 @@ class DoujivaSource @Inject constructor(
 
     private val base = "https://doujiva.com"
 
+    // "/tags" ma pres 860 polozek mixujicich zanry/postavy/serie (SKIPPED-TOO-LARGE
+    // uroven) - misto toho pouzivame hrusi kuratorovanou sadu z vlastniho webu
+    // ("Popular Tags" panel na strankach /tags i homepage, overeno zive shodne na
+    // obou), pro kterou existuje dedikovana archivni cesta "/tag/{slug}"
+    // (overeno zive - jina sada titulu nez homepage, podporuje i "?page=N").
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = listOf(
+        FilterTag("big-breasts", "Big Breasts"),
+        FilterTag("romance", "Romance"),
+        FilterTag("comedy", "Comedy"),
+        FilterTag("vanilla", "Vanilla"),
+        FilterTag("full-color", "Full Color"),
+        FilterTag("schoolgirl-uniform", "Schoolgirl Uniform"),
+        FilterTag("sole-female", "Sole Female"),
+        FilterTag("sole-male", "Sole Male"),
+        FilterTag("stockings", "Stockings"),
+        FilterTag("glasses", "Glasses"),
+        FilterTag("uncensored", "Uncensored"),
+    )
+
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
@@ -60,6 +82,11 @@ class DoujivaSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            val genre = filter.genres.firstOrNull()
+            if (genre != null) {
+                return@withContext try { parseGalleryList(fetchDocument("$base/tag/$genre?page=$page")) }
+                catch (_: Exception) { emptyList() }
+            }
             // Bez parametru web řadí od nejnovějšího nahrání - "Populární" tab proto
             // potřebuje explicitní "?sort=popular-all" (ověřeno živě, jinak vrací úplně
             // jinou sadu titulů než skutečně populární výběr).
@@ -70,7 +97,11 @@ class DoujivaSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            if (query.isBlank()) return@withContext getPopular(page, filter)
+            // "/search" ani "/tag/{slug}" neumi kombinovat fulltext dotaz s tag filtrem
+            // (overeno zive - "?q=...&tag=..." i "/tag/{slug}?q=..." vraci identickou
+            // sadu jako bez toho druheho parametru), takze stejne jako MadaraSource
+            // (Vzor B) ma zvoleny zanr prednost pred textovym dotazem.
+            if (filter.genres.isNotEmpty() || query.isBlank()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/search?q=$q&page=$page"))

@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.likemanga
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -29,7 +30,32 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "likemanga"
     override val name = "LikeManga"
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
     private val base = "https://likemanga.ink"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    /**
+     * "/genres/" ma odkazy na 68 zanrovych archivu ("/genres/{slug}/"). Overeno
+     * zive, ze CDN cache webu ignoruje jakykoliv query string na techto
+     * archivnich strankach ("?act=search&f[genres]=...&pageNum=2" vraci
+     * bajtove identicky obsah jako strana 1 bez ohledu na parametry) - proto
+     * jde pouzit jen prvni stranka filtrovaneho vysledku, stejne jako uz
+     * existujici vzor u Hachirumi/EAHentai pro stranky bez funkcni strankovace.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val doc = Jsoup.parse(get("$base/genres/"))
+            doc.select("a.list-group-item-action-menu[href]").mapNotNull { a ->
+                val slug = a.attr("href").trim('/').substringAfterLast('/').ifBlank { return@mapNotNull null }
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -61,6 +87,13 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            if (page > 1) return@withContext emptyList()
+            return@withContext try {
+                val doc = Jsoup.parse(get("$base/genres/${filter.genres.first()}/"))
+                doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val doc = Jsoup.parse(get("$base/search/top-all/$page/"))
             doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }
@@ -68,6 +101,12 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Zanrovy archiv nema textove pole pro nazev (jen "/genres/{slug}/") - kdyz je
+        // vybrany zanr, chovame se stejne jako vzorovy MadaraSource ("Vzor B") a
+        // prepneme na zanrovy archiv misto textoveho hledani.
+        if (filter.genres.isNotEmpty()) {
+            return@withContext getPopular(page, filter)
+        }
         if (page > 1) return@withContext emptyList()
         try {
             val q = URLEncoder.encode(query, "UTF-8")

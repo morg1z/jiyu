@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangago
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,8 +40,53 @@ class MangagoSource @Inject constructor(
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    // Ziveho overeno: "/list/" i vysledna "/genre/{slug}/" stranka obe obsahuji
+    // stejny #genre_panel s KOMPLETNIM seznamem zanru (odkaz `a.genre_select_div`,
+    // atribut `_id` = presny slug pro URL cestu "/genre/{slug}/{page}/", napr.
+    // "Shounen Ai" -> "/genre/Shounen%20Ai/1/"). Archivni stranka radi jen A-Z /
+    // podle popularity webu (ne podle filter.sortBy) a kombinuje jen JEDEN zanr
+    // najednou (URL cesta ma pro jeden slug misto) - stejny vzor jako Madara zdroje.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/list/"))
+            val tags = doc.select("a.genre_select_div").mapNotNull { a ->
+                val slug = a.attr("_id").ifBlank { null } ?: return@mapNotNull null
+                val label = a.ownText().replace(' ', ' ').trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreArchiveUrl(slug: String, page: Int): String {
+        val encoded = URLEncoder.encode(slug, "UTF-8").replace("+", "%20")
+        return "$base/genre/$encoded/$page/"
+    }
+
+    private fun parseListItems(doc: org.jsoup.nodes.Document): List<SManga> =
+        doc.select(".listitem").mapNotNull { li ->
+            val link = li.selectFirst("div.left a[href]") ?: return@mapNotNull null
+            SManga(
+                sourceId = id,
+                url = link.attr("href").removePrefix(base),
+                title = li.selectFirst("span.title a")?.text()?.trim()?.ifBlank { null }
+                    ?: link.attr("title").trim().takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null,
+                coverUrl = li.selectFirst("img")?.attr("data-src")?.takeIf { it.isNotBlank() },
+            )
+        }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListItems(Jsoup.parse(get(genreArchiveUrl(filter.genres.first(), page))))
+            }
             // "/list/?page=N" (Total: 20000+) je ve skutecnosti kompletni katalog A-Z,
             // ne razeny podle popularity - "Popularni" zalozka appky ho pouziva jen jako
             // vychozi/neutralni vypis. "Nejnovejsi" ma vlastni endpoint s JINOU strukturou
@@ -80,6 +126,9 @@ class MangagoSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListItems(Jsoup.parse(get(genreArchiveUrl(filter.genres.first(), page))))
+            }
             // Puvodni "/r/search.php" vraci 404 - skutecny hledaci formular na hlavni
             // strance vede na "/r/l_search/" (overeno zivym stazenim, funguje i strankovani
             // pres &page=N). Vysledky maji jinou strukturu nez popularni vypis - obalka je

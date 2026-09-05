@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.imhentai
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -35,6 +36,31 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private val base = "https://imhentai.xxx"
 
+    // Plny seznam tagu na /tags/ ma pres 16 000 polozek (SKIPPED-TOO-LARGE by
+    // se hodilo na tag urovni) - misto toho pouzivame vlastni hrubsi taxonomii
+    // webu "Categories" (viz /advsearch/ formular: hidden inputy m/d/w/i/a/g),
+    // ktera ma jen 6 polozek a existuje pro ni i dedikovana archivni cesta
+    // "/category/{slug}/" (overeno zive - jina sada galerii nez /popular/).
+    override val supportsTagFilter: Boolean get() = true
+
+    private val categoryParams = linkedMapOf(
+        "doujinshi" to "d",
+        "manga" to "m",
+        "western" to "w",
+        "imageset" to "i",
+        "artistcg" to "a",
+        "gamecg" to "g",
+    )
+
+    override suspend fun getAvailableTags(): List<FilterTag> = listOf(
+        FilterTag("doujinshi", "Doujinshi"),
+        FilterTag("manga", "Manga"),
+        FilterTag("western", "Western"),
+        FilterTag("imageset", "Image Set"),
+        FilterTag("artistcg", "Artist CG"),
+        FilterTag("gamecg", "Game CG"),
+    )
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -65,10 +91,13 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            // Overeno zive: homepage je razena podle nejnovejsich pridanych galerii
-            // (sestupne ID), zatimco "/popular/" ma vlastni zebricek popularity - jine
-            // ID poradi uz od druhe polozky. Obe podporuji strankovani pres "?page=N".
-            val url = if (filter.sortBy == "latest") {
+            val url = if (filter.genres.isNotEmpty()) {
+                val slug = filter.genres.first()
+                if (page <= 1) "$base/category/$slug/" else "$base/category/$slug/?page=$page"
+            } else if (filter.sortBy == "latest") {
+                // Overeno zive: homepage je razena podle nejnovejsich pridanych galerii
+                // (sestupne ID), zatimco "/popular/" ma vlastni zebricek popularity - jine
+                // ID poradi uz od druhe polozky. Obe podporuji strankovani pres "?page=N".
                 if (page <= 1) "$base/" else "$base/?page=$page"
             } else {
                 if (page <= 1) "$base/popular/" else "$base/popular/?page=$page"
@@ -77,11 +106,20 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
         } catch (_: Exception) { emptyList() }
     }
 
+    // "/search/" bere kategorie jen jako explicitni sadu 0/1 pro VSECH sest
+    // hidden inputu - poslani jen jednoho "w=1" bez zbytku vyfiltrovane
+    // vysledky nezmeni (overeno zive), musi se poslat cely set.
+    private fun categoryQuery(slug: String): String {
+        val target = categoryParams[slug] ?: return ""
+        return categoryParams.values.joinToString("") { p -> "&$p=${if (p == target) 1 else 0}" }
+    }
+
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
-            parseList(fetchDoc("$base/search/?key=$q&page=$page"))
+            val catParam = filter.genres.firstOrNull()?.let(::categoryQuery) ?: ""
+            parseList(fetchDoc("$base/search/?key=$q&page=$page$catParam"))
         } catch (_: Exception) { emptyList() }
     }
 

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangafire
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -41,6 +42,39 @@ class MangaFireSource @Inject constructor(
     private val base = "https://mangafire.to"
     private val apiBase = "$base/api"
 
+    // Zjisteno staticky analyzou minifikovaneho JS bundlu appky (main-*.js,
+    // funkce `fs(e)`/`ps(e)` a `/filter-options` handler J()) - zive overit
+    // JSON strukturu pres curl nejde (API vraci 403 "Missing token" bez
+    // cf_clearance cookie, viz CloudflareInterceptor), appka v beh
+    // ale cookie ziska pres WebView a stejnou cestu jako getPopular/search uz
+    // pouziva. `/api/filter-options` vraci mj. pole "genres": [{id, name}, ...]
+    // (stejna struktura jako "themes"/"demographics") a listing endpoint
+    // `/api/titles` prijima opakovany parametr `genres_in[]=<id>` (axios
+    // serializuje pole stejnym zpusobem jako uz pouzite `content_rating[]`).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val data = JSONObject(get("$apiBase/filter-options")).optJSONObject("data") ?: return@withContext emptyList()
+            val genres = data.optJSONArray("genres") ?: return@withContext emptyList()
+            val tags = (0 until genres.length()).mapNotNull { i ->
+                val g = genres.getJSONObject(i)
+                val gid = g.optInt("id", -1).takeIf { it >= 0 } ?: return@mapNotNull null
+                val gname = g.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FilterTag(id = gid.toString(), label = gname)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        filter.genres.forEach { append("&genres_in[]=$it") }
+    }
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -68,7 +102,11 @@ class MangaFireSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            parseList(get("$apiBase/titles?content_rating[]=safe&content_rating[]=suggestive&order[chapter_updated_at]=desc&hot=1&page=$page&limit=30"))
+            val url = buildString {
+                append("$apiBase/titles?content_rating[]=safe&content_rating[]=suggestive&order[chapter_updated_at]=desc&hot=1&page=$page&limit=30")
+                appendGenreFilter(filter)
+            }
+            parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 
@@ -76,7 +114,11 @@ class MangaFireSource @Inject constructor(
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$apiBase/titles?keyword=$q&content_rating[]=safe&content_rating[]=suggestive&page=$page&limit=30"))
+            val url = buildString {
+                append("$apiBase/titles?keyword=$q&content_rating[]=safe&content_rating[]=suggestive&page=$page&limit=30")
+                appendGenreFilter(filter)
+            }
+            parseList(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

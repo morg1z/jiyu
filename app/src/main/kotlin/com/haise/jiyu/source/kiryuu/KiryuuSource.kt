@@ -2,6 +2,7 @@ package com.haise.jiyu.source.kiryuu
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -42,6 +43,37 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
     override val homepageUrl get() = base
     private val base = "https://v7.kiryuu.to"
 
+    // "/manga/" ma vlastni (ne-Madara) JS filtr formular s hidden inputem
+    // "the_genre" naplnovanym z <ul id="genre-selector"> (151 polozek, hodnota
+    // v atributu "value" <li>, label v "data-show" jeho <a>). Query parametr
+    // "?the_genre=slug" funguje i staticky bez JS (overeno zive - bogus slug
+    // vrati skoro prazdny vypis, platny slug jinou sadu titulu nez bez filtru;
+    // pro srovnani "?genre=slug" misto toho vraci 404 - spatny parametr).
+    // Kombinuje se i s "search_term" (overeno zive - prusecik obou filtru).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga/"))
+            val tags = doc.select("ul#genre-selector li[value]").mapNotNull { li ->
+                val value = li.attr("value").ifBlank { return@mapNotNull null }
+                val label = li.selectFirst("a")?.attr("data-show")?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = value, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun archiveUrl(page: Int, genre: String?, searchTerm: String?): String {
+        val params = listOfNotNull(genre?.let { "the_genre=$it" }, searchTerm?.let { "search_term=$it" })
+        val query = if (params.isEmpty()) "" else "?" + params.joinToString("&")
+        return if (page <= 1) "$base/manga/$query" else "$base/manga/page/$page/$query"
+    }
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -61,6 +93,10 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try { parseList(get(archiveUrl(page, genre, null))) } catch (_: Exception) { emptyList() }
+        }
         try {
             // Overeno zive: "/latest/" ma jine (skutecne cerstvejsi) poradi titulu nez
             // archiv "/manga/" uz od prvni polozky. "/latest/" ale nema funkcni dalsi
@@ -75,6 +111,13 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try {
+                val q = if (query.isBlank()) null else URLEncoder.encode(query, "UTF-8")
+                parseList(get(archiveUrl(page, genre, q)))
+            } catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")

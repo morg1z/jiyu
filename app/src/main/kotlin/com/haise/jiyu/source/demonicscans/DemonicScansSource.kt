@@ -12,10 +12,12 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.util.TallImageSlicer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -47,13 +49,65 @@ class DemonicScansSource @Inject constructor(
     override val name = "DemonicScans"
     override val contentType = "MANHWA"
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
     private val base = "https://demonicscans.org"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
+    }
+
+    /**
+     * /advanced.php filtruje jen podle POST tela - GET query parametry na stejne
+     * ceste web pri zpracovani ignoruje (overeno zive, "?genres[]=1" vraci
+     * identicky nefiltrovany katalog jako bez parametru). Strankovani
+     * filtrovaneho vysledku ale jde pres GET "?list=N" na stejne URL (kombinace
+     * POST tela s genres[]/status/orderby + GET stranky - overeno zive, stranka
+     * 2 vraci jine tituly nez stranka 1 filtrovaneho vysledku).
+     */
+    private fun postAdvancedSearch(page: Int, genres: List<String>, sortBy: String): String {
+        val url = if (page > 1) "$base/advanced.php?list=$page" else "$base/advanced.php"
+        val formBuilder = FormBody.Builder()
+        genres.forEach { formBuilder.add("genres[]", it) }
+        formBuilder.add("status", "all")
+        formBuilder.add("orderby", if (sortBy == "latest") "ID DESC" else "VIEWS DESC")
+        formBuilder.add("submit", "Search")
+        val req = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .post(formBuilder.build())
+            .build()
+        return client.newCall(req).execute().use { it.bodyOrThrow(url) }
+    }
+
+    /** Karty na filtrovanem /advanced.php maji jinou strukturu (div.advanced-element) nez translationlist/lastupdates. */
+    private fun parseAdvancedCards(html: String): List<SManga> {
+        val doc = Jsoup.parse(html)
+        return doc.select("div.advanced-element a[href^=/manga/]").mapNotNull { a ->
+            val href = a.attr("href")
+            val title = a.attr("title").ifBlank { a.text() }.trim()
+            if (title.isBlank()) return@mapNotNull null
+            val cover = a.selectFirst("img")?.attr("src")
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = contentType)
+        }.distinctBy { it.url }
+    }
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val doc = Jsoup.parse(get("$base/advanced.php"))
+            doc.select("li:has(input.genrespick)").mapNotNull { li ->
+                val input = li.selectFirst("input.genrespick") ?: return@mapNotNull null
+                val value = input.attr("value").ifBlank { return@mapNotNull null }
+                val label = li.text().replace(' ', ' ').trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = label)
+            }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
     }
 
     /** Karty v seznamech (translationlist.php/lastupdates.php) mají shodnou strukturu. */
@@ -76,6 +130,9 @@ class DemonicScansSource @Inject constructor(
      * aktualizací kapitol, odpovídá skutečnému významu "latest").
      */
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (_: Exception) { emptyList() }
+        }
         try {
             val path = if (filter.sortBy == "latest") "lastupdates.php" else "translationlist.php"
             val query = if (page > 1) "?list=$page" else ""
@@ -84,6 +141,12 @@ class DemonicScansSource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // /advanced.php nema textove pole pro nazev - kdyz je vybrany zanr, chovame
+        // se stejne jako vzorovy MadaraSource ("Vzor B") a prepneme na zanrovy archiv
+        // misto textoveho hledani (web samotny kombinaci nazev+zanr nenabizi).
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (_: Exception) { emptyList() }
+        }
         // /search.php nemá stránkování (je to živý autocomplete endpoint) - druhá a
         // další stránka by jen zopakovala stejný výsledek, radši ukončit scrollování.
         if (page > 1) return@withContext emptyList()

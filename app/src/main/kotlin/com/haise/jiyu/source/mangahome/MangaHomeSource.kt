@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangahome
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -27,7 +28,32 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "mangahome"
     override val name = "MangaHome"
     override val homepageUrl get() = base
+    override val supportsTagFilter = true
     private val base = "https://www.mangahome.com"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    /**
+     * /advsearch má checklist žánrů (`ul.genres li[rel=Label]` s
+     * `onclick="clickGenre(this, 'slug');"` - viz advsearch.js). Formulář posílá
+     * vybrané sloty jako "ingenres=slug1,slug2" na /search - overeno zive, ze
+     * filtruje spravne a lze kombinovat vice zanru najednou (AND).
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val doc = Jsoup.parse(get("$base/advsearch"))
+            doc.select("ul.genres li[rel]").mapNotNull { li ->
+                val label = li.attr("rel").trim().ifBlank { return@mapNotNull null }
+                val onclick = li.selectFirst("a")?.attr("onclick").orEmpty()
+                val slug = Regex("""clickGenre\(this,\s*'([^']+)'\)""").find(onclick)?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+        } catch (_: Exception) { emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -47,6 +73,12 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Kdyz jsou vybrane zanry, nema "/directory"/"/latest" zadny genre parametr -
+        // musime prehodit na /search s ingenres (viz getAvailableTags) - overeno zive.
+        if (filter.genres.isNotEmpty()) {
+            val genres = filter.genres.joinToString(",")
+            return@withContext try { parseList(get("$base/search?name=&ingenres=$genres&exgenres=&page=$page")) } catch (_: Exception) { emptyList() }
+        }
         // "/latest/N.html" ma stejnou kartu (a.post-cover) jako "/directory/N.html",
         // jen jiny zdroj razeni - overeno zive, vraci odlisne tituly.
         val path = if (filter.sortBy == "latest") "/latest/$page.html" else "/directory/$page.html"
@@ -56,7 +88,8 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/search?name=$q&page=$page"))
+            val genreParam = if (filter.genres.isNotEmpty()) "&ingenres=${filter.genres.joinToString(",")}&exgenres=" else ""
+            parseList(get("$base/search?name=$q&page=$page$genreParam"))
         } catch (_: Exception) { emptyList() }
     }
 

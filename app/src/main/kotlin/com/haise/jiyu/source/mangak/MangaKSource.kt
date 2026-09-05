@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangak
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -55,8 +56,39 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
         coverUrl = o.optString("cover").takeIf { it.isNotBlank() },
     )
 
+    // Overeno zive: "/filters" je Next.js route, jejiz __NEXT_DATA__.props.pageProps
+    // obsahuje "initialGenres" - pole {id, name, slug, url, titles_count} (72 zaznamu).
+    // Kazdy zaznam ma vlastni archivni cestu "/genres/{slug}" (pageProps klic "items",
+    // stejny tvar jako u /latest), ktera podporuje strankovani "?page=N" - zivym
+    // porovnanim potvrzeno, ze vysledky /genres/action se od /latest lisi uz od
+    // druhe polozky. Kombinace vice zanru najednou v URL neni podporovana (jedna
+    // cesta = jeden slug), takze pri vice vybranych se pouzije jen prvni.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val genres = pageProps(get("$base/filters")).optJSONArray("initialGenres") ?: return@withContext emptyList()
+            val tags = (0 until genres.length()).mapNotNull { i ->
+                val g = genres.getJSONObject(i)
+                val slug = g.optString("slug").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val name = g.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FilterTag(id = slug, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val items = pageProps(get("$base/genres/${filter.genres.first()}?page=$page")).optJSONArray("items")
+                    ?: return@withContext emptyList()
+                return@withContext (0 until items.length()).map { itemToSManga(items.getJSONObject(it)) }
+            }
             // "/latest" je samostatna Next.js route s jinym klicem v pageProps ("items",
             // ne "initialItems") - overeno zive, vraci odlisne tituly nez /ranking.
             val (url, key) = if (filter.sortBy == "latest") "$base/latest?page=$page" to "items"
@@ -67,6 +99,7 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
