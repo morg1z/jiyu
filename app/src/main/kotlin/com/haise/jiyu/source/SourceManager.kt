@@ -81,6 +81,8 @@ import com.haise.jiyu.source.webtooni.WebtooniSource
 import com.haise.jiyu.source.manhwabuddy.ManhwaBuddySource
 import com.haise.jiyu.source.manga18club.Manga18ClubSource
 import com.haise.jiyu.source.manhwasusu.ManhwaSusuSource
+import com.haise.jiyu.source.violetscans.VioletScansSource
+import com.haise.jiyu.source.manhwa210.Manhwa210Source
 import com.haise.jiyu.source.ehentai.EHentaiSource
 import com.haise.jiyu.source.asmhentai.AsmHentaiSource
 import com.haise.jiyu.source.hentainexus.HentaiNexusSource
@@ -210,6 +212,8 @@ class SourceManager @Inject constructor(
     manhwaBuddySource: ManhwaBuddySource,
     manga18ClubSource: Manga18ClubSource,
     manhwaSusuSource: ManhwaSusuSource,
+    violetScansSource: VioletScansSource,
+    manhwa210Source: Manhwa210Source,
     eHentaiSource: EHentaiSource,
     asmHentaiSource: AsmHentaiSource,
     hentaiNexusSource: HentaiNexusSource,
@@ -607,6 +611,21 @@ class SourceManager @Inject constructor(
         toongodSource,
         webtooniSource,
         manhwaBuddySource,
+        // Violet Scans (violetscans.org, "romance/villainess" manhwa) - MangaThemesia
+        // motiv (stejna rodina jako EvaScans/Hentai20/Toongod), ale vlastni permalink
+        // "/comics/{slug}" a strankovani pres "?page=N" (ne "/page/N/", ktere vraci
+        // porad stejnou prvni stranku - overeno zive). Genrovy archiv je samostatny
+        // "/genres/{slug}/" (slug = zeslugovany nazev zanru), overeno zive na
+        // drama/romance/dark-fantasy. Nektere nejnovejsi kapitoly jsou zamknute za
+        // mincemi (JS modal misto skutecneho odkazu) - proste se vynechaji.
+        violetScansSource,
+        // Manhwa210 (manhwa210.com) - bespoke Laravel/Livewire sablona (ne Madara/
+        // MangaThemesia). Vypis pres "/list?sort={-views|-updated_at}&page=N",
+        // zanrovy archiv pres "/genre/{slug}?page=N" (overeno zive, oboji funkcni).
+        // Serverove "/search" tise ignoruje dotaz (overeno zive - identicka sada
+        // vysledku pro dva ruzne dotazy), takze hledani je reseno lokalne nad
+        // stazenym vypisem, stejny vzor jako u jinych zdroju bez funkcniho hledani.
+        manhwa210Source,
         // ManhwaRaw18 odstraneno 2026-08-24 - manhwaraw18.com nema DNS zaznam (domena
         // uz neexistuje, overeno curlem).
         manga18ClubSource,
