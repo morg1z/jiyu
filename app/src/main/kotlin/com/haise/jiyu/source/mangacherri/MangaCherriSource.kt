@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangacherri
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -11,7 +12,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URLDecoder
+import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,8 +52,48 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // ─── Filtrovani podle zanru ──────────────────────────────────────────────
+    // /genre.php?genre=<Nazev> je samostatna, plne server-rendered stranka -
+    // overeno zive: genre=Isekai vraci 3 tituly, genre=Romance vraci 541
+    // odlisnych titulu (zadny prekryv v prvnich polozkach). Vypis NENI
+    // strankovany na serveru (`page` parametr se tise ignoruje - stejna sada
+    // vsech titulu na kazde strance), proto se pro page > 1 vraci prazdny
+    // seznam, aby appka nezobrazovala porad dokola stejnou (casto obrovskou)
+    // mnozinu.
+
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = parseDoc("$base/genre.php")
+            val tags = doc.select("a[href*=genre.php?genre=]").mapNotNull { a ->
+                val href = a.attr("href")
+                val genreId = href.substringAfter("genre=").substringBefore("&")
+                    .let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
+                    .ifBlank { null } ?: return@mapNotNull null
+                val label = a.attr("title").trim().ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
+                FilterTag(id = genreId, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseGenreList(doc: Document): List<SManga> =
+        doc.select("div.manga-item a:has(img)").mapNotNull(::parseCard).distinctBy { it.url }
+
+    private fun fetchGenre(genreId: String): Document =
+        parseDoc("$base/genre.php?genre=${URLEncoder.encode(genreId, "UTF-8")}")
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseGenreList(fetchGenre(filter.genres.first()))
+            }
             // overereno zive: home.php je jen sada karuselu (Popular Now/Latest Chapter/
             // Most Popular/Completed), zatimco new-chapters.php ma vlastni strankovanou
             // mrizku razenou dle posledni aktualizace kapitoly - genuinne jina razeni.
@@ -59,7 +103,13 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
         } catch (_: Exception) { emptyList() }
     }
 
-    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = emptyList()
+    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isEmpty()) return@withContext emptyList()
+        try {
+            if (page > 1) return@withContext emptyList()
+            parseGenreList(fetchGenre(filter.genres.first()))
+        } catch (_: Exception) { emptyList() }
+    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {

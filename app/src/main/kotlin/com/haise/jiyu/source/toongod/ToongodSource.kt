@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.toongod
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -63,6 +64,37 @@ class ToongodSource @Inject constructor(private val client: OkHttpClient) : Mang
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
         }
 
+    // "/genre/{slug}/" archiv (napr. "/genre/action/") pouziva stejnou ".latest-item"
+    // sablonu jako "/webtoons/" a "/search/" - overeno zive (odlisne tituly pro
+    // genre "action" vs "romance", i pri strankovani "?page=N" a razeni "?order=...").
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDocument("$base/webtoons/")
+            val tags = doc.select("a[href*=/genre/]").mapNotNull { a ->
+                val href = a.absUrl("href")
+                val slug = Regex("""/genre/([^/]+)/?$""").find(href)?.groupValues?.get(1)?.ifBlank { null }
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int, orderby: String): String {
+        val url = "$base/genre/$slug/"
+        val query = mutableListOf<String>()
+        if (page > 1) query += "page=$page"
+        query += "order=$orderby"
+        return "$url?" + query.joinToString("&")
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val orderby = when (filter.sortBy) {
@@ -70,11 +102,17 @@ class ToongodSource @Inject constructor(private val client: OkHttpClient) : Mang
                 "title"  -> "alphabet"
                 else     -> "views"
             }
-            parseMangaList(fetchDocument("$base/webtoons/page/$page/?order=$orderby"))
+            val genre = filter.genres.firstOrNull()
+            val url = if (genre != null) genreUrl(genre, page, orderby) else "$base/webtoons/page/$page/?order=$orderby"
+            parseMangaList(fetchDocument(url))
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            val genre = filter.genres.firstOrNull()
+            if (genre != null) {
+                return@withContext parseMangaList(fetchDocument(genreUrl(genre, page, "views")))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseMangaList(fetchDocument("$base/search/?s=$q&page=$page"))
         }

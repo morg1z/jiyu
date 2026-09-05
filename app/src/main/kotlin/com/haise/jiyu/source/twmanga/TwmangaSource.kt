@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.twmanga
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -48,7 +49,41 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANHUA")
     }
 
+    // "/classify?type={slug}&region=all&state=all&filter=*" pouziva stejnou
+    // "a.comics-card__poster" kartu jako homepage/hledani a podporuje strankovani
+    // (&page=N) - overeno zive (odlisne tituly pro type=lianai vs type=wuxia, i mezi
+    // page=1 a page=2 stejneho typu).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/classify"))
+            val tags = doc.select("a[href*=/classify?type=]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = Regex("""type=([a-z]+)""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
+                if (slug == "all") return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun classifyUrl(type: String, page: Int): String =
+        "$base/classify?type=$type&region=all&state=all&filter=%2a&page=$page"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try {
+                val doc = Jsoup.parse(get(classifyUrl(genre, page)))
+                doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
+            } catch (_: Exception) { emptyList() }
+        }
         if (page > 1) return@withContext emptyList()
         // overeno zive: /list/new ma jine poradi nez homepage (48 odlisnych titulu);
         // ani jeden neni strankovany (?page= je ignorovano, staticky vypis).
@@ -60,6 +95,13 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try {
+                val doc = Jsoup.parse(get(classifyUrl(genre, page)))
+                doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?q=$q&page=$page"))

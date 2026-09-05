@@ -2,6 +2,7 @@ package com.haise.jiyu.source.royalroad
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -54,8 +55,34 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // "/fictions/search" ma DLE filter formular s tlacitky zanru (data-tag="..."),
+    // jejichz hodnoty jde poslat jako "tagsAdd" query parametr na tu samou stranku -
+    // overeno zive: tagsAdd=horror str.1 vs str.2 - jine tituly, i oproti
+    // nefiltrovanemu "/fictions/best-rated" vypisu.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/fictions/search"), base)
+            val tags = doc.select("button.search-tag[data-tag]").mapNotNull { btn ->
+                val slug = btn.attr("data-tag").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = btn.attr("data-label").trim().ifBlank { slug }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
+                return@withContext parseList(get("$base/fictions/search?tagsAdd=$tag&page=$page"))
+            }
             val path = if (filter.sortBy == "latest") "latest-updates" else "best-rated"
             parseList(get("$base/fictions/$path?page=$page"))
         } catch (_: Exception) { emptyList() }
@@ -63,6 +90,10 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
+                return@withContext parseList(get("$base/fictions/search?tagsAdd=$tag&page=$page"))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/fictions/search?title=$q&page=$page"))
         } catch (_: Exception) { emptyList() }

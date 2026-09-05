@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentaihand
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -69,12 +70,46 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
         return (0 until data.length()).mapNotNull { data.optJSONObject(it)?.let(::listItemToSManga) }
     }
 
+    // /api/tags ma pres 8000 polozek (prilis mnoho na hardcode/zive stahovani celeho
+    // seznamu), ale web ma i mnohem hrubsi taxonomii "Categories" (stejnych 7 hodnot
+    // jako HentaiFox - Doujinshi/Manga/Non-H/Western/Imageset/Artistcg/Misc, zbytek
+    // stranky /api/categories je spam od uzivatelu s prazdnym "name" a comics_count=0,
+    // proto se filtruji pryc). Live overeno: `?categories[]={id}` skutecne filtruje
+    // vypis (napr. id=3 "Non-H" vraci total=16 misto celkovych stovek tisic).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val json = fetchJson("$base/api/categories?page=1")
+            val data = json.optJSONArray("data") ?: return@withContext emptyList()
+            val tags = (0 until data.length()).mapNotNull { i ->
+                val obj = data.optJSONObject(i) ?: return@mapNotNull null
+                val name = obj.optString("name").trim().ifBlank { null } ?: return@mapNotNull null
+                if (obj.optInt("comics_count", 0) <= 0) return@mapNotNull null
+                FilterTag(id = obj.optInt("id", -1).takeIf { it > 0 }?.toString() ?: return@mapNotNull null, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(fetchJson("$base/api/comics?categories[]=${filter.genres.first()}&page=$page")) }
+            catch (_: Exception) { emptyList() }
+        }
         try { parseList(fetchJson("$base/api/comics?page=$page")) }
         catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(fetchJson("$base/api/comics?categories[]=${filter.genres.first()}&page=$page")) }
+            catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")

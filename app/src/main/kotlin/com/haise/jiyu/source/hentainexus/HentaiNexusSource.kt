@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentainexus
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -110,7 +111,43 @@ class HentaiNexusSource @Inject constructor(
         }
     }
 
+    // /explore/categories/tag je jediny (nestrankovany) HTML vypis vsech ~228 tagu
+    // pouzivanych na webu ("used N times" u kazdeho) - dost male na zive stahnuti
+    // celeho seznamu najednou (na rozdil od /explore/categories/parody apod., ktere
+    // by mohly byt vetsi). Filtrovani pak jede pres uz existujici fulltext vyhledavani
+    // ("?q=") se specialni syntaxi "tag:jmeno" (vicelove tagy v uvozovkach) - presne
+    // to same, co pouzivaji odkazy primo na strance /explore/categories/tag. Live
+    // overeno: "tag:beach" a "tag:blowjob" vraci skutecne odlisne seznamy titulu.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/explore/categories/tag"), base)
+            val tags = doc.select("a[href^=\"/?q=tag:\"]").mapNotNull { a ->
+                val name = a.text().substringBefore("(used").trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = name, label = name)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun tagQuery(tag: String): String {
+        val expr = if (tag.contains(' ')) "tag:\"$tag\"" else "tag:$tag"
+        return URLEncoder.encode(expr, "UTF-8")
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                val q = tagQuery(filter.genres.first())
+                val url = if (page <= 1) "$base/?q=$q" else "$base/page/$page?q=$q"
+                parseListing(get(url))
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val url = if (page <= 1) "$base/" else "$base/page/$page"
             parseListing(get(url))
@@ -118,6 +155,13 @@ class HentaiNexusSource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                val q = tagQuery(filter.genres.first())
+                val url = if (page <= 1) "$base/?q=$q" else "$base/page/$page?q=$q"
+                parseListing(get(url))
+            } catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")

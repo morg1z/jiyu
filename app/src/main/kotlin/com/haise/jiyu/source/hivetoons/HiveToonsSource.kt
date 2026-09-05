@@ -2,6 +2,7 @@ package com.haise.jiyu.source.hivetoons
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -11,8 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,6 +39,13 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val contentType: String get() = "MANHWA"
     override val homepageUrl get() = base
     private val base = "https://hivetoons.org"
+    // Web bezi na sdilene "vcomics" Astro sablone, ktera browse/genre stranky
+    // (hivetoons.org/genre/{slug}) renderuje az na klientovi - misto scrapovani
+    // prazdneho HTML skeletu se proto genre filtrovani resi primo pres JSON API
+    // backend appky (viz komentar u SourceManager - "hivetoons -> api.hivetoons.org"),
+    // ktery si stejny klientsky JS sam vola (endpoint najit reverse-engineeringem
+    // JS bundlu /_vcomics/*.js - `${API}/api/genres/${encodeURIComponent(slug)}/posts`).
+    private val apiBase = "https://api.hivetoons.org"
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
@@ -42,6 +53,15 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
             .build()
         val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
         return Jsoup.parse(html)
+    }
+
+    private fun getJson(url: String): JSONObject {
+        val req = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Accept", "application/json")
+            .build()
+        val body = client.newCall(req).execute().use { it.bodyOrThrow(url) }
+        return JSONObject(body)
     }
 
     private fun parseList(doc: Document): List<SManga> =
@@ -59,7 +79,61 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
             // <img> (druhy - textovy odkaz na nazev - obalku nema).
             .distinctBy { it.url }
 
+    // Live overeno: /api/genres vraci malou (95 polozek), plochou taxonomii bez
+    // vlastniho "slug" pole - klientsky JS si slug odvozuje jako
+    // encodeURIComponent(name.toLowerCase()) (viz komentar u apiBase), stejny vzorec
+    // pouzivame tady. FilterTag.id proto nese puvodni (nezakodovany) nazev zanru.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val req = Request.Builder().url("$apiBase/api/genres")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/json")
+                .build()
+            val body = client.newCall(req).execute().use { it.bodyOrThrow("$apiBase/api/genres") }
+            val arr = JSONArray(body)
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = obj.optString("name").trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = name, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreSlug(name: String): String =
+        URLEncoder.encode(name.lowercase(), "UTF-8").replace("+", "%20")
+
+    private fun parseGenrePosts(json: JSONObject): List<SManga> {
+        val posts = json.optJSONArray("posts") ?: return emptyList()
+        return (0 until posts.length()).mapNotNull { i ->
+            val post = posts.optJSONObject(i) ?: return@mapNotNull null
+            val slug = post.optString("slug").ifBlank { return@mapNotNull null }
+            val title = post.optString("postTitle").trim().ifBlank { return@mapNotNull null }
+            val cover = post.optString("featuredImage").ifBlank { null }
+            val seriesType = post.optString("seriesType")
+            val isNovel = post.optBoolean("isNovel", false)
+            val contentType = when {
+                isNovel -> "NOVEL"
+                seriesType.equals("MANHUA", ignoreCase = true) -> "MANHUA"
+                seriesType.equals("MANGA", ignoreCase = true) -> "MANGA"
+                else -> "MANHWA"
+            }
+            SManga(sourceId = id, url = "$base/series/$slug", title = title, coverUrl = cover, contentType = contentType)
+        }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
+            } catch (_: Exception) { emptyList() }
+        }
         // Bez koncoveho lomitka web posle 301 na "http://..." (ne https) - Android to
         // spravne odmitne jako cleartext (viz network_security_config.xml) a appka pak
         // tise skonci na prazdnem seznamu. Overeno logem site pripojeni na realnem
@@ -78,6 +152,11 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
+            } catch (_: Exception) { emptyList() }
+        }
         if (page > 1) return@withContext emptyList()
         try {
             parseList(get("$base/series/")).filter { it.title.contains(query, ignoreCase = true) }

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.meowingtoons
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.jsoup.Jsoup
 
 /**
@@ -58,7 +60,55 @@ class MeowingToonsSource(
         }.distinctBy { it.url }
     }
 
+    // Karta v /library/ je <a href="/series/..."> vnorena v obalovem <button tags='[...]'>
+    // s JSON polem stitku primo pro dane dilo (overeno zive na timelesstoons.org i
+    // genztoons.org) - appka uz cely katalog stahuje pro klientske vyhledavani, takze
+    // pouziti stejneho zdroje pro tag filter nestoji zadny navic request.
+    private fun parseLibraryWithTags(html: String): List<Pair<SManga, List<String>>> {
+        val doc = Jsoup.parse(html, root)
+        return doc.select("a[href^=/series/]").mapNotNull { card ->
+            val href = card.absUrl("href").ifBlank { return@mapNotNull null }
+            if (!href.matches(Regex(""".*/series/[^/?]+/?$"""))) return@mapNotNull null
+            val title = card.attr("title").ifBlank { card.attr("alt") }.trim().ifBlank { return@mapNotNull null }
+            val styleHost = card.selectFirst("[style*=background-image]")
+            val cover = styleHost?.attr("style")?.let { coverStyleRegex.find(it)?.groupValues?.get(1) }
+                ?.trim('\'', '"', ' ')?.ifBlank { null }
+            val tagsAttr = card.parent()?.attr("tags").orEmpty()
+            val tags = try {
+                val arr = JSONArray(tagsAttr)
+                (0 until arr.length()).mapNotNull { arr.optString(it)?.trim()?.ifBlank { null } }
+            } catch (_: Exception) { emptyList() }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover) to tags
+        }.distinctBy { it.first.url }
+    }
+
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val tags = parseLibraryWithTags(get("$root/library/"))
+                .flatMap { it.second }
+                .distinct()
+                .sortedBy { it.lowercase() }
+                .map { FilterTag(id = it, label = it) }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun filterByGenres(items: List<Pair<SManga, List<String>>>, genres: List<String>): List<SManga> =
+        items.filter { (_, tags) -> genres.any { g -> tags.any { it.equals(g, ignoreCase = true) } } }.map { it.first }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            if (page > 1) return@withContext emptyList()
+            return@withContext try {
+                filterByGenres(parseLibraryWithTags(get("$root/library/")), filter.genres)
+            } catch (_: Exception) { emptyList() }
+        }
         if (page > 1) return@withContext emptyList()
         // overeno zive na obou webech (timelesstoons.org i genztoons.org): "/latest/"
         // vraci stejnou kartovou strukturu jako "/library/", ale v poradi dle
@@ -70,6 +120,13 @@ class MeowingToonsSource(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            if (page > 1) return@withContext emptyList()
+            val matched = try {
+                filterByGenres(parseLibraryWithTags(get("$root/library/")), filter.genres)
+            } catch (_: Exception) { emptyList() }
+            return@withContext if (query.isBlank()) matched else matched.filter { it.title.contains(query, ignoreCase = true) }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         if (page > 1) return@withContext emptyList()
         try {

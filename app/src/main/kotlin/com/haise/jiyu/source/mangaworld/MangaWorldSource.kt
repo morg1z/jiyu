@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangaworld
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -59,14 +60,50 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
+            } catch (_: Exception) { emptyList() }
+        }
         val sort = if (filter.sortBy == "latest") "newest" else "most_read"
         try { parseList(get("$base/archive?sort=$sort&page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/archive?keyword=$q&page=$page"))
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // ─── Filtrování podle žánru ──────────────────────────────────────────────
+    // /archive stranka ma postranni panel s odkazy na jednotlive zanry ve tvaru
+    // archive?genre={slug} (italske slugy) - overeno zive (page 1 vs 2 pro
+    // "azione" i ruzne zanry "azione" vs "commedia" vraci prokazatelne odlisne
+    // tituly).
+
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = get("$base/archive")
+            val tags = doc.select("a[href*=\"archive?genre=\"]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = href.substringAfter("genre=").substringBefore("&").trim().ifBlank { null }
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
         } catch (_: Exception) { emptyList() }
     }
 

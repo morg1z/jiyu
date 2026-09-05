@@ -2,6 +2,7 @@ package com.haise.jiyu.source.novelbuddy
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -74,18 +75,52 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
         else -> raw
     }
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // /genres je lehky dedikovany endpoint (~45 polozek, overeno zive) s id/name/slug -
+    // filtrovani vypisu pak bere "slug" (parametr "genres" na /titles/search, overeno
+    // zive: genres=action a genres=romance vraci uplne odlisne, neprekryvajici se sady).
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val items = JSONObject(get("$api/genres")).optJSONObject("data")?.optJSONArray("items") ?: JSONArray()
+            val tags = (0 until items.length()).mapNotNull { i ->
+                val o = items.getJSONObject(i)
+                val slug = o.optString("slug").ifBlank { return@mapNotNull null }
+                val name = o.optString("name").ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = name)
+            }.sortedBy { it.label }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
+        if (filter.genres.isNotEmpty()) append("&genres=${filter.genres.joinToString(",")}")
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // Bez "sort" API vraci stejne poradi jako "sort=latest"/"sort=newest" (overeno
         // zivě, identicke vysledky) - vychozi chovani uz JE "Nejnovejsi", explicitni
         // "sort=views" pro Popularni dava prokazatelne jiny (skutecne popularni) seznam.
         val sortParam = if (filter.sortBy == "latest") "" else "&sort=views"
-        try { parseItems(get("$api/titles/search?page=$page&limit=24$sortParam")) } catch (_: Exception) { emptyList() }
+        val url = buildString {
+            append("$api/titles/search?page=$page&limit=24$sortParam")
+            appendGenreFilter(filter)
+        }
+        try { parseItems(get(url)) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseItems(get("$api/titles/search?page=$page&limit=24&q=$q"))
+            val url = buildString {
+                append("$api/titles/search?page=$page&limit=24&q=$q")
+                appendGenreFilter(filter)
+            }
+            parseItems(get(url))
         } catch (_: Exception) { emptyList() }
     }
 

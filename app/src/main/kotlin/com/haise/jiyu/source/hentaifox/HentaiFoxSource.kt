@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.hentaifox
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -60,7 +61,40 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
     private fun parseList(doc: Document): List<SManga> =
         doc.select("div.lc_galleries div.thumb").mapNotNull(::parseThumb).distinctBy { it.url }
 
+    // Plny seznam tagu ma pres 2000 polozek (viz /tags/) - prilis mnoho na hardcode
+    // nebo zive stahovani celeho seznamu. Site ale ma i mnohem hrubsi, jen 7polozkovou
+    // taxonomii "Categories" (/categories/) - artist-cg/doujinshi/image-set/manga/misc/
+    // non-h/western - lehka na dotahnuti a live overena, ze skutecne filtruje vypis
+    // (/category/{slug}/ vraci odlisne galerie nez / i nez jine kategorie).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = fetchDoc("$base/categories/")
+            val tags = doc.select("div.tag_item a.tag_btn").mapNotNull { a ->
+                val href = a.attr("href").ifBlank { return@mapNotNull null }
+                val slug = href.trim('/').substringAfterLast('/')
+                val label = a.selectFirst("h3.list_tag")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Stranka 1 kategorie je na /category/{slug}/, dalsi stranky ale (na rozdil
+    // od home "/page/N/") pouzivaji jine slovo v ceste - "/category/{slug}/pag/N/"
+    // (overeno zive: obsah page 1 vs pag/2/ vs pag/3/ je pokazde jiny).
+    private fun categoryUrl(slug: String, page: Int): String =
+        if (page <= 1) "$base/category/$slug/" else "$base/category/$slug/pag/$page/"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+        }
         try {
             val url = if (page <= 1) "$base/" else "$base/page/$page/"
             parseList(fetchDoc(url))
@@ -68,6 +102,9 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")

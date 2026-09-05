@@ -2,6 +2,7 @@ package com.haise.jiyu.source.valirscans
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -94,19 +95,46 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
         return (0 until data.length()).mapNotNull { itemToSManga(data.getJSONObject(it)) }
     }
 
+    // "/api/series" prijima i "genre=<slug>" filtr (kombinovatelny s "q="/"sort=") -
+    // overeno zive (jina prvni polozka pro genre=action nez bez filtru). Seznam zanru
+    // je na "/api/genres" - male, kompletni JSON pole se slugy - overeno zive.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val arr = JSONObject(get("$base/api/genres")).optJSONArray("genres") ?: return@withContext emptyList()
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val slug = o.optString("slug").ifBlank { null } ?: return@mapNotNull null
+                val name = o.optString("name").ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // API bez parametru radi podle posledni aktualizace (overeno zive - stejny vysledek
         // jako s vyslovnym "sort=latest"), "sort=popular" vraci jiny (hodnocenim/oblibou
         // rizeny) poradek - overeno zive, obe hodnoty vraceji odlisne prvni polozky.
         val sortParam = if (filter.sortBy == "latest") "" else "&sort=popular"
-        try { parseListing(get("$base/api/series?page=$page$sortParam")) } catch (_: Exception) { emptyList() }
+        val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
+        try { parseListing(get("$base/api/series?page=$page$sortParam$genreParam")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext getPopular(page, filter)
+        val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
+        if (query.isBlank()) {
+            if (genreParam.isEmpty()) return@withContext getPopular(page, filter)
+            return@withContext try { parseListing(get("$base/api/series?page=$page$genreParam")) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseListing(get("$base/api/series?q=$q&page=$page"))
+            parseListing(get("$base/api/series?q=$q&page=$page$genreParam"))
         } catch (_: Exception) { emptyList() }
     }
 

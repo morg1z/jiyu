@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangatown
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -51,6 +52,11 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseList(get("$base/directory/0-${filter.genres.first()}-0-0-0-0/$page.html"))
+            } catch (_: Exception) { emptyList() }
+        }
         // Vychozi /directory/ razeni je Views (Popularni) - "Latest Updated" je zvlastni
         // query string, ne cesta (overeno zivě, jine tituly nez vychozi razeni).
         val sortSuffix = if (filter.sortBy == "latest") "?last_chapter_time.za" else ""
@@ -58,9 +64,40 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseList(get("$base/directory/0-${filter.genres.first()}-0-0-0-0/$page.html"))
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?name=$q&page=$page"))
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // ─── Filtrování podle žánru ─────────────────────────────────────────────
+    // /directory/ ma postrannim panelu odkazy na jednotlive zanry ve tvaru
+    // /directory/0-{slug}-0-0-0-0/ (bitmaskova URL struktura mangatown archivu,
+    // pozice 2 = genre slug se podtrzitky) - overeno zive (page 1 vs 2 pro
+    // "action" vraci prokazatelne odlisne tituly).
+
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/directory/"))
+            val tags = doc.select("a[href^=/directory/0-]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = Regex("""/directory/0-(.+?)-0-0-0-0/?""").find(href)?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
         } catch (_: Exception) { emptyList() }
     }
 

@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.rokaricomics
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -52,13 +53,46 @@ class RokariComicsSource @Inject constructor(private val client: OkHttpClient) :
         }
     }
 
+    // "/manga/" ma DLE filter formular s checkboxy zanru (name="genre[]"), jehoz
+    // hodnoty odpovidaji dedikovanemu archivu "/genres/{slug}/" se stejnou kartovou
+    // strukturou (.bsx) jako obycejny vypis, jen jina sada titulu (overeno zive:
+    // genre=action str.1 vs str.2 - jine tituly, i oproti nefiltrovanemu vypisu).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga/"))
+            val tags = doc.select("input[name='genre[]']").mapNotNull { input ->
+                val slug = input.attr("value").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = doc.selectFirst("label[for='${input.attr("id")}']")?.text()?.trim()?.ifBlank { null } ?: slug
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(genre: String, page: Int): String =
+        if (page <= 1) "$base/genres/$genre/" else "$base/genres/$genre/page/$page/"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val order = if (filter.sortBy == "latest") "update" else "popular"
-        try { parseList(get("$base/manga/?page=$page&order=$order")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
+            val order = if (filter.sortBy == "latest") "update" else "popular"
+            parseList(get("$base/manga/?page=$page&order=$order"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first(), page)))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))

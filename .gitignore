@@ -35,3 +35,4 @@ relnotes.tmp
 # Stará scratch data z živého zkoumání zdrojů (curl dumpy stránek apod.) - ne zdrojový kód,
 # přesunuto sem z C:\Users\ilekr\Desktop\masaze, kde omylem skončilo.
 /scratch/
+.aider*

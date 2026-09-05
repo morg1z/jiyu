@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangapill
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -47,6 +48,14 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Genre checkbox filtr (/search) ma prednost pred specialnim "latest" pruchodem
+        // pres /mangas/new, ktery zadny filtr genre nepodporuje.
+        if (filter.genres.isNotEmpty()) {
+            val genreParams = filter.genres.joinToString("") { "&genre=${URLEncoder.encode(it, "UTF-8")}" }
+            return@withContext try {
+                parseList(get("$base/search?q=&type=manga&status=&page=$page$genreParams"))
+            } catch (_: Exception) { emptyList() }
+        }
         // overeno zive: /mangas/new (nove pridane tituly) je razeni odlisne od
         // /search (razeno dle ID vzestupne = zavedena/popularni dila); /mangas/new
         // nema strankovani (vzdy stejnych 50 polozek, overeno zive page=1 vs page=2).
@@ -61,7 +70,31 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/search?q=$q&page=$page"))
+            val genreParams = filter.genres.joinToString("") { "&genre=${URLEncoder.encode(it, "UTF-8")}" }
+            parseList(get("$base/search?q=$q&page=$page$genreParams"))
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // ─── Filtrování podle žánru ─────────────────────────────────────────────
+    // /search stranka ma checkbox filtr <input name="genre" value="Action">
+    // (madara-nezavisly, vlastni tailwind sablona) - overeno zive (46 zanru,
+    // filtrovane vysledky pro Isekai prokazatelne odlisne od vychoziho vypisu).
+
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search"))
+            val tags = doc.select("input[name=genre]").mapNotNull { input ->
+                val value = input.attr("value").trim().ifBlank { null } ?: return@mapNotNull null
+                val label = input.parent()?.text()?.trim()?.ifBlank { null } ?: value
+                FilterTag(id = value, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
         } catch (_: Exception) { emptyList() }
     }
 

@@ -2,6 +2,7 @@ package com.haise.jiyu.source.baozimanhua
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -52,15 +53,63 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+        }
         try { parseList(get("$base/classify?page=$page")) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Zanrovy filtr (/classify?type=...) nema zadny fulltext parametr - stejne jako
+        // u MadaraSource se pri vybranem zanru textovy dotaz ignoruje a pouzije se rovnou
+        // filtrovany archiv (razeni ma prednost pred hledanim).
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?q=$q&page=$page"))
         } catch (_: Exception) { emptyList() }
     }
+
+    // ─── Filtrování podle žánrů ─────────────────────────────────────────────
+    //
+    // `/classify` je Nuxt SSR stránka se 4 nezávislými nav-lištami (region,
+    // stav vydávání, žánr, abecední filtr) - všechny sdílí stejné 4 query
+    // parametry (`type`/`region`/`state`/`filter`), jen mění jeden z nich a
+    // ostatní ponechávají na "all"/"%2a". Odkazy pro žánrovou nav-lištu mají
+    // tvar `?type={slug}&region=all&state=all&filter=%2a` - overeno zive, ze
+    // `/classify?type=lianai&...` (戀愛/romance) vraci uplne jiny seznam
+    // titulu nez neflitrovany vypis, a to i na strance 2 (stankovani funguje
+    // i s aktivnim zanrovym filtrem).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    private val classifyTypeRegex = Regex("""type=([a-zA-Z0-9_-]+)""")
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/classify"))
+            // Region/stav/abecedni nav-listy vsechny drzi `type=all` (meni jen
+            // svuj vlastni parametr) - vyfiltrovanim `type=all` zbydou jen
+            // skutecne zanrove odkazy, bez ohledu na poradi div.classify-nav
+            // v DOM (nezavisi na HTML strukture kolem nich).
+            val tags = doc.select("a[href*=/classify?type=]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = classifyTypeRegex.find(href)?.groupValues?.get(1)?.ifBlank { null } ?: return@mapNotNull null
+                if (slug == "all") return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int): String =
+        "$base/classify?type=$slug&region=all&state=all&filter=%2a&page=$page"
 
     private fun meta(doc: org.jsoup.nodes.Document, name: String): String? =
         doc.selectFirst("meta[name=\"$name\"]")?.attr("content")?.takeIf { it.isNotBlank() }
