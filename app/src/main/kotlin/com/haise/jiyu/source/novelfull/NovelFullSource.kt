@@ -2,6 +2,7 @@ package com.haise.jiyu.source.novelfull
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -12,6 +13,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,7 +36,47 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    // Sidebar dropdown na homepage ("ul.dropdown-menu a[href^=/genre/]") uvadi
+    // kompletni seznam zanru webu - href uz obsahuje presne zakodovany slug
+    // (napr. "Gender+Bender", "Slice+of+Life"), ktery jde primo pouzit v ceste
+    // "/genre/{slug}" - overeno zivě, ze /genre/Action a /genre/Comedy vraci
+    // odlisne (a od /most-popular odlisne) seznamy.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/"))
+            val tags = doc.select("a[href^=/genre/]").mapNotNull { a ->
+                val slug = a.attr("href").substringAfter("/genre/").ifBlank { return@mapNotNull null }
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseGenreList(doc: Document): List<SManga> =
+        doc.select(".list-truyen .row").mapNotNull { row ->
+            val link = row.selectFirst("h3.truyen-title a") ?: return@mapNotNull null
+            SManga(
+                sourceId = id,
+                url = link.attr("href"),
+                title = link.text().trim(),
+                coverUrl = row.selectFirst("img.cover")?.attr("src")?.let {
+                    if (it.startsWith("http")) it else "$base$it"
+                },
+                contentType = "NOVEL",
+            )
+        }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (_: Exception) { emptyList() }
+        }
         try {
             // overeno zive: /latest-release-novel vraci jine poradi nez /most-popular
             val path = if (filter.sortBy == "latest") "latest-release-novel" else "most-popular"
@@ -55,6 +97,9 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?keyword=$q&page=$page"))

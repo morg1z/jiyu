@@ -2,6 +2,7 @@ package com.haise.jiyu.source.weebcentral
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -54,10 +55,32 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
-    private fun searchData(query: String, page: Int, sort: String): String {
+    private fun searchData(query: String, page: Int, sort: String, filter: MangaFilter): String {
         val q = URLEncoder.encode(query, "UTF-8")
         val s = URLEncoder.encode(sort, "UTF-8")
-        return "$base/search/data?sort=$s&order=Descending&official=Any&anime=Any&adult=Any&text=$q&page=$page&display_mode=Full%20Display"
+        val tags = filter.genres.joinToString("") { "&included_tag=${URLEncoder.encode(it, "UTF-8")}" }
+        return "$base/search/data?sort=$s&order=Descending&official=Any&anime=Any&adult=Any&text=$q&page=$page&display_mode=Full%20Display$tags"
+    }
+
+    // /search stranka (Advanced Search) obsahuje statickou sadu checkboxu "Tags" -
+    // skryte <input id="tag-{Name}-value" value="{Name}"> pro kazdy zanr, ktere se
+    // pri behu appky nemeni. Overeno zive: parametr `included_tag` na /search/data
+    // skutecne filtruje (a jde kombinovat opakovanim pro vice zanru najednou).
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search"))
+            val tags = doc.select("input[type=hidden][id^=tag-][id$=-value]").mapNotNull { input ->
+                val name = input.attr("value").trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = name, label = name)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -65,12 +88,12 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         // Pozor: "Latest" samotne (bez "Updates") vraci 307 presmerovani na chybovou
         // stranku - API prijima jen presne tenhle text.
         val sort = if (filter.sortBy == "latest") "Latest Updates" else "Popularity"
-        try { parseList(get(searchData("", page, sort))) } catch (_: Exception) { emptyList() }
+        try { parseList(get(searchData("", page, sort, filter))) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
-        try { parseList(get(searchData(query, page, "Best Match"))) } catch (_: Exception) { emptyList() }
+        try { parseList(get(searchData(query, page, "Best Match", filter))) } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {

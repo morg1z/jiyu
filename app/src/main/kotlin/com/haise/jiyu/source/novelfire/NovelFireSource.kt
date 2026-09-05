@@ -2,6 +2,7 @@ package com.haise.jiyu.source.novelfire
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -53,7 +54,43 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // /search-adv ma checkboxy "categories[]" (numericke ID pro pripadny AJAX
+    // formular), ale skutecny prohlizeci archiv pouziva vlastni slug primo v
+    // ceste - "/genre-{slug}/sort-{sort}/status-all/all-novel" - overeno zivě,
+    // ze slug = jednoduchy slugify() nazvu (lowercase, mezery/"+"/ostatni
+    // znaky -> "-"), shoduje se s odkazy v paticce webu (napr. "Sci-fi" ->
+    // "sci-fi", "Slice of Life" -> "slice-of-life", "Lgbt+" -> "lgbt").
+    private fun slugify(text: String): String = text.trim().lowercase()
+        .replace(Regex("""[^a-z0-9]+"""), "-")
+        .trim('-')
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search-adv"))
+            val tags = doc.select("label.chk-item:has(input[name=\"categories[]\"])").mapNotNull { label ->
+                val name = label.ownText().trim().ifBlank { null } ?: return@mapNotNull null
+                val slug = slugify(name).ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String, page: Int, sortBy: String): String {
+        val sortSegment = if (sortBy == "latest") "sort-new" else "sort-popular"
+        return "$base/genre-$slug/$sortSegment/status-all/all-novel?page=$page"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (_: Exception) { emptyList() }
+        }
         // /ranking (Popularni) pouziva jiny sablonovy layout (h2.title) nez
         // /latest-release-novels (h4.novel-title) - parseList uz oboje umi
         // (fallback na "h2.title a"), overeno zivě jako prokazatelne jine tituly.
@@ -62,6 +99,9 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?keyword=$q&page=$page"))

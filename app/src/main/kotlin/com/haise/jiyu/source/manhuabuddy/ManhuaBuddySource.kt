@@ -2,6 +2,7 @@ package com.haise.jiyu.source.manhuabuddy
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -58,7 +59,35 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
             SManga(sourceId = id, url = absoluteHref, title = title, coverUrl = cover, contentType = "MANHWA")
         }
 
+    // "/genre/{slug}" archiv pouziva stejne "div.visual" karty jako "/popular" a
+    // "/search" - overeno zive (odlisne tituly pro "action" vs "romance"). Genrovy
+    // archiv nema vlastni razeni, takze pri filter.genres pouzivame jen filter.genres.first().
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = get("$base/genres")
+            val tags = doc.select("a[href*=/genre/]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = Regex("""/genre/([a-z0-9-]+)$""").find(href)?.groupValues?.get(1)?.ifBlank { null }
+                    ?: return@mapNotNull null
+                val label = a.selectFirst("h3.tag-name")?.text()?.trim()?.ifBlank { null }
+                    ?: a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (_: Exception) { emptyList() }
+        }
         // /popular a /new-manga jsou samostatne cesty, ne query parametr - overeno zivě,
         // vraci prokazatelne jine tituly.
         val path = if (filter.sortBy == "latest") "new-manga" else "popular"
@@ -66,6 +95,10 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?s=$q&page=$page"))

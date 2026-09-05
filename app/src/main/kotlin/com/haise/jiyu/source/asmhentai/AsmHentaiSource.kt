@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.asmhentai
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -58,13 +59,45 @@ class AsmHentaiSource @Inject constructor(
         }
     }
 
+    // /tags/ vypisuje kompletni seznam znacek webu (odkazy `a.badge.tag` na
+    // `/tag/{slug}/`), overeno zive - 120 polozek, jeden request bez pagovani.
+    // Archiv `/tag/{slug}/?page=N` pouziva stejny `div.preview_item` markup
+    // jako homepage a stejnym zpusobem pagi­nuje (overeno zive: obsah stranky 1
+    // i 2 archivu se lisi jak od sebe navzajem, tak od nefiltrovane homepage).
+    // Kombinace vice tagu najednou neni podporovana - pouziva se jen prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/tags/"), base)
+            val tags = doc.select("a.badge.tag[href^=/tag/]").mapNotNull { a ->
+                val slug = a.attr("href").trim('/').substringAfterLast('/').takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val label = a.ownText().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseListing(get("$base/?page=$page")) } catch (_: Exception) { emptyList() }
+        try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(get("$base/tag/${filter.genres.first()}/?page=$page"))
+            }
+            parseListing(get("$base/?page=$page"))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(get("$base/tag/${filter.genres.first()}/?page=$page"))
+            }
+            if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseListing(get("$base/search/?q=$q&page=$page"))
         } catch (_: Exception) { emptyList() }

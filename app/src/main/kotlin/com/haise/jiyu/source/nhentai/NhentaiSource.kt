@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.nhentai
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -42,6 +43,37 @@ class NhentaiSource @Inject constructor(
     private val imgBase   = "https://i.nhentai.net"
     private val thumbBase = "https://t.nhentai.net"
 
+    // Plna "tag" taxonomie ma desetitisice polozek (nevhodne pro dropdown), ale
+    // /api/v2/tags/{tag_type} umoznuje i hrubsi "category" (3 polozky - doujinshi/
+    // manga/misc) a "language" (~desitka jazyku) - overeno zive, ze /api/v2/search
+    // s query="category:manga" resp. "language:english" skutecne filtruje vypis
+    // (jine "id" nez bez filtru i nez u jine kategorie/jazyka).
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    private fun fetchTagType(tagType: String): List<FilterTag> {
+        val json = fetch("$apiBase/tags/$tagType")
+        val result = json.optJSONArray("result") ?: return emptyList()
+        return (0 until result.length()).mapNotNull { i ->
+            val obj = result.getJSONObject(i)
+            val slug = obj.optString("slug").ifBlank { return@mapNotNull null }
+            val name = obj.optString("name").ifBlank { return@mapNotNull null }
+            FilterTag(id = "$tagType:$slug", label = "$name (${tagType})")
+        }
+    }
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val tags = fetchTagType("category") + fetchTagType("language")
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun sortParam(sortBy: String) = if (sortBy == "latest") "date" else "popular"
+
     private fun fetch(url: String): JSONObject {
         val req = Request.Builder()
             .url(url)
@@ -76,6 +108,13 @@ class NhentaiSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try {
+                val q = URLEncoder.encode(genre, "UTF-8")
+                parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
+            } catch (_: Exception) { emptyList() }
+        }
         // "/galleries/popular" NENÍ stránkovaný výpis - podle OpenAPI schématu appky
         // (/api/v2/openapi.json) je to "Get today's popular galleries" bez jakéhokoli
         // parametru, vrací vždy stejnou pevnou pětici bez ohledu na "page" (ověřeno
@@ -87,6 +126,14 @@ class NhentaiSource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            return@withContext try {
+                val combined = if (query.isNotBlank()) "${query.trim()} $genre" else genre
+                val q = URLEncoder.encode(combined, "UTF-8")
+                parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
+            } catch (_: Exception) { emptyList() }
+        }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")

@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangaraw4u
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -31,6 +32,27 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
     override val homepageUrl get() = base
     private val base = "https://mangaraw4u.com"
 
+    override val supportsTagFilter: Boolean get() = true
+
+    // /search ma <select id="filterGenre"> se statickym seznamem zanru (~580 polozek,
+    // overeno zive) - stahne se jednou a cachuje po dobu behu appky, stejne jako u MangaDexu.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/search"))
+            val tags = doc.select("select#filterGenre option[value]").mapNotNull { opt ->
+                val value = opt.attr("value").trim()
+                if (value.isBlank()) return@mapNotNull null
+                val label = opt.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -39,24 +61,40 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    private fun parseResultCards(doc: org.jsoup.nodes.Document): List<SManga> =
+        doc.select("a.result-card").mapNotNull { a ->
+            val href = a.attr("href").ifBlank { return@mapNotNull null }
+            val title = a.selectFirst(".result-card-title")?.text()?.trim() ?: return@mapNotNull null
+            val cover = a.selectFirst(".result-card-image img")?.attr("src")?.trim()?.takeIf { it.isNotBlank() }
+            SManga(sourceId = id, url = href.removePrefix(base), title = title, coverUrl = cover, contentType = "MANGA")
+        }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             // /search?sort= ma stejnou strukturu karet jako uvodni strana, ale na rozdil
             // od ni umi radit i podle "-updated_at" (Nejnovejsi) - overeno zivě, jina data
             // nez u "-views" (Popularni).
             val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
-            val doc = Jsoup.parse(get("$base/search?sort=$sort&page=$page"))
-            doc.select("a.result-card").mapNotNull { a ->
-                val href = a.attr("href").ifBlank { return@mapNotNull null }
-                val title = a.selectFirst(".result-card-title")?.text()?.trim() ?: return@mapNotNull null
-                val cover = a.selectFirst(".result-card-image img")?.attr("src")?.trim()?.takeIf { it.isNotBlank() }
-                SManga(sourceId = id, url = href.removePrefix(base), title = title, coverUrl = cover, contentType = "MANGA")
-            }
+            val genreParam = filter.genres.firstOrNull()?.let { "&genre=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            val doc = Jsoup.parse(get("$base/search?sort=$sort&page=$page$genreParam"))
+            parseResultCards(doc)
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            // Genrovy archiv nema samostatny JSON endpoint - pouzivame stejnou HTML
+            // /search stranku jako getPopular, jen navic s parametrem genre a volitelnym
+            // filter[name] pro dotaz (overeno zive: kombinace genre+filter[name] funguje).
+            try {
+                val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
+                val nameParam = if (query.isNotBlank()) "&filter%5Bname%5D=${URLEncoder.encode(query, "UTF-8")}" else ""
+                val doc = Jsoup.parse(get("$base/search?sort=$sort&genre=${URLEncoder.encode(genre, "UTF-8")}$nameParam"))
+                return@withContext parseResultCards(doc)
+            } catch (_: Exception) { return@withContext emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val json = JSONObject(get("$base/api/search?q=$q"))

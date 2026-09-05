@@ -2,6 +2,7 @@ package com.haise.jiyu.source.comic
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -13,6 +14,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.text.SimpleDateFormat
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,8 +58,61 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
             )
         }
 
+    // Kategorie ("žánry") jsou vlastní taxonomie webu (`/?cbplus=categories`
+    // -> `h2.j > a.ya` odkazy na `/?cbplus={slug}`, overeno zive - 43 znacek,
+    // jeden request bez pagovani). Archivni stranka kategorie ale na rozdil
+    // od "latestuploads" (jednotlive cisla, `?dlid=`) vypisuje CELE SERIALY
+    // (`?cid=`, `div.cbpLline` s `a.ya` odkazem) - proto vlastni
+    // parseGenreListing a rozsireny getChapterList (viz nize), ktery pro
+    // `?cid=` adresu rozbali seznam jednotlivych cisel ze schema.org
+    // "hasPart" radku na strance serialu. Pagovani kategorie NENI stejne
+    // jako u "latestuploads" (`_l_s_N`) - pouziva `_l_n_{page-1}` az od
+    // stranky 2 (overeno zive: `_l_s_1` vraci "We Could Not Find It",
+    // `_l_n_1` spravne vrati stranku 2). Kombinace vice zanru najednou
+    // neni podporovana - pouziva se jen prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/?cbplus=categories"))
+            val tags = doc.select("h2.j > a.ya[href*=cbplus=]").mapNotNull { a ->
+                val slug = Regex("""cbplus=([a-zA-Z0-9_]+)""").find(a.attr("href"))?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseGenreListing(doc: Document): List<SManga> =
+        doc.select("div.cbpLline").mapNotNull { row ->
+            val link = row.selectFirst("a.ya[href*=cid=]") ?: return@mapNotNull null
+            val href = link.attr("href").ifBlank { return@mapNotNull null }
+            val cid = Regex("""cid=(\d+)""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
+            SManga(
+                sourceId = id,
+                url = "/?cid=$cid",
+                title = link.text().trim(),
+                coverUrl = row.selectFirst("img")?.attr("src"),
+                contentType = "COMIC",
+            )
+        }
+
+    private fun genreUrl(slug: String, page: Int): String {
+        val suffix = if (page <= 1) "" else "_l_n_${page - 1}"
+        return "$base/?cbplus=$slug$suffix"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
             val doc = Jsoup.parse(get("$base/?cbplus=latestuploads_l_s_${(page - 1).coerceAtLeast(0)}"))
             parseListing(doc)
         } catch (_: Exception) { emptyList() }
@@ -64,6 +120,9 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseGenreListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
             // ComicBookPlus nemá vlastní fulltext endpoint (jen Google CSE),
             // takže hledáme napříč prvními stránkami "latest uploads".
             val results = mutableListOf<SManga>()
@@ -91,7 +150,37 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
         } catch (_: Exception) { manga }
     }
 
+    private val seriesDateFormat = SimpleDateFormat("yyyy-MM", Locale.US)
+
+    // Genre archiv (viz parseGenreListing) vraci cele serialy (`?cid=`), ne jednotliva
+    // cisla - jejich stranka detailu ma seznam cisel jako schema.org "hasPart" radky
+    // (`tr[itemprop=hasPart]`, kazdy s `?dlid=` odkazem na skutecnou cetbu, overeno
+    // zive). Puvodni chovani (jedna staticka "Read" kapitola primo na `manga.url`)
+    // zustava beze zmeny pro `?dlid=` tituly z ostatnich cest (latestuploads/search).
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
+        val cid = Regex("""cid=(\d+)""").find(manga.url)?.groupValues?.get(1)
+        if (cid != null) {
+            return@withContext try {
+                val doc = Jsoup.parse(get("$base${manga.url}"))
+                doc.select("tr[itemprop=hasPart]").mapNotNull { row ->
+                    val name = row.selectFirst("span[itemprop=name]")?.text()?.trim()?.ifBlank { null }
+                        ?: return@mapNotNull null
+                    val href = row.selectFirst("a[itemprop=url]")?.attr("href")?.ifBlank { null }
+                        ?: return@mapNotNull null
+                    val dlid = Regex("""dlid=(\d+)""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
+                    val num = Regex("""(\d+(?:\.\d+)?)\s*$""").find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+                    val dateStr = row.selectFirst("time[itemprop=datePublished]")?.attr("datetime")
+                    SChapter(
+                        sourceId = id,
+                        mangaUrl = manga.url,
+                        url = "/?dlid=$dlid",
+                        name = name,
+                        chapterNumber = num,
+                        dateUpload = dateStr?.let { runCatching { seriesDateFormat.parse(it)?.time }.getOrNull() } ?: 0L,
+                    )
+                }
+            } catch (_: Exception) { emptyList() }
+        }
         listOf(
             SChapter(
                 sourceId = id,

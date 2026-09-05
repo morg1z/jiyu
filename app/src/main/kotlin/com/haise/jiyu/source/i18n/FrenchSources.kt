@@ -2,6 +2,7 @@ package com.haise.jiyu.source.i18n
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -127,17 +128,45 @@ class AnimeSamaSource @Inject constructor(private val client: OkHttpClient) : Ma
             SManga(sourceId = id, url = if (href.startsWith("http")) href else "$base$href", title = title, coverUrl = cover)
         }
 
+    // Katalog ma vlastni panel filtru s checkboxy "genre[]" (109 hodnot, zive
+    // overeno) - hodnoty jsou uz hotovy zobrazitelny text (napr. "Réincarnation
+    // / Transmigration"), zadne dalsi mapovani na label netreba. Kombinace
+    // vice zanru najednou nebyla zive overena jako jednoznacne AND/OR (obe
+    // varianty vratily stejny pocet vysledku = zrejme oriznuto na velikost
+    // stranky), proto se stejne jako u Madary pouziva jen prvni vybrany zanr.
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/catalogue/?type=manga&sort=vues"))
+            val tags = doc.select("input[name=genre[]]").mapNotNull { input ->
+                val value = input.attr("value").trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = value)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreQueryParam(filter: MangaFilter): String =
+        filter.genres.firstOrNull()?.let { "&genre%5B%5D=${URLEncoder.encode(it, "UTF-8")}" }.orEmpty()
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/catalogue/?page=$page&type=manga&sort=vues")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/catalogue/?page=$page&type=manga&sort=vues${genreQueryParam(filter)}")) } catch (_: Exception) { emptyList() }
     }
 
     // Katalog nema server-side fulltextove hledani (search stranka vraci
     // prazdny vysledek bez JS) - search proto stahne prvni stranku a filtruje
     // lokalne, stejny vzor jako [com.haise.jiyu.source.hachirumi.HachirumiSource].
+    // Genre filtr (na rozdil od textoveho hledani) uz server-side funguje
+    // (zive overeno), proto se stejny query parametr posila i sem.
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
-            parseList(get("$base/catalogue/?type=manga&sort=vues")).filter { it.title.contains(query, ignoreCase = true) }
+            parseList(get("$base/catalogue/?type=manga&sort=vues${genreQueryParam(filter)}")).filter { it.title.contains(query, ignoreCase = true) }
         } catch (_: Exception) { emptyList() }
     }
 
@@ -215,29 +244,69 @@ class ScanVFSource @Inject constructor(private val client: OkHttpClient) : Manga
     // appka vzdy vracela prazdny seznam. Karta: div.media > div.media-left a.thumbnail
     // (obalka obrazku) + div.media-body h5.media-heading a.chart-title (nazev+odkaz).
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseMediaList(Jsoup.parse(get(filterListUrl(filter.genres.first(), page)))) }
+            catch (_: Exception) { emptyList() }
+        }
         try {
-            Jsoup.parse(get("$base/manga-list?page=$page&sort=views")).select("div.media").mapNotNull { el ->
-                val a = el.selectFirst(".media-heading a.chart-title") ?: return@mapNotNull null
-                val href = a.attr("href").ifBlank { return@mapNotNull null }
-                val titleText = a.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                SManga(sourceId = id, url = href,
-                    title    = titleText,
-                    coverUrl = el.selectFirst(".media-left img")?.attr("src"))
-            }
+            parseMediaList(Jsoup.parse(get("$base/manga-list?page=$page&sort=views")))
         } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Genre archiv (AJAX "/filterList?cat=...") nema parametr pro fulltextovy
+        // dotaz zaroven - stejne jako u Madary tak pri vybranem zanru filtr
+        // vyhrava a textovy dotaz se ignoruje.
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try { parseMediaList(Jsoup.parse(get(filterListUrl(filter.genres.first(), page)))) }
+            catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            Jsoup.parse(get("$base/?s=$q")).select("div.media").mapNotNull { el ->
-                val a = el.selectFirst(".media-heading a.chart-title") ?: return@mapNotNull null
-                val titleText = a.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                SManga(sourceId = id, url = a.attr("href"),
-                    title    = titleText,
-                    coverUrl = el.selectFirst(".media-left img")?.attr("src"))
-            }
+            parseMediaList(Jsoup.parse(get("$base/?s=$q")))
         } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseMediaList(doc: org.jsoup.nodes.Document): List<SManga> =
+        doc.select("div.media").mapNotNull { el ->
+            val a = el.selectFirst(".media-heading a.chart-title") ?: return@mapNotNull null
+            val href = a.attr("href").ifBlank { return@mapNotNull null }
+            val titleText = a.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            SManga(sourceId = id, url = href,
+                title    = titleText,
+                coverUrl = el.selectFirst(".media-left img")?.attr("src"))
+        }
+
+    // Detailni strana kazde mangy odkazuje na sve zanry pres "/manga-list/category/{slug}"
+    // (dt "Catégories" v postrannim panelu, zive overeno), ale sidebar na /manga-list
+    // ("Parcourir suivant la categorie") ma navic hotovy kompletni seznam vsech 32 zanru
+    // s citelnymi anglickymi nazvy a numeric "?cat=N" odkazem - numericke ID i slug funguji
+    // v AJAX endpointu /filterList stejne (zive overeno, oba vraci identicky vysledek),
+    // takze appka pouziva numericke ID z tohodle sidebaru jako [FilterTag.id].
+    override val supportsTagFilter: Boolean get() = true
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/manga-list"))
+            val tags = doc.select("ul.list-category a.category").mapNotNull { a ->
+                val catId = Regex("""[?&]cat=([^&]+)""").find(a.attr("href"))?.groupValues?.get(1)
+                    ?.ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = catId, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // Radi vzdy podle zhlednuti (sestupne) - stejna vychozi logika, jakou uz getPopular
+    // pouziva pro nefiltrovany vypis ("sort=views"), jen pres jiny (AJAX) endpoint.
+    private fun filterListUrl(catId: String, page: Int): String {
+        val cat = URLEncoder.encode(catId, "UTF-8")
+        return "$base/filterList?page=$page&cat=$cat&alpha=&sortBy=views&asc=false&author=&artist=&tag="
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {

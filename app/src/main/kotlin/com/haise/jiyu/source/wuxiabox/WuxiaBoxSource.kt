@@ -2,6 +2,7 @@ package com.haise.jiyu.source.wuxiabox
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -57,16 +58,45 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
     // u fy.php vzdy vratilo prazdno (audit 2026-07-27). Spravny katalog vsech
     // titulu je "/list/all/all-onclick-{page}.html" (0-indexovane, razeno podle
     // poctu prokliku = "popularni"), ktery odkazuje primo na /novel/{slug}.html.
+    //
+    // Stejny endpoint podporuje i zanrovy archiv - misto "all" jde dosadit slug
+    // zanru ("/list/{genre}/all-{sort}-{page}.html"), sidebar "Genre / Category"
+    // na kazde listovaci strance obsahuje kompletni seznam (~52 zanru, overeno
+    // zive). Vice zanru najednou EmpireCMS nekombinuje - pouzije se jen prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/list/all/all-onclick-0.html"))
+            val tags = doc.select("#categorylist a[href^=\"/list/\"]").mapNotNull { a ->
+                val slug = a.attr("href").substringAfter("/list/").substringBefore("/").ifBlank { return@mapNotNull null }
+                if (slug == "all") return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // overeno zive: "all-newstime" (razeno dle casu pridani) vraci jine
         // poradi nez "all-onclick" (razeno dle poctu prokliku), stejny vzor strankovani.
         val sort = if (filter.sortBy == "latest") "newstime" else "onclick"
-        try { parseList(get("$base/list/all/all-$sort-${page - 1}.html")) } catch (_: Exception) { emptyList() }
+        val genre = filter.genres.firstOrNull() ?: "all"
+        try { parseList(get("$base/list/$genre/all-$sort-${page - 1}.html")) } catch (_: Exception) { emptyList() }
     }
 
     // Vyhledavani jde pres POST na EmpireCMS endpoint, ktery presmeruje
-    // na vysledkovou stranku s vygenerovanym searchid.
+    // na vysledkovou stranku s vygenerovanym searchid. Pri vybranem zanru se misto
+    // toho pouzije zanrovy archiv (stejny vzor jako u Madara-style zdroju).
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext getPopular(page, filter)
+        }
         try {
             val body = FormBody.Builder()
                 .add("show", "title")

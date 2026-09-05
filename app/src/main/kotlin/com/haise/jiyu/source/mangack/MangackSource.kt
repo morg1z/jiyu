@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangack
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -10,7 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
 import javax.inject.Inject
@@ -44,7 +47,47 @@ class MangackSource @Inject constructor(private val client: OkHttpClient) : Mang
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // Taxonomie "Genres" - REST base ma velke pismeno (overeno zive na
+    // /wp-json/wp/v2/taxonomies), archiv jednoho zanru je pak na
+    // /genres/{slug}/page/{page}/. Na rozdil od parseCard() ale karta v tomto
+    // archivu nema titul v atributu img[alt] (prazdny), titul je misto toho
+    // v samostatnem odkazu ".wrap-text" ve stejnem radku - proto vlastni parser.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val json = JSONArray(get("$base/wp-json/wp/v2/Genres?per_page=100"))
+            val tags = (0 until json.length()).mapNotNull { i ->
+                val o = json.optJSONObject(i) ?: return@mapNotNull null
+                val slug = o.optString("slug").ifBlank { return@mapNotNull null }
+                val name = o.optString("name").ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun parseGenreList(doc: Document): List<SManga> {
+        val coverByHref = doc.select("a:has(img)")
+            .filter { it.attr("href").contains("/manga/") }
+            .associate { a -> a.attr("href") to a.selectFirst("img")?.attr("src")?.trim()?.takeIf { it.startsWith("http") } }
+        return doc.select("a.wrap-text[href*=/manga/]").mapNotNull { a ->
+            val href = a.attr("href").ifBlank { return@mapNotNull null }
+            val title = a.text().trim().ifBlank { return@mapNotNull null }
+            SManga(sourceId = id, url = href, title = title, coverUrl = coverByHref[href], contentType = "MANGA")
+        }.distinctBy { it.url }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseGenreList(Jsoup.parse(get("$base/genres/${filter.genres.first()}/page/$page/")))
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val doc = Jsoup.parse(get("$base/newest/page/$page/"))
             doc.select("a:has(img)").filter { it.attr("href").contains("/manga/") }.mapNotNull(::parseCard).distinctBy { it.url }
@@ -52,6 +95,11 @@ class MangackSource @Inject constructor(private val client: OkHttpClient) : Mang
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseGenreList(Jsoup.parse(get("$base/genres/${filter.genres.first()}/page/$page/")))
+            } catch (_: Exception) { emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
