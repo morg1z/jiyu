@@ -639,6 +639,15 @@ class SourceManager @Inject constructor(
             selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.NATIVE_WP),
             popularUrl = { root, page, orderby -> "$root/series/page/$page/?m_orderby=$orderby" },
         ),
+        // Grabber Zone (grabber.zone) - fanouskovsky web zamereny na Sonic the Hedgehog
+        // komiksy/fan-komiksy (IDW/Archie preklady i puvodni fan tvorba) - vlastni
+        // permalink "/comics/{slug}" misto vychoziho "/manga/{slug}" pro archiv i
+        // detail, hledani (?s=) funguje na vychozi ceste beze zmeny. Overeno zive.
+        MadaraSource(
+            "grabberzone", "Grabber Zone", "https://grabber.zone", client,
+            contentTypeOverride = "COMIC",
+            popularUrl = { root, page, orderby -> "$root/comics/page/$page/?m_orderby=$orderby" },
+        ),
         // Manhwa18 (manhwa18.today) - plne vychozi Madara cesty, zadny prepis netreba.
         MadaraSource(
             "manhwa18today", "Manhwa18", "https://www.manhwa18.today", client,
