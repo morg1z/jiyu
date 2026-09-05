@@ -2,6 +2,7 @@ package com.haise.jiyu.source.novelhall
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -48,8 +49,53 @@ class NovelHallSource @Inject constructor(private val client: OkHttpClient) : Ma
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    // Navigacni "dropdown-menu" (pritomne na kazde strance vc. homepage) obsahuje
+    // kompletni seznam zanru jako odkazy /genre/{slug}/. Kazda zanrova archivni
+    // stranka ma vlastni sekci "{Genre} Popular Recommendation" (div.section1) s
+    // jinym seznamem knih nez ostatni zanry - overeno zive (action3 vs mystery maji
+    // odlisne tituly uz na pozici #2). Tahle sekce ale nema strankovani (page-nav je
+    // prazdny <div>), takze zanrovy filtr podporuje jen page 1, stejne jako
+    // /search-keyword-*.html vysledky.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/"))
+            val tags = doc.select("ul.dropdown-menu a[href^=/genre/]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = href.removePrefix("/genre/").removeSuffix("/").ifBlank { null } ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String) = "$base/genre/$slug/"
+
+    private fun parseGenreList(html: String): List<SManga> {
+        val doc = Jsoup.parse(html)
+        val section = doc.selectFirst("div.section1 ul") ?: return emptyList()
+        return section.select("> li").mapNotNull { li ->
+            val h2a = li.selectFirst("div.book-info h2 a") ?: return@mapNotNull null
+            val href = h2a.attr("href").ifBlank { return@mapNotNull null }
+            val title = h2a.text().trim().ifBlank { return@mapNotNull null }
+            val cover = li.selectFirst("div.book-img img")?.attr("src")?.takeIf { it.startsWith("http") }
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
+        }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            val genre = filter.genres.firstOrNull()
+            if (genre != null) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseGenreList(get(genreUrl(genre)))
+            }
             // overeno zive: puvodne se pro "popularni" pouzival jen lastupdate.html
             // (= "nejnovejsi"), pritom /ranking.html ma jine (skutecne popularitni)
             // razeni a stejny strankovaci vzor "-{page}.html".
@@ -67,6 +113,10 @@ class NovelHallSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseGenreList(get(genreUrl(filter.genres.first())))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search-keyword-$q.html"))
             doc.select("h4.search-title").mapNotNull { h4 ->

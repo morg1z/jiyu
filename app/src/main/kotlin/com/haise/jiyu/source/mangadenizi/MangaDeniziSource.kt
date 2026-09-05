@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangadenizi
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -38,6 +39,15 @@ import javax.inject.Singleton
  * `?search=`/`?q=`/`?query=` parametry na listing endpointu nic nefiltrují
  * (server je ignoruje) - search proto stahne první stránku a filtruje
  * lokálně, stejný vzor jako [com.haise.jiyu.source.hachirumi.HachirumiSource].
+ *
+ * Zanrovy filtr: `?category=`/`?categories=`/`?category_slug=` parametry na
+ * listing endpointu jsou zive overene jako stejne ignorovane jako search
+ * parametry vyse - server vzdy vrati identickou stranku bez ohledu na
+ * hodnotu. Kazda polozka v odpovedi ale uz obsahuje vlastni pole
+ * `categories` (slug+name), a cely katalog je jen 110 titulu na 8 strankach
+ * (`last_page` v `data.manga`) - filtrovani proto probiha lokalne nad celym
+ * stazenym katalogem (viz [fetchFullCatalog]), stejne jako search vyse
+ * filtruje lokalne, jen nad vsemi strankami misto jen prvni.
  */
 @Singleton
 class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -47,6 +57,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
     override val language = "tr"
     override val homepageUrl get() = base
     private val base = "https://mangadenizi.net"
+    private val catalogPageSize = 15
 
     private fun getJson(url: String): JSONObject {
         val req = Request.Builder().url(url)
@@ -78,8 +89,63 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
         )
     }
 
+    private data class CatalogEntry(val manga: SManga, val categorySlugs: Set<String>)
+
+    @Volatile private var cachedCatalog: List<CatalogEntry>? = null
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    // Stahne CELY katalog (vsechny stranky) a zaroven z nej sestavi seznam
+    // vsech dostupnych zanru - viz komentar u tridy proc je tohle bezpecne
+    // (jen 110 titulu / 8 stranek celkem, malo dat na jeden pruchod).
+    private fun fetchFullCatalog(): List<CatalogEntry> {
+        cachedCatalog?.let { return it }
+        val entries = mutableListOf<CatalogEntry>()
+        val tagMap = LinkedHashMap<String, String>()
+        var page = 1
+        var lastPage = 1
+        while (page <= lastPage) {
+            val root = getJson("$base/api/v1/web/manga?page=$page")
+            val mangaObj = root.getJSONObject("data").getJSONObject("manga")
+            lastPage = mangaObj.optInt("last_page", page)
+            val data = mangaObj.getJSONArray("data")
+            for (i in 0 until data.length()) {
+                val item = data.getJSONObject(i)
+                val slugs = item.optJSONArray("categories")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { j ->
+                        val c = arr.getJSONObject(j)
+                        val slug = c.optString("slug").ifBlank { return@mapNotNull null }
+                        tagMap.putIfAbsent(slug, c.optString("name").ifBlank { slug })
+                        slug
+                    }.toSet()
+                } ?: emptySet()
+                entries.add(CatalogEntry(itemToManga(item), slugs))
+            }
+            page++
+        }
+        cachedCatalog = entries
+        cachedTags = tagMap.map { (slug, name) -> FilterTag(id = slug, label = name) }
+        return entries
+    }
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        try {
+            cachedTags?.let { return@withContext it }
+            fetchFullCatalog()
+            cachedTags ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                val selected = filter.genres.first()
+                val filtered = fetchFullCatalog().filter { selected in it.categorySlugs }.map { it.manga }
+                val from = (page - 1) * catalogPageSize
+                if (from >= filtered.size) return@withContext emptyList()
+                return@withContext filtered.subList(from, minOf(from + catalogPageSize, filtered.size))
+            }
             val root = getJson("$base/api/v1/web/manga?page=$page")
             val data = root.getJSONObject("data").getJSONObject("manga").getJSONArray("data")
             (0 until data.length()).map { itemToManga(data.getJSONObject(it)) }

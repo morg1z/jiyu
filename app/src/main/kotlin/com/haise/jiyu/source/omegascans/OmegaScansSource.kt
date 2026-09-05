@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.omegascans
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.URLEncoder
@@ -70,13 +72,41 @@ class OmegaScansSource @Inject constructor(
         }
     }
 
+    // /tags vraci kompletni ciselnik zanru webu (id + name). Listovaci /query
+    // endpoint prijima "tags_ids=[id1,id2]" (JSON pole, URL-enkodovane) a filtruje
+    // AND zpusobem (kombinace vice tagu total dale zuzuje) - overeno zive:
+    // tags_ids=[8] (Harem) total=65 vs bez filtru total=286, tags_ids=[8,3] total=28,
+    // a polozka #2 vysledku se s/bez filtru lisi.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val arr = JSONArray(get("$apiBase/tags"))
+            val tags = (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val tagId = o.optInt("id", -1).takeIf { it >= 0 } ?: return@mapNotNull null
+                val name = o.optString("name").ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = tagId.toString(), label = name)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun tagsParam(ids: List<String>): String =
+        "&tags_ids=" + URLEncoder.encode("[" + ids.joinToString(",") + "]", "UTF-8")
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             // Bez orderBy razeni API vraci podle total_views (nejpopularnejsi) - pro
             // "Nejnovejsi" zalozku overeno zivě, ze orderBy=updated_at seradi podle
             // skutecneho casu posledni aktualizace (sestupne).
             val order = if (filter.sortBy == "latest") "&orderBy=updated_at" else ""
-            try { parseList(get("$apiBase/query?page=$page&perPage=20$order")) }
+            val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""
+            try { parseList(get("$apiBase/query?page=$page&perPage=20$order$tags")) }
             catch (_: Exception) { emptyList() }
         }
 
@@ -85,7 +115,8 @@ class OmegaScansSource @Inject constructor(
             if (query.isBlank()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query, "UTF-8")
-                parseList(get("$apiBase/query?query_string=$q&page=$page&perPage=20"))
+                val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""
+                parseList(get("$apiBase/query?query_string=$q&page=$page&perPage=20$tags"))
             } catch (_: Exception) { emptyList() }
         }
 

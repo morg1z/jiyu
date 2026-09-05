@@ -2,6 +2,7 @@ package com.haise.jiyu.source.novelcool
 
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -62,15 +63,49 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // Stranka /category.html vypisuje kompletni seznam zanru (sekce "Genres:") jako
+    // odkazy na archivni cesty /category/{Slug}.html - overeno zive (napr. Action.html
+    // ma na pozici #2 jiny titul nez /category/popular.html). Slug v href uz je
+    // spravne URL-enkodovany (napr. "Crafts%2C+Hobbies.html"), takze se pouziva
+    // primo beze zmeny.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/category.html"))
+            val tags = doc.select("div.category-list[styletoggle_name=cate_genres] a[href]").mapNotNull { a ->
+                val href = a.attr("href")
+                val slug = Regex("""/category/([^/]+)\.html$""").find(href)?.groupValues?.get(1)
+                    ?: return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                if (label.equals("All", ignoreCase = true)) return@mapNotNull null
+                FilterTag(id = slug, label = label)
+            }.distinctBy { it.id }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreUrl(slug: String) = "$base/category/$slug.html"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        val path = if (filter.sortBy == "latest") "latest" else "popular"
-        try { parseList(get("$base/category/$path.html")) } catch (_: Exception) { emptyList() }
+        try {
+            val url = filter.genres.firstOrNull()?.let { genreUrl(it) }
+                ?: "$base/category/${if (filter.sortBy == "latest") "latest" else "popular"}.html"
+            parseList(get(url))
+        } catch (_: Exception) { emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseList(get(genreUrl(filter.genres.first())))
+            }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/?keywords=$q"))
         } catch (_: Exception) { emptyList() }

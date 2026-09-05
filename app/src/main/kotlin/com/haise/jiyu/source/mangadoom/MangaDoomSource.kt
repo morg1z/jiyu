@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangadoom
 
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -22,6 +23,15 @@ import javax.inject.Singleton
  * jen s Referer hlavickou na puvodni stranku). Hledani se nepodarilo najit
  * (advanced-search pouziva AJAX autocomplete plugin bez staticky
  * parsovatelneho vysledkoveho endpointu), proto search() vraci prazdny seznam.
+ *
+ * Zanrovy filtr: homepage ma v postrannim widgetu (`ul.widget-text-list`)
+ * odkazy na vsechny zanrove archivy `/category/{slug}` (overeno zive - kazdy
+ * odkaz i ma vlastni `title` atribut s citelnym nazvem). Archivni stranka
+ * podporuje `?page=N` a pouziva jiny HTML tvar karet nez popularni/nejnovejsi
+ * vypis (`div.col-md-4 a[title]:has(img)` misto `div.manga-cover`/
+ * `div.manga-list-style`), ale [parseCard] funguje na oba tvary beze zmeny.
+ * Kombinace vice zanru najednou web nepodporuje (jeden archiv = jeden zanr),
+ * proto se pouziva jen `filter.genres.first()` - stejny vzor jako Madara.
  */
 @Singleton
 class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -46,8 +56,33 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
         return SManga(sourceId = id, url = href.removePrefix(base), title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val doc = Jsoup.parse(get("$base/"))
+            val tags = doc.select("ul.widget-text-list a[href^=/category/]").mapNotNull { a ->
+                val slug = a.attr("href").removePrefix("/category/").trim().ifBlank { return@mapNotNull null }
+                val label = a.attr("title").trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = slug, label = label)
+            }
+            cachedTags = tags
+            tags
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun genreDoc(slug: String, page: Int): org.jsoup.nodes.Document =
+        Jsoup.parse(get("$base/category/$slug?page=$page"))
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext genreDoc(filter.genres.first(), page)
+                    .select("div.col-md-4 a[title]:has(img)").mapNotNull(::parseCard)
+            }
             // overereno zive: homepage (`/`) ma stejne razeni jako `/latest-chapters`,
             // zatimco `/popular-manga` ma vlastni odlisne razeni a jinou znacku karet
             // (`div.manga-list-style a[title]` misto `div.manga-cover a[href]`).
@@ -62,7 +97,12 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
         } catch (_: Exception) { emptyList() }
     }
 
-    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = emptyList()
+    override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isEmpty()) return@withContext emptyList()
+        try {
+            genreDoc(filter.genres.first(), page).select("div.col-md-4 a[title]:has(img)").mapNotNull(::parseCard)
+        } catch (_: Exception) { emptyList() }
+    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
