@@ -87,6 +87,13 @@ import com.haise.jiyu.source.roliascan.RoliaScanSource
 import com.haise.jiyu.source.spiderscans.SpiderScansSource
 import com.haise.jiyu.source.orionscans.OrionScansSource
 import com.haise.jiyu.source.magustoon.MagustoonSource
+import com.haise.jiyu.source.qiscans.QiScansSource
+import com.haise.jiyu.source.teamshadowi.TeamShadowiSource
+import com.haise.jiyu.source.madarascans.MadarascansSource
+import com.haise.jiyu.source.ezmanga.EzmangaSource
+import com.haise.jiyu.source.rinkocomics.RinkoComicsSource
+import com.haise.jiyu.source.nyxscans.NyxScansSource
+import com.haise.jiyu.source.skythewood.SkythewoodSource
 import com.haise.jiyu.source.hidamarisou.HidamarisouTranslationsSource
 import com.haise.jiyu.source.nextseries.NextSeriesSource
 import com.haise.jiyu.source.ehentai.EHentaiSource
@@ -225,6 +232,13 @@ class SourceManager @Inject constructor(
     orionScansSource: OrionScansSource,
     magustoonSource: MagustoonSource,
     hidamarisouSource: HidamarisouTranslationsSource,
+    qiScansSource: QiScansSource,
+    teamShadowiSource: TeamShadowiSource,
+    madarascansSource: MadarascansSource,
+    ezmangaSource: EzmangaSource,
+    rinkoComicsSource: RinkoComicsSource,
+    nyxScansSource: NyxScansSource,
+    skythewoodSource: SkythewoodSource,
     eHentaiSource: EHentaiSource,
     asmHentaiSource: AsmHentaiSource,
     hentaiNexusSource: HentaiNexusSource,
@@ -655,6 +669,10 @@ class SourceManager @Inject constructor(
         // Nyanu Kafe (nyanukafe.com) - stejna sdilena sablona jako Timeless Toons/Genz
         // Toons (cdn.meowing.org, overeno zive primo v JS webu), maly katalog (6 serii).
         MeowingToonsSource("nyanukafe", "Nyanu Kafe", "https://nyanukafe.com", client),
+        // Asmodeus Scans / Asmotoon (asmotoon.com) - stejna sdilena sablona jako Timeless
+        // Toons/Genz Toons/Nyanu Kafe (cdn.meowing.org, overeno zive - tags atribut,
+        // #expand_content, img[uid] na kapitolach). Vetsi katalog (225 titulu).
+        MeowingToonsSource("asmotoon", "Asmodeus Scans", "https://asmotoon.com", client),
         // Spider Scans (spiderscans.xyz) - bespoke web, vlastni trida. Maly katalog
         // (5 titulu, overeno zive), ale zanrovy filtr i fulltextove hledani funkcni.
         spiderScansSource,
@@ -675,6 +693,31 @@ class SourceManager @Inject constructor(
         NextSeriesSource("drakecomic", "Drake Scans", "https://drakecomic.net", client),
         NextSeriesSource("kaynscans", "Kayn Scans", "https://kaynscans.com", client),
         NextSeriesSource("divascans", "DivaScans", "https://divascans.org", client),
+        // QiScans (qimanga.com, puvodni "qimanhwa.com" URL na ni presmerovava) - bespoke
+        // Angular web s vlastnim JSON REST API (api.qimanga.com), funkcni zanrovy filtr
+        // i samostatny fulltextovy vyhledavaci endpoint.
+        qiScansSource,
+        // TeamShadowi (team-shadowi.com) - server-rendered Next.js, maly katalog (8 serii).
+        // Detail/kapitoly/stranky vsechny z jednoho JSON endpointu "/api/series/{slug}".
+        teamShadowiSource,
+        // "Madarascans" (madarascans.com presmerovava na skutecny madascans.com) - NENI
+        // genuine Madara, jde o prebrandovany fork stejneho enginu jako EvaScans.
+        // Stranky kapitoly v JS bloku "ts_reader.run({...})", ne v <img> tazich.
+        madarascansSource,
+        // Ezmanga (ezmanga.org) - bespoke Angular (SSR), vlastni JSON API na
+        // vapi.ezmanga.org. Funkcni zanrovy filtr i samostatny search endpoint.
+        ezmangaSource,
+        // Rinko Comics (rinkocomics.com) - bespoke WordPress motiv "ComicWorld".
+        // Prvnich 10 kapitol staticky v detailu, zbytek pres WP admin-ajax.php
+        // "load_more_chapters" s cerstve vytazenym nonce.
+        rinkoComicsSource,
+        // Nyx Scans (nyxscans.com) - bespoke Next.js s vlastnim JSON API
+        // (api.nyxscans.com). Stranky kapitoly ale jen server-rendered v HTML, ne v API.
+        nyxScansSource,
+        // Skythewood (skythewood.blogspot.com, puvodni ".sg" adresa presmerovava sem) -
+        // Blogger blog s prekladem lehkych romanu, kazdy label = jedna serie. NOVEL typ,
+        // pouziva verejny Blogger JSON feed misto HTML scrapovani.
+        skythewoodSource,
         // ManhwaRaw18 odstraneno 2026-08-24 - manhwaraw18.com nema DNS zaznam (domena
         // uz neexistuje, overeno curlem).
         manga18ClubSource,
