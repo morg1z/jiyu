@@ -16,9 +16,11 @@ data class PendingChallenge(val url: String, val host: String)
  * [pending] a zablokuje se na [awaitUserSolve]; UI dialog to zobrazi jako
  * viditelny WebView a po vyreseni/zavreni zavola [resolve].
  *
- * Pred eskalaci na UI se nejdrive zkusne automaticky bypass pres
- * [TurnstileAutoSolver] – pokud se challenge vyresi bez uzivatele,
- * dialog se nezobrazi.
+ * Pred zobrazenim viditelneho dialogu uzivateli [CloudflareChallengeDialog] sam
+ * nejdrive zkusi tichou fazi - stejny WebView neviditelne (alpha=0) najde a
+ * "klikne" na Turnstile checkbox skutecnou Android touch udalosti (ne JS
+ * .click(), ten Cloudflare pozna a ignoruje). Kdyz to vyjde, dialog se
+ * uzivateli vubec neukaze.
  */
 internal object CloudflareChallengeBridge {
     private val _pending = MutableStateFlow<PendingChallenge?>(null)
@@ -30,13 +32,6 @@ internal object CloudflareChallengeBridge {
     /** Vola se z pozadoveho vlakna interceptoru. Blokuje volajici vlakno. */
     @Synchronized
     fun awaitUserSolve(url: String, host: String, timeoutSeconds: Long): String? {
-        // 1) Zkus automaticky bypass bez UI
-        val autoResult = TurnstileAutoSolver.trySolve(url, host)
-        if (autoResult != null) {
-            return autoResult
-        }
-
-        // 2) Auto-solver selhal – eskaluj na UI dialog
         result = null
         val ownLatch = CountDownLatch(1)
         latch = ownLatch
