@@ -84,6 +84,11 @@ import com.haise.jiyu.source.manhwasusu.ManhwaSusuSource
 import com.haise.jiyu.source.violetscans.VioletScansSource
 import com.haise.jiyu.source.manhwa210.Manhwa210Source
 import com.haise.jiyu.source.roliascan.RoliaScanSource
+import com.haise.jiyu.source.spiderscans.SpiderScansSource
+import com.haise.jiyu.source.orionscans.OrionScansSource
+import com.haise.jiyu.source.magustoon.MagustoonSource
+import com.haise.jiyu.source.hidamarisou.HidamarisouTranslationsSource
+import com.haise.jiyu.source.nextseries.NextSeriesSource
 import com.haise.jiyu.source.ehentai.EHentaiSource
 import com.haise.jiyu.source.asmhentai.AsmHentaiSource
 import com.haise.jiyu.source.hentainexus.HentaiNexusSource
@@ -216,6 +221,10 @@ class SourceManager @Inject constructor(
     violetScansSource: VioletScansSource,
     manhwa210Source: Manhwa210Source,
     roliaScanSource: RoliaScanSource,
+    spiderScansSource: SpiderScansSource,
+    orionScansSource: OrionScansSource,
+    magustoonSource: MagustoonSource,
+    hidamarisouSource: HidamarisouTranslationsSource,
     eHentaiSource: EHentaiSource,
     asmHentaiSource: AsmHentaiSource,
     hentaiNexusSource: HentaiNexusSource,
@@ -637,6 +646,35 @@ class SourceManager @Inject constructor(
         // skutecny server-side secret. Stranky kapitoly (GET
         // "/auth/chapter-content") uz zadny token nechteji.
         roliaScanSource,
+        // Tritinia Scans (tritinia.org) - genuine nezmeneny Madara (generator meta tag
+        // primo hlasi "Powered by Madara"), zadny prepis netreba.
+        MadaraSource("tritinia", "Tritinia Scans", "https://tritinia.org", client),
+        // Temple Scan (templescanss.com) - genuine Madara (manga_id/wpMangaSingle JS
+        // objekty, AJAX kapitolovy endpoint "/ajax/chapters/" potvrzeny zive).
+        MadaraSource("templescan", "Temple Scan", "https://www.templescanss.com", client, contentTypeOverride = "MANGA"),
+        // Nyanu Kafe (nyanukafe.com) - stejna sdilena sablona jako Timeless Toons/Genz
+        // Toons (cdn.meowing.org, overeno zive primo v JS webu), maly katalog (6 serii).
+        MeowingToonsSource("nyanukafe", "Nyanu Kafe", "https://nyanukafe.com", client),
+        // Spider Scans (spiderscans.xyz) - bespoke web, vlastni trida. Maly katalog
+        // (5 titulu, overeno zive), ale zanrovy filtr i fulltextove hledani funkcni.
+        spiderScansSource,
+        // Orion Scans (orion-scans.com) - bespoke Next.js, ale server-rendered (ne SPA).
+        // Zadny zanrovy filtr na webu nenalezen, hledani reseno lokalne.
+        orionScansSource,
+        // Magustoon (magustoon.org) - bespoke Astro web, schema.org microdata na detailu.
+        // Nektere nejnovejsi kapitoly jsou zamknute za mincemi - takove vrati prazdne stranky.
+        magustoonSource,
+        // Hidamarisou Translations (hidamarisoutranslations.com) - obycejny WordPress
+        // blog, kazda kategorie = jedna light novel serie. Pouziva WP REST API misto
+        // HTML scrapovani (Vzor A jako MangaDex), NOVEL typ obsahu.
+        hidamarisouSource,
+        // Drake Scans, Kayn Scans, DivaScans - sdileji identickou bespoke Next.js sablonu
+        // "/series/comic/{slug}" (overeno zive na vsech trech), proto spolecna
+        // NextSeriesSource trida. Zadny spolehlivy zdrojovy seznam zanru nenalezen na
+        // zadnem z nich, tag-filter proto vypnuty.
+        NextSeriesSource("drakecomic", "Drake Scans", "https://drakecomic.net", client),
+        NextSeriesSource("kaynscans", "Kayn Scans", "https://kaynscans.com", client),
+        NextSeriesSource("divascans", "DivaScans", "https://divascans.org", client),
         // ManhwaRaw18 odstraneno 2026-08-24 - manhwaraw18.com nema DNS zaznam (domena
         // uz neexistuje, overeno curlem).
         manga18ClubSource,
