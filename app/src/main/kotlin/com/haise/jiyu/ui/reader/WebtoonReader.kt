@@ -5,6 +5,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -34,14 +37,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -94,6 +100,15 @@ fun WebtoonReader(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // Pinch-to-zoom stav pro celý souvislý pás - na rozdíl od MangaReaderu (jedna
+    // stránka na obrazovku) se tu nezoomuje jednotlivá stránka, ale celý viditelný
+    // výřez LazyColumn (kolem jeho středu, viz graphicsLayer níž). Dokud je scale > 1,
+    // LazyColumn si drží svou scroll pozici beze změny (userScrollEnabled = false) a
+    // tažení prstem místo scrollování posouvá jen panOffset - přesně stejný vzor jako
+    // v ReaderPager.kt, jen aplikovaný na celý scrollovací kontejner místo jedné stránky.
+    var scale by rememberSaveable { mutableStateOf(1f) }
+    var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         // Uzsi typ nez Exception zamerne - viz stejne misto v ReaderPager.kt.
@@ -194,6 +209,9 @@ fun WebtoonReader(
     LazyColumn(
         state = listState,
         flingBehavior = speedFling,
+        // Dokud je zoomováno, tažení prstem ovládá jen panOffset (viz pointerInput
+        // níž) - normální scroll by se s panováním jinak přetahoval o stejné gesto.
+        userScrollEnabled = scale <= 1f,
         modifier = Modifier
             .fillMaxSize()
             .focusRequester(focusRequester)
@@ -216,32 +234,83 @@ fun WebtoonReader(
                     else -> false
                 }
             }
+            // Vlastni pinch-zoom detekce misto `detectTransformGestures` - ta v Compose
+            // Foundation počítá pan/zoom už z JEDNOHO prstu (jednoprstový tah = pan se
+            // zoom=1f) a jakmile překročí touch slop, VŽDY zkonzumuje position change,
+            // takže by tím zkonzumovala i každé jednoprstové táhnutí určené pro scroll
+            // LazyColumn (přesně stejný nález jako u MangaPageCurlReader.kt s curl
+            // gestem). Tahle verze čeká, dokud nejsou dole aspoň 2 prsty, než začne
+            // cokoliv číst nebo konzumovat - jednoprstové scrollování tak projde
+            // nedotčené k LazyColumn.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        var event = awaitPointerEvent()
+                        while (event.changes.count { it.pressed } < 2 && event.changes.any { it.pressed }) {
+                            event = awaitPointerEvent()
+                        }
+                        if (event.changes.count { it.pressed } < 2) continue
+                        do {
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                            scale = newScale
+                            if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                            event = awaitPointerEvent()
+                        } while (event.changes.count { it.pressed } >= 2)
+                    }
+                }
+            }
             .pointerInput(tapZonesEnabled, tapZoneGrid) {
-                detectTapGestures(onTap = { offset ->
-                    val action = if (!tapZonesEnabled) {
-                        TapZoneAction.SHOW_PANEL
-                    } else {
-                        val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
-                        val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
-                        tapZoneGrid[row, col]
-                    }
-                    // Potlačení náhodného otevření panelu při scrollu
-                    if (action == TapZoneAction.SHOW_PANEL && wasRecentlyScrolling) return@detectTapGestures
-                    when (action) {
-                        TapZoneAction.SHOW_PANEL -> onShowPanel()
-                        TapZoneAction.PREV_PAGE -> scope.launch {
-                            val target = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
-                            listState.animateScrollToItem(target)
+                detectTapGestures(
+                    onDoubleTap = { offset ->
+                        if (scale > 1f) {
+                            scale = 1f
+                            panOffset = Offset.Zero
+                        } else {
+                            val zoom = 2.5f
+                            val cx = size.width / 2f
+                            val cy = size.height / 2f
+                            scale = zoom
+                            panOffset = Offset(
+                                (offset.x - cx) * (1f - zoom),
+                                (offset.y - cy) * (1f - zoom),
+                            )
                         }
-                        TapZoneAction.NEXT_PAGE -> scope.launch {
-                            val target = (listState.firstVisibleItemIndex + 1).coerceAtMost(maxFlatIndex)
-                            listState.animateScrollToItem(target)
+                    },
+                    onTap = { offset ->
+                        val action = if (!tapZonesEnabled) {
+                            TapZoneAction.SHOW_PANEL
+                        } else {
+                            val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
+                            val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
+                            tapZoneGrid[row, col]
                         }
-                        TapZoneAction.PREV_CHAPTER -> onNavigatePrev()
-                        TapZoneAction.NEXT_CHAPTER -> onNavigateNext()
-                        TapZoneAction.NONE -> {}
-                    }
-                })
+                        // Potlačení náhodného otevření panelu při scrollu
+                        if (action == TapZoneAction.SHOW_PANEL && wasRecentlyScrolling) return@detectTapGestures
+                        when (action) {
+                            TapZoneAction.SHOW_PANEL -> onShowPanel()
+                            TapZoneAction.PREV_PAGE -> scope.launch {
+                                val target = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
+                                listState.animateScrollToItem(target)
+                            }
+                            TapZoneAction.NEXT_PAGE -> scope.launch {
+                                val target = (listState.firstVisibleItemIndex + 1).coerceAtMost(maxFlatIndex)
+                                listState.animateScrollToItem(target)
+                            }
+                            TapZoneAction.PREV_CHAPTER -> onNavigatePrev()
+                            TapZoneAction.NEXT_CHAPTER -> onNavigateNext()
+                            TapZoneAction.NONE -> {}
+                        }
+                    },
+                )
+            }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = panOffset.x
+                translationY = panOffset.y
             },
     ) {
         segments.forEachIndexed { segIdx, seg ->
