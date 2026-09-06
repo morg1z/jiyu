@@ -176,17 +176,23 @@ class ComicKSource @Inject constructor(
             val year = comic.optInt("year", 0).takeIf { it > 0 }
 
             val authors = json.optJSONArray("authors")
-            val author = if (authors != null && authors.length() > 0)
-                authors.getJSONObject(0).optString("name").ifBlank { null }
-            else null
+            val author = if (authors != null && authors.length() > 0) {
+                val firstAuthor = authors.getJSONObject(0)
+                if (firstAuthor.isNull("name")) null else firstAuthor.optString("name").ifBlank { null }
+            } else null
 
             val genres = mutableListOf<String>()
             val tagsArr = json.optJSONArray("genres") ?: json.optJSONArray("tags")
             if (tagsArr != null) {
                 for (i in 0 until tagsArr.length()) {
-                    val name = tagsArr.optJSONObject(i)?.optString("name")
-                        ?: tagsArr.optString(i)
-                    if (!name.isNullOrBlank()) genres.add(name)
+                    val obj = tagsArr.optJSONObject(i)
+                    // isNull() guard: stejny zavedeny bug jako jinde v tomhle souboru.
+                    val name = if (obj != null) {
+                        if (obj.isNull("name")) null else obj.optString("name").ifBlank { null }
+                    } else {
+                        tagsArr.optString(i).ifBlank { null }
+                    }
+                    if (name != null) genres.add(name)
                 }
             }
 
@@ -287,7 +293,8 @@ class ComicKSource @Inject constructor(
             val json = getObject("$apiBase/group/$slug")
             val group = json.optJSONObject("group") ?: JSONObject()
             GroupInfo(
-                title = group.optString("title").ifBlank { slug },
+                // isNull() guard: stejny zavedeny bug jako jinde v tomhle souboru.
+                title = if (group.isNull("title")) slug else group.optString("title").ifBlank { slug },
                 followCount = group.optInt("follow_count", 0),
                 chapterCount = group.optInt("chapter_count", 0),
                 comics = parseComicList(json.optJSONArray("comics") ?: JSONArray()),
@@ -363,7 +370,9 @@ class ComicKSource @Inject constructor(
 
     private fun commentFromJson(json: JSONObject): ComicKComment? {
         val id = json.optLong("id", -1L).takeIf { it >= 0 } ?: return null
-        val rawText = (json.optString("parsed").ifBlank { json.optString("content") })
+        // isNull() guard: stejny zavedeny bug jako jinde v tomhle souboru - bez nej by
+        // explicitni JSON null u "parsed" vratil doslovny text "null" misto fallbacku na "content".
+        val rawText = if (json.isNull("parsed")) json.optString("content") else json.optString("parsed").ifBlank { json.optString("content") }
         val identities = json.optJSONObject("identities")
         val traits = identities?.optJSONObject("traits")
         val repliesArr = json.optJSONArray("other_comments") ?: JSONArray()
@@ -460,8 +469,11 @@ class ComicKSource @Inject constructor(
                 if (countryKey !in allowedCountries) return@mapNotNull null
                 val demographicKey = comicJson.optInt("demographic", 0).toString()
                 if (demographicKey !in allowedDemographics) return@mapNotNull null
-                val contentRating = comicJson.optString("content_rating", "safe")
-                val violenceRating = comicJson.optString("violence_rating", "none")
+                // isNull() guard: stejny zavedeny bug jako u demographic/final_chapter jinde v
+                // tomhle souboru - org.json.optString() na poli s JSON hodnotou null vraci
+                // doslovny "null" MISTO defaultni hodnoty, ne az kdyz klic chybi uplne.
+                val contentRating = if (comicJson.isNull("content_rating")) "safe" else comicJson.optString("content_rating", "safe")
+                val violenceRating = if (comicJson.isNull("violence_rating")) "none" else comicJson.optString("violence_rating", "none")
                 val isBlockedMature =
                     (contentRating == "suggestive" && "suggestive" !in matureFlags) ||
                         (contentRating == "erotica" && "adult" !in matureFlags) ||
