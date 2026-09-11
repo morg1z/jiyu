@@ -94,7 +94,7 @@ fun WebtoonReader(
     volumeKeysNav: Boolean = true,
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
@@ -347,7 +347,7 @@ private fun LazyListScope.webtoonSegmentItems(
     cropBorders: Boolean,
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit,
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     referer: String?,
 ) {
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
@@ -430,7 +430,7 @@ private fun WebtoonPage(
     cropBorders: Boolean = false,
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     referer: String? = null,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }

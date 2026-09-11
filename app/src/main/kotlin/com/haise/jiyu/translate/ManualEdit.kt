@@ -37,3 +37,20 @@ fun applyManualEdits(blocks: List<TranslatedBlock>, edits: Map<String, String>):
         block.copy(translatedText = manual, displayText = manual, isUntranslated = false)
     }
 }
+
+/**
+ * Naparuje uložené ruční posuny pozice (viz [com.haise.jiyu.data.db.entity.ManualTranslationEntity.offsetXDp]/
+ * `offsetYDp`) na čerstvě přeložené bloky - stejná identita (normalizovaný původní text) jako
+ * [applyManualEdits], ale SAMOSTATNÁ funkce/mapa, aby původní text-only cesta (a její testy)
+ * zůstaly beze změny - posun a text jsou na sobě nezávislé (viz komentář u entity).
+ */
+internal fun applyManualPositionOffsets(
+    blocks: List<TranslatedBlock>,
+    offsets: Map<String, Pair<Float, Float>>,
+): List<TranslatedBlock> {
+    if (offsets.isEmpty()) return blocks
+    return blocks.map { block ->
+        val (offsetX, offsetY) = offsets[normalizeOriginal(block.originalText)] ?: return@map block
+        block.copy(offsetXDp = offsetX, offsetYDp = offsetY)
+    }
+}

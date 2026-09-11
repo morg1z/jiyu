@@ -29,8 +29,8 @@ class BubbleBoxDetector @Inject constructor(
 ) {
     private val session: OrtSession by lazy {
         val env = OrtEnvironment.getEnvironment()
-        val modelBytes = context.assets.open(MODEL_ASSET_PATH).use { it.readBytes() }
-        env.createSession(modelBytes, OrtSession.SessionOptions())
+        val modelFile = ensureModelFileFromAsset(context, MODEL_ASSET_PATH, "comic_bubble_detector.onnx")
+        env.createSession(modelFile.absolutePath, OrtSession.SessionOptions().withXnnpackIfAvailable())
     }
 
     /**

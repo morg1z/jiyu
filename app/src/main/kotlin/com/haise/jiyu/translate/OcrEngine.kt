@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
@@ -9,7 +10,9 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.haise.jiyu.util.DeviceResourcePolicy
 import com.haise.jiyu.util.report
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -154,6 +157,18 @@ private fun logOcrConfidence(language: String, confidence: Float, text: String) 
     Log.d("OcrConfidence", "lang=$language conf=%.3f text=\"%s\"".format(confidence, text.take(40)))
 }
 
+/**
+ * Loguje, kolikrát finální pořadí čtení skočilo výrazně zpátky nahoru (viz
+ * [countBackwardReadingOrderJumps]) - čistě měřicí průchod (plán, EXPERIMENT položka 19),
+ * NEMĚNÍ pořadí ani nic jiného. `adb logcat -s ReadingOrderJump` při běžném čtení nasbírá
+ * reálnou distribuci, podle které se rozhodne, jestli se vyplatí portovat detekci hranic
+ * panelů (Kumiko), nebo je současné geometrické řazení v praxi dost dobré.
+ */
+private fun logIfSuspiciousReadingOrder(blocks: List<RawTextBlock>) {
+    val jumps = countBackwardReadingOrderJumps(blocks)
+    if (jumps > 0) Log.d("ReadingOrderJump", "count=$jumps totalBlocks=${blocks.size}")
+}
+
 /** Hodnota zdrojového jazyka, která znamená "zjisti si to sám" - viz [resolveAutoLanguage]. */
 internal const val AUTO_LANGUAGE = "Auto"
 
@@ -194,6 +209,15 @@ internal const val AUTO_CONFIDENT_CHARS = 20
  * TranslateRepository.PAGE_OCR_TIMEOUT_MILLIS (40s) zůstává vnější pojistkou beze změny.
  */
 internal const val MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS = 8000L
+
+/**
+ * Timeout na EXPERIMENTÁLNÍ vision-LLM OCR fallback (viz [OcrEngine.recognize] parametr
+ * `visionOcrFallback`, plán EXPERIMENT položka 18) - síťové volání na uživatelův vlastní BYOK
+ * endpoint, řádově pomalejší než lokální ONNX inference ([MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS]),
+ * ale pořád musí nechat rozumnou rezervu ve sdíleném [com.haise.jiyu.translate.TranslateRepository.PAGE_OCR_TIMEOUT_MILLIS]
+ * rozpočtu celé stránky.
+ */
+internal const val VISION_OCR_FALLBACK_TIMEOUT_MILLIS = 15_000L
 
 /**
  * Vybere rozpoznávač pro [AUTO_LANGUAGE]: zkouší kandidáty popořadě a bere ten, který našel
@@ -255,6 +279,7 @@ private class BitmapPixelSource(private val bitmap: Bitmap) : PixelSource {
  */
 @Singleton
 class OcrEngine @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val maskSegmenter: BubbleMaskSegmenter,
     private val bubbleBoxDetector: BubbleBoxDetector,
     private val mangaOcrPipeline: MangaOcrPipeline,
@@ -272,7 +297,22 @@ class OcrEngine @Inject constructor(
         else -> latinRecognizer
     }
 
-    suspend fun recognize(bitmap: Bitmap, language: String = "Japanese"): List<RawTextBlock> = withContext(Dispatchers.IO) {
+    /**
+     * @param visionOcrFallback EXPERIMENTÁLNÍ poslední záchrana pro jednotlivou bublinu, když
+     *   selže jak manga-ocr, tak ML Kit crop fallback (viz [recognizeJapaneseWithMangaOcr],
+     *   plán EXPERIMENT položka 18) - null (výchozí) = vypnuto, appka se chová přesně jako
+     *   dřív. Volající ([TranslateRepository]) sem dá lambdu jen když má uživatel nastavený a
+     *   nakonfigurovaný vlastní BYOK endpoint ([ByokTranslateClient]) A ještě neutratil svůj
+     *   rozpočet volání na tuhle kapitolu - samotný [OcrEngine] o BYOK/kvótách nic neví,
+     *   stejný testovatelný vzor jako [resolveAutoLanguage]/`detectWithTallImageSlicing`
+     *   (chování injektované jako parametr, ne pevná závislost v konstruktoru - vyhne se tak
+     *   nutnosti měnit všechny existující přímé konstrukce [OcrEngine] v androidTestech).
+     */
+    suspend fun recognize(
+        bitmap: Bitmap,
+        language: String = "Japanese",
+        visionOcrFallback: (suspend (Bitmap) -> String?)? = null,
+    ): List<RawTextBlock> = withContext(Dispatchers.IO) {
         val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
         if (w == 0f || h == 0f) return@withContext emptyList()
@@ -312,8 +352,27 @@ class OcrEngine @Inject constructor(
         // tam) - bez toho by každý japonský blok nesl lineCount=1 bez ohledu na skutečný
         // počet řádků, což tiše rozbíjí TranslationLayout i BubbleClassifier (audit finding
         // Important #3).
-        val merged = if (resolvedLanguage == "Japanese") {
-            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, lines), rightToLeft = true)
+        //
+        // YOLO detektor (BubbleBoxDetector) - nezávislý vizuální signál "kde je bublina",
+        // počítá se JEDNOU tady a sdílí mezi oběma větvemi níž: japonština ho odjakživa
+        // potřebovala pro celobublinový crop (manga-ocr), NE-japonské jazyky ho teď navíc
+        // používají jako DALŠÍ veto proti špatně sloučeným řádkům (viz
+        // [linesInDifferentYoloBoxes]) - stejný nezávislý detektor, žádný nový model. Dlouhý
+        // webtoon/manhwa pruh se před detekcí rozřeže na překrývající se díly (viz
+        // [detectWithTallImageSlicing]) - na "normální" stránce je to no-op.
+        //
+        // Na paměťově vytíženém/slabém zařízení (DeviceResourcePolicy.shouldAttemptOnDeviceModels
+        // == false) se YOLO/manga-ocr vůbec nezkouší - ONNX modely by na takovém telefonu spíš
+        // skončily OOM než použitelným výsledkem. Japonština pak spadá na stejnou
+        // ML-Kit-line-merge cestu jako ostatní jazyky (bez YOLO korekce, protože není co sdílet).
+        val onDeviceModelsOk = DeviceResourcePolicy.shouldAttemptOnDeviceModels(context)
+        val yoloBoxes = if (onDeviceModelsOk) {
+            detectWithTallImageSlicing(bitmap) { slice -> bubbleBoxDetector.detect(slice) }
+        } else {
+            emptyList()
+        }
+        val merged = if (resolvedLanguage == "Japanese" && onDeviceModelsOk) {
+            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, lines, yoloBoxes, visionOcrFallback), rightToLeft = true)
         } else {
             sortIntoReadingOrder(
                 mergeNearbyLines(
@@ -326,7 +385,7 @@ class OcrEngine @Inject constructor(
                             a,
                             b,
                             onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
-                        )
+                        ) && !linesInDifferentYoloBoxes(a, b, yoloBoxes)
                     },
                     onStructuredFieldMerge = ::logStructuredFieldMerge,
                 ),
@@ -336,6 +395,7 @@ class OcrEngine @Inject constructor(
                 rightToLeft = isRightToLeftScript(resolvedLanguage),
             )
         }
+        logIfSuspiciousReadingOrder(merged)
         // Prvni pruchod: klasicke (flood-fill / edge-aware) pokusy o tvar pro kazdy blok. Bloky,
         // kde OBA selzaly, se sesbiraji do `needsMaskSegmenter` - GPL model (viz nize) se pak
         // spusti nejvyse JEDNOU za celou stranku, ne opakovane za kazdou takovou bublinu (ktera
@@ -458,9 +518,15 @@ class OcrEngine @Inject constructor(
      *   volání, které rozhodlo, že stránka je japonská). Používají se JEN pro dopočet
      *   [RawTextBlock.lineCount] (viz [lineCountForBox]) - manga-ocr text samotný z nich
      *   nevychází.
+     * @param boxes YOLO detekce (viz [recognize], které je počítá JEDNOU pro celou stránku a
+     *   sdílí je i s ne-japonskou větví - viz [linesInDifferentYoloBoxes]).
      */
-    private suspend fun recognizeJapaneseWithMangaOcr(bitmap: Bitmap, mlKitLines: List<RawTextBlock>): List<RawTextBlock> {
-        val boxes = bubbleBoxDetector.detect(bitmap)
+    private suspend fun recognizeJapaneseWithMangaOcr(
+        bitmap: Bitmap,
+        mlKitLines: List<RawTextBlock>,
+        boxes: List<DetectedBubbleBox>,
+        visionOcrFallback: (suspend (Bitmap) -> String?)? = null,
+    ): List<RawTextBlock> {
         return boxes.mapNotNull { box ->
             val crop = cropBubbleBoxWithMargin(bitmap, box)
             // Bez finally { crop.recycle() } schválně: recognizeCropWithMlKit níž nemá
@@ -472,7 +538,19 @@ class OcrEngine @Inject constructor(
             val mangaOcrText = withTimeoutOrNull(MANGA_OCR_PER_BUBBLE_TIMEOUT_MILLIS) {
                 mangaOcrPipeline.recognizeCrop(crop)
             }
-            val text = if (!mangaOcrText.isNullOrBlank()) mangaOcrText else recognizeCropWithMlKit(crop)
+            val mlKitText = if (mangaOcrText.isNullOrBlank()) recognizeCropWithMlKit(crop) else null
+            // EXPERIMENT (plán položka 18): poslední záchrana, jen když OBĚ předchozí cesty
+            // selhaly A volající vůbec dodal lambdu (viz [visionOcrFallback] doc komentář u
+            // [recognize] - null mimo BYOK konfiguraci/rozpočet appku nechá chovat se přesně
+            // jako dřív).
+            val visionText = if (mangaOcrText.isNullOrBlank() && mlKitText.isNullOrBlank() && visionOcrFallback != null) {
+                withTimeoutOrNull(VISION_OCR_FALLBACK_TIMEOUT_MILLIS) { visionOcrFallback(crop) }
+            } else {
+                null
+            }
+            val text = mangaOcrText.takeUnless { it.isNullOrBlank() }
+                ?: mlKitText.takeUnless { it.isNullOrBlank() }
+                ?: visionText
             if (text.isNullOrBlank()) {
                 null
             } else {

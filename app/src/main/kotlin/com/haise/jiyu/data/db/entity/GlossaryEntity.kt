@@ -19,4 +19,12 @@ data class GlossaryEntity(
     val sourceTerm: String,
     val targetTerm: String,
     val targetLanguage: String,
+    /**
+     * Opt-in: [sourceTerm] se před odesláním k překladu nahradí neprůhledným tokenem a po
+     * odpovědi vrátí zpátky přesně [targetTerm] (viz [com.haise.jiyu.translate.TranslateRepository]
+     * a [com.haise.jiyu.translate.GlossaryPlaceholders]) - model tak nemá šanci pojem
+     * ohnout/přeložit jinak. Výchozí `false` schválně (ne vždy zapnuté) - české skloňování
+     * občas vyžaduje pojem ohnout podle pádu, což by zmrazený token znemožnil.
+     */
+    val protectExact: Boolean = false,
 )

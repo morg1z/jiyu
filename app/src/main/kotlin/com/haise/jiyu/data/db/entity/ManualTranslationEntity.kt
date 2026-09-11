@@ -35,4 +35,13 @@ data class ManualTranslationEntity(
     /** Co tam má být místo strojového překladu. */
     val text: String,
     val updatedAt: Long,
+    /**
+     * Ruční posun vykresleného boxu bubliny (viz [com.haise.jiyu.ui.reader.TranslationOverlay])
+     * v Dp od jeho vypočtené pozice - null = beze změny (nejčastější případ, drtivá většina
+     * oprav mění jen text). Nezávislé na [text]: uživatel může posunout bublinu, aniž by měnil
+     * překlad, proto se při ukládání jen textu existující posun zachovává (viz
+     * [com.haise.jiyu.translate.TranslateRepository.saveManualEdit]), ne přepisuje na null.
+     */
+    val offsetXDp: Float? = null,
+    val offsetYDp: Float? = null,
 )

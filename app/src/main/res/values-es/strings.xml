@@ -190,6 +190,26 @@
     <string name="settings_reader_theme_sepia">Sepia</string>
     <string name="settings_reader_theme_paper">Papel</string>
     <string name="settings_reader_translate_section_title">Traducción</string>
+    <string name="settings_reader_custom_font_title">Fuente personalizada</string>
+    <string name="settings_reader_custom_font_desc">Sube tu propio .ttf/.otf mediante un enlace directo (https) - sustituye la fuente de cómic integrada en todas las burbujas.</string>
+    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
+    <string name="settings_reader_custom_font_apply">Descargar y aplicar</string>
+    <string name="settings_reader_custom_font_clear">Quitar fuente personalizada</string>
+    <string name="settings_reader_custom_font_loading">Descargando y verificando…</string>
+    <string name="settings_reader_custom_font_success">Fuente aplicada correctamente.</string>
+    <string name="settings_reader_custom_font_error">No se pudo descargar la fuente: %1$s</string>
+    <string name="settings_reader_custom_font_active">Fuente activa: %1$s</string>
+    <string name="settings_reader_byok_title">Tu propia clave (BYOK)</string>
+    <string name="settings_reader_byok_desc">Alternativa opcional ANTES de la traducción sin conexión, por si la app se queda sin cuota gratuita compartida. Tu propio endpoint de pago/autoalojado, compatible con la API de chat-completions de OpenAI. Nunca es la opción predeterminada ni obligatoria.</string>
+    <string name="settings_reader_byok_enable">Usar un endpoint personalizado</string>
+    <string name="settings_reader_byok_base_url_label">URL base</string>
+    <string name="settings_reader_byok_base_url_placeholder">https://api.openai.com/v1</string>
+    <string name="settings_reader_byok_model_label">Modelo</string>
+    <string name="settings_reader_byok_model_placeholder">gpt-4o-mini</string>
+    <string name="settings_reader_byok_api_key_label">Clave de API</string>
+    <string name="settings_reader_byok_api_key_placeholder">sk-…</string>
+    <string name="settings_reader_byok_api_key_saved_placeholder">•••• (guardada, déjalo vacío para conservarla)</string>
+    <string name="settings_reader_byok_clear_key">Eliminar clave</string>
 
     <!-- Ajustes: Almacenamiento -->
     <string name="settings_storage_translation_cache_title">Caché de traducción</string>
@@ -563,6 +583,9 @@
     <string name="detail_info_glossary_target_placeholder">Traducción (Sung Jin-woo)</string>
     <string name="detail_info_add_to_glossary">Añadir al glosario (%1$s)</string>
     <string name="detail_info_no_glossary">Sin términos en el glosario</string>
+    <string name="detail_info_section_translation_context">CONTEXTO PARA EL TRADUCTOR</string>
+    <string name="detail_info_translation_context_hint">Este texto se envía a la IA en cada traducción - cosas que no puede deducir por sí sola.</string>
+    <string name="detail_info_translation_context_placeholder">Ej. "el protagonista es en realidad una mujer disfrazada"…</string>
     <string name="detail_info_section_notes">NOTAS</string>
     <string name="detail_info_note_placeholder">Añade una nota para este manga…</string>
     <string name="detail_info_section_downloads">DESCARGAS</string>
@@ -690,6 +713,9 @@
     <string name="reader_glossary_translation_placeholder">Traducción</string>
     <string name="reader_glossary_add_button">Añadir (%1$s)</string>
     <string name="reader_glossary_empty">Todavía no hay términos en el glosario.</string>
+    <string name="reader_glossary_protect_label">No flexionar (exacto)</string>
+    <string name="reader_glossary_protect_on_description">Término protegido contra flexión - toca para desactivar</string>
+    <string name="reader_glossary_protect_off_description">El término puede flexionarse - toca para proteger su forma exacta</string>
     <string name="reader_share_link">Compartir enlace</string>
     <string name="reader_save_to_gallery">Guardar en la galería</string>
     <string name="reader_page_content_desc">Página %1$d</string>
@@ -1084,6 +1110,9 @@
     <string name="reader_edit_bubble_title">Editar traducción</string>
     <string name="reader_edit_bubble_label">Texto traducido</string>
     <string name="reader_edit_bubble_hint">Déjalo vacío para restaurar la traducción automática.</string>
+    <string name="reader_retranslate_page">Volver a traducir toda la página</string>
+    <string name="reader_bubble_position_label">Posición del globo (arrastra el punto)</string>
+    <string name="reader_bubble_position_reset">Restablecer posición</string>
     <string name="detail_translate_next_n">Traducir por adelantado…</string>
     <string name="detail_translate_next_n_title">¿Cuántos capítulos?</string>
     <string name="translate_worker_notification_title">Traduciendo – %1$s</string>

@@ -283,3 +283,41 @@ fun hasWallBetween(
     onWallCheck(wallHits, gapFractions.size, hasWall)
     return hasWall
 }
+
+/**
+ * Druhý, nezávislý zdroj pravdy o hranicích bublin PRO NE-JAPONSKÉ stránky - [BubbleBoxDetector]
+ * (YOLO, viz assets/models/NOTICE.md) už se pro japonštinu používal (celobublinový crop pro
+ * manga-ocr), teď se stejný výsledek recykluje i tady jako DALŠÍ veto proti [mergeNearbyLines]
+ * vedle [hasWallBetween] - žádný nový model.
+ *
+ * Na rozdíl od plánovaného "sluč a pak rozřízni zpátky" jde tahle korekce PREVENTIVNĚ: místo
+ * aby se dva řádky nejdřív spojily do jednoho textového bloku (kde by šlo jen HÁDAT, kde přesně
+ * text rozdělit zpátky, protože [mergeNearbyLines] spojený text nedrží rozdělený po
+ * jednotlivých řádcích) a pak se řezalo podle YOLO boxů, se sloučení dvou řádků padajících do
+ * DVOU RŮZNÝCH YOLO boxů rovnou ZAKÁŽE ve stejném union-find průchodu, kde [hasWallBetween] už
+ * dnes zakazuje sloučení přes vizuální "zeď". Výsledek je matematicky stejný (dvě různé bubliny
+ * zůstanou dva bloky), ale bez nutnosti dodatečně rozřezávat už spojený řetězec.
+ */
+internal fun yoloBoxIndexContaining(line: RawTextBlock, boxes: List<DetectedBubbleBox>): Int? {
+    val centerX = (line.leftF + line.rightF) / 2f
+    val centerY = (line.topF + line.bottomF) / 2f
+    for (index in boxes.indices) {
+        val box = boxes[index]
+        if (centerX in box.leftF..box.rightF && centerY in box.topF..box.bottomF) return index
+    }
+    return null
+}
+
+/**
+ * True, když středy [a] a [b] padnou do DVOU RŮZNÝCH YOLO boxů z [boxes] - viz doc komentář
+ * [yoloBoxIndexContaining]. Když aspoň jeden z řádků nepadne do ŽÁDNÉHO boxu (YOLO na něj
+ * nenašel jistou shodu), nic se nevetuje - výchozí chování zůstává jako dřív (jen
+ * [hasWallBetween] rozhoduje), aby nejistý/chybějící YOLO signál nezpůsobil ZBYTEČNÉ rozdělení
+ * jinak správně sloučené bubliny.
+ */
+internal fun linesInDifferentYoloBoxes(a: RawTextBlock, b: RawTextBlock, boxes: List<DetectedBubbleBox>): Boolean {
+    if (boxes.isEmpty()) return false
+    val boxA = yoloBoxIndexContaining(a, boxes) ?: return false
+    val boxB = yoloBoxIndexContaining(b, boxes) ?: return false
+    return boxA != boxB
+}

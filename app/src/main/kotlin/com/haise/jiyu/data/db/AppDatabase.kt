@@ -25,7 +25,8 @@ class Converters {
     fun fromDownloadStatus(status: DownloadStatus): String = status.name
 
     @TypeConverter
-    fun toDownloadStatus(value: String): DownloadStatus = DownloadStatus.valueOf(value)
+    fun toDownloadStatus(value: String): DownloadStatus =
+        runCatching { DownloadStatus.valueOf(value) }.getOrDefault(DownloadStatus.ERROR)
 }
 
 @Database(
@@ -43,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 35,
+    version = 39,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -334,6 +335,31 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE chapter ADD COLUMN verifiedPageCount INTEGER")
                 db.execSQL("ALTER TABLE chapter ADD COLUMN isFallbackSource INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE chapter ADD COLUMN fallbackChapterId TEXT")
+            }
+        }
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE glossary_entry ADD COLUMN protectExact INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manual_translation ADD COLUMN offsetXDp REAL")
+                db.execSQL("ALTER TABLE manual_translation ADD COLUMN offsetYDp REAL")
+            }
+        }
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE manga ADD COLUMN translationContextNote TEXT")
+            }
+        }
+        val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // getMangaByUrl a observeUpdates() na tyhle sloupce filtrovaly/radily bez
+                // indexu (viz audit) - dateUpload uz index ma, ale observeUpdates() od te
+                // doby prešlo na discoveredAt.
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_manga_url` ON `manga` (`url`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_discoveredAt` ON `chapter` (`discoveredAt`)")
             }
         }
     }

@@ -8,7 +8,6 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,13 +68,21 @@ class MangaOcrPipelineOnDeviceTest {
         return bmp
     }
 
+    /**
+     * `manga-ocr-mobile` (viz assets/models/NOTICE.md) je natrénovaný na reálném manga fontu,
+     * ne na programově vykresleném textu přes Android [Paint] - proto tenhle test NEVYNUCUJE
+     * neprázdný výsledek natvrdo, jen ho loguje. Od zavedení [MangaOcrGarbageFilter] a
+     * prahu průměrné pravděpodobnosti tokenu (viz [MangaOcrPipeline.recognizeCrop]) je `null`
+     * na tomhle syntetickém vstupu LEGITIMNÍ výsledek (model si nemusí být jistý na neznámém
+     * fontu) - hard assert na non-null by tenhle nový, žádoucí fallback-na-ML-Kit test dělal
+     * falešně červeným. Skutečná přesnost se ověřuje ručně na reálné manga stránce.
+     */
     @Test
-    fun recognizeCrop_returnsNonNullTextForSyntheticJapanese() = runBlocking {
-        assumeRealOnnxAssets(context, "models/manga_ocr_encoder.onnx", "models/manga_ocr_decoder.onnx")
+    fun recognizeCrop_doesNotCrashOnSyntheticJapanese() = runBlocking {
+        assumeRealOnnxAssets(context, "models/manga_ocr_encoder.onnx", "models/manga_ocr_decoder_init.onnx", "models/manga_ocr_decoder_step.onnx")
         val crop = japaneseCrop("こんにちは")
         val text = pipeline.recognizeCrop(crop)
         Log.i("MangaOcrProbe", "recognizeCrop vratil: \"$text\"")
-        assertNotNull("manga-ocr pipeline se nesmi na zarizeni zhroutit / vratit null (asset/tenzor chyba)", text)
     }
 
     @Test
@@ -84,7 +91,8 @@ class MangaOcrPipelineOnDeviceTest {
             context,
             "models/comic_bubble_detector.onnx",
             "models/manga_ocr_encoder.onnx",
-            "models/manga_ocr_decoder.onnx",
+            "models/manga_ocr_decoder_init.onnx",
+            "models/manga_ocr_decoder_step.onnx",
         )
         val bitmap = pageWithJapaneseBubble()
         val blocks = pipeline.detectAndRecognize(bitmap)

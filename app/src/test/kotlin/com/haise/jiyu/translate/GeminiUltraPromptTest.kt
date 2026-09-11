@@ -329,6 +329,22 @@ class GeminiUltraPromptTest {
     }
 
     @Test
+    fun `an extra context note from the reader reaches the context block`() {
+        val context = GeminiUltraPrompt.buildMangaContext(
+            "Něco", "MANGA", listOf("Drama"),
+            extraContext = "hlavní hrdina je ve skutečnosti žena v přestrojení",
+        )
+        assertTrue(context.contains("hlavní hrdina je ve skutečnosti žena v přestrojení"))
+    }
+
+    @Test
+    fun `a blank extra context note is not appended at all`() {
+        val withoutNote = GeminiUltraPrompt.buildMangaContext("Něco", "MANGA", listOf("Drama"))
+        val withBlankNote = GeminiUltraPrompt.buildMangaContext("Něco", "MANGA", listOf("Drama"), extraContext = "   ")
+        assertEquals(withoutNote, withBlankNote)
+    }
+
+    @Test
     fun `manhwa is told it is Korean, not Japanese`() {
         // JÁDRO: typ díla se posílal jen jako nálepka v závorce a model si musel domyslet,
         // co z ní plyne. U manhwy si domyslel japonská oslovení - "hyung" není "senpai".

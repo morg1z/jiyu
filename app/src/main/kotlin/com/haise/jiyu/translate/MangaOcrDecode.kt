@@ -3,13 +3,16 @@ package com.haise.jiyu.translate
 /**
  * Čisté (bez ONNX Runtime) řízení greedy autoregresivního dekódování - viz
  * [MangaOcrPipeline], které sem injektuje [nextToken] navázané na skutečnou inferenci
- * `manga_ocr_decoder.onnx`. Odděleno schválně, aby šlo otestovat JVM testem na
- * falešném [nextToken], bez nutnosti mít na stroji reálný model nebo Android - stejný
- * vzor jako [resolveAutoLanguage] v OcrEngine.kt.
+ * `manga_ocr_decoder_init.onnx`/`manga_ocr_decoder_step.onnx`. Odděleno schválně, aby šlo
+ * otestovat JVM testem na falešném [nextToken], bez nutnosti mít na stroji reálný model
+ * nebo Android - stejný vzor jako [resolveAutoLanguage] v OcrEngine.kt.
  *
- * Model volaný bez KV-cache (viz spec "Mimo rozsah" - KV-cache pro tuhle architekturu
- * neproveditelné) - [nextToken] proto v produkci pokaždé posílá CELOU dosavadní `soFar`
- * sekvenci do dekodéru, ne jen poslední token.
+ * `manga-ocr-mobile` dekóduje S KV-cache (na rozdíl od staršího `manga-ocr-base` exportu,
+ * který ji neměl) - [nextToken] v produkci posílá jen JEDEN nový token na krok a rostoucí
+ * KV-cache stav drží ve vlastním closure kolem tady definovaného kontraktu, viz
+ * [MangaOcrPipeline.recognizeCrop]. Tahle smyčka o tom nic neví: `soFar.size - 1` dává
+ * volajícímu přesně pozici dalšího tokenu a `soFar.last()` poslední vygenerovaný token, což
+ * KV-cache implementaci stačí, aniž by se měnil tenhle obecný kontrakt.
  */
 internal const val MANGA_OCR_MAX_DECODE_TOKENS = 96
 

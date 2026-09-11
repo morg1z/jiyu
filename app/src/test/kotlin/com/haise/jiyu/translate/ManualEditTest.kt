@@ -103,4 +103,50 @@ class ManualEditTest {
             manualEditId("ch1", 0, "  AB   CD  "),
         )
     }
+
+    // ── applyManualPositionOffsets (viz item 11 - rucni posun pozice bubliny) ──
+
+    @Test
+    fun `a position offset is applied to the block with the same original text`() {
+        val result = applyManualPositionOffsets(
+            listOf(block("HELLO THERE")),
+            mapOf("HELLO THERE" to (12f to -6f)),
+        )
+        assertEquals(12f, result.single().offsetXDp, 0.001f)
+        assertEquals(-6f, result.single().offsetYDp, 0.001f)
+    }
+
+    @Test
+    fun `only the matching block gets an offset, others stay at zero`() {
+        val result = applyManualPositionOffsets(
+            listOf(block("HELLO"), block("GOODBYE")),
+            mapOf("HELLO" to (10f to 5f)),
+        )
+        assertEquals(10f, result[0].offsetXDp, 0.001f)
+        assertEquals(5f, result[0].offsetYDp, 0.001f)
+        assertEquals(0f, result[1].offsetXDp, 0.001f)
+        assertEquals(0f, result[1].offsetYDp, 0.001f)
+    }
+
+    @Test
+    fun `no offsets means the list comes back untouched`() {
+        val blocks = listOf(block("HELLO"))
+        assertEquals(blocks, applyManualPositionOffsets(blocks, emptyMap()))
+    }
+
+    @Test
+    fun `an offset with no matching block changes nothing`() {
+        val blocks = listOf(block("HELLO"))
+        val result = applyManualPositionOffsets(blocks, mapOf("SOMETHING ELSE" to (5f to 5f)))
+        assertEquals(blocks, result)
+    }
+
+    @Test
+    fun `position offsets and text edits are independent - one does not require the other`() {
+        val edited = applyManualEdits(listOf(block("HELLO")), mapOf("HELLO" to "AHOJ"))
+        val repositioned = applyManualPositionOffsets(edited, mapOf("HELLO" to (8f to 3f)))
+        assertEquals("AHOJ", repositioned.single().translatedText)
+        assertEquals(8f, repositioned.single().offsetXDp, 0.001f)
+        assertEquals(3f, repositioned.single().offsetYDp, 0.001f)
+    }
 }

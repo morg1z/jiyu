@@ -190,6 +190,26 @@
     <string name="settings_reader_theme_sepia">Sépia</string>
     <string name="settings_reader_theme_paper">Papier</string>
     <string name="settings_reader_translate_section_title">Traduction</string>
+    <string name="settings_reader_custom_font_title">Police personnalisée</string>
+    <string name="settings_reader_custom_font_desc">Importez votre propre .ttf/.otf via un lien direct (https) - remplace la police de bande dessinée intégrée dans toutes les bulles.</string>
+    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
+    <string name="settings_reader_custom_font_apply">Télécharger et appliquer</string>
+    <string name="settings_reader_custom_font_clear">Supprimer la police personnalisée</string>
+    <string name="settings_reader_custom_font_loading">Téléchargement et vérification…</string>
+    <string name="settings_reader_custom_font_success">Police appliquée avec succès.</string>
+    <string name="settings_reader_custom_font_error">Échec du téléchargement de la police : %1$s</string>
+    <string name="settings_reader_custom_font_active">Police active : %1$s</string>
+    <string name="settings_reader_byok_title">Votre propre clé (BYOK)</string>
+    <string name="settings_reader_byok_desc">Solution de repli optionnelle AVANT la traduction hors ligne, au cas où l\'appli épuiserait le quota gratuit partagé. Votre propre endpoint payant/auto-hébergé, compatible avec l\'API chat-completions d\'OpenAI. Jamais activé par défaut, jamais obligatoire.</string>
+    <string name="settings_reader_byok_enable">Utiliser un endpoint personnalisé</string>
+    <string name="settings_reader_byok_base_url_label">URL de base</string>
+    <string name="settings_reader_byok_base_url_placeholder">https://api.openai.com/v1</string>
+    <string name="settings_reader_byok_model_label">Modèle</string>
+    <string name="settings_reader_byok_model_placeholder">gpt-4o-mini</string>
+    <string name="settings_reader_byok_api_key_label">Clé API</string>
+    <string name="settings_reader_byok_api_key_placeholder">sk-…</string>
+    <string name="settings_reader_byok_api_key_saved_placeholder">•••• (enregistrée, laisser vide pour la conserver)</string>
+    <string name="settings_reader_byok_clear_key">Supprimer la clé</string>
 
     <!-- Paramètres : Stockage -->
     <string name="settings_storage_translation_cache_title">Cache de traduction</string>
@@ -563,6 +583,9 @@
     <string name="detail_info_glossary_target_placeholder">Traduction (Sung Jin-woo)</string>
     <string name="detail_info_add_to_glossary">Ajouter au glossaire (%1$s)</string>
     <string name="detail_info_no_glossary">Aucun terme dans le glossaire</string>
+    <string name="detail_info_section_translation_context">CONTEXTE POUR LE TRADUCTEUR</string>
+    <string name="detail_info_translation_context_hint">Ce texte est envoyé à l\'IA à chaque traduction - des choses qu\'elle ne peut pas deviner seule.</string>
+    <string name="detail_info_translation_context_placeholder">Ex. "le personnage principal est en réalité une femme déguisée"…</string>
     <string name="detail_info_section_notes">NOTES</string>
     <string name="detail_info_note_placeholder">Ajouter une note pour ce manga…</string>
     <string name="detail_info_section_downloads">TÉLÉCHARGEMENTS</string>
@@ -690,6 +713,9 @@
     <string name="reader_glossary_translation_placeholder">Traduction</string>
     <string name="reader_glossary_add_button">Ajouter (%1$s)</string>
     <string name="reader_glossary_empty">Pas encore de termes dans le glossaire.</string>
+    <string name="reader_glossary_protect_label">Ne pas fléchir (exact)</string>
+    <string name="reader_glossary_protect_on_description">Terme protégé contre la flexion - appuyer pour désactiver</string>
+    <string name="reader_glossary_protect_off_description">Le terme peut être fléchi - appuyer pour protéger son orthographe exacte</string>
     <string name="reader_share_link">Partager le lien</string>
     <string name="reader_save_to_gallery">Enregistrer dans la galerie</string>
     <string name="reader_page_content_desc">Page %1$d</string>
@@ -1084,6 +1110,9 @@
     <string name="reader_edit_bubble_title">Modifier la traduction</string>
     <string name="reader_edit_bubble_label">Texte traduit</string>
     <string name="reader_edit_bubble_hint">Laissez vide pour rétablir la traduction automatique.</string>
+    <string name="reader_retranslate_page">Retraduire toute la page</string>
+    <string name="reader_bubble_position_label">Position de la bulle (glisser le point)</string>
+    <string name="reader_bubble_position_reset">Réinitialiser la position</string>
     <string name="detail_translate_next_n">Traduire à l’avance…</string>
     <string name="detail_translate_next_n_title">Combien de chapitres ?</string>
     <string name="translate_worker_notification_title">Traduction – %1$s</string>

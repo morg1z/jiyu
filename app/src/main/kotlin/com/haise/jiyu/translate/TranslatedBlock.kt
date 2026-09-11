@@ -59,4 +59,13 @@ data class TranslatedBlock(
     val isUntranslated: Boolean = false,
     val bgUniform: Boolean = true,
     val nativeLineHeightF: Float = 0f,
+    /**
+     * Ruční posun vykresleného boxu bubliny v Dp - viz
+     * [com.haise.jiyu.data.db.entity.ManualTranslationEntity.offsetXDp]/`offsetYDp` (odkud se
+     * napaří přes [applyManualPositionOffsets]) a [com.haise.jiyu.ui.reader.TranslationOverlay],
+     * které o tuhle hodnotu posune vykreslený box PROTI vypočtené pozici. 0f (výchozí) = beze
+     * změny - drtivá většina bublin nikdy ruční posun nedostane.
+     */
+    val offsetXDp: Float = 0f,
+    val offsetYDp: Float = 0f,
 )

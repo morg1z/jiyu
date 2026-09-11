@@ -70,8 +70,9 @@ fun NovelContent(
     onSourceLanguageChange: (String) -> Unit = {},
     onTargetLanguageChange: (String) -> Unit = {},
     glossary: List<GlossaryEntity> = emptyList(),
-    onAddGlossaryEntry: (String, String) -> Unit = { _, _ -> },
+    onAddGlossaryEntry: (String, String, Boolean) -> Unit = { _, _, _ -> },
     onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
+    onToggleGlossaryProtectExact: (GlossaryEntity) -> Unit = {},
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
 ) {
@@ -180,6 +181,7 @@ fun NovelContent(
                 targetLanguage = targetLanguage,
                 onAdd = onAddGlossaryEntry,
                 onRemove = onRemoveGlossaryEntry,
+                onToggleProtectExact = onToggleGlossaryProtectExact,
                 onDismiss = { showGlossarySheet = false },
             )
         }

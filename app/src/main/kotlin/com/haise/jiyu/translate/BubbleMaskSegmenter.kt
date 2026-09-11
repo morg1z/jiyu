@@ -38,8 +38,8 @@ class BubbleMaskSegmenter @Inject constructor(
 ) {
     private val session: OrtSession by lazy {
         val env = OrtEnvironment.getEnvironment()
-        val modelBytes = context.assets.open(MODEL_ASSET_PATH).use { it.readBytes() }
-        env.createSession(modelBytes, OrtSession.SessionOptions())
+        val modelFile = ensureModelFileFromAsset(context, MODEL_ASSET_PATH, "bubble_mask_segmenter.onnx")
+        env.createSession(modelFile.absolutePath, OrtSession.SessionOptions().withXnnpackIfAvailable())
     }
 
     /** Výsledek jedné inference nad celou stránkou - vstup pro (opakované) [matchShape]. */

@@ -69,6 +69,7 @@ class MangaRepository @Inject constructor(
     suspend fun resetDownloadForChapter(chapterId: String) = chapterDao.resetDownloadForChapter(chapterId)
     suspend fun upsertAllManga(manga: List<com.haise.jiyu.data.db.entity.MangaEntity>) = mangaDao.upsertAll(manga)
     suspend fun setFavorite(mangaId: String, favorite: Boolean) = mangaDao.setFavorite(mangaId, favorite)
+    suspend fun setTranslationContextNote(mangaId: String, note: String?) = mangaDao.setTranslationContextNote(mangaId, note?.trim()?.ifBlank { null })
     fun observeFavoriteCount(): Flow<Int> = mangaDao.observeFavoriteCount()
     fun observeLibraryCount(): Flow<Int> = mangaDao.observeLibraryCount()
     suspend fun upsertAllChapters(chapters: List<ChapterEntity>) = chapterDao.upsertAll(chapters)

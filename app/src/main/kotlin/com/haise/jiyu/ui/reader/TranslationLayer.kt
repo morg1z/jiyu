@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -173,7 +174,7 @@ fun BubbleOverlayLayer(
     pageUrl: String? = null,
     flippedBubbles: Set<String> = emptySet(),
     onToggleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
 ) {
     val positioned = remember(blocks) { layoutTranslationBlocks(blocks) }
 
@@ -193,6 +194,16 @@ fun BubbleOverlayLayer(
         val url = pageUrl
         value = if (url == null) emptyMap() else patchProvider.patchesFor(url, positioned)
     }
+    // Vlastní font uživatele (viz CustomFontRepository, item 15) - stejný EntryPoint důvod
+    // jako u patchProvider výš. Null = žádný nastavený/stažený, render zůstává na vestavěné
+    // sadě Comic Neue/Exo2 (viz fontFamilyFor).
+    val customFontRepository = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            CustomFontEntryPoint::class.java,
+        ).customFontRepository()
+    }
+    val customFontFile by customFontRepository.activeFontFile.collectAsState(initial = null)
     positioned.forEachIndexed { bubbleIndex, pos ->
         // isUntranslated = model vrátil UNTRANSLATED_MARKER (nečitelné OCR) - stejně jako u
         // SFX bublin appka radši nic nekreslí a nechá prosvítat originál, než aby ukázala
@@ -210,9 +221,10 @@ fun BubbleOverlayLayer(
                 // Dřív se dohledávalo přes blocks.indexOf(pos.block), jenže dva shodné bloky
                 // jsou si podle data class rovny a druhý z nich pak dostal cizí záplatu.
                 patch = patches[bubbleIndex],
+                customFontFile = customFontFile,
                 onTap = { onToggleFlip(pageIndex, bubbleIndex) },
                 onLongPress = {
-                    onEditBubble(pageIndex, pos.block.originalText, pos.block.translatedText)
+                    onEditBubble(pageIndex, pos.block.originalText, pos.block.translatedText, pos.block.offsetXDp, pos.block.offsetYDp)
                 },
             )
         } else {
@@ -276,6 +288,8 @@ fun TranslationOverlay(
     isFlipped: Boolean = false,
     /** Záplata pozadí pro bublinu na kresbě; null = kreslí se jednolitá výplň jako dosud. */
     patch: android.graphics.Bitmap? = null,
+    /** Vlastní font uživatele (viz CustomFontRepository); null = vestavěná sada podle typu bubliny. */
+    customFontFile: java.io.File? = null,
     onTap: () -> Unit = {},
     /** Dlouhy stisk = rucni oprava prekladu teto bubliny. */
     onLongPress: () -> Unit = {},
@@ -301,8 +315,11 @@ fun TranslationOverlay(
     // Jediný zdroj pravdy pro "jak velký kus stránky bublina zakryje" - stejnou funkci
     // používá TextPatchProvider, aby se obojí nemohlo rozejít.
     val box = renderBoxRect(pos)
-    val left = (imageRect.left + imageRect.width * box.leftF).dp - bleed
-    val top  = (imageRect.top + imageRect.height * box.topF).dp - bleed
+    // Rucni posun (viz ManualTranslationEntity.offsetXDp/offsetYDp, item "position offset") -
+    // pricte se AZ TADY, na koncovou vypoctenou pozici, takze nezasahuje do zadneho z vypoctu
+    // vys (bleed, shape-clip, atd.) - jen posune uz hotovy box o kus stranou/dolu/nahoru.
+    val left = (imageRect.left + imageRect.width * box.leftF).dp - bleed + pos.block.offsetXDp.dp
+    val top  = (imageRect.top + imageRect.height * box.topF).dp - bleed + pos.block.offsetYDp.dp
     val w    = (imageRect.width * (box.rightF - box.leftF)).dp.coerceAtLeast(0.dp) + bleed * 2
     // maxBottomF je HORNÍ LIMIT růstu (může sahat až k dalšímu prvku na stránce, klidně přes
     // spoustu prázdného pozadí) - použít ho jako MINIMUM by box nutilo vyplnit i prázdný
@@ -477,6 +494,7 @@ fun TranslationOverlay(
                     imageHeightDp = imageRect.height,
                     nativeLineHeightF = pos.block.nativeLineHeightF,
                     originalText = pos.block.originalText,
+                    customFontFile = customFontFile,
                 )
             }
         }
@@ -578,10 +596,19 @@ private fun AutoFitTranslatedText(
     nativeLineHeightF: Float = 0f,
     /** Text originálu - rozhoduje, jestli se výška OCR boxu čte jako verzálky, nebo smíšený text. */
     originalText: String = "",
+    /** Vlastní font uživatele (viz CustomFontRepository) - když je nastavený, nahradí vestavěnou sadu pro VŠECHNY typy bublin (jeden font, ne čtyři řezy). */
+    customFontFile: java.io.File? = null,
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
-    val fontFamily = fontFamilyFor(bubbleType)
+    // Neplatny/poskozeny soubor (velmi vzacne - font prosel kontrolou pri stazeni, ale
+    // Font(file=) muze i tak odmitnout skutecny obsah, ktery [isAcceptableFontContentType]
+    // nekontroluje) tise spadne zpatky na vestavenou sadu, misto aby appka spadla pri
+    // vykreslovani KAZDE bubliny.
+    val customFontFamily = customFontFile?.let { file ->
+        remember(file) { runCatching { FontFamily(Font(file)) }.getOrNull() }
+    }
+    val fontFamily = customFontFamily ?: fontFamilyFor(bubbleType)
     val maxFontSp = 36f * textScale
     // Podlaha se ZÁMĚRNĚ nenásobí textScale nahoru - viz [minTranslationFontSp]. Zvětšené písmo
     // v nastavení jinak text z malých bublin mazalo, protože přebytek ořízne .clip(clipShape) níž.

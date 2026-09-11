@@ -316,7 +316,7 @@ class MangaDetailViewModel @Inject constructor(
     val defaultTargetLanguage: StateFlow<String> = settings.targetLanguage
         .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
 
-    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, targetLanguage: String) {
+    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, targetLanguage: String, protectExact: Boolean = false) {
         val source = sourceTerm.trim()
         val target = targetTerm.trim()
         if (source.isBlank() || target.isBlank()) return
@@ -328,12 +328,29 @@ class MangaDetailViewModel @Inject constructor(
                     sourceTerm = source,
                     targetTerm = target,
                     targetLanguage = targetLanguage,
+                    protectExact = protectExact,
                 )
             )
         }
     }
 
     fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
+
+    /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
+    fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
+        viewModelScope.launch { glossaryDao.upsert(entry.copy(protectExact = !entry.protectExact)) }
+    }
+
+    /**
+     * Uloží/zruší volitelný kontext pro AI překladač (viz
+     * [com.haise.jiyu.data.db.entity.MangaEntity.translationContextNote]) - NA ROZDÍL od
+     * [mangaNote] výše se posílá modelu při každém překladu. Prázdný/jen-mezerový text = žádný
+     * kontext (ukládá se null, ne prázdný řetězec). Nemění existující cache - projeví se až u
+     * příštího/ručně vyžádaného překladu (viz [com.haise.jiyu.ui.reader.ReaderViewModel.retranslatePage]).
+     */
+    fun setTranslationContextNote(note: String) {
+        viewModelScope.launch { repository.setTranslationContextNote(mangaId, note) }
+    }
 
     // ── Čtecí status ──────────────────────────────────────────────────────────
     val readingStatus: StateFlow<String?> = manga.map { it?.readingStatus }

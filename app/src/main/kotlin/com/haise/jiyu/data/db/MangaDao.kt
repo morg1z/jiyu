@@ -111,6 +111,10 @@ interface MangaDao {
     @Query("UPDATE manga SET kitsuId = :kitsuId WHERE id = :id")
     suspend fun setKitsuId(id: String, kitsuId: String?)
 
+    /** Volitelný kontext pro AI překladač (viz [com.haise.jiyu.data.db.entity.MangaEntity.translationContextNote]) - NULL/prázdné = žádný. */
+    @Query("UPDATE manga SET translationContextNote = :note WHERE id = :id")
+    suspend fun setTranslationContextNote(id: String, note: String?)
+
     @Query("UPDATE manga SET kitsuScore = :score WHERE id = :id")
     suspend fun setKitsuScore(id: String, score: Float?)
 

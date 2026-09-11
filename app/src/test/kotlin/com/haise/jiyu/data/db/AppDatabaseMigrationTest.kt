@@ -7,6 +7,8 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.haise.jiyu.data.db.entity.CategoryEntity
+import com.haise.jiyu.data.db.entity.GlossaryEntity
+import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -101,6 +103,10 @@ class AppDatabaseMigrationTest {
                 AppDatabase.MIGRATION_32_33,
                 AppDatabase.MIGRATION_33_34,
                 AppDatabase.MIGRATION_34_35,
+                AppDatabase.MIGRATION_35_36,
+                AppDatabase.MIGRATION_36_37,
+                AppDatabase.MIGRATION_37_38,
+                AppDatabase.MIGRATION_38_39,
             )
             .build()
 
@@ -189,6 +195,38 @@ class AppDatabaseMigrationTest {
         assertEquals(5, ch2After.verifiedPageCount)
         assertEquals(false, ch2After.isFallbackSource)
         assertEquals("ch1", ch2After.fallbackChapterId)
+
+        // MIGRATION_35_36: protectExact pridany na glossary_entry (NOT NULL default 0 pro
+        // existujici radky), musi byt citelny/zapisovatelny a prezit round-trip pres Room.
+        db.glossaryDao().upsert(
+            GlossaryEntity(id = "m1::frodo::Czech", mangaId = "m1", sourceTerm = "Frodo", targetTerm = "Frodo", targetLanguage = "Czech", protectExact = true),
+        )
+        val glossaryEntries = db.glossaryDao().getForMangaAndLanguage("m1", "Czech")
+        assertEquals(true, glossaryEntries.single().protectExact)
+
+        // MIGRATION_36_37: offsetXDp/offsetYDp pridany na manual_translation (nullable, zadny
+        // DEFAULT netreba - existujici radky proste ctou null), musi byt citelne/zapisovatelne
+        // a prezit round-trip pres Room.
+        db.manualTranslationDao().upsert(
+            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L, offsetXDp = 12.5f, offsetYDp = -4f),
+        )
+        val manualEntry = db.manualTranslationDao().getById("ch1::0::hello")!!
+        assertEquals(12.5f, manualEntry.offsetXDp!!, 0.001f)
+        assertEquals(-4f, manualEntry.offsetYDp!!, 0.001f)
+
+        // MIGRATION_37_38: translationContextNote pridany na manga (nullable), musi byt
+        // citelny/zapisovatelny a prezit round-trip pres Room.
+        db.mangaDao().setTranslationContextNote("m1", "hlavni hrdina je ve skutecnosti zena v prestrojeni")
+        assertEquals("hlavni hrdina je ve skutecnosti zena v prestrojeni", db.mangaDao().getById("m1")!!.translationContextNote)
+
+        // MIGRATION_38_39: nove indexy na manga.url a chapter.discoveredAt - overi se
+        // primo v sqlite_master, ze migrace CREATE INDEX opravdu provedla (Room identity-hash
+        // check vyse uz zarucuje spravny NAZEV indexu, tohle overuje, ze existuje fyzicky).
+        val indexNames = db.openHelper.writableDatabase.query("SELECT name FROM sqlite_master WHERE type = 'index'").use { cursor ->
+            generateSequence { if (cursor.moveToNext()) cursor.getString(0) else null }.toList()
+        }
+        assertEquals(true, indexNames.contains("index_manga_url"))
+        assertEquals(true, indexNames.contains("index_chapter_discoveredAt"))
 
         db.close()
         context.deleteDatabase(dbName)

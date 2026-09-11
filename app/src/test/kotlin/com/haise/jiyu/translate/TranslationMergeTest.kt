@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -313,5 +314,162 @@ class TranslationMergeTest {
     @Test
     fun `translation with the same sentence count as the original is not flagged`() {
         assertFalse(likelyDroppedSentence("Stop it! Please.", "Přestaň! Prosím."))
+    }
+
+    // ── isRepetitionLoop ──
+
+    @Test
+    fun `a normal translated sentence is not flagged`() {
+        assertFalse(isRepetitionLoop("Musíme si pospíšit, jinak přijdeme pozdě na vlak."))
+    }
+
+    @Test
+    fun `text below the minimum length is never flagged`() {
+        assertFalse(isRepetitionLoop("Ne."))
+    }
+
+    @Test
+    fun `a long run of a repeated punctuation character is flagged`() {
+        assertTrue(isRepetitionLoop("........................"))
+    }
+
+    @Test
+    fun `the same word repeated many times in a row is flagged`() {
+        assertTrue(isRepetitionLoop("ne ne ne ne ne ne"))
+    }
+
+    @Test
+    fun `a short phrase repeating non-consecutively at least three times is flagged`() {
+        assertTrue(isRepetitionLoop("utíkej pryč hned teď prosím utíkej pryč hned znovu utíkej pryč hned"))
+    }
+
+    @Test
+    fun `a legitimate short emphasis repeat below the word threshold is not flagged`() {
+        // "Ne, ne," je bezna emfaze v beznem textu, ne zacyklena smycka - je pod
+        // MIN_WORD_REPEATS i moc kratka na frazovou kontrolu.
+        assertFalse(isRepetitionLoop("Ne, ne, nechci to slyšet."))
+    }
+
+    // ── isWrongTargetLanguage ──
+
+    private val longCzechText = "Musíme si pospíšit, jinak přijdeme pozdě na vlak a zmeškáme celou schůzku."
+    private val longEnglishText = "We need to hurry up or we will be late for the train and miss the whole meeting."
+
+    @Test
+    fun `text below the minimum length is never checked`() = runTest {
+        assertFalse(isWrongTargetLanguage("Ahoj", "Czech", identifyLanguage = { "en" }))
+    }
+
+    @Test
+    fun `detected language matching the target is not flagged`() = runTest {
+        assertFalse(isWrongTargetLanguage(longCzechText, "Czech", identifyLanguage = { "cs" }))
+    }
+
+    @Test
+    fun `detected language differing from the target is flagged`() = runTest {
+        assertTrue(isWrongTargetLanguage(longCzechText, "Czech", identifyLanguage = { "en" }))
+    }
+
+    @Test
+    fun `uncertain detection is never flagged`() = runTest {
+        assertFalse(isWrongTargetLanguage(longEnglishText, "Czech", identifyLanguage = { null }))
+    }
+
+    @Test
+    fun `an unsupported target language name is never flagged`() = runTest {
+        assertFalse(isWrongTargetLanguage(longEnglishText, "Klingon", identifyLanguage = { "en" }))
+    }
+
+    // ── retryIndicesWithQualityChecks ──
+
+    @Test
+    fun `a bubble with a dropped sentence is added to the retry set even though it answered`() {
+        val classified = listOf(
+            classified("WE NEED TO HURRY THE HARVEST! THE FOOD WON'T LAST MUCH LONGER..."),
+        )
+        val byId = mapOf(
+            0 to bubble(0, "Jídlo už dlouho vydržet nebude...", original = "WE NEED TO HURRY THE HARVEST! THE FOOD WON'T LAST MUCH LONGER..."),
+        )
+        assertEquals(listOf(0), retryIndicesWithQualityChecks(classified, byId))
+    }
+
+    @Test
+    fun `a bubble stuck in a repetition loop is added to the retry set`() {
+        val classified = listOf(classified("Run away now."))
+        val byId = mapOf(0 to bubble(0, "ne ne ne ne ne ne", original = "Run away now."))
+        assertEquals(listOf(0), retryIndicesWithQualityChecks(classified, byId))
+    }
+
+    @Test
+    fun `a genuinely missing bubble stays in the retry set alongside quality issues`() {
+        val classified = listOf(classified("A"), classified("Run away now."))
+        val byId = mapOf(1 to bubble(1, "ne ne ne ne ne ne", original = "Run away now."))
+        assertEquals(listOf(0, 1), retryIndicesWithQualityChecks(classified, byId))
+    }
+
+    @Test
+    fun `sfx bubbles are never added even with repetitive text`() {
+        val classified = listOf(classified("BOOM", isSfx = true))
+        val byId = mapOf(0 to bubble(0, "ha ha ha ha ha", original = "BOOM"))
+        assertEquals(emptyList<Int>(), retryIndicesWithQualityChecks(classified, byId))
+    }
+
+    @Test
+    fun `a normal good translation is not added to the retry set`() {
+        val classified = listOf(classified("Hello there."))
+        val byId = mapOf(0 to bubble(0, "Ahoj.", original = "Hello there."))
+        assertEquals(emptyList<Int>(), retryIndicesWithQualityChecks(classified, byId))
+    }
+
+    // ── isGlossaryViolation (viz item 17 - post-translation kontrola dodrzeni glosare) ──
+
+    @Test
+    fun `a glossary term missing from the translation is flagged`() {
+        assertTrue(
+            isGlossaryViolation(
+                original = "Frodo went home.",
+                translated = "Šel domů.",
+                glossary = mapOf("Frodo" to "Frodo"),
+            ),
+        )
+    }
+
+    @Test
+    fun `an inflected form of the glossary term is not flagged`() {
+        // Ceske skloňování ("Frodovi" místo "Frodo") NENÍ porušení - stem se pořád najde.
+        assertFalse(
+            isGlossaryViolation(
+                original = "I gave it to Frodo.",
+                translated = "Dal jsem to Frodovi.",
+                glossary = mapOf("Frodo" to "Frodo"),
+            ),
+        )
+    }
+
+    @Test
+    fun `a term not present in the original is never checked`() {
+        assertFalse(
+            isGlossaryViolation(
+                original = "Hello there.",
+                translated = "Ahoj.",
+                glossary = mapOf("Frodo" to "Frodo"),
+            ),
+        )
+    }
+
+    @Test
+    fun `an empty glossary never flags anything`() {
+        assertFalse(isGlossaryViolation("Frodo went home.", "Šel domů.", emptyMap()))
+    }
+
+    @Test
+    fun `a correctly used glossary term is not flagged`() {
+        assertFalse(
+            isGlossaryViolation(
+                original = "Frodo went home.",
+                translated = "Frodo šel domů.",
+                glossary = mapOf("Frodo" to "Frodo"),
+            ),
+        )
     }
 }

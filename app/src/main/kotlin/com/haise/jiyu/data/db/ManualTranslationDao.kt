@@ -16,6 +16,10 @@ interface ManualTranslationDao {
     @Query("SELECT * FROM manual_translation WHERE chapterId = :chapterId AND pageIndex = :pageIndex")
     suspend fun forPage(chapterId: String, pageIndex: Int): List<ManualTranslationEntity>
 
+    /** Jeden záznam podle id - viz [com.haise.jiyu.translate.TranslateRepository.saveManualEdit] (zachování existujícího posunu při uložení jen textu). */
+    @Query("SELECT * FROM manual_translation WHERE id = :id")
+    suspend fun getById(id: String): ManualTranslationEntity?
+
     @Query("DELETE FROM manual_translation WHERE id = :id")
     suspend fun delete(id: String)
 

@@ -10,15 +10,20 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -33,13 +38,17 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -128,7 +137,7 @@ fun ReaderScreen(
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
     // je identita bubliny napříč přepočty - viz manualEditId.
-    var bubbleEdit by remember { mutableStateOf<Triple<Int, String, String>?>(null) }
+    var bubbleEdit by remember { mutableStateOf<BubbleEditState?>(null) }
     val activity = LocalView.current.context as Activity
 
     // Čtečku zavírá až tenhle sběratel, ne lambda předaná do časovače. Ta totiž putovala do
@@ -247,7 +256,8 @@ fun ReaderScreen(
                 onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
                 onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
                 glossary = glossary,
-                onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
+                onAddGlossaryEntry = { source, target, protectExact -> viewModel.addGlossaryEntry(source, target, protectExact) },
+                onToggleGlossaryProtectExact = { viewModel.toggleGlossaryProtectExact(it) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
@@ -339,7 +349,8 @@ fun ReaderScreen(
                 readerOrientation = readerOrientation,
                 onSetReaderOrientation = { viewModel.setReaderOrientation(it) },
                 glossary = glossary,
-                onAddGlossaryEntry = { source, target -> viewModel.addGlossaryEntry(source, target) },
+                onAddGlossaryEntry = { source, target, protectExact -> viewModel.addGlossaryEntry(source, target, protectExact) },
+                onToggleGlossaryProtectExact = { viewModel.toggleGlossaryProtectExact(it) },
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 chapterComments = chapterComments,
                 commentsLoading = commentsLoading,
@@ -347,8 +358,8 @@ fun ReaderScreen(
                 onShowComments = { viewModel.loadChapterComments() },
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = { pageIndex, bubbleIndex -> viewModel.toggleBubbleFlip(pageIndex, bubbleIndex) },
-                onEditBubble = { pageIndex, originalText, currentText ->
-                    bubbleEdit = Triple(pageIndex, originalText, currentText)
+                onEditBubble = { pageIndex, originalText, currentText, offsetXDp, offsetYDp ->
+                    bubbleEdit = BubbleEditState(pageIndex, originalText, currentText, offsetXDp, offsetYDp)
                 },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
@@ -357,13 +368,19 @@ fun ReaderScreen(
             )
         }
 
-        bubbleEdit?.let { (pageIndex, originalText, currentText) ->
+        bubbleEdit?.let { edit ->
             BubbleEditDialog(
-                originalText = originalText,
-                currentText = currentText,
+                originalText = edit.originalText,
+                currentText = edit.currentText,
+                initialOffsetXDp = edit.offsetXDp,
+                initialOffsetYDp = edit.offsetYDp,
                 onDismiss = { bubbleEdit = null },
-                onSave = { newText ->
-                    viewModel.saveBubbleEdit(pageIndex, originalText, newText)
+                onSave = { newText, offsetXDp, offsetYDp ->
+                    viewModel.saveBubbleEdit(edit.pageIndex, edit.originalText, newText, offsetXDp, offsetYDp)
+                    bubbleEdit = null
+                },
+                onRetranslatePage = {
+                    viewModel.retranslatePage(edit.pageIndex)
                     bubbleEdit = null
                 },
             )
@@ -455,14 +472,28 @@ fun ReaderScreen(
  *
  * Prazdne pole opravu ZRUSI a vrati strojovy preklad - proto tu neni tlacitko "smazat" navic.
  */
+/** Stav otevřeného [BubbleEditDialog] - viz [BubbleOverlayLayer.onEditBubble]. */
+private data class BubbleEditState(
+    val pageIndex: Int,
+    val originalText: String,
+    val currentText: String,
+    val offsetXDp: Float,
+    val offsetYDp: Float,
+)
+
 @Composable
 private fun BubbleEditDialog(
     originalText: String,
     currentText: String,
+    initialOffsetXDp: Float = 0f,
+    initialOffsetYDp: Float = 0f,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (text: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
+    onRetranslatePage: () -> Unit = {},
 ) {
     var text by remember(originalText) { mutableStateOf(currentText) }
+    var offsetX by remember(originalText) { mutableFloatStateOf(initialOffsetXDp) }
+    var offsetY by remember(originalText) { mutableFloatStateOf(initialOffsetYDp) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.reader_edit_bubble_title)) },
@@ -481,13 +512,84 @@ private fun BubbleEditDialog(
                     label = { Text(stringResource(R.string.reader_edit_bubble_label)) },
                     supportingText = { Text(stringResource(R.string.reader_edit_bubble_hint)) },
                 )
+                // Rucni oprava vys resi JEDNU bublinu - tohle je pro pripad, kdy je spatne
+                // vic bublin naraz (zacykleny/spatnojazycny model vystup, viz
+                // TranslationMerge) a rucni oprava kazde zvlast by byla otravna. Stejny
+                // long-press gesto, ktere uz otevrelo tenhle dialog (viz ReaderScreen.kt) -
+                // zadny novy gesto navic.
+                TextButton(onClick = onRetranslatePage, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(stringResource(R.string.reader_retranslate_page))
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.reader_bubble_position_label), style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
+                    BubblePositionPad(
+                        offsetXDp = offsetX,
+                        offsetYDp = offsetY,
+                        onOffsetChange = { newX, newY -> offsetX = newX; offsetY = newY },
+                    )
+                    TextButton(onClick = { offsetX = 0f; offsetY = 0f }) {
+                        Text(stringResource(R.string.reader_bubble_position_reset))
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(text) }) { Text(stringResource(R.string.common_save)) }
+            TextButton(onClick = { onSave(text, offsetX, offsetY) }) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
+
+/**
+ * Malý čtvercový "touchpad" pro ruční doladění pozice bubliny (viz
+ * [com.haise.jiyu.translate.TranslatedBlock.offsetXDp]/`offsetYDp`) - tečka uprostřed = beze
+ * změny, tažením se posune a hodnota se čte přímo jako Dp posun (1:1 s tažením, ořízlé na
+ * [PAD_RADIUS_DP] na obě strany). Schválně UVNITŘ modálního dialogu, ne přímo tažením po
+ * stránce - `AlertDialog` blokuje interakci s podkladem pod sebou, takže tažení "za bublinou"
+ * na skutečné stránce by muselo řešit souběh s pinch-zoom/tap gesty
+ * WebtoonReaderu/MangaReaderu (viz plán, položka 11 - přesně tenhle střet plán sám čeká).
+ * Tenhle návrh se mu úplně vyhne za cenu, že chybí živý náhled bubliny při tažení - jen
+ * relativní posun tečky v padu.
+ */
+@Composable
+private fun BubblePositionPad(
+    offsetXDp: Float,
+    offsetYDp: Float,
+    onOffsetChange: (offsetXDp: Float, offsetYDp: Float) -> Unit,
+) {
+    val density = LocalDensity.current
+    val currentOffsetX = rememberUpdatedState(offsetXDp)
+    val currentOffsetY = rememberUpdatedState(offsetYDp)
+    Box(
+        modifier = Modifier
+            .size(PAD_SIZE_DP)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    val dxDp = with(density) { dragAmount.x.toDp().value }
+                    val dyDp = with(density) { dragAmount.y.toDp().value }
+                    val newX = (currentOffsetX.value + dxDp).coerceIn(-PAD_RADIUS_DP, PAD_RADIUS_DP)
+                    val newY = (currentOffsetY.value + dyDp).coerceIn(-PAD_RADIUS_DP, PAD_RADIUS_DP)
+                    onOffsetChange(newX, newY)
+                }
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .align(Alignment.Center)
+                .offset(x = offsetXDp.dp, y = offsetYDp.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.primary),
+        )
+    }
+}
+
+private val PAD_SIZE_DP = 96.dp
+private const val PAD_RADIUS_DP = 48f

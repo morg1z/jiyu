@@ -21,11 +21,18 @@ class GlossaryRepository @Inject constructor(
         dao.getForMangaAndLanguage(mangaId, targetLanguage).associate { it.sourceTerm to it.targetTerm }
 
     /**
+     * Plné entity (ne sbalená mapa jako [getMap]) - potřeba pro [GlossaryPlaceholders], které
+     * na rozdíl od promptové injekce potřebuje vědět, KTERÉ pojmy mají [GlossaryEntity.protectExact].
+     */
+    suspend fun getProtectedEntries(mangaId: String, targetLanguage: String): List<GlossaryEntity> =
+        dao.getForMangaAndLanguage(mangaId, targetLanguage).filter { it.protectExact }
+
+    /**
      * id je deterministický (ne náhodný) z mangaId+sourceTerm+targetLanguage - stejná
      * konvence jako [com.haise.jiyu.ui.detail.MangaDetailViewModel.addGlossaryEntry], aby
      * upsert stejného pojmu z obou míst přepsal tentýž řádek místo vytvoření duplicity.
      */
-    suspend fun upsert(mangaId: String, sourceTerm: String, targetTerm: String, targetLanguage: String) {
+    suspend fun upsert(mangaId: String, sourceTerm: String, targetTerm: String, targetLanguage: String, protectExact: Boolean = false) {
         val source = sourceTerm.trim()
         if (source.isBlank() || targetTerm.isBlank()) return
         dao.upsert(
@@ -35,6 +42,7 @@ class GlossaryRepository @Inject constructor(
                 sourceTerm = source,
                 targetTerm = targetTerm.trim(),
                 targetLanguage = targetLanguage,
+                protectExact = protectExact,
             ),
         )
     }

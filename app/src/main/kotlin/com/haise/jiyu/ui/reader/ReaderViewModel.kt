@@ -383,7 +383,7 @@ class ReaderViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun addGlossaryEntry(sourceTerm: String, targetTerm: String) {
+    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, protectExact: Boolean = false) {
         val source = sourceTerm.trim()
         val target = targetTerm.trim()
         val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
@@ -397,9 +397,15 @@ class ReaderViewModel @Inject constructor(
                     sourceTerm = source,
                     targetTerm = target,
                     targetLanguage = lang,
+                    protectExact = protectExact,
                 )
             )
         }
+    }
+
+    /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
+    fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
+        viewModelScope.launch { glossaryDao.upsert(entry.copy(protectExact = !entry.protectExact)) }
     }
 
     fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
@@ -540,22 +546,57 @@ class ReaderViewModel @Inject constructor(
      * Prázdný text opravu zruší, ale strojový překlad se vrátí až po znovunačtení stránky -
      * původní strojový text už v paměti není a tahat ho z cache kvůli tomu zvlášť nestojí za to.
      */
-    fun saveBubbleEdit(pageIndex: Int, originalText: String, text: String) {
+    fun saveBubbleEdit(pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
         val chapterId = currentChapter?.id ?: return
         viewModelScope.launch {
-            translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text)
+            translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text, offsetXDp, offsetYDp)
             val blocks = _translatedPages.value[pageIndex] ?: return@launch
             val trimmed = text.trim()
             if (trimmed.isBlank()) return@launch
             _translatedPages.value = _translatedPages.value + (
                 pageIndex to blocks.map { block ->
                     if (normalizeOriginal(block.originalText) == normalizeOriginal(originalText)) {
-                        block.copy(translatedText = trimmed, displayText = trimmed, isUntranslated = false)
+                        block.copy(
+                            translatedText = trimmed,
+                            displayText = trimmed,
+                            isUntranslated = false,
+                            offsetXDp = offsetXDp ?: block.offsetXDp,
+                            offsetYDp = offsetYDp ?: block.offsetYDp,
+                        )
                     } else {
                         block
                     }
                 }
                 )
+        }
+    }
+
+    /**
+     * Zahodí cache a přeloží CELOU stránku znovu (viz [TranslateRepository.translatePage]'s
+     * `forceRefresh`) - spouští se z [BubbleEditDialog] tlačítkem "Přeložit stránku znovu",
+     * pro případ, kdy jde o víc bublin naráz (zacyklení, špatný jazyk...), ne jen jednu, kterou
+     * by šlo opravit ručně přes [saveBubbleEdit]. Ruční opravy na téhle stránce se aplikují
+     * zpátky automaticky (viz [TranslateRepository.translatePage]'s `withManualEdits` na konci) -
+     * podle originálního OCR textu bubliny, takže PŘEŽIJÍ jen pokud OCR znovu rozpozná stejný
+     * text; pokud se OCR výstup mezitím liší, oprava zůstane uložená, ale na tenhle nový
+     * strojový překlad se nenapaří (identita se neshoduje) - stejné omezení, jaké
+     * [manualEditId] má odjakživa.
+     */
+    fun retranslatePage(pageIndex: Int) {
+        val chapterId = currentChapter?.id ?: return
+        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
+        val pageUrl = _pages.value.getOrNull(pageIndex) ?: return
+        viewModelScope.launch {
+            val blocks = translateRepository.translatePage(
+                pageUrl = pageUrl,
+                chapterId = chapterId,
+                mangaId = mangaId,
+                pageIndex = pageIndex,
+                targetLanguage = _targetLanguage.value,
+                sourceLanguage = _sourceLanguage.value,
+                forceRefresh = true,
+            )
+            if (blocks.isNotEmpty()) _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
         }
     }
 

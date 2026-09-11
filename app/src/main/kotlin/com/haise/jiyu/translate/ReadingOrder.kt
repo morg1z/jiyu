@@ -34,3 +34,30 @@ fun sortIntoReadingOrder(blocks: List<RawTextBlock>, rightToLeft: Boolean): List
 
     return rows.flatMap { row -> if (rightToLeft) row.sortedByDescending { it.leftF } else row.sortedBy { it.leftF } }
 }
+
+/**
+ * Měří, jak často FINÁLNÍ seřazené pořadí čtení skočí VÝRAZNĚ ZPÁTKY nahoru (další bublina v
+ * pořadí leží nad tou předchozí o víc než [backwardJumpThreshold] výšky stránky) - takový skok
+ * je silný signál, že geometrické řádkové shlukování ([sortIntoReadingOrder]) špatně
+ * seskupilo bubliny ze DVOU RŮZNÝCH PANELŮ (např. vysoký levý panel + nízký pravý) do jedné
+ * "řádky", místo aby respektovalo skutečnou hranici panelu - žádná verze tady detekci panelů
+ * vůbec nedělá.
+ *
+ * Čistě observabilita/měřicí průchod (viz plán, EXPERIMENT položka 19) - NEMĚNÍ výsledné
+ * pořadí, jen počítá, jak často by se tohle mělo stávat, PŘED rozhodnutím, jestli se vyplatí
+ * portovat složitější detekci hranic panelů (Kumiko) - vysoká porovnávací obtížnost a
+ * neznámá reálná frekvence byly přesně důvod, proč tahle položka zůstala jen u měření.
+ */
+internal fun countBackwardReadingOrderJumps(blocks: List<RawTextBlock>, backwardJumpThreshold: Float = BACKWARD_JUMP_THRESHOLD_FRACTION): Int {
+    if (blocks.size < 2) return 0
+    var jumps = 0
+    for (i in 0 until blocks.size - 1) {
+        val current = blocks[i]
+        val next = blocks[i + 1]
+        if (current.bottomF - next.topF > backwardJumpThreshold) jumps++
+    }
+    return jumps
+}
+
+/** Zlomek výšky stránky - pod touhle mezí je "zpětný" skok jen normální nepřesnost řádkového shlukování, ne panelová hranice. */
+private const val BACKWARD_JUMP_THRESHOLD_FRACTION = 0.08f

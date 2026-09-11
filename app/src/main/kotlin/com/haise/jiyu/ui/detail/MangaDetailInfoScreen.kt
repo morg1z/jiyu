@@ -33,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -146,11 +148,13 @@ fun MangaDetailInfoScreen(
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
+    var contextNoteText by remember(manga) { mutableStateOf(manga?.translationContextNote ?: "") }
     var addTagText by remember { mutableStateOf("") }
     var showAddTagField by remember { mutableStateOf(false) }
     var showAddGlossaryField by remember { mutableStateOf(false) }
     var glossarySourceText by remember { mutableStateOf("") }
     var glossaryTargetText by remember { mutableStateOf("") }
+    var glossaryProtectExact by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Box(
@@ -752,11 +756,24 @@ fun MangaDetailInfoScreen(
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
-                                    Row(modifier = Modifier.padding(top = 4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                        Checkbox(
+                                            checked = glossaryProtectExact,
+                                            onCheckedChange = { glossaryProtectExact = it },
+                                            modifier = Modifier.size(28.dp),
+                                            colors = CheckboxDefaults.colors(checkedColor = GlowCyan, uncheckedColor = TextSecondary),
+                                        )
+                                        Text(
+                                            stringResource(R.string.reader_glossary_protect_label),
+                                            color = TextSecondary,
+                                            fontSize = 11.sp,
+                                            modifier = Modifier.padding(start = 2.dp, end = 8.dp),
+                                        )
                                         TextButton(onClick = {
-                                            viewModel.addGlossaryEntry(glossarySourceText, glossaryTargetText, defaultTargetLanguage)
+                                            viewModel.addGlossaryEntry(glossarySourceText, glossaryTargetText, defaultTargetLanguage, glossaryProtectExact)
                                             glossarySourceText = ""
                                             glossaryTargetText = ""
+                                            glossaryProtectExact = false
                                             showAddGlossaryField = false
                                         }) { Text(stringResource(R.string.detail_info_add_to_glossary, defaultTargetLanguage), color = GlowCyan, fontSize = 12.sp) }
                                     }
@@ -782,6 +799,16 @@ fun MangaDetailInfoScreen(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
+                                            IconButton(onClick = { viewModel.toggleGlossaryProtectExact(entry) }, modifier = Modifier.size(24.dp)) {
+                                                Icon(
+                                                    if (entry.protectExact) TablerIcons.Lock else TablerIcons.LockOpen,
+                                                    contentDescription = stringResource(
+                                                        if (entry.protectExact) R.string.reader_glossary_protect_on_description else R.string.reader_glossary_protect_off_description,
+                                                    ),
+                                                    tint = if (entry.protectExact) GlowCyan else TextSecondary,
+                                                    modifier = Modifier.size(13.dp),
+                                                )
+                                            }
                                             IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
                                                 Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(13.dp))
                                             }
@@ -790,6 +817,47 @@ fun MangaDetailInfoScreen(
                                 }
                             } else if (!showAddGlossaryField) {
                                 Text(stringResource(R.string.detail_info_no_glossary), color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // ── Kontext pro AI překladač ─────────────────────────────────
+                    // Na rozdíl od Poznámek níže (čistě soukromé, nikam se neposílají) tenhle
+                    // text jde modelu při KAŽDÉM překladu (viz GeminiUltraPrompt.buildMangaContext)
+                    // - proto samostatná sekce s jasným popiskem, ne recyklace soukromé poznámky.
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(text = stringResource(R.string.detail_info_section_translation_context), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
+                            Text(
+                                stringResource(R.string.detail_info_translation_context_hint),
+                                color = TextSecondary.copy(alpha = 0.6f),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            BasicTextField(
+                                value = contextNoteText,
+                                onValueChange = { contextNoteText = it },
+                                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
+                                decorationBox = { inner ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.White.copy(alpha = 0.04f))
+                                            .border(1.dp, GlowCyan.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                                            .padding(12.dp),
+                                    ) {
+                                        if (contextNoteText.isEmpty()) Text(stringResource(R.string.detail_info_translation_context_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
+                                        inner()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (contextNoteText != (manga?.translationContextNote ?: "")) {
+                                TextButton(
+                                    onClick = { viewModel.setTranslationContextNote(contextNoteText) },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) { Text(stringResource(R.string.common_save), color = GlowCyan) }
                             }
                         }
                     }

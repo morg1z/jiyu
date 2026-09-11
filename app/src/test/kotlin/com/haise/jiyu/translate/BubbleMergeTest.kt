@@ -252,4 +252,56 @@ class BubbleMergeTest {
         assertTrue("skutecna zed mezi bublinami musi zasahnout vetsinu z 5 vzorku", reportedHits!! > 2)
         assertEquals(true, reportedWall)
     }
+
+    // ── yoloBoxIndexContaining / linesInDifferentYoloBoxes (viz item 8: druhá detekce jako korekce) ──
+
+    private fun yoloBox(left: Float, top: Float, right: Float, bottom: Float) =
+        DetectedBubbleBox(leftF = left, topF = top, rightF = right, bottomF = bottom, classId = 0, score = 0.9f)
+
+    @Test
+    fun `a line whose center falls inside a box resolves to that box's index`() {
+        val boxes = listOf(yoloBox(0f, 0f, 0.5f, 0.5f), yoloBox(0.5f, 0.5f, 1f, 1f))
+        val line = block("text", 0.1f, 0.1f, 0.3f, 0.3f)
+        assertEquals(0, yoloBoxIndexContaining(line, boxes))
+    }
+
+    @Test
+    fun `a line whose center falls outside every box resolves to null`() {
+        val boxes = listOf(yoloBox(0f, 0f, 0.2f, 0.2f))
+        val line = block("text", 0.6f, 0.6f, 0.8f, 0.8f)
+        assertEquals(null, yoloBoxIndexContaining(line, boxes))
+    }
+
+    @Test
+    fun `two lines in two different YOLO boxes veto the merge`() {
+        val boxes = listOf(yoloBox(0f, 0f, 1f, 0.3f), yoloBox(0f, 0.7f, 1f, 1f))
+        val a = block("first bubble", 0.1f, 0.1f, 0.9f, 0.2f)
+        val b = block("second bubble", 0.1f, 0.8f, 0.9f, 0.9f)
+        assertTrue(linesInDifferentYoloBoxes(a, b, boxes))
+    }
+
+    @Test
+    fun `two lines in the same YOLO box do not veto the merge`() {
+        val boxes = listOf(yoloBox(0f, 0f, 1f, 1f))
+        val a = block("line one", 0.1f, 0.1f, 0.9f, 0.2f)
+        val b = block("line two", 0.1f, 0.3f, 0.9f, 0.4f)
+        assertFalse(linesInDifferentYoloBoxes(a, b, boxes))
+    }
+
+    @Test
+    fun `a missing YOLO signal for either line never vetoes the merge`() {
+        // Nejisty/chybejici YOLO box neveta - jinak by nedostatek signalu rozbil jinak
+        // spravne slouceni (viz doc komentar linesInDifferentYoloBoxes).
+        val boxes = listOf(yoloBox(0f, 0f, 0.2f, 0.2f))
+        val a = block("inside the box", 0.05f, 0.05f, 0.15f, 0.15f)
+        val b = block("far outside any box", 0.6f, 0.6f, 0.8f, 0.8f)
+        assertFalse(linesInDifferentYoloBoxes(a, b, boxes))
+    }
+
+    @Test
+    fun `no YOLO boxes at all never vetoes the merge`() {
+        val a = block("A", 0.1f, 0.1f, 0.2f, 0.2f)
+        val b = block("B", 0.7f, 0.7f, 0.8f, 0.8f)
+        assertFalse(linesInDifferentYoloBoxes(a, b, emptyList()))
+    }
 }

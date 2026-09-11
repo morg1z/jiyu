@@ -221,6 +221,26 @@
     <string name="settings_reader_theme_sepia">Sépia</string>
     <string name="settings_reader_theme_paper">Papír</string>
     <string name="settings_reader_translate_section_title">Překlad</string>
+    <string name="settings_reader_custom_font_title">Vlastní font</string>
+    <string name="settings_reader_custom_font_desc">Nahraj vlastní .ttf/.otf soubor přes přímý odkaz (https) - nahradí vestavěný komiksový font ve všech bublinách.</string>
+    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
+    <string name="settings_reader_custom_font_apply">Stáhnout a použít</string>
+    <string name="settings_reader_custom_font_clear">Zrušit vlastní font</string>
+    <string name="settings_reader_custom_font_loading">Stahuji a ověřuji…</string>
+    <string name="settings_reader_custom_font_success">Font úspěšně nastaven.</string>
+    <string name="settings_reader_custom_font_error">Nepodařilo se stáhnout font: %1$s</string>
+    <string name="settings_reader_custom_font_active">Aktivní font: %1$s</string>
+    <string name="settings_reader_byok_title">Vlastní AI klíč (BYOK)</string>
+    <string name="settings_reader_byok_desc">Volitelná záloha PŘED offline překladem, pro případ, že appce dojde sdílená bezplatná kvóta. Vlastní placený/self-hosted endpoint, kompatibilní s OpenAI chat-completions API. Nikdy není výchozí ani povinné.</string>
+    <string name="settings_reader_byok_enable">Použít vlastní endpoint</string>
+    <string name="settings_reader_byok_base_url_label">Base URL</string>
+    <string name="settings_reader_byok_base_url_placeholder">https://api.openai.com/v1</string>
+    <string name="settings_reader_byok_model_label">Model</string>
+    <string name="settings_reader_byok_model_placeholder">gpt-4o-mini</string>
+    <string name="settings_reader_byok_api_key_label">API klíč</string>
+    <string name="settings_reader_byok_api_key_placeholder">sk-…</string>
+    <string name="settings_reader_byok_api_key_saved_placeholder">•••• (uloženo, nech prázdné pro zachování)</string>
+    <string name="settings_reader_byok_clear_key">Smazat klíč</string>
 
     <!-- Settings: Uložiště -->
     <string name="settings_storage_translation_cache_title">Cache překladů</string>
@@ -600,6 +620,9 @@
     <string name="detail_info_glossary_target_placeholder">Překlad (Sung Jin-woo)</string>
     <string name="detail_info_add_to_glossary">Přidat do slovníku (%1$s)</string>
     <string name="detail_info_no_glossary">Žádné pojmy ve slovníku</string>
+    <string name="detail_info_section_translation_context">KONTEXT PRO PŘEKLADAČ</string>
+    <string name="detail_info_translation_context_hint">Tenhle text appka posílá AI při každém překladu - věci, které si sama domyslet nemůže.</string>
+    <string name="detail_info_translation_context_placeholder">Např. "hlavní hrdina je ve skutečnosti žena v přestrojení"…</string>
     <string name="detail_info_section_notes">POZNÁMKY</string>
     <string name="detail_info_note_placeholder">Přidej poznámku k tomuto mangu…</string>
     <string name="detail_info_section_downloads">STAHOVÁNÍ</string>
@@ -747,6 +770,9 @@
     <string name="reader_glossary_translation_placeholder">Překlad</string>
     <string name="reader_glossary_add_button">Přidat (%1$s)</string>
     <string name="reader_glossary_empty">Zatím žádné pojmy ve slovníku.</string>
+    <string name="reader_glossary_protect_label">Nesklonovat (přesně)</string>
+    <string name="reader_glossary_protect_on_description">Pojem je chráněný před ohýbáním - klepnutím zruší</string>
+    <string name="reader_glossary_protect_off_description">Pojem se může skloňovat - klepnutím ochrání přesné znění</string>
     <string name="reader_share_link">Sdílet odkaz</string>
     <string name="reader_save_to_gallery">Uložit do galerie</string>
     <string name="reader_page_content_desc">Stránka %1$d</string>
@@ -1097,6 +1123,9 @@
     <string name="reader_edit_bubble_title">Upravit překlad</string>
     <string name="reader_edit_bubble_label">Český text</string>
     <string name="reader_edit_bubble_hint">Prázdné pole vrátí strojový překlad.</string>
+    <string name="reader_retranslate_page">Přeložit celou stránku znovu</string>
+    <string name="reader_bubble_position_label">Pozice bubliny (přetáhni tečku)</string>
+    <string name="reader_bubble_position_reset">Zpět na výchozí</string>
     <string name="detail_translate_next_n">Přeložit dopředu…</string>
     <string name="detail_translate_next_n_title">Kolik kapitol přeložit?</string>
     <string name="translate_worker_notification_title">Překlad – %1$s</string>

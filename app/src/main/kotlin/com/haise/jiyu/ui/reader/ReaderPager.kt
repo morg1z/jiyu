@@ -122,7 +122,7 @@ fun MangaReader(
     volumeKeysNav: Boolean = true,
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit = { _, _, _ -> },
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
@@ -355,7 +355,7 @@ fun MangaGroupContent(
     textScale: Float,
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String) -> Unit,
+    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     // Viz RetryableAsyncImage.onLoadedChange - curl čtečky tímhle poznají, kdy je bezpečné
     // (znovu) zamrazit skupinu do bitmapy pro ohýbání, místo aby zamrzly prázdný/rozsypaný
     // placeholder navždy.

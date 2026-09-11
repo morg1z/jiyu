@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -31,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.GlossaryEntity
 import compose.icons.TablerIcons
+import compose.icons.tablericons.Lock
+import compose.icons.tablericons.LockOpen
 import compose.icons.tablericons.X
 
 // ── Slovník AI překladu - rychlý přístup přímo z čtečky ─────────────────────
@@ -41,12 +45,14 @@ import compose.icons.tablericons.X
 fun GlossaryBottomSheet(
     glossary: List<GlossaryEntity>,
     targetLanguage: String,
-    onAdd: (String, String) -> Unit,
+    onAdd: (String, String, Boolean) -> Unit,
     onRemove: (GlossaryEntity) -> Unit,
+    onToggleProtectExact: (GlossaryEntity) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     var sourceText by remember { mutableStateOf("") }
     var targetText by remember { mutableStateOf("") }
+    var protectExact by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -90,11 +96,26 @@ fun GlossaryBottomSheet(
                     ),
                 )
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = protectExact,
+                    onCheckedChange = { protectExact = it },
+                    modifier = Modifier.size(32.dp),
+                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFF8B5CF6), uncheckedColor = Color(0xFFB0BEC5)),
+                )
+                Text(
+                    stringResource(R.string.reader_glossary_protect_label),
+                    color = Color(0xFFB0BEC5),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             TextButton(onClick = {
                 if (sourceText.isNotBlank() && targetText.isNotBlank()) {
-                    onAdd(sourceText, targetText)
+                    onAdd(sourceText, targetText, protectExact)
                     sourceText = ""
                     targetText = ""
+                    protectExact = false
                 }
             }) { Text(stringResource(R.string.reader_glossary_add_button, targetLanguage), color = Color(0xFF8B5CF6)) }
 
@@ -111,6 +132,16 @@ fun GlossaryBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("${entry.sourceTerm} → ${entry.targetTerm}", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onToggleProtectExact(entry) }, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                if (entry.protectExact) TablerIcons.Lock else TablerIcons.LockOpen,
+                                contentDescription = stringResource(
+                                    if (entry.protectExact) R.string.reader_glossary_protect_on_description else R.string.reader_glossary_protect_off_description,
+                                ),
+                                tint = if (entry.protectExact) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
                         IconButton(onClick = { onRemove(entry) }, modifier = Modifier.size(24.dp)) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
                         }

@@ -96,10 +96,74 @@ class SettingsViewModel @Inject constructor(
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
+    private val customFontRepository: com.haise.jiyu.translate.CustomFontRepository,
+    private val byokTranslateClient: com.haise.jiyu.translate.ByokTranslateClient,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
         .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
+
+    // ── Vlastní font pro bubliny v čtečce (viz CustomFontRepository, item 15) ──
+    val customFontUrl: StateFlow<String> = settings.customFontUrl
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    private val _customFontStatus = MutableStateFlow<CustomFontStatus>(CustomFontStatus.Idle)
+    val customFontStatus: StateFlow<CustomFontStatus> = _customFontStatus.asStateFlow()
+
+    /** Stáhne a ověří font z [url] - URL se v nastavení uloží až po úspěchu, viz [CustomFontRepository.downloadAndApply]. */
+    fun applyCustomFont(url: String) {
+        if (url.isBlank()) return
+        _customFontStatus.value = CustomFontStatus.Loading
+        viewModelScope.launch {
+            val result = customFontRepository.downloadAndApply(url.trim())
+            _customFontStatus.value = result.fold(
+                onSuccess = { CustomFontStatus.Success },
+                onFailure = { CustomFontStatus.Error(it.message ?: "unknown error") },
+            )
+        }
+    }
+
+    fun clearCustomFont() {
+        viewModelScope.launch {
+            customFontRepository.clearCustomFont()
+            _customFontStatus.value = CustomFontStatus.Idle
+        }
+    }
+
+    // ── "Bring your own key" vlastní LLM endpoint (viz ByokTranslateClient, item 14) ──
+    val byokEnabled: StateFlow<Boolean> = settings.byokEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val byokBaseUrl: StateFlow<String> = settings.byokBaseUrl
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+    val byokModel: StateFlow<String> = settings.byokModel
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /** true = appka má uložený API klíč (obsah samotný se čte jen při skutečném překladu, ne do UI). */
+    private val _byokHasApiKey = MutableStateFlow(!byokTranslateClient.apiKey().isNullOrBlank())
+    val byokHasApiKey: StateFlow<Boolean> = _byokHasApiKey.asStateFlow()
+
+    fun setByokEnabled(enabled: Boolean) = viewModelScope.launch { settings.setByokEnabled(enabled) }
+
+    /**
+     * Uloží konfiguraci najednou (URL/model nešifrovaně do DataStore, klíč šifrovaně do
+     * [com.haise.jiyu.security.SecureCredentialStore] - viz [ByokTranslateClient]). Prázdný
+     * klíč = ponechat stávající (uživatel needituje pole při každé změně URL).
+     */
+    fun saveByokConfig(baseUrl: String, model: String, apiKey: String) {
+        viewModelScope.launch {
+            settings.setByokBaseUrl(baseUrl.trim())
+            settings.setByokModel(model.trim())
+            if (apiKey.isNotBlank()) {
+                byokTranslateClient.setApiKey(apiKey.trim())
+                _byokHasApiKey.value = true
+            }
+        }
+    }
+
+    fun clearByokApiKey() {
+        byokTranslateClient.clearApiKey()
+        _byokHasApiKey.value = false
+    }
 
     val theme: StateFlow<String> = settings.theme
         .stateIn(viewModelScope, SharingStarted.Eagerly, "system")
@@ -693,4 +757,12 @@ class SettingsViewModel @Inject constructor(
         }
         updateInstaller.startDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion)
     }
+}
+
+/** Stav stahování/ověřování vlastního fontu - viz [SettingsViewModel.applyCustomFont]. */
+sealed interface CustomFontStatus {
+    data object Idle : CustomFontStatus
+    data object Loading : CustomFontStatus
+    data object Success : CustomFontStatus
+    data class Error(val message: String) : CustomFontStatus
 }

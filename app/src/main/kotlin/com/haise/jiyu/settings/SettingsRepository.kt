@@ -42,6 +42,10 @@ object SettingsKeys {
     val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
     val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
     val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
+    val CUSTOM_FONT_URL        = stringPreferencesKey("custom_font_url")
+    val BYOK_ENABLED           = booleanPreferencesKey("byok_enabled")
+    val BYOK_BASE_URL          = stringPreferencesKey("byok_base_url")
+    val BYOK_MODEL             = stringPreferencesKey("byok_model")
     val PAGE_SCALE             = stringPreferencesKey("page_scale")
     val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
     val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
@@ -307,6 +311,39 @@ class SettingsRepository @Inject constructor(
 
     val customCss: Flow<String> =
         dataStore.data.map { it[SettingsKeys.CUSTOM_CSS] ?: "" }
+
+    /**
+     * URL fontu, který si uživatel nahrál pro bubliny v čtečce (viz
+     * [com.haise.jiyu.translate.CustomFontRepository]) - prázdné/chybějící = žádný, render
+     * zůstává na vestavěné sadě Comic Neue/Exo2. Uloží se AŽ PO úspěšném stažení a ověření
+     * (viz [com.haise.jiyu.translate.CustomFontRepository.downloadAndApply]), takže tenhle
+     * flow nikdy neukazuje na URL, pro kterou appka nemá stažený, použitelný soubor.
+     */
+    val customFontUrl: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.CUSTOM_FONT_URL] ?: "" }
+
+    suspend fun setCustomFontUrl(url: String) =
+        dataStore.edit { it[SettingsKeys.CUSTOM_FONT_URL] = url }
+
+    /**
+     * Volitelný vlastní ("bring your own key") LLM endpoint jako poslední záloha PŘED
+     * on-device ML Kit (viz [com.haise.jiyu.translate.ByokTranslateClient], item 14). Samotný
+     * API klíč tady NENÍ - ten žije v [com.haise.jiyu.security.SecureCredentialStore]
+     * (šifrovaně přes Android Keystore), tohle jsou jen netajné konfigurační hodnoty.
+     */
+    val byokEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.BYOK_ENABLED] ?: false }
+    val byokBaseUrl: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.BYOK_BASE_URL] ?: "" }
+    val byokModel: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.BYOK_MODEL] ?: "" }
+
+    suspend fun setByokEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.BYOK_ENABLED] = enabled }
+    suspend fun setByokBaseUrl(url: String) =
+        dataStore.edit { it[SettingsKeys.BYOK_BASE_URL] = url }
+    suspend fun setByokModel(model: String) =
+        dataStore.edit { it[SettingsKeys.BYOK_MODEL] = model }
 
     suspend fun setWeeklyGoal(chapters: Int) =
         dataStore.edit { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] = chapters }

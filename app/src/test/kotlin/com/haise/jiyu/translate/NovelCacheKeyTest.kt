@@ -18,6 +18,7 @@ import org.junit.Test
 class NovelCacheKeyTest {
 
     private fun repository() = TranslateRepository(
+        context = mockk(relaxed = true),
         ocrEngine = mockk(relaxed = true),
         pageBitmapLoader = mockk(relaxed = true),
         groqClient = mockk(relaxed = true),
@@ -28,6 +29,7 @@ class NovelCacheKeyTest {
         dao = mockk(relaxed = true),
         novelDao = mockk(relaxed = true),
         manualDao = mockk(relaxed = true),
+        byokClient = mockk(relaxed = true),
     )
 
     @Test

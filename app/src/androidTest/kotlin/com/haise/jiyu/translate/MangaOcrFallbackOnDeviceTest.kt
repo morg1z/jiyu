@@ -62,10 +62,12 @@ class MangaOcrFallbackOnDeviceTest {
             targetContext,
             "models/comic_bubble_detector.onnx",
             "models/manga_ocr_encoder.onnx",
-            "models/manga_ocr_decoder.onnx",
+            "models/manga_ocr_decoder_init.onnx",
+            "models/manga_ocr_decoder_step.onnx",
         )
         val bubbleBoxDetector = BubbleBoxDetector(targetContext)
         val engine = OcrEngine(
+            targetContext,
             BubbleMaskSegmenter(targetContext),
             bubbleBoxDetector,
             MangaOcrPipeline(targetContext, bubbleBoxDetector),
@@ -86,7 +88,7 @@ class MangaOcrFallbackOnDeviceTest {
         // assets/models/ * .onnx zabundlovane, takze kazde recognizeCrop uvnitr selze na
         // chybejicim souboru a vrati null (viz MangaOcrPipeline - nikdy nevyhazuje).
         val brokenPipeline = MangaOcrPipeline(instrumentationContext, bubbleBoxDetector)
-        val engine = OcrEngine(BubbleMaskSegmenter(targetContext), bubbleBoxDetector, brokenPipeline)
+        val engine = OcrEngine(targetContext, BubbleMaskSegmenter(targetContext), bubbleBoxDetector, brokenPipeline)
 
         val blocks = engine.recognize(pageWithJapaneseBubble(), "Japanese")
         Log.i("MangaOcrFallbackProbe", "fallback path nalezl bloku: ${blocks.size}")

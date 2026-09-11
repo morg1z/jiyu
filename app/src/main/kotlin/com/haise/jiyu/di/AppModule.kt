@@ -60,6 +60,19 @@ import javax.inject.Singleton
 @Retention(AnnotationRetention.BINARY)
 annotation class ImageHttpClient
 
+/**
+ * Klient pro volitelný "bring your own key" vlastní LLM endpoint (viz [com.haise.jiyu.translate.ByokTranslateClient],
+ * item 14 v plánu) - uživatelem zadaná URL, klidně lokální síť/self-hosted server (Ollama,
+ * LM Studio...), ne veřejné CDN za Cloudflare. Proto BEZ [CloudflareInterceptor]/vlastního
+ * DNS (mohly by rozbít resolving lokální/privátní adresy) a BEZ [RetryInterceptor] (opakování
+ * requestu na PLACENÉ uživatelovo API při network chybě by ho mohlo zbytečně vyúčtovat
+ * dvakrát) - jen delší read timeout, protože lokální/pomalejší modely můžou generovat desítky
+ * sekund.
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class LlmHttpClient
+
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 /** Jednoduchý retry interceptor — opakuje síťový požadavek při IOException (timeout, DNS, ...). */
@@ -307,6 +320,14 @@ object AppModule {
 
     @Provides
     @Singleton
+    @LlmHttpClient
+    fun provideLlmHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .build()
+
+    @Provides
+    @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "jiyu.db")
             .addMigrations(
@@ -342,6 +363,10 @@ object AppModule {
                 AppDatabase.MIGRATION_32_33,
                 AppDatabase.MIGRATION_33_34,
                 AppDatabase.MIGRATION_34_35,
+                AppDatabase.MIGRATION_35_36,
+                AppDatabase.MIGRATION_36_37,
+                AppDatabase.MIGRATION_37_38,
+                AppDatabase.MIGRATION_38_39,
             )
             .build()
 

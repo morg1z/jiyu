@@ -193,6 +193,26 @@
     <string name="settings_reader_theme_sepia">Sepia</string>
     <string name="settings_reader_theme_paper">Paper</string>
     <string name="settings_reader_translate_section_title">Translation</string>
+    <string name="settings_reader_custom_font_title">Custom font</string>
+    <string name="settings_reader_custom_font_desc">Upload your own .ttf/.otf via a direct link (https) - replaces the built-in comic font in every bubble.</string>
+    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
+    <string name="settings_reader_custom_font_apply">Download and apply</string>
+    <string name="settings_reader_custom_font_clear">Remove custom font</string>
+    <string name="settings_reader_custom_font_loading">Downloading and verifying…</string>
+    <string name="settings_reader_custom_font_success">Font applied successfully.</string>
+    <string name="settings_reader_custom_font_error">Couldn\'t download the font: %1$s</string>
+    <string name="settings_reader_custom_font_active">Active font: %1$s</string>
+    <string name="settings_reader_byok_title">Bring your own key (BYOK)</string>
+    <string name="settings_reader_byok_desc">Optional fallback BEFORE offline translation, in case the app runs out of shared free quota. Your own paid/self-hosted endpoint, compatible with the OpenAI chat-completions API. Never the default, never required.</string>
+    <string name="settings_reader_byok_enable">Use a custom endpoint</string>
+    <string name="settings_reader_byok_base_url_label">Base URL</string>
+    <string name="settings_reader_byok_base_url_placeholder">https://api.openai.com/v1</string>
+    <string name="settings_reader_byok_model_label">Model</string>
+    <string name="settings_reader_byok_model_placeholder">gpt-4o-mini</string>
+    <string name="settings_reader_byok_api_key_label">API key</string>
+    <string name="settings_reader_byok_api_key_placeholder">sk-…</string>
+    <string name="settings_reader_byok_api_key_saved_placeholder">•••• (saved, leave empty to keep it)</string>
+    <string name="settings_reader_byok_clear_key">Delete key</string>
 
     <!-- Settings: Storage -->
     <string name="settings_storage_translation_cache_title">Translation cache</string>
@@ -566,6 +586,9 @@
     <string name="detail_info_glossary_target_placeholder">Translation (Sung Jin-woo)</string>
     <string name="detail_info_add_to_glossary">Add to glossary (%1$s)</string>
     <string name="detail_info_no_glossary">No terms in the glossary</string>
+    <string name="detail_info_section_translation_context">TRANSLATOR CONTEXT</string>
+    <string name="detail_info_translation_context_hint">This text is sent to the AI on every translation - things it can\'t figure out on its own.</string>
+    <string name="detail_info_translation_context_placeholder">E.g. "the main character is actually a woman in disguise"…</string>
     <string name="detail_info_section_notes">NOTES</string>
     <string name="detail_info_note_placeholder">Add a note for this manga…</string>
     <string name="detail_info_section_downloads">DOWNLOADS</string>
@@ -693,6 +716,9 @@
     <string name="reader_glossary_translation_placeholder">Translation</string>
     <string name="reader_glossary_add_button">Add (%1$s)</string>
     <string name="reader_glossary_empty">No terms in the glossary yet.</string>
+    <string name="reader_glossary_protect_label">Don\'t inflect (exact)</string>
+    <string name="reader_glossary_protect_on_description">Term is protected from inflection - tap to turn off</string>
+    <string name="reader_glossary_protect_off_description">Term may be inflected - tap to protect its exact wording</string>
     <string name="reader_share_link">Share link</string>
     <string name="reader_save_to_gallery">Save to gallery</string>
     <string name="reader_page_content_desc">Page %1$d</string>
@@ -1064,6 +1090,9 @@
     <string name="reader_edit_bubble_title">Edit translation</string>
     <string name="reader_edit_bubble_label">Translated text</string>
     <string name="reader_edit_bubble_hint">Leave empty to restore the machine translation.</string>
+    <string name="reader_retranslate_page">Retranslate this whole page</string>
+    <string name="reader_bubble_position_label">Bubble position (drag the dot)</string>
+    <string name="reader_bubble_position_reset">Reset position</string>
     <string name="detail_translate_next_n">Translate ahead…</string>
     <string name="detail_translate_next_n_title">How many chapters?</string>
     <string name="translate_worker_notification_title">Translating – %1$s</string>
