@@ -86,8 +86,8 @@
 -keep class io.ktor.client.** { *; }
 
 # Supabase
--dontwarn io.github.jan.tennert.supabase.**
--keep class io.github.jan.tennert.supabase.** { *; }
+-dontwarn io.github.jan.supabase.**
+-keep class io.github.jan.supabase.** { *; }
 
 # ZXing (QR code generation)
 -dontwarn com.google.zxing.**

@@ -72,21 +72,63 @@ object ChapterStorage {
         return dir.absolutePath
     }
 
-    fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray) {
+    /**
+     * Zapíše jednu stránku na disk. Vrací `false`, pokud zápis v SAF režimu tiše selže
+     * (DocumentFile/openOutputStream může vrátit null bez vyhození výjimky - typicky
+     * plná/odpojená cílová složka, zrušené oprávnění k URI) - volající (viz
+     * [com.haise.jiyu.download.ChapterDownloadWorker]) na `false` reaguje jako na chybu
+     * stahování, místo aby kapitolu omylem označil za kompletně staženou s chybějící
+     * stránkou. Plain-`File` větev `false` nikdy nevrací - `writeBytes` při selhání sama
+     * vyhodí výjimku, která propadne stejnou cestou výš.
+     */
+    fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray): Boolean {
         if (isSaf(dirPath)) {
-            val dir = DocumentFile.fromSingleUri(context, Uri.parse(dirPath)) ?: return
+            val dir = DocumentFile.fromSingleUri(context, Uri.parse(dirPath)) ?: return false
             val mime = when (fileName.substringAfterLast('.', "").lowercase()) {
                 "png" -> "image/png"
                 "webp" -> "image/webp"
                 "gif" -> "image/gif"
                 else -> "image/jpeg"
             }
-            val file = dir.createFile(mime, fileName) ?: return
-            context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) }
+            val file = dir.createFile(mime, fileName) ?: return false
+            return context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) } != null
         } else {
             File(dirPath, fileName).writeBytes(bytes)
+            return true
         }
     }
+
+    /** Už staženo z předchozího (přerušeného) pokusu - viz skip-already-downloaded logika ve worker page loopu. */
+    fun pageExists(context: Context, dirPath: String, fileName: String): Boolean {
+        return try {
+            if (isSaf(dirPath)) {
+                val file = DocumentFile.fromSingleUri(context, Uri.parse(dirPath))?.findFile(fileName)
+                file != null && file.exists() && file.length() > 0
+            } else {
+                val file = File(dirPath, fileName)
+                file.exists() && file.length() > 0
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Rychlý předletový kanárek PŘED stahováním - u plain-`File` úložiště ověří volné místo
+     * na cílovém filesystému, u SAF (může mířit i na synchronizovanou cloudovou složku,
+     * u které volné místo nejde spolehlivě zjistit) se vždy vrátí `true` a spoléhá se na
+     * ENOSPC detekci v [com.haise.jiyu.download.ChapterDownloadWorker] až při samotném zápisu.
+     */
+    fun hasEnoughFreeSpace(dirPath: String, minFreeBytes: Long = MIN_FREE_BYTES_FOR_DOWNLOAD): Boolean {
+        if (isSaf(dirPath)) return true
+        return try {
+            File(dirPath).usableSpace >= minFreeBytes
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    private const val MIN_FREE_BYTES_FOR_DOWNLOAD = 20L * 1024 * 1024
 
     /** Seřazený seznam URL/URI stránek pro čtečku - Coil umí načíst jak file://, tak content://. */
     fun listPageUrls(context: Context, dirPath: String): List<String> {

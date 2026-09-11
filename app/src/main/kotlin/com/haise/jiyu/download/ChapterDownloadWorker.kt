@@ -97,16 +97,29 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 }
                 val chapterDirPath = ChapterStorage.createChapterDir(applicationContext, downloadFolderUri, mangaTitle, chapterFolderName)
 
+                // Kanárek PŘED stahováním - selhání se dozvíme hned, ne až po 3 marných
+                // pokusech shodně léčených jako obyčejný síťový výpadek (viz níže ENOSPC vetev).
+                if (!ChapterStorage.hasEnoughFreeSpace(chapterDirPath)) {
+                    throw java.io.IOException("Nedostatek volného místa v úložišti")
+                }
+
                 pages.forEachIndexed { index, page ->
                     val imageUrl = page.imageUrl ?: page.url
-                    var bytes = downloadBytes(imageUrl)
-                    var extension = imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
+                    // Příponu/scramble lze určit čistě z URL bez síťového volání - umožňuje
+                    // zjistit cílové jméno souboru PŘED stahováním a přeskočit stránky, které
+                    // už jsou z předchozího (přerušeného) pokusu na disku hotové.
                     val scramble = ScrambledImageUrl.parse(imageUrl)
-                    if (scramble != null) {
-                        bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
-                        extension = "jpg"
+                    val extension = if (scramble != null) "jpg" else imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
+                    val fileName = "%03d.%s".format(index, extension)
+
+                    if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
+                        var bytes = downloadBytes(imageUrl)
+                        if (scramble != null) {
+                            bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
+                        }
+                        val written = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName, bytes)
+                        if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
                     }
-                    ChapterStorage.writePage(applicationContext, chapterDirPath, "%03d.%s".format(index, extension), bytes)
                     val fraction = (index + 1).toFloat() / pages.size
                     // Vlastní try/catch: zamítnuté POST_NOTIFICATIONS (Android 13+) by SecurityException
                     // z notify() jinak spadlo do stejného catch níž jako chyba stahování a shodilo by
@@ -152,6 +165,14 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 throw e
             } catch (e: Exception) {
                 nm.cancel(progressId)
+                // Plný disk se retryem samo nikdy nespraví (na rozdíl od síťového výpadku) -
+                // 3 marné pokusy by jen zbytečně stahovaly stránky znovu a skončily se
+                // zavádějící "neznámá chyba" hláškou místo skutečné příčiny.
+                if (isDiskFullError(e)) {
+                    repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
+                    if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, java.io.IOException("Nedostatek volného místa v úložišti", e))
+                    return@withContext Result.failure()
+                }
                 // Přechodná síťová chyba (výpadek, timeout, DNS) dostane pár automatických
                 // pokusů - dřív jakákoli chyba rovnou trvale selhala a uživatel musel
                 // vždycky stahování ručně spustit znovu, i u obyčejného zakolísání sítě.
@@ -189,6 +210,20 @@ class ChapterDownloadWorker @AssistedInject constructor(
             .build()
         applicationContext.getSystemService(NotificationManager::class.java)
             .notify(chapterId.hashCode() xor 0x2000, notification)
+    }
+
+    /**
+     * Java/Android nemá pro "plný disk" vlastní výjimku - `ENOSPC` se propaguje jako obyčejná
+     * [java.io.IOException], rozpoznatelná jen podle textu zprávy (`hasEnoughFreeSpace`
+     * předletový kanárek výše chytí většinu případů předem, tohle je záchranná síť pro to,
+     * co se zaplní ažpo startu stahování).
+     */
+    private fun isDiskFullError(e: Exception): Boolean {
+        if (e !is java.io.IOException) return false
+        val message = e.message ?: return false
+        return message.contains("ENOSPC", ignoreCase = true) ||
+            message.contains("No space left", ignoreCase = true) ||
+            message.contains("Nedostatek volného místa", ignoreCase = true)
     }
 
     private fun downloadBytes(url: String): ByteArray {

@@ -52,6 +52,9 @@ class JiyuApp : Application(), Configuration.Provider {
     /** Úklid jen prohlédnuté mangy při startu - viz [evictOldTranslationCache]. */
     @Inject lateinit var database: com.haise.jiyu.data.db.AppDatabase
 
+    /** Odblokování zaseknutých stahování při startu - viz [resetStuckDownloads]. */
+    @Inject lateinit var mangaRepository: com.haise.jiyu.data.repository.MangaRepository
+
     /**
      * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
      *
@@ -90,6 +93,7 @@ class JiyuApp : Application(), Configuration.Provider {
         scheduleChapterUpdates()
         initFirebase()
         evictOldTranslationCache()
+        resetStuckDownloads()
     }
 
     /**
@@ -148,6 +152,21 @@ class JiyuApp : Application(), Configuration.Provider {
             // nezařadil, nestáhl).
             runCatching { database.deleteBrowsedManga() }
                 .onFailure { it.report("db:evictBrowsedManga") }
+        }
+    }
+
+    /**
+     * Pokud appka spadla nebo byla zabita uprostřed stahování, kapitoly zůstanou navždy
+     * ve stavu QUEUED/DOWNLOADING - nic je jinak nevrací zpět a uživatel je vidí jako
+     * "stahuje se" bez jakéhokoli postupu. Jen resetuje DB stav zpět na NOT_DOWNLOADED;
+     * nemaže žádné soubory ani neřeší per-soubor stav (na rozdíl od
+     * [com.haise.jiyu.data.db.ChapterDao.resetDownloadForChapter], což je jiný, souborově
+     * uvědomělý mechanismus používaný jinde).
+     */
+    private fun resetStuckDownloads() {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            runCatching { mangaRepository.resetActiveDownloads() }
+                .onFailure { it.report("download:resetStuckDownloads") }
         }
     }
 

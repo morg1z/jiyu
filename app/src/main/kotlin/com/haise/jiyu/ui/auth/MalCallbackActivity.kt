@@ -20,11 +20,12 @@ class MalCallbackActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val code = intent?.data?.getQueryParameter("code")
+        val state = intent?.data?.getQueryParameter("state")
         if (code != null) {
             lifecycleScope.launch {
                 val clientId = BuildConfig.MAL_CLIENT_ID
                 if (clientId.isNotBlank()) {
-                    malAuthManager.handleCallback(code, clientId)
+                    malAuthManager.handleCallback(code, clientId, state)
                 }
                 startActivity(Intent(this@MalCallbackActivity, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP

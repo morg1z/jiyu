@@ -12,6 +12,7 @@ import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.security.SecureRandom
 import android.util.Base64
 import javax.inject.Inject
@@ -26,6 +27,7 @@ class MalAuthManager @Inject constructor(
         private const val KEY_ACCESS_TOKEN  = "mal_access_token"
         private const val KEY_REFRESH_TOKEN = "mal_refresh_token"
         private const val KEY_CODE_VERIFIER = "mal_code_verifier"
+        private const val KEY_OAUTH_STATE   = "mal_oauth_state"
         const val REDIRECT_URI = "jiyu://mal-auth"
         private const val TOKEN_URL = "https://myanimelist.net/v1/oauth2/token"
         private const val AUTH_URL   = "https://myanimelist.net/v1/oauth2/authorize"
@@ -35,24 +37,40 @@ class MalAuthManager @Inject constructor(
     val accessToken: Flow<String?> = _accessToken.asStateFlow()
     val isLoggedIn:  Flow<Boolean> = accessToken.map { !it.isNullOrBlank() }
 
-    private fun generateCodeVerifier(): String {
+    private fun randomUrlSafeToken(): String {
         val bytes = ByteArray(32)
         SecureRandom().nextBytes(bytes)
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
+    private fun codeChallengeS256(verifier: String): String {
+        val hash = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))
+        return Base64.encodeToString(hash, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
     suspend fun startOAuthFlow(clientId: String): Uri = withContext(Dispatchers.IO) {
-        val verifier = generateCodeVerifier()
+        val verifier = randomUrlSafeToken()
+        val state = randomUrlSafeToken()
         secureStore.set(KEY_CODE_VERIFIER, verifier)
+        secureStore.set(KEY_OAUTH_STATE, state)
         Uri.parse(
             "$AUTH_URL?response_type=code&client_id=$clientId" +
-            "&code_challenge=$verifier&code_challenge_method=plain" +
+            "&code_challenge=${codeChallengeS256(verifier)}&code_challenge_method=S256" +
+            "&state=${Uri.encode(state)}" +
             "&redirect_uri=${Uri.encode(REDIRECT_URI)}"
         )
     }
 
-    suspend fun handleCallback(code: String, clientId: String): Boolean = withContext(Dispatchers.IO) {
+    /**
+     * [state] musí přesně odpovídat hodnotě vygenerované v [startOAuthFlow] a uložené přes
+     * [SecureCredentialStore] - jinak jde o CSRF pokus (útočník podstrčí vlastní autorizační
+     * kód přes cizí redirect) a `code` se vůbec nesmí vyměnit za token. `null` (chybějící
+     * parametr v callbacku) se bere stejně jako neshoda.
+     */
+    suspend fun handleCallback(code: String, clientId: String, state: String?): Boolean = withContext(Dispatchers.IO) {
         val verifier = secureStore.get(KEY_CODE_VERIFIER) ?: return@withContext false
+        val expectedState = secureStore.get(KEY_OAUTH_STATE)
+        if (state.isNullOrBlank() || expectedState.isNullOrBlank() || state != expectedState) return@withContext false
         try {
             val body = FormBody.Builder()
                 .add("client_id", clientId)
@@ -69,6 +87,7 @@ class MalAuthManager @Inject constructor(
             secureStore.set(KEY_ACCESS_TOKEN, accessToken)
             if (refreshToken.isNotBlank()) secureStore.set(KEY_REFRESH_TOKEN, refreshToken)
             _accessToken.value = accessToken
+            secureStore.remove(KEY_CODE_VERIFIER, KEY_OAUTH_STATE)
             true
         } catch (_: Exception) { false }
     }
@@ -93,7 +112,7 @@ class MalAuthManager @Inject constructor(
     }
 
     suspend fun logout() = withContext(Dispatchers.IO) {
-        secureStore.remove(KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_CODE_VERIFIER)
+        secureStore.remove(KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_CODE_VERIFIER, KEY_OAUTH_STATE)
         _accessToken.value = null
     }
 }

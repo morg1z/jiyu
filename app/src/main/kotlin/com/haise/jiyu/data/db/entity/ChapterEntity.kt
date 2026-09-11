@@ -16,6 +16,7 @@ enum class DownloadStatus { NOT_DOWNLOADED, QUEUED, DOWNLOADING, DOWNLOADED, ERR
         Index("read"),
         Index("downloadStatus"),
         Index("dateUpload"),
+        Index("discoveredAt"),
     ],
 )
 data class ChapterEntity(
