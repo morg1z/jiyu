@@ -53,7 +53,8 @@ Tests: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
 - WorkManager - background chapter downloads and periodic new-chapter checks
 - OkHttp + Jsoup - HTTP and HTML parsing for sources without an official API
 - Coil - images, DataStore - settings
-- ML Kit Text Recognition (EN/JP/CN/KR) - on-device OCR
+- ML Kit Text Recognition (EN/CN/KR) plus a dedicated on-device manga OCR
+  model for Japanese - on-device OCR either way, no server round-trip
 - Gemini, Groq, OpenRouter, Cerebras and Mistral - five independent LLM
   providers chained together as translation fallbacks, all routed through a
   Supabase Edge Function acting as a proxy (the app never holds API keys,
@@ -78,14 +79,23 @@ speed, automatic advance to the next chapter, and background pre-translation
 of the next chapter so it's already waiting when you get there.
 
 **AI bubble translation** - OCR finds the text and the bubble's actual shape
-(not just a rectangular box), the LLM translates with context about the work
-and a glossary of proper nouns (the glossary learns new terms on the fly
-from the model's own answers), then the overlay renders the text back into
-the bubble shape with shrink-to-fit sizing. If one provider hits a rate
-limit, the chain automatically falls back to the next one. The renderer also
-catches and quietly fixes common translation-quality slips on its own -
-leftover untranslated text, stray punctuation dropped onto its own line,
-wrong spacing around punctuation, and words broken mid-way without a hyphen.
+(not just a rectangular box); Japanese has its own dedicated on-device OCR
+model tuned for manga lettering, with ML Kit's Japanese recognizer only as a
+fallback if it fails, times out, or the output looks degenerate (stuck in a
+repeating loop). The LLM translates with context about the work and a
+glossary of proper nouns (the glossary learns new terms on the fly from the
+model's own answers, and any entry can be marked "protected" so it's used
+exactly as written instead of being inflected by grammar), then the overlay
+renders the text back into the bubble shape with shrink-to-fit sizing. If
+one provider hits a rate limit, the chain automatically falls back to the
+next one. A translation that looks broken - a repeated/looping phrase, a
+dropped sentence, or a reply that came back in the wrong language entirely -
+gets silently retried before anything is shown. The renderer also catches
+and quietly fixes common translation-quality slips on its own - leftover
+untranslated text, stray punctuation dropped onto its own line, wrong
+spacing around punctuation, and words broken mid-way without a hyphen. If a
+page still comes out wrong, long-pressing a bubble opens an editor that can
+fix just that one line, or retranslate the whole page from scratch.
 
 **Offline downloads** - a WorkManager worker downloads a whole chapter in
 the background, optionally zips it into a `.cbz`. Chapters are saved under a
@@ -186,7 +196,8 @@ Testy: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
   pozadí
 - OkHttp + Jsoup - HTTP a HTML parsing pro zdroje bez oficiálního API
 - Coil - obrázky, DataStore - nastavení
-- ML Kit Text Recognition (EN/JP/CN/KR) - OCR přímo na zařízení
+- ML Kit Text Recognition (EN/CN/KR) plus vlastní on-device manga OCR model
+  pro japonštinu - OCR vždycky přímo na zařízení, bez volání serveru
 - Gemini, Groq, OpenRouter, Cerebras a Mistral - pět nezávislých LLM
   poskytovatelů zapojených jako zálohy za sebou, všechno přes Supabase Edge
   Function jako proxy (appka nikdy nedrží API klíče, klient jen volá vlastní
@@ -210,13 +221,23 @@ rychlost scrollování u webtoonu, automatický přechod na další kapitolu a
 přednačítání překladu další kapitoly na pozadí, aby byla hned připravená.
 
 **AI překlad bublin** - OCR najde text a skutečný tvar bubliny (ne jen
-obdélníkový box), LLM přeloží s ohledem na kontext díla a glosář vlastních
-jmen (glosář se učí za běhu z odpovědí modelu), overlay pak text vyrenderuje
-zpátky do tvaru bubliny se shrink-to-fit velikostí písma. Když jeden
-poskytovatel narazí na limit, řetězec automaticky zkusí dalšího. Vykreslovač
-si navíc sám hlídá a potichu opravuje časté chyby kvality překladu -
-nepřeložené zbytky původního textu, osamocenou interpunkci na vlastním
-řádku, špatné mezery kolem interpunkce a slova rozlomená napůl bez pomlčky.
+obdélníkový box); pro japonštinu appka používá vlastní OCR model přímo na
+zařízení, laděný na manga písmo - ML Kit japonský rozpoznávač zůstává jen
+jako záloha, když selže, vyprší mu čas, nebo výstup vypadá zdegenerovaně
+(zacyklený na dokola se opakující frázi). LLM přeloží s ohledem na kontext
+díla a glosář vlastních jmen (glosář se učí za běhu z odpovědí modelu a
+kterýkoli záznam jde označit jako "chráněný", takže se použije přesně tak,
+jak je napsaný, místo aby ho appka skloňovala), overlay pak text
+vyrenderuje zpátky do tvaru bubliny se shrink-to-fit velikostí písma. Když
+jeden poskytovatel narazí na limit, řetězec automaticky zkusí dalšího.
+Překlad, který vypadá rozbitě - opakující se/zacyklená fráze, ztracená věta,
+nebo odpověď vrácená rovnou v úplně jiném jazyce - se potichu zkusí přeložit
+znovu, ještě než se vůbec zobrazí. Vykreslovač si navíc sám hlídá a potichu
+opravuje časté chyby kvality překladu - nepřeložené zbytky původního textu,
+osamocenou interpunkci na vlastním řádku, špatné mezery kolem interpunkce a
+slova rozlomená napůl bez pomlčky. Když i tak stránka vyjde špatně, dlouhý
+stisk na bublinu otevře editor, který umí opravit jen tenhle jeden řádek,
+nebo přeložit celou stránku úplně znovu.
 
 **Offline stahování** - WorkManager worker stáhne celou kapitolu na pozadí,
 volitelně zabalí do `.cbz`. Kapitoly se ukládají pod čitelnou strukturou
