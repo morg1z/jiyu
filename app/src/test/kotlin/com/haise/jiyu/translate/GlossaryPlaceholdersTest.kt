@@ -67,6 +67,17 @@ class GlossaryPlaceholdersTest {
         assertTrue("expected the whole longer term replaced by exactly one token, got \"$text\"", Regex("^__JIYU_PROTECT_\\d+__ carried the ring\\.$").matches(text))
     }
 
+    @Test
+    fun `a bubble shouting the protected term in all caps is still protected`() {
+        // Bez case-insensitive shody by "FRODO" (bezna stylizace kriku v manze) nikdy
+        // nenaslo shodu s glosarovym "Frodo" a protectExact by ji tise nechranil.
+        val bubbles = listOf(classified("FRODO WENT HOME."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo")))
+        val text = substitution.classified[0].raw.text
+        assertTrue("expected a placeholder token, got \"$text\"", text.startsWith("__JIYU_PROTECT_"))
+        assertTrue(text.endsWith(" WENT HOME."))
+    }
+
     // ── restoreResponse (echo-based Gemini path) ──
 
     @Test

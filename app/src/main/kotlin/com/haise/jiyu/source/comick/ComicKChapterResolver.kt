@@ -115,7 +115,9 @@ class ComicKChapterResolver @Inject constructor(
      * `is_default: true`). Bez alternativních názvů by přesná shoda selhala úplně, i když
      * reálný zdroj existuje. Dotažení alt. názvů (+ content_rating, viz níže) je jen jeden
      * extra request navíc (ne za zdroj), a pokud selže, spadneme zpátky na `comicKTitle`
-     * samotný a titul se bere jako ne-adult (viz [isAdultRating]).
+     * samotný a titul se pro jistotu bere jako POTENCIÁLNĚ adult (viz `titleInfoFetchFailed`
+     * níže) - opačný předpoklad by transientní výpadek requestu proměnil v trvalé tiché
+     * vynechání adult zdrojů.
      *
      * `onFound` se voláva souběžně z více zdrojů najednou (semafor pouští až 5 zaráz) - volající
      * ([findCandidatesFlow] přes `channelFlow.send`) musí umět bezpečně přijímat souběžná volání.
@@ -146,14 +148,21 @@ class ComicKChapterResolver @Inject constructor(
         onFound: suspend (CachedCandidate) -> Unit,
     ) = coroutineScope {
         val semaphore = Semaphore(5)
+        var titleInfoFetchFailed = false
         val titleInfo = try {
             comicKSource.getTitleInfo(comicKMangaUrl)
         } catch (e: Exception) {
             e.report("comick:resolver:titleInfo")
+            titleInfoFetchFailed = true
             ComicKTitleInfo(alternateTitles = emptyList(), contentRating = null)
         }
         val alternateTitles = titleInfo.alternateTitles
-        val isAdultTitle = isAdultRating(titleInfo.contentRating)
+        // Selhani requestu neznamena, ze titul NENI adult - jen ze to nevime. Radeji
+        // prohledat i adult zdroje navic (levne - presna shoda nazvu je stejne odfiltruje),
+        // nez aby transientni sitovy vypadek navzdy tise vyradil adult zdroje pro adult
+        // titul (nahlaseny bug). Skutecne bezpecny non-adult vysledek z API (contentRating
+        // == null, ale request USPEL) se timhle nemeni.
+        val isAdultTitle = titleInfoFetchFailed || isAdultRating(titleInfo.contentRating)
         val searchTitle = alternateTitles.firstOrNull() ?: comicKTitle
         val normalizedTargets = (alternateTitles + comicKTitle).map { normalizeMangaTitle(it) }.toSet()
         sourceManager.getAllForCrossSourceSearch()

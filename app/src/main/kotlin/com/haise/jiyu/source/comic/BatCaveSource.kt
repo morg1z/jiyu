@@ -127,13 +127,15 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
         } catch (_: Exception) { manga }
     }
 
-    private val chapterDateFormat = SimpleDateFormat("d.M.yyyy", Locale.US)
-
     // Seznam kapitol neni v HTML, ale v JSON bloku vlozenem primo do stranky - viz dokumentace
     // tridy. `chapter.url` si ulozime jako "comicId/chapterId/xhash", getPageList si to zpatky
     // rozparsuje (xhash je potreba poslat spolu s id, jinak API odpovi chybou).
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
+            // Lokalni, ne sdilene pole na tride - SimpleDateFormat neni thread-safe a tahle
+            // trida je @Singleton, takze soubezne getChapterList() z ruznych mang by sdilenou
+            // instanci mohly poskodit/hodit vyjimku (nahlaseny bug).
+            val chapterDateFormat = SimpleDateFormat("d.M.yyyy", Locale.US)
             val doc = Jsoup.parse(get("$base${manga.url}"))
             val script = doc.select("script").map { it.data() }
                 .firstOrNull { it.contains("window.__DATA__") } ?: return@withContext emptyList()
@@ -160,16 +162,31 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val (comicId, chapterId) = chapter.url.split("/", limit = 3).let { it[0] to it[1] }
+            val parts = chapter.url.split("/", limit = 3)
+            // Srozumitelna chyba (zachycena catch blokem nize stejne jako kazda jina) misto
+            // neprehledne IndexOutOfBoundsException, kdyby chapter.url nekdy nesedelo na
+            // ocekavany tvar "comicId/chapterId/xhash".
+            if (parts.size < 3) throw java.io.IOException("Neplatné BatCave chapter.url (chybí comicId/chapterId/xhash): \"${chapter.url}\"")
+            val (comicId, chapterId, xhash) = Triple(parts[0], parts[1], parts[2])
             val body = JSONObject().apply {
                 put("news_id", comicId)
                 put("chapter_id", chapterId)
+                // Bez tohohle API vraci chybu (viz komentar u getChapterList) - drive se
+                // xhash z chapter.url naparsoval, ale do requestu se nikdy neposlal
+                // (nahlaseny bug).
+                put("xhash", xhash)
             }
             val response = postJson("$base/engine/ajax/controller.php?mod=api&action=reader/getChapterData", body)
             val images = JSONObject(response).optJSONObject("data")?.optJSONArray("images") ?: return@withContext emptyList()
             (0 until images.length()).map { i ->
                 val raw = images.getString(i).trim()
-                val url = if (raw.startsWith("http")) raw else "$base$raw"
+                // Protokol-relativni URL ("//cdn...") by se jinak slepila s `base` misto
+                // spravneho "https:" - stejna oprava jako ComicSiteSource.absoluteUrl().
+                val url = when {
+                    raw.startsWith("http", ignoreCase = true) -> raw
+                    raw.startsWith("//") -> "https:$raw"
+                    else -> "$base$raw"
+                }
                 Page(index = i, url = url)
             }
         } catch (_: Exception) { emptyList() }

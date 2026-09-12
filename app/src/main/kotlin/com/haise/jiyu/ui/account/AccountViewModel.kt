@@ -9,11 +9,6 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.haise.jiyu.BuildConfig
@@ -24,7 +19,7 @@ import com.haise.jiyu.auth.JiyuUser
 import com.haise.jiyu.sync.SyncRepository
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
-import com.haise.jiyu.work.SyncWorker
+import com.haise.jiyu.work.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,25 +55,10 @@ class AccountViewModel @Inject constructor(
     private val aniListRepository: AniListRepository,
 ) : ViewModel() {
 
-    companion object {
-        private const val SYNC_WORK_NAME = "cloud_sync"
-    }
+    /** Naplánuje periodickou synchronizaci na pozadí - viz [SyncScheduler] (sdíleno i s [com.haise.jiyu.JiyuApp]). */
+    private fun scheduleBackgroundSync() = SyncScheduler.schedule(appContext)
 
-    /** Naplánuje periodickou synchronizaci na pozadí - jen když je uživatel přihlášený. */
-    private fun scheduleBackgroundSync() {
-        val request = PeriodicWorkRequestBuilder<SyncWorker>(6, java.util.concurrent.TimeUnit.HOURS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
-        WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(
-            SYNC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
-            request,
-        )
-    }
-
-    private fun cancelBackgroundSync() {
-        WorkManager.getInstance(appContext).cancelUniqueWork(SYNC_WORK_NAME)
-    }
+    private fun cancelBackgroundSync() = SyncScheduler.cancel(appContext)
 
     val currentUser: StateFlow<JiyuUser?> = authRepository.currentUser
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -117,6 +97,10 @@ class AccountViewModel @Inject constructor(
                     val googleCred = GoogleIdTokenCredential.createFrom(credential.data)
                     authRepository.signInWithGoogle(googleCred.idToken, rawNonce)
                     _authState.value = AuthUiState.Success
+                    // Drive se planovalo jen ze signInWithEmail - Google prihlaseni tak nikdy
+                    // nemelo periodickou synchronizaci na pozadi, jen jednorazovy syncNow() tady
+                    // (nahlaseno v auditu).
+                    scheduleBackgroundSync()
                     syncNow()
                 } else {
                     _authState.value = AuthUiState.Error(appContext.getString(R.string.account_error_unsupported_credential))
@@ -227,7 +211,15 @@ class AccountViewModel @Inject constructor(
         try { aniListRepository.signOut() } catch (e: Exception) { e.report("account:anilist:signOut") }
     }
 
-    fun handleAniListCallback(token: String) = viewModelScope.launch {
-        try { aniListRepository.handleCallback(token) } catch (e: Exception) { e.report("account:anilist:handleCallback") }
+    fun handleAniListCallback(token: String, state: String?) = viewModelScope.launch {
+        try {
+            val success = aniListRepository.handleCallback(token, state)
+            // Nejcastejsi prakticka pricina neuspechu: state neshoda (CSRF ochrana) - bez
+            // hlasky appka jen tise "nic neudela" a uzivatel netusi, ze ma zkusit znovu.
+            if (!success) _syncState.value = SyncState.Error(appContext.getString(R.string.account_anilist_login_failed))
+        } catch (e: Exception) {
+            e.report("account:anilist:handleCallback")
+            _syncState.value = SyncState.Error(appContext.getString(R.string.account_anilist_login_failed))
+        }
     }
 }

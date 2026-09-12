@@ -2,10 +2,14 @@ package com.haise.jiyu.source.interceptor
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-data class PendingChallenge(val url: String, val host: String)
+/** [id] je unikátní na KAŽDOU výzvu (i opakovanou pro stejný host) - viz [CloudflareChallengeBridge]. */
+data class PendingChallenge(val url: String, val host: String, val id: String = UUID.randomUUID().toString())
 
 /**
  * Most mezi CloudflareInterceptor (bezi na pozadi na OkHttp vlakne) a Compose
@@ -21,29 +25,54 @@ data class PendingChallenge(val url: String, val host: String)
  * "klikne" na Turnstile checkbox skutecnou Android touch udalosti (ne JS
  * .click(), ten Cloudflare pozna a ignoruje). Kdyz to vyjde, dialog se
  * uzivateli vubec neukaze.
+ *
+ * Kazda vyzva ma VLASTNI latch/vysledek (klicovano podle [PendingChallenge.id], ne podle
+ * hostitele - i dva soubezne pozadavky na STEJNY host tak nekolinduji). UI porad zobrazuje
+ * jen JEDNU vyzvu najednou ([pending]) - clovek fyzicky nemuze resit dve captchy soucasne -
+ * ale pozadavky na DALSI hostitele uz na tu prvni neCEKAJI zablokovane na spolecnem zamku
+ * (puvodni chyba - viz audit nalez "jeden globalni latch"), jen se zaradi do fronty a
+ * dostanou svou radu, jakmile se aktualne zobrazena vyzva vyresi/zavre.
  */
 internal object CloudflareChallengeBridge {
+    private class HostState {
+        val latch = CountDownLatch(1)
+        @Volatile var result: String? = null
+    }
+
+    private val hostStates = ConcurrentHashMap<String, HostState>()
+    private val queue = ConcurrentLinkedQueue<PendingChallenge>()
+
     private val _pending = MutableStateFlow<PendingChallenge?>(null)
     val pending = _pending.asStateFlow()
 
-    @Volatile private var latch: CountDownLatch? = null
-    @Volatile private var result: String? = null
-
-    /** Vola se z pozadoveho vlakna interceptoru. Blokuje volajici vlakno. */
-    @Synchronized
+    /** Vola se z pozadoveho vlakna interceptoru. Blokuje volajici vlakno - VLASTNIM latchem. */
     fun awaitUserSolve(url: String, host: String, timeoutSeconds: Long): String? {
-        result = null
-        val ownLatch = CountDownLatch(1)
-        latch = ownLatch
-        _pending.value = PendingChallenge(url, host)
-        ownLatch.await(timeoutSeconds, TimeUnit.SECONDS)
-        _pending.value = null
-        return result
+        val challenge = PendingChallenge(url, host)
+        val state = HostState()
+        hostStates[challenge.id] = state
+        queue.add(challenge)
+        advanceQueue()
+        state.latch.await(timeoutSeconds, TimeUnit.SECONDS)
+        hostStates.remove(challenge.id)
+        queue.remove(challenge)
+        advanceQueue()
+        return state.result
     }
 
     /** Vola se z UI vlakna, kdyz WebView najde cf_clearance nebo uzivatel dialog zavre (cookies = null). */
     fun resolve(cookies: String?) {
-        result = cookies
-        latch?.countDown()
+        val current = _pending.value ?: return
+        hostStates[current.id]?.let {
+            it.result = cookies
+            it.latch.countDown()
+        }
+    }
+
+    /** Zveřejní další čekající výzvu, pokud UI zrovna žádnou neukazuje. */
+    @Synchronized
+    private fun advanceQueue() {
+        val currentlyShown = _pending.value
+        if (currentlyShown != null && hostStates.containsKey(currentlyShown.id)) return
+        _pending.value = queue.peek()
     }
 }

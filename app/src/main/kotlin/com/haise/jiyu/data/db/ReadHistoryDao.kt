@@ -28,8 +28,11 @@ interface ReadHistoryDao {
     @Query("DELETE FROM read_history")
     suspend fun deleteAll()
 
+    // 'localtime' modifikator - bez nej strftime pocita hranice dne v UTC, takze pozdne
+    // nocni cteni v casove zone pred UTC muze skoncit prirazene k jinemu kalendarnimu dni,
+    // nez ve kterem uzivatel doopravdy cetl (nahlaseno v auditu).
     @Query("""
-        SELECT strftime('%Y-%m-%d', readAt/1000, 'unixepoch') as day, COUNT(*) as count
+        SELECT strftime('%Y-%m-%d', readAt/1000, 'unixepoch', 'localtime') as day, COUNT(*) as count
         FROM read_history WHERE readAt >= :sinceMs
         GROUP BY day ORDER BY day ASC
     """)

@@ -32,14 +32,23 @@ data class ChapterMigrationPlan(
  * výskytu, aby se žádný starý řádek nepřemapoval dvakrát.
  */
 fun planChapterMigration(oldChapters: List<ChapterEntity>, newChapters: List<SChapter>): ChapterMigrationPlan {
-    val oldByNumber = oldChapters.associateBy { it.chapterNumber }
-    val seenNumbers = mutableSetOf<Float>()
+    // Parovani podle zaokrouhleneho klice (tisicina), NE presne Float rovnosti - `chapterNumber`
+    // muze do appky prijit dvema ruznymi cestami (String->Float regex parsing ze zivych zdroju,
+    // vs. Double->Float konverze pri Tachiyomi/JSON zaloha importu), ktere se u binarne
+    // nepresnych desetinnych cisel (napr. 1.005) mohou zaokrouhlit jinak - presna shoda by pak
+    // "stejnou" kapitolu vyhodnotila jako novou (duplikat), viz audit nalez.
+    val oldByNumber = oldChapters.associateBy { chapterMatchKey(it.chapterNumber) }
+    val seenNumbers = mutableSetOf<Int>()
     val relink = mutableListOf<Pair<ChapterEntity, SChapter>>()
     val newOnly = mutableListOf<SChapter>()
     for (newCh in newChapters) {
-        if (!seenNumbers.add(newCh.chapterNumber)) continue
-        val old = oldByNumber[newCh.chapterNumber]
+        val key = chapterMatchKey(newCh.chapterNumber)
+        if (!seenNumbers.add(key)) continue
+        val old = oldByNumber[key]
         if (old != null) relink.add(old to newCh) else newOnly.add(newCh)
     }
     return ChapterMigrationPlan(relink, newOnly)
 }
+
+/** Tolerance na tisicinu - vstrebe zaokrouhlovaci sum mezi Double->Float a String->Float cestami, ale porad rozlisi opravdu ruzne kapitoly (1.1 vs 1.2). */
+internal fun chapterMatchKey(chapterNumber: Float): Int = Math.round(chapterNumber * 1000f)

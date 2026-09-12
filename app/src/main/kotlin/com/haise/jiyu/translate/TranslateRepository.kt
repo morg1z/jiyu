@@ -49,6 +49,9 @@ class TranslateRepository @Inject constructor(
 ) {
     val isApiKeyConfigured: Boolean get() = groqClient.isConfigured
 
+    /** Viz [OnDeviceTranslator.supportsLanguage] - jestli offline ML Kit záloha umí daný jazyk. */
+    fun onDeviceSupportsLanguage(targetLanguage: String): Boolean = onDeviceTranslator.supportsLanguage(targetLanguage)
+
     // ML Kit translator is created lazily; in unit tests it cannot be instantiated
     // because it needs Android Google Play Services.
     private val onDeviceTranslator by lazy { OnDeviceTranslator() }
@@ -193,7 +196,17 @@ class TranslateRepository @Inject constructor(
         }
         if (blocks.isEmpty()) return emptyList()
 
-        dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = blocks.serialize()))
+        // translateWithGemini/translateWithGroq mají svoje vlastní "accept-best-available" -
+        // po vyčerpání retry řetězce použijí i výsledek ve špatném jazyce, aby jedna
+        // systematicky špatná odpověď nezahodila celou stránku (viz jejich doc komentáře).
+        // Tenhle FINÁLNÍ check PŘED zápisem do cache je jiná věc: nemění se, co se ukáže
+        // TEĎ, jen se takový výsledek neuloží natrvalo - příští (nevynucené) otevření
+        // stejné stránky tak dostane novou šanci na správný překlad, místo aby zůstalo
+        // navždy zamrzlé na jednou vadné odpovědi.
+        val cacheableText = blocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
+        if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+            dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = blocks.serialize()))
+        }
         // Ručně opravené bubliny se napařují AŽ TEĎ, na čerstvý strojový překlad, a do cache
         // se schválně neukládají - cache se při zvednutí PIPELINE_VERSION zahodí, kdežto oprava
         // má přežit. Viz [ManualTranslationEntity].
@@ -397,7 +410,12 @@ class TranslateRepository @Inject constructor(
             val perPage = splitBlocksByPage(chunk, chunk.map { bubblesByPage.getValue(it).size }, blocks)
             for ((pageIndex, pageBlocks) in perPage) {
                 if (pageBlocks.isNotEmpty()) {
-                    dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = pageBlocks.serialize()))
+                    // Stejný důvod jako u translatePage výš - accept-best-available výsledek se
+                    // pořád zobrazí (onPageReady níž), jen se neuloží natrvalo do cache.
+                    val cacheableText = pageBlocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
+                    if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+                        dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = pageBlocks.serialize()))
+                    }
                 }
                 onPageReady(pageIndex, pageBlocks)
             }
@@ -1177,6 +1195,12 @@ class TranslateRepository @Inject constructor(
         // proxy i systémový prompt to zapojit uměly odjakživa (sdílené s manga cestou),
         // chybělo to jen tady.
         var previousLines = emptyList<String>()
+        // Pokud i po vyčerpání celého retry řetězce zůstane KTERÝKOLI chunk ve špatném
+        // jazyce (accept-best-available, viz komentář níž), výsledek se sice použije pro
+        // TOHLE zobrazení (uživatel nečeká na další request navíc), ale NEUKLÁDÁ se do
+        // cache - jinak by jednou vadná odpověď zůstala navždy zamrzlá i pro příští,
+        // nevynucené otevření téže kapitoly, bez šance na samoopravu.
+        var cacheable = true
         for (chunk in chunks) {
             val texts = chunk.map { it.text }
             // Na rozdíl od manga cesty tu dřív nebyl ŽÁDNÝ fallback - vyčerpaná denní kvóta
@@ -1203,6 +1227,9 @@ class TranslateRepository @Inject constructor(
                 translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines)
             }
             if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
+            if (isWrongTargetLanguage(translated.joinToString(" "), targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+                cacheable = false
+            }
             translatedUnits += translated
             previousLines = GeminiUltraPrompt.recentContextLines(translated)
         }
@@ -1219,7 +1246,9 @@ class TranslateRepository @Inject constructor(
             }
         }
         val result = resultParagraphs.joinToString("\n") { it.toString() }
-        novelDao.upsert(TranslatedNovelEntity(id = novelCacheId(chapterId, sourceLanguage, targetLanguage), translatedText = result))
+        if (cacheable) {
+            novelDao.upsert(TranslatedNovelEntity(id = novelCacheId(chapterId, sourceLanguage, targetLanguage), translatedText = result))
+        }
         return result
     }
 

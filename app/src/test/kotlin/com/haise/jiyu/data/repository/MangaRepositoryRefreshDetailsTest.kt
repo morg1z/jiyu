@@ -81,7 +81,11 @@ class MangaRepositoryRefreshDetailsTest {
         customSourceDao = db.customSourceDao()
         sourceManager = mockk()
         mangaDexSource = mockk(relaxed = true)
-        repository = MangaRepository(sourceManager, mangaDao, chapterDao, categoryDao, customSourceDao, mangaDexSource)
+        repository = MangaRepository(
+            sourceManager, mangaDao, chapterDao, categoryDao, customSourceDao, mangaDexSource,
+            manualTranslationDao = mockk(relaxed = true),
+            db = db,
+        )
     }
 
     @After

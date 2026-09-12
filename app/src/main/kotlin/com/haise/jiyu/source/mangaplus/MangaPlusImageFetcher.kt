@@ -26,17 +26,37 @@ class MangaPlusImageFetcher(
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
-        val key = (uri.fragment ?: error("missing mplus_key fragment")).removePrefix("mplus_key=")
+        val key = (uri.fragment ?: throw java.io.IOException("missing mplus_key fragment")).removePrefix("mplus_key=")
         val cleanUrl = uri.toString().substringBeforeLast("#")
 
         val bytes = withContext(Dispatchers.IO) {
             val req = Request.Builder().url(cleanUrl).header("User-Agent", "okhttp/4.12.0").build()
             httpClient.newCall(req).execute().use { resp ->
-                resp.body?.bytes() ?: error("empty body for $cleanUrl")
+                // isSuccessful kontrola PRED cimkoli dalsim - bez ni by se treba 403 "Just a
+                // moment" HTML telo proste proXORovalo a ulozilo do Coil cache jako platny
+                // JPEG (nahlaseny bug), misto aby selhalo jako sitova chyba a nechalo
+                // Coil/RetryableAsyncImage zkusit znovu pozdeji.
+                if (!resp.isSuccessful) throw java.io.IOException("MangaPlus obrázek ${resp.code}: $cleanUrl")
+                resp.body?.bytes() ?: throw java.io.IOException("empty body for $cleanUrl")
             }
         }
 
-        val keyBytes = key.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        // Poškozený/zkrácený klíč (neplatný hex, prázdný fragment, nebo LICHÝ počet hex
+        // znaků - chunked(2) by poslední 1-znakový kousek pořád úspěšně naparsoval jako
+        // platnou hex číslici, jen s tiše špatným výsledkem místo výjimky, nahlášený bug)
+        // by jinak spadl na NumberFormatException (toInt(16)), nebo u prázdného klíče na
+        // ArithmeticException (deleni nulou u keyBytes.size) - Coil takovou vyjimku zachyti
+        // jako chybovy stav (viz RetryableAsyncImage), ale s neprehlednou pricinou v logu.
+        // IOException misto toho odpovida tomu, co Coil od Fetcheru ocekava jako
+        // "sitovy/obsahovy" problem.
+        val keyBytes = try {
+            if (key.length % 2 != 0) throw NumberFormatException("odd-length key")
+            key.chunked(2).map { it.toInt(16).toByte() }.toByteArray().also {
+                if (it.isEmpty()) throw NumberFormatException("empty key")
+            }
+        } catch (e: NumberFormatException) {
+            throw java.io.IOException("Neplatný mplus_key fragment: \"$key\"", e)
+        }
         val decrypted = ByteArray(bytes.size) { i ->
             (bytes[i].toInt() xor keyBytes[i % keyBytes.size].toInt()).toByte()
         }

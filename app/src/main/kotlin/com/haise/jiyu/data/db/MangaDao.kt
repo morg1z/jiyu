@@ -99,6 +99,12 @@ interface MangaDao {
     @Query("SELECT * FROM manga WHERE url = :url LIMIT 1")
     suspend fun getMangaByUrl(url: String): MangaEntity?
 
+    /** Stejné jako [getMangaByUrl], jen navíc filtrované na konkrétní zdroj - `url` samo o
+     * sobě není napříč zdroji unikátní (relativní cesty typu "/manga/1" se opakují), takže
+     * bez `sourceId` může kolidovat s mangou z úplně jiného zdroje (viz TachiyomiBackupImporter). */
+    @Query("SELECT * FROM manga WHERE sourceId = :sourceId AND url = :url LIMIT 1")
+    suspend fun getMangaBySourceAndUrl(sourceId: String, url: String): MangaEntity?
+
     @Query("UPDATE manga SET malId = :malId WHERE id = :id")
     suspend fun setMalId(id: String, malId: Int?)
 
@@ -151,7 +157,12 @@ interface MangaDao {
     // ── Úklid jen prohlížené mangy - viz [deleteBrowsedManga] ──────────────────────────
     /**
      * ID mangy, kterou lze bezpečně smazat: není v knihovně, není oblíbená, nikdy se nečetla,
-     * není v žádné kategorii a nemá staženou kapitolu.
+     * není v žádné kategorii, nemá staženou kapitolu a nevlastní kapitolu, na kterou aktuálně
+     * ukazuje nějaký fallbackChapterId (viz SourceResolverViewModel.resolveCompleteChapter -
+     * preview-manga vytvořená přes openPreview při kontrole alternativních zdrojů má přesně
+     * profil "jen prohlížené", ale je to naučená, trvale zapsaná náhrada za kapitolu s málo
+     * stránkami - smazáním by se nenávratně ztratila, i když dangling redirect zpět na
+     * originál appku nerozbije, jen naučenou kontrolu tiše zahodí).
      *
      * Každá podmínka brání jiné ztrátě; nejádnou z nich nevyhazuj bez náhrady. Stažená kapitola
      * je z nich nejzákeřnější - smazáním záznamu by soubory zůstaly ležet na disku a už by na
@@ -166,16 +177,34 @@ interface MangaDao {
           AND id NOT IN (SELECT DISTINCT mangaId FROM read_history)
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_category)
           AND id NOT IN (SELECT DISTINCT mangaId FROM chapter WHERE localPath IS NOT NULL)
+          AND id NOT IN (
+              SELECT DISTINCT mangaId FROM chapter
+              WHERE id IN (SELECT fallbackChapterId FROM chapter WHERE fallbackChapterId IS NOT NULL)
+          )
         """
     )
     suspend fun browsedMangaIds(): List<String>
 
     @Transaction
     suspend fun deleteChildrenOfManga(ids: List<String>) {
+        // manual_translation nema vlastni mangaId sloupec, jen chapterId - MUSI bezet PRED
+        // deleteChaptersOfManga, jinak uz poddotaz proti tabulce chapter nic nenajde (viz audit
+        // nalez "glossary_entry/manual_translation nikdy nemazane, sirotci po smazani mangy").
+        deleteManualTranslationsOfManga(ids)
+        deleteGlossaryOfManga(ids)
         deleteChaptersOfManga(ids)
         deleteNotesOfManga(ids)
         deleteTagsOfManga(ids)
     }
+
+    @Query("""
+        DELETE FROM manual_translation
+        WHERE chapterId IN (SELECT id FROM chapter WHERE mangaId IN (:ids))
+    """)
+    suspend fun deleteManualTranslationsOfManga(ids: List<String>)
+
+    @Query("DELETE FROM glossary_entry WHERE mangaId IN (:ids)")
+    suspend fun deleteGlossaryOfManga(ids: List<String>)
 
     @Query("DELETE FROM chapter WHERE mangaId IN (:ids)")
     suspend fun deleteChaptersOfManga(ids: List<String>)

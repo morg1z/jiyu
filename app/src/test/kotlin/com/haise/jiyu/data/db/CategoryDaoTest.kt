@@ -94,4 +94,21 @@ class CategoryDaoTest {
 
         assertTrue(categoryDao.getCategoryIdsForManga("m1").isEmpty())
     }
+
+    @Test
+    fun `upserting an existing category id does NOT cascade-delete its manga_category links`() = runTest {
+        // Regrese: @Insert(REPLACE) na existujicim id nejdriv SMAZE stary radek (SQLite
+        // "INSERT OR REPLACE" algoritmus) a s foreign keys zapnutymi (ON DELETE CASCADE)
+        // by tim potichu smazal i vazby na mangy v ni zarazene. @Upsert tohle nesmi delat.
+        categoryDao.upsert(CategoryEntity(id = "c1", name = "Reading"))
+        manga("m1")
+        categoryDao.addMangaToCategory(com.haise.jiyu.data.db.entity.MangaCategoryEntity("m1", "c1"))
+        assertEquals(listOf("c1"), categoryDao.getCategoryIdsForManga("m1"))
+
+        // "Prejmenovani" kategorie - stejne id, jiny nazev.
+        categoryDao.upsert(CategoryEntity(id = "c1", name = "Currently Reading"))
+
+        assertEquals(listOf("c1"), categoryDao.getCategoryIdsForManga("m1"))
+        assertEquals("Currently Reading", categoryDao.getAllOnce().single { it.id == "c1" }.name)
+    }
 }

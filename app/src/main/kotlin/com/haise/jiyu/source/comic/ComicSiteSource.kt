@@ -50,13 +50,20 @@ abstract class ComicSiteSource(
         client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
-    protected fun String.absoluteUrl(): String =
-        if (startsWith("http")) this else "$base${if (startsWith("/")) this else "/$this"}"
+    // Protokol-relativni URL ("//cdn.example.com/x.jpg", bezne v <img src="//...">) nezacina
+    // na "http", takze by se bez zvlastni vetve nespravne slepila s `base`
+    // ("https://web.com//cdn.example.com/x.jpg") - nahlaseno v auditu.
+    protected fun String.absoluteUrl(): String = when {
+        startsWith("http", ignoreCase = true) -> this
+        startsWith("//") -> "https:$this"
+        startsWith("/") -> "$base$this"
+        else -> "$base/$this"
+    }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val url = if (page > 1 && paginatedPopular) "$base$popularPath$popularPageParam$page"
                   else "$base$popularPath"
-        val doc = Jsoup.parse(get(url))
+        val doc = Jsoup.parse(get(url), url)
         doc.select(comicItemSelector).mapNotNull { el ->
             val linkEl = el.selectFirst(comicLinkSelector) ?: return@mapNotNull null
             val href = linkEl.attr(comicLinkAttr).ifBlank { return@mapNotNull null }
@@ -73,7 +80,7 @@ abstract class ComicSiteSource(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val url = "$base$searchPath${query.replace(" ", "+")}"
-        val doc = Jsoup.parse(get(url))
+        val doc = Jsoup.parse(get(url), url)
         doc.select(searchResultSelector).mapNotNull { el ->
             val linkEl = el.selectFirst(comicLinkSelector) ?: return@mapNotNull null
             val href = linkEl.attr(comicLinkAttr).ifBlank { return@mapNotNull null }
@@ -89,7 +96,8 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
-        val doc = Jsoup.parse(get("$base${manga.url}"))
+        val url = "$base${manga.url}"
+        val doc = Jsoup.parse(get(url), url)
         manga.copy(
             description = doc.selectFirst(descriptionSelector)?.text(),
             status = doc.selectFirst(statusSelector)?.text(),
@@ -97,7 +105,8 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
-        val doc = Jsoup.parse(get("$base${manga.url}"))
+        val url = "$base${manga.url}"
+        val doc = Jsoup.parse(get(url), url)
         doc.select(chapterItemSelector).mapIndexed { i, a ->
             val text = a.text().trim()
             val num = Regex("""#?(\d+(?:\.\d+)?)""").find(text)?.groupValues?.get(1)?.toFloatOrNull() ?: (1000f - i)
@@ -113,7 +122,8 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
-        val doc = Jsoup.parse(get("$base${chapter.url}"))
+        val url = "$base${chapter.url}"
+        val doc = Jsoup.parse(get(url), url)
         doc.select(pageImgSelector).mapIndexed { i, img ->
             val url = img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } }
             Page(i, url)

@@ -131,6 +131,36 @@ class MangaPlusSourceTest {
     }
 
     @Test
+    fun `a chapter name with no parseable number falls back to 0f, not the unrelated chapterId`() = runTest {
+        // chapterId 1029917 by po chybnem fallbacku na chapterId.toFloatOrNull() vysel jako
+        // "kapitola 1029917" - presne nahlaseny bug (chapterId je nesouvisejici interni DB id).
+        val titleDetailNoNumberBytes = run {
+            val titleMsg = varintField(1, 100L) + stringField(2, "One Piece") + stringField(4, "https://cdn.example.com/op.jpg")
+            val chapterMsg = varintField(2, 1029917L) + stringField(3, "Special") + varintField(6, 1750000000L)
+            val view = bytesField(1, titleMsg) + bytesField(38, chapterMsg)
+            val success = bytesField(8, view)
+            bytesField(1, success)
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/register") -> MockResponse().setBody(Buffer().write(registerBytes))
+                    path.startsWith("/api/title_list/all_v3") -> MockResponse().setBody(Buffer().write(allTitlesBytes))
+                    path.startsWith("/api/title_detailV3") -> MockResponse().setBody(Buffer().write(titleDetailNoNumberBytes))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val manga = source.getPopular(1).first()
+        val chapters = source.getChapterList(manga)
+
+        assertEquals(1, chapters.size)
+        assertEquals(0f, chapters[0].chapterNumber)
+    }
+
+    @Test
     fun `HTML error response instead of protobuf returns empty list, not an exception`() = runTest {
         server.shutdown()
         server = MockWebServer()

@@ -340,7 +340,10 @@ class MadaraSource(
             .header("Referer", baseUrl)
             .build()
         client.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { "Chyba ${response.code} pri nacitani $url" }
+            // IOException, ne check()/IllegalStateException - RetryInterceptor (AppModule.kt)
+            // chyta jen IOException, takze IllegalStateException tenhle retry uplne obejde
+            // (nahlaseno v auditu).
+            if (!response.isSuccessful) throw java.io.IOException("Chyba ${response.code} pri nacitani $url")
             val body = response.body?.string().orEmpty()
             return Jsoup.parse(body, url)
         }

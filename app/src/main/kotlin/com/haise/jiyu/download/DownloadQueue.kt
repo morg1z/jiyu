@@ -1,6 +1,7 @@
 package com.haise.jiyu.download
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -11,6 +12,7 @@ import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,6 +39,9 @@ class DownloadQueue @Inject constructor(
                     .setRequiredNetworkType(networkType)
                     .build()
             )
+            // Explicitni misto spolehnuti na WorkManager default - stejna hodnota jako
+            // scheduleChapterUpdates() v JiyuApp.kt, konzistentni napric appkou.
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
             .addTag("download_${chapter.id}")
             .addTag("jiyu_download")
             .build()

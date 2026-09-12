@@ -5,6 +5,7 @@ import com.haise.jiyu.security.SecureCredentialStore
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -101,12 +102,20 @@ class ByokTranslateClient @Inject constructor(
         if (result != null) return@withContext result
 
         // Nesedici pocet radku - zkusi se kazda veta ZVLAST (mensi prompt, min prostoru na
-        // chybu v cislovani), stejny fallback jako OnDeviceTranslator.translateChunk.
-        texts.map { text ->
-            complete(baseUrl, apiKey, model, buildByokPrompt(listOf(text), targetLanguage, sourceLanguage, glossary))
+        // chybu v cislovani), stejny fallback jako OnDeviceTranslator.translateChunk. Strop -
+        // bez nej by velka davka (desitky bublin na strance) znamenala stejny pocet
+        // jednotlivych HTTP volani navic proti uzivatelovu VLASTNIMU (byok) API, bez zadneho
+        // omezeni ani prodlevy mezi nimi. Nad stropem se radsi vrati prazdno - volajici
+        // translateChain zkusi dalsiho providera/on-device presne jako pri jakemkoli jinem
+        // selhani tohohle kroku.
+        if (texts.size > MAX_INDIVIDUAL_FALLBACK) return@withContext emptyList()
+        texts.mapIndexed { index, text ->
+            val translated = complete(baseUrl, apiKey, model, buildByokPrompt(listOf(text), targetLanguage, sourceLanguage, glossary))
                 ?.let { parseByokResponse(it, 1) }
                 ?.firstOrNull()
                 ?: ""
+            if (index < texts.lastIndex) delay(INDIVIDUAL_FALLBACK_DELAY_MS)
+            translated
         }
     }
 
@@ -215,5 +224,8 @@ class ByokTranslateClient @Inject constructor(
     private companion object {
         const val KEY_API_KEY = "byok_api_key"
         const val DEFAULT_MODEL = "gpt-4o-mini"
+        /** Viz translateBatch doc - nad tuhle velikost davky se fallback po jednotlivych vetach vubec nezkousi. */
+        const val MAX_INDIVIDUAL_FALLBACK = 20
+        const val INDIVIDUAL_FALLBACK_DELAY_MS = 150L
     }
 }

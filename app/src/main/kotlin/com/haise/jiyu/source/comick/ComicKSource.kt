@@ -13,6 +13,7 @@ import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -51,7 +52,9 @@ class ComicKSource @Inject constructor(
     // In-memory cache pro /genre - stejny seznam pro celou appku po celou dobu behu,
     // nema smysl ho stahovat znovu pri kazdem otevreni filtru (stejny vzor jako
     // ComicKChapterResolver).
-    private var cachedGenres: List<ComicKGenreOption>? = null
+    // @Volatile - cti/zapisuje se z withContext(Dispatchers.IO) bloku, ktere mohou bezet na
+    // ruznych vlaknech; bez toho neni zaruceno, ze zapis z jednoho vlakna uvidi cteni z jineho.
+    @Volatile private var cachedGenres: List<ComicKGenreOption>? = null
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
@@ -412,7 +415,7 @@ class ComicKSource @Inject constructor(
             }.sortedByDescending { it.upCount }
         }
 
-    private var cachedTop: TopFeed? = null
+    @Volatile private var cachedTop: TopFeed? = null
 
     /**
      * ComicK domovská data (Sub-projekt: Home Feed) - jeden request vrátí data
@@ -537,7 +540,6 @@ class ComicKSource @Inject constructor(
 
             // Krok 2: stránkovat přes všechny kapitoly
             val chapters = mutableListOf<SChapter>()
-            var page = 1
             val pageSize = 60
             // Strop na počet stránek - bez něj by chybové/nekonečně se opakující API
             // chování (server vždy vrátí přesně pageSize položek) zacyklilo tuhle funkci
@@ -545,19 +547,27 @@ class ComicKSource @Inject constructor(
             // 500 stránek * 60 = 30 000 kapitol, hluboko nad reálným maximem jakéhokoli titulu.
             val maxPages = 500
 
-            while (page <= maxPages) {
-                val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
-                val json = getObject(url)
-                val arr = json.optJSONArray("chapters") ?: break
+            // Casovy strop na CELOU smycku navic ke stropu poctu stranek vyse - i "jen"
+            // desitky stranek u obriho vicejazycneho titulu (nebo pomale/pretizene API) muzou
+            // dohromady trvat minuty; radeji vratit CASTECNY seznam nez appku nechat viset
+            // donekonecna na "obnovuji kapitoly" (stejny duvod jako maxPages, jina osa - tenhle
+            // strop chrani pred POMALYM, ne jen NEKONECNYM, prubehem).
+            withTimeoutOrNull(CHAPTER_LIST_TIMEOUT_MS) {
+                var page = 1
+                while (page <= maxPages) {
+                    val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
+                    val json = getObject(url)
+                    val arr = json.optJSONArray("chapters") ?: return@withTimeoutOrNull
 
-                for (i in 0 until arr.length()) {
-                    chapterFromJson(arr.getJSONObject(i), manga.url)
-                        ?.let { chapters.add(it) }
+                    for (i in 0 until arr.length()) {
+                        chapterFromJson(arr.getJSONObject(i), manga.url)
+                            ?.let { chapters.add(it) }
+                    }
+
+                    // Méně výsledků než pageSize = poslední stránka
+                    if (arr.length() < pageSize) return@withTimeoutOrNull
+                    page++
                 }
-
-                // Méně výsledků než pageSize = poslední stránka
-                if (arr.length() < pageSize) break
-                page++
             }
 
             chapters
@@ -720,12 +730,18 @@ class ComicKSource @Inject constructor(
     private fun parseIso(iso: String): Long = try {
         java.time.Instant.parse(iso).toEpochMilli()
     } catch (_: Exception) {
-        System.currentTimeMillis()
+        // 0L, ne now() - stejna konvence jako u vsech ostatnich zdroju v appce (DemonicScans,
+        // MangaDex, MangaWorld, ...). now() by poskozene/neparsovatelne datum udelalo tise
+        // "nejnovejsi" misto "nejstarsi/nezname" (nahlaseny bug).
+        0L
     }
 
     private companion object {
         /** Přepsané/anglické varianty md_titles - jiné skripty (ar, bn, ...) k porovnání s ostatními zdroji nejsou k ničemu. */
-        val ROMANIZED_LANGS = setOf("en", "ja-ro", "ko-ro", "zh-ro", "zh-hk-ro")
+        val ROMANIZED_LANGS = setOf("en", "ja-ro", "ko-ro", "zh-ro", "zh-hk-ro", "ru-ro")
+
+        /** Viz komentář u [getChapterList] - celkový strop na stránkovací smyčku. */
+        const val CHAPTER_LIST_TIMEOUT_MS = 60_000L
     }
 }
 

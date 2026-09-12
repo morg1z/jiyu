@@ -755,7 +755,7 @@ class SettingsViewModel @Inject constructor(
             updateInstaller.requestInstallPermission(context)
             return
         }
-        updateInstaller.startDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion)
+        updateInstaller.startDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion, _updateInfo.value?.sha256)
     }
 }
 

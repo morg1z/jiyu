@@ -10,11 +10,13 @@ import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -37,7 +39,7 @@ class BackupManager @Inject constructor(
          * že by ho starší appka přečetla špatně - a přidej k tomu čtení té starší podoby
          * v [restoreFromJson].
          */
-        const val BACKUP_VERSION = 3
+        const val BACKUP_VERSION = 4
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
@@ -121,6 +123,22 @@ class BackupManager @Inject constructor(
                         put("lastReadChapterId",   m.lastReadChapterId ?: "")
                         put("lastReadAt",          m.lastReadAt)
                         put("readingStatus",       m.readingStatus ?: "")
+                        put("inLibrary",           m.inLibrary)
+                        put("lastUpdated",         m.lastUpdated)
+                        put("kitsuId",             m.kitsuId ?: "")
+                        put("kitsuScore",          (m.kitsuScore ?: 0f).toDouble())
+                        put("mangaUpdatesId",      m.mangaUpdatesId ?: 0L)
+                        put("readingTimeMs",       m.readingTimeMs)
+                        put("isFavorite",          m.isFavorite)
+                        put("demographic",         m.demographic ?: "")
+                        put("translationCompleted", m.translationCompleted?.let { if (it) 1 else 0 } ?: -1)
+                        put("hasAnime",            m.hasAnime?.let { if (it) 1 else 0 } ?: -1)
+                        put("finalChapter",        m.finalChapter ?: "")
+                        put("rating",              m.rating ?: 0.0)
+                        put("followCount",         m.followCount ?: -1)
+                        put("rank",                m.rank ?: -1)
+                        put("alternateTitles",     m.alternateTitles)
+                        put("translationContextNote", m.translationContextNote ?: "")
                         put("categoryIds",         JSONArray(catMappings[m.id] ?: emptyList<String>()))
                     })
                 }
@@ -138,6 +156,18 @@ class BackupManager @Inject constructor(
                         put("dateUpload",    c.dateUpload)
                         put("read",          c.read)
                         put("lastPageRead",  c.lastPageRead)
+                        put("lastReadAt",       c.lastReadAt)
+                        put("lastScrollOffset", c.lastScrollOffset)
+                        put("downloadStatus",   c.downloadStatus.name)
+                        put("localPath",        c.localPath ?: "")
+                        put("pageCount",        c.pageCount)
+                        put("scanlationGroup",  c.scanlationGroup ?: "")
+                        put("volume",           c.volume ?: "")
+                        put("groupsJson",       c.groupsJson ?: "")
+                        put("discoveredAt",     c.discoveredAt)
+                        put("verifiedPageCount", c.verifiedPageCount ?: -1)
+                        put("isFallbackSource", c.isFallbackSource)
+                        put("fallbackChapterId", c.fallbackChapterId ?: "")
                     })
                 }
             })
@@ -196,20 +226,44 @@ class BackupManager @Inject constructor(
      * mangu zapsané, ale kapitoly už ne - `runCatching` sice ohlásilo neúspěch, jenže
      * knihovna zůstala v rozečteném stavu. Buď se obnoví všechno, nebo nic.
      */
-    private suspend fun restoreFromJson(json: String): ImportStats = db.withTransaction {
+    private suspend fun restoreFromJson(json: String): ImportStats {
         val parsed = parseBackupJson(json)
+        // MIMO transakci - jde o (potenciálně pomalé, hlavně přes SAF) čtení souborového
+        // systému, ne o zápis do DB, a nemá držet transakci otevřenou o nic déle, než musí.
+        val validatedChapters = validateDownloadedChapters(parsed.chapters)
 
-        repository.upsertAllCategories(parsed.categories)
-        repository.upsertAllCustomSources(parsed.customSources)
-        repository.upsertAllManga(parsed.manga)
-        repository.upsertAllMangaCategories(parsed.categoryAssignments)
-        repository.upsertAllChapters(parsed.chapters)
-        if (parsed.notes.isNotEmpty()) mangaNoteDao.upsertAll(parsed.notes)
-        if (parsed.tags.isNotEmpty()) mangaTagDao.insertAll(parsed.tags)
-        if (parsed.readHistory.isNotEmpty()) readHistoryDao.upsertAll(parsed.readHistory)
+        return db.withTransaction {
+            repository.upsertAllCategories(parsed.categories)
+            repository.upsertAllCustomSources(parsed.customSources)
+            repository.upsertAllManga(parsed.manga)
+            repository.upsertAllMangaCategories(parsed.categoryAssignments)
+            repository.upsertAllChapters(validatedChapters)
+            if (parsed.notes.isNotEmpty()) mangaNoteDao.upsertAll(parsed.notes)
+            if (parsed.tags.isNotEmpty()) mangaTagDao.insertAll(parsed.tags)
+            if (parsed.readHistory.isNotEmpty()) readHistoryDao.upsertAll(parsed.readHistory)
 
-        // Bez `return` - jsme uvnitř lambdy withTransaction, hodnota se vrací jako výraz.
-        ImportStats(parsed.manga.size, parsed.chapters.size, parsed.categories.size)
+            // Bez `return` - jsme uvnitř lambdy withTransaction, hodnota se vrací jako výraz.
+            ImportStats(parsed.manga.size, parsed.chapters.size, parsed.categories.size)
+        }
+    }
+
+    /**
+     * Záloha z jiného telefonu (nebo po reinstalu bez SAF externí složky) klidně řekne
+     * `downloadStatus=DOWNLOADED` s `localPath`, který na TOMHLE zařízení nikdy neexistoval -
+     * appka by pak ukazovala "staženo" u kapitoly, která se ve skutečnosti musí stáhnout znovu,
+     * a nikdy by to sama neopravila (viz audit nález "restore křísí duchy"). Existuje-li
+     * složka opravdu se stránkami (typicky SAF externí složka, která reinstall přežije),
+     * stav se ponechá - jde jen o odchycení mrtvého ukazatele, ne o plošné zneplatnění.
+     */
+    private fun validateDownloadedChapters(chapters: List<ChapterEntity>): List<ChapterEntity> = chapters.map { c ->
+        val localPath = c.localPath
+        if (c.downloadStatus == DownloadStatus.DOWNLOADED && localPath != null &&
+            ChapterStorage.listPageUrls(context, localPath).isEmpty()
+        ) {
+            c.copy(downloadStatus = DownloadStatus.NOT_DOWNLOADED, localPath = null, pageCount = 0)
+        } else {
+            c
+        }
     }
 
     data class ImportStats(val mangaCount: Int, val chapterCount: Int, val categoryCount: Int)
@@ -279,6 +333,13 @@ internal fun parseBackupJson(json: String): ParsedBackup {
         val year = m.optInt("year", 0).takeIf { it > 0 }
         val malId = m.optInt("malId", 0).takeIf { it > 0 }
         val malScore = m.optDouble("malScore", 0.0).takeIf { it > 0 }?.toFloat()
+        val kitsuScore = m.optDouble("kitsuScore", 0.0).takeIf { it > 0 }?.toFloat()
+        val mangaUpdatesId = m.optLong("mangaUpdatesId", 0L).takeIf { it > 0 }
+        val translationCompleted = m.optInt("translationCompleted", -1).let { if (it < 0) null else it == 1 }
+        val hasAnime = m.optInt("hasAnime", -1).let { if (it < 0) null else it == 1 }
+        val rating = m.optDouble("rating", 0.0).takeIf { it > 0 }
+        val followCount = m.optInt("followCount", -1).takeIf { it >= 0 }
+        val rank = m.optInt("rank", -1).takeIf { it >= 0 }
         mangaList.add(
             MangaEntity(
                 id                      = m.getString("id"),
@@ -301,10 +362,27 @@ internal fun parseBackupJson(json: String): ParsedBackup {
                 malStatus               = m.optString("malStatus").ifBlank { null },
                 readerDirectionOverride = m.optString("readerDirectionOverride").ifBlank { null },
                 addedAt                 = m.optLong("addedAt", 0L),
-                inLibrary               = true,
+                // Verze <4 nemely tohle pole vubec - "true" je spravny default (stary export
+                // obsahoval jen knihovnu, takze vsechno v nem uzivatel skutecne mel v knihovne).
+                inLibrary               = if (m.has("inLibrary")) m.optBoolean("inLibrary", true) else true,
+                lastUpdated             = m.optLong("lastUpdated", System.currentTimeMillis()),
                 lastReadChapterId       = m.optString("lastReadChapterId").ifBlank { null },
                 lastReadAt              = m.optLong("lastReadAt", 0L),
                 readingStatus           = m.optString("readingStatus").ifBlank { null },
+                kitsuId                 = m.optString("kitsuId").ifBlank { null },
+                kitsuScore              = kitsuScore,
+                mangaUpdatesId          = mangaUpdatesId,
+                readingTimeMs           = m.optLong("readingTimeMs", 0L),
+                isFavorite              = m.optBoolean("isFavorite", false),
+                demographic             = m.optString("demographic").ifBlank { null },
+                translationCompleted    = translationCompleted,
+                hasAnime                = hasAnime,
+                finalChapter            = m.optString("finalChapter").ifBlank { null },
+                rating                  = rating,
+                followCount             = followCount,
+                rank                    = rank,
+                alternateTitles         = m.optString("alternateTitles", ""),
+                translationContextNote  = m.optString("translationContextNote").ifBlank { null },
             )
         )
         val ids = m.optJSONArray("categoryIds") ?: JSONArray()
@@ -314,6 +392,9 @@ internal fun parseBackupJson(json: String): ParsedBackup {
     val chapArr = root.optJSONArray("chapters") ?: JSONArray()
     val chapters = (0 until chapArr.length()).map { i ->
         val c = chapArr.getJSONObject(i)
+        val downloadStatus = c.optString("downloadStatus").ifBlank { null }
+            ?.let { runCatching { com.haise.jiyu.data.db.entity.DownloadStatus.valueOf(it) }.getOrNull() }
+            ?: com.haise.jiyu.data.db.entity.DownloadStatus.NOT_DOWNLOADED
         ChapterEntity(
             id            = c.getString("id"),
             mangaId       = c.getString("mangaId"),
@@ -324,6 +405,18 @@ internal fun parseBackupJson(json: String): ParsedBackup {
             dateUpload    = c.getLong("dateUpload"),
             read          = c.getBoolean("read"),
             lastPageRead  = c.getInt("lastPageRead"),
+            lastReadAt       = c.optLong("lastReadAt", 0L),
+            lastScrollOffset = c.optInt("lastScrollOffset", 0),
+            downloadStatus   = downloadStatus,
+            localPath        = c.optString("localPath").ifBlank { null },
+            pageCount        = c.optInt("pageCount", 0),
+            scanlationGroup  = c.optString("scanlationGroup").ifBlank { null },
+            volume           = c.optString("volume").ifBlank { null },
+            groupsJson       = c.optString("groupsJson").ifBlank { null },
+            discoveredAt     = c.optLong("discoveredAt", 0L),
+            verifiedPageCount = c.optInt("verifiedPageCount", -1).takeIf { it >= 0 },
+            isFallbackSource = c.optBoolean("isFallbackSource", false),
+            fallbackChapterId = c.optString("fallbackChapterId").ifBlank { null },
         )
     }
 

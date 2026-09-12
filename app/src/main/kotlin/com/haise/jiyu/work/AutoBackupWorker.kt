@@ -40,14 +40,22 @@ class AutoBackupWorker @AssistedInject constructor(
         val dir = DocumentFile.fromTreeUri(context, treeUri) ?: return backupToAppStorage()
         val fileName = "jiyu_auto_${LocalDate.now()}.json"
 
-        // Smaž staré auto-zálohy, ponech 3 nejnovější
-        val existing = dir.listFiles()
-            .filter { it.name?.startsWith("jiyu_auto_") == true }
-            .sortedByDescending { it.lastModified() }
-        existing.drop(2).forEach { it.delete() }
-
+        // Na rozdíl od obyčejného File (viz backupToAppStorage) SAF createFile() při kolizi
+        // jména NEPŘEPÍŠE existující soubor, ale vytvoří rozlišený duplikát ("jiyu_auto_2026-...
+        // (1).json") - víc běhů workeru za den by tak bez tohohle smazání nechalo narůstat
+        // neomezené množství záloh se stejným dnešním datem.
+        dir.findFile(fileName)?.delete()
         val newFile = dir.createFile("application/json", fileName) ?: return backupToAppStorage()
         backupManager.exportToUri(newFile.uri)
+
+        // Rotace AŽ PO úspěšném zápisu nové zálohy - dřív běžela před vytvořením nového
+        // souboru, takže případná chyba exportu (zaplněná složka, ztracené oprávnění) mohla
+        // smazat staré zálohy dřív, než bylo jisté, že nová vůbec existuje.
+        dir.listFiles()
+            .filter { it.name?.startsWith("jiyu_auto_") == true }
+            .sortedByDescending { it.lastModified() }
+            .drop(3)
+            .forEach { it.delete() }
     }
 
     private suspend fun backupToAppStorage() {

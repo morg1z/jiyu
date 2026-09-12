@@ -1,5 +1,7 @@
 package com.haise.jiyu.data.repository
 
+import androidx.room.withTransaction
+import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.CustomSourceDao
@@ -8,6 +10,7 @@ import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaDownloadedCount
 import com.haise.jiyu.data.db.MangaTotalCount
 import com.haise.jiyu.data.db.MangaUnreadCount
+import com.haise.jiyu.data.db.ManualTranslationDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
@@ -38,6 +41,8 @@ class MangaRepository @Inject constructor(
     private val categoryDao: CategoryDao,
     private val customSourceDao: CustomSourceDao,
     private val mangaDexSource: MangaDexSource,
+    private val manualTranslationDao: ManualTranslationDao,
+    private val db: AppDatabase,
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 
@@ -204,6 +209,7 @@ class MangaRepository @Inject constructor(
         mangaDao.setExcludeFromUpdates(mangaId, exclude)
 
     suspend fun getMangaByUrl(url: String): MangaEntity? = mangaDao.getMangaByUrl(url)
+    suspend fun getMangaBySourceAndUrl(sourceId: String, url: String): MangaEntity? = mangaDao.getMangaBySourceAndUrl(sourceId, url)
     suspend fun upsertManga(manga: MangaEntity) = mangaDao.upsert(manga)
 
     suspend fun setMalId(mangaId: String, malId: Int?) = mangaDao.setMalId(mangaId, malId)
@@ -354,39 +360,50 @@ class MangaRepository @Inject constructor(
         val oldChapters = chapterDao.getAllForManga(mangaId)
         val plan = planChapterMigration(oldChapters, newChapters)
 
-        plan.relink.forEach { (old, new) ->
-            chapterDao.relink(
-                oldId = old.id,
-                newId = chapterId(new),
-                newUrl = new.url,
-                newName = new.name,
-                dateUpload = new.dateUpload,
-                scanlationGroup = new.scanlationGroup,
-                volume = new.volume,
-                groupsJson = serializeChapterGroups(new.groups),
-            )
-        }
-        if (plan.newOnly.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            val entities = plan.newOnly.map { chapter ->
-                ChapterEntity(
-                    id = chapterId(chapter),
-                    mangaId = mangaId,
-                    sourceId = chapter.sourceId,
-                    url = chapter.url,
-                    name = chapter.name,
-                    chapterNumber = chapter.chapterNumber,
-                    dateUpload = chapter.dateUpload,
-                    scanlationGroup = chapter.scanlationGroup,
-                    volume = chapter.volume,
-                    groupsJson = serializeChapterGroups(chapter.groups),
-                    discoveredAt = now,
+        // Cela prestavba (relink + vlozeni novych kapitol + aktualizace mangy) v JEDNE
+        // transakci - drive bezelo jako rada nezavislych zapisu, takze pad/preruseni uprostred
+        // (napr. appka zabita na pozadi) nechal mangu napul premigrovanou (nektere kapitoly
+        // uz relinknute na nove id, jine porad na starem).
+        db.withTransaction {
+            plan.relink.forEach { (old, new) ->
+                val newId = chapterId(new)
+                chapterDao.relink(
+                    oldId = old.id,
+                    newId = newId,
+                    newUrl = new.url,
+                    newName = new.name,
+                    dateUpload = new.dateUpload,
+                    scanlationGroup = new.scanlationGroup,
+                    volume = new.volume,
+                    groupsJson = serializeChapterGroups(new.groups),
                 )
+                // relink() meni ChapterEntity.id - manual_translation.chapterId (obycejny
+                // string sloupec, zadny FK/cascade) by na stare id ukazoval do prazdna a
+                // rucni opravy tehle kapitoly by uz appka nikdy nenasla (viz relinkChapter doc).
+                manualTranslationDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
             }
-            chapterDao.insertNewOnly(entities)
-        }
+            if (plan.newOnly.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val entities = plan.newOnly.map { chapter ->
+                    ChapterEntity(
+                        id = chapterId(chapter),
+                        mangaId = mangaId,
+                        sourceId = chapter.sourceId,
+                        url = chapter.url,
+                        name = chapter.name,
+                        chapterNumber = chapter.chapterNumber,
+                        dateUpload = chapter.dateUpload,
+                        scanlationGroup = chapter.scanlationGroup,
+                        volume = chapter.volume,
+                        groupsJson = serializeChapterGroups(chapter.groups),
+                        discoveredAt = now,
+                    )
+                }
+                chapterDao.insertNewOnly(entities)
+            }
 
-        mangaDao.upsert(existing.copy(url = match.url, title = match.title, coverUrl = match.coverUrl ?: existing.coverUrl))
+            mangaDao.upsert(existing.copy(url = match.url, title = match.title, coverUrl = match.coverUrl ?: existing.coverUrl))
+        }
         return true
     }
 

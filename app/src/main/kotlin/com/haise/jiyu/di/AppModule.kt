@@ -102,16 +102,29 @@ private class RetryInterceptor(private val maxRetries: Int = 3) : Interceptor {
  * per-host), ale requesty na JINE domeny nijak neomezuje.
  */
 private class ThrottleInterceptor(private val maxConcurrentPerHost: Int = 5) : Interceptor {
-    private val semaphores = ConcurrentHashMap<String, Semaphore>()
+    // LruCache (ne ConcurrentHashMap) - appka za dobu behu mluvi s desitkami zdroju + jejich
+    // CDN hostiteli, bez stropu by mapa rostla neomezene po celou dobu behu procesu (audit
+    // nalez). Evikce zaznamu NEPOSKODI prave bezici pozadavek - ten uz drzi PRIMOU referenci
+    // na svuj Semaphore objekt, .release() na ni funguje bez ohledu na to, jestli jeste je
+    // v mape. Nejhorsi dusledek evikce je, ze se pro znovu-navstiveneho hostitele vytvori
+    // novy semafor od nuly - prijatelny kompromis oproti neomezenemu rustu.
+    private val semaphores = object : android.util.LruCache<String, Semaphore>(MAX_TRACKED_HOSTS) {}
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val semaphore = semaphores.getOrPut(chain.request().url.host) { Semaphore(maxConcurrentPerHost) }
+        val host = chain.request().url.host
+        val semaphore = synchronized(semaphores) {
+            semaphores.get(host) ?: Semaphore(maxConcurrentPerHost).also { semaphores.put(host, it) }
+        }
         semaphore.acquire()
         try {
             return chain.proceed(chain.request())
         } finally {
             semaphore.release()
         }
+    }
+
+    private companion object {
+        const val MAX_TRACKED_HOSTS = 64
     }
 }
 
@@ -240,10 +253,14 @@ private class RateLimitInterceptor : Interceptor {
  * neodpovídá.
  */
 internal fun parseRetryAfterMs(header: String): Long? {
-    header.toLongOrNull()?.let { return it * 1000 }
+    // coerceAtLeast(0) - poskozena/minula HTTP-date hlavicka (nebo zaporne cislo sekund) by
+    // jinak vratila zaporny cas. Dnesnimu jedinemu volajicimu (Throwable.toFriendlyMessage,
+    // ktery uz zapor/nulu bere stejne) na tom nezalezi, ale je to levna pojistka proti
+    // budoucimu volajicimu, co by tenhle predpoklad necekane porusil.
+    header.toLongOrNull()?.let { return (it * 1000).coerceAtLeast(0) }
     return try {
-        ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
-            .toInstant().toEpochMilli() - System.currentTimeMillis()
+        (ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0)
     } catch (_: Exception) {
         null
     }
@@ -368,6 +385,12 @@ object AppModule {
                 AppDatabase.MIGRATION_37_38,
                 AppDatabase.MIGRATION_38_39,
             )
+            // Nejnizsi registrovana migrace je 3->4 - instalace, ktera by (teoreticky, appka
+            // od te doby vydala uz 120+ verzi) porad sedela na DB verzi 1 nebo 2, by jinak
+            // spadla na "migrace nenalezena" pri kazdem startu, misto aby normalne nabehla.
+            // Radsi cista prestavba DB (ztrata jen lokalni cache u extremne stare instalace)
+            // nez tvrdy pad - viz audit nalez "chybejici migrace 1->2/2->3".
+            .fallbackToDestructiveMigrationFrom(1, 2)
             .build()
 
     @Provides

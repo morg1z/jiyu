@@ -446,7 +446,13 @@ class ReaderViewModel @Inject constructor(
                     _novelTranslatedText.value = result
                     preloadNextNovelChapter()
                 } else {
-                    _translationError.value = context.getString(R.string.reader_error_translation_failed)
+                    _translationError.value = if (!translateRepository.isApiKeyConfigured &&
+                        !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
+                    ) {
+                        context.getString(R.string.reader_error_language_unsupported_offline)
+                    } else {
+                        context.getString(R.string.reader_error_translation_failed)
+                    }
                     _novelTranslateMode.value = false
                 }
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
@@ -1282,7 +1288,13 @@ class ReaderViewModel @Inject constructor(
                 if (hasAnyTranslation) {
                     _translateMode.value = true
                 } else if (_translationError.value == null) {
-                    _translationError.value = context.getString(R.string.reader_error_translation_failed)
+                    _translationError.value = if (!translateRepository.isApiKeyConfigured &&
+                        !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
+                    ) {
+                        context.getString(R.string.reader_error_language_unsupported_offline)
+                    } else {
+                        context.getString(R.string.reader_error_translation_failed)
+                    }
                 }
             }
         }

@@ -4,9 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.haise.jiyu.data.db.AppDatabase
+import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import io.mockk.coEvery
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -128,5 +131,35 @@ class BackupRestoreTest {
 
         assertTrue("stará záloha bez verze musí projít", result.isSuccess)
         assertEquals(1, db.mangaNoteDao().getAll().size)
+    }
+
+    @Test
+    fun `a chapter marked DOWNLOADED with a localPath that no longer exists is downgraded on restore`() = runTest {
+        // Zaloha z jineho telefonu (nebo po reinstalu) klidne rekne "downloaded" s cestou,
+        // ktera na TOMHLE zarizeni nikdy neexistovala - appka by jinak navzdy ukazovala
+        // "stazeno" u kapitoly, ktera se ve skutecnosti musi stahnout znovu.
+        val backup = """
+            {
+              "version": 4,
+              "categories": [], "customSources": [], "manga": [],
+              "chapters": [ {
+                "id": "c1", "mangaId": "m1", "sourceId": "src", "url": "/c1", "name": "Ch 1",
+                "chapterNumber": 1.0, "dateUpload": 0, "read": false, "lastPageRead": 0,
+                "downloadStatus": "DOWNLOADED", "localPath": "/nonexistent/path/that/has/no/pages",
+                "pageCount": 20
+              } ],
+              "notes": [], "tags": [], "readHistory": []
+            }
+        """.trimIndent()
+        val slot = slot<List<ChapterEntity>>()
+        coEvery { repository.upsertAllChapters(capture(slot)) } returns Unit
+
+        val result = manager.importFromJson(backup)
+
+        assertTrue(result.isSuccess)
+        val restored = slot.captured.single()
+        assertEquals(DownloadStatus.NOT_DOWNLOADED, restored.downloadStatus)
+        assertEquals(null, restored.localPath)
+        assertEquals(0, restored.pageCount)
     }
 }

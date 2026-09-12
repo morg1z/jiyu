@@ -44,7 +44,19 @@ class PageBitmapLoader @Inject constructor(
     suspend fun load(url: String, maxDimension: Int? = null): Bitmap? = withContext(Dispatchers.IO) {
         try {
             if (url.startsWith("/") || url.startsWith("file://")) {
-                BitmapFactory.decodeFile(url.removePrefix("file://"))
+                val path = url.removePrefix("file://")
+                if (maxDimension != null) {
+                    // Na rozdíl od Coil větve níž (viz `.size(it)`) tahle cesta dřív `maxDimension`
+                    // úplně ignorovala - lokálně stažená (file://) 15000px webtoon stránka se tak
+                    // pořád dekódovala v plném rozlišení, přesně ten OOM, kterému `maxDimension`
+                    // u TextPatchProvider měl zabránit.
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(path, bounds)
+                    val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+                    BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+                } else {
+                    BitmapFactory.decodeFile(path)
+                }
             } else {
                 val scramble = ScrambledImageUrl.parse(url)
                 val transforms = buildList<Transformation> {
@@ -71,5 +83,14 @@ class PageBitmapLoader @Inject constructor(
             e.report("translate:bitmap:load")
             null
         }
+    }
+
+    /** Standardní Android vzor - největší mocnina 2, po které se obě strany pořád vejdou do [maxDimension]. */
+    private fun calculateInSampleSize(width: Int, height: Int, maxDimension: Int): Int {
+        var sampleSize = 1
+        while (width / (sampleSize * 2) >= maxDimension || height / (sampleSize * 2) >= maxDimension) {
+            sampleSize *= 2
+        }
+        return sampleSize
     }
 }

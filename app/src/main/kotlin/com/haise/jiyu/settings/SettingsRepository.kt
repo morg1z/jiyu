@@ -25,6 +25,7 @@ object SettingsKeys {
     val DAILY_READING_DAY      = stringPreferencesKey("daily_reading_day")
     val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
+    val PENDING_UPDATE_DOWNLOAD_ID = longPreferencesKey("pending_update_download_id")
     val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
     val TAP_ZONE_LEFT_FRACTION   = floatPreferencesKey("tap_zone_left_fraction")
     val TAP_ZONE_RIGHT_FRACTION  = floatPreferencesKey("tap_zone_right_fraction")
@@ -178,6 +179,17 @@ class SettingsRepository @Inject constructor(
 
     val updateIntervalHours: Flow<Long> =
         dataStore.data.map { it[SettingsKeys.UPDATE_INTERVAL_HOURS] ?: 12L }
+
+    /** ID rozpracovaného self-update stahování v systémovém DownloadManageru, nebo `null`,
+     * když žádné neběží - viz [com.haise.jiyu.update.ApkUpdateInstaller]. Persistováno, aby
+     * restart appky uprostřed stahování nezpůsobil kolizi (starý běžící DownloadManager
+     * záznam by jinak zůstal appce neviditelný a další pokus by pod ním smazal cílový soubor). */
+    val pendingUpdateDownloadId: Flow<Long?> =
+        dataStore.data.map { it[SettingsKeys.PENDING_UPDATE_DOWNLOAD_ID] }
+
+    suspend fun setPendingUpdateDownloadId(id: Long?) = dataStore.edit {
+        if (id == null) it.remove(SettingsKeys.PENDING_UPDATE_DOWNLOAD_ID) else it[SettingsKeys.PENDING_UPDATE_DOWNLOAD_ID] = id
+    }
 
     val tapZonesEnabled: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.TAP_ZONES_ENABLED] ?: true }

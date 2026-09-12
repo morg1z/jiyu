@@ -54,7 +54,14 @@ class MangaPlusSource @Inject constructor(
     private val appVersion = 237
     private val osVersion = 35
 
+    private companion object {
+        /** Viz [ensureSecret] doc - jak dlouho po selhané registraci appka další pokus odloží. */
+        const val REGISTER_FAILURE_COOLDOWN_MS = 30_000L
+    }
+
     @Volatile private var deviceSecret: String? = null
+    /** Kdy naposledy selhala registrace (viz [ensureSecret]) - 0 = jeste nikdy. */
+    @Volatile private var lastRegisterFailureAt: Long = 0L
 
     private fun md5(s: String): String {
         val digest = MessageDigest.getInstance("MD5").digest(s.toByteArray())
@@ -79,11 +86,19 @@ class MangaPlusSource @Inject constructor(
         }
     }
 
-    /** Registruje nahodne "zarizeni" a vrati free-tier deviceSecret; vysledek se cachuje po dobu behu appky. */
+    /**
+     * Registruje nahodne "zarizeni" a vrati free-tier deviceSecret; vysledek se cachuje po
+     * dobu behu appky. `rawGet` vraci prazdne pole na JAKEKOLI HTTP chybe (viz jeho komentar)
+     * bez rozliseni od "opravdu prazdna odpoved" - bez cooldownu by tak kazdy dalsi pozadavek
+     * behem vypadku/rate-limitu MangaPlus API znovu spustil cely `PUT /register` (spam
+     * registrace vuci jejich API presne v okamziku, kdy uz maji problem).
+     */
     private fun ensureSecret(): String? {
         deviceSecret?.let { return it }
         synchronized(this) {
             deviceSecret?.let { return it }
+            val now = System.currentTimeMillis()
+            if (now - lastRegisterFailureAt < REGISTER_FAILURE_COOLDOWN_MS) return null
             val deviceId = UUID.randomUUID().toString()
             val deviceToken = md5(deviceId)
             val securityKey = md5(deviceToken + "4Kin9vGg")
@@ -92,7 +107,7 @@ class MangaPlusSource @Inject constructor(
                 method = "PUT",
             )
             val secret = bytes.parseProto().msg(1)?.msg(2)?.str(1)
-            deviceSecret = secret
+            if (secret == null) lastRegisterFailureAt = now else deviceSecret = secret
             return secret
         }
     }
@@ -194,9 +209,9 @@ class MangaPlusSource @Inject constructor(
         val subTitle = str(4)?.takeIf { it.isNotBlank() }
         val displayName = if (subTitle != null) "$name: $subTitle" else name
         // "name" je casto ve tvaru "#001" - skutecne cislo kapitoly, na rozdil
-        // od chapterId (nesouvisejici interni DB id, napr. 1029917).
-        val chapterNumber = Regex("""(\d+(?:\.\d+)?)""").find(name)?.value?.toFloatOrNull()
-            ?: chapterId.toFloatOrNull() ?: 0f
+        // od chapterId (nesouvisejici interni DB id, napr. 1029917 - proto se sem NIKDY
+        // nefallbackuje, i kdyz by toFloatOrNull() na nem uspel, viz nahlaseny bug).
+        val chapterNumber = Regex("""(\d+(?:\.\d+)?)""").find(name)?.value?.toFloatOrNull() ?: 0f
         return SChapter(
             sourceId = id,
             mangaUrl = mangaUrl,

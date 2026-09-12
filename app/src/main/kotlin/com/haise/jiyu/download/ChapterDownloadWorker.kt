@@ -10,6 +10,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
@@ -24,11 +25,14 @@ import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 const val CHANNEL_DOWNLOADS = "channel_downloads"
 
@@ -192,8 +196,8 @@ class ChapterDownloadWorker @AssistedInject constructor(
     private fun notifyDone(chapterId: String) {
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("Stahování dokončeno")
-            .setContentText("Kapitola je připravena pro offline čtení")
+            .setContentTitle(applicationContext.getString(R.string.download_notification_done_title))
+            .setContentText(applicationContext.getString(R.string.download_notification_done_text))
             .setAutoCancel(true)
             .build()
         applicationContext.getSystemService(NotificationManager::class.java)
@@ -226,11 +230,35 @@ class ChapterDownloadWorker @AssistedInject constructor(
             message.contains("Nedostatek volného místa", ignoreCase = true)
     }
 
-    private fun downloadBytes(url: String): ByteArray {
-        val request = Request.Builder().url(url).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("Stažení selhalo: $url")
-            return response.body?.bytes() ?: throw IllegalStateException("Prázdná odpověď: $url")
+    /**
+     * `suspendCancellableCoroutine` + `call.cancel()` na zrušení - blokující `execute()` sám
+     * o sobě nemá jak reagovat na zrušení korutiny (WorkManager stop workeru), takže by
+     * request na jednu stránku doběhl vždycky celý, i když appka/systém stahování už dávno
+     * chce přerušit (nahlášený bug). `IOException` místo `IllegalStateException` na
+     * `isSuccessful`/prázdné tělo - tyhle případy tak dostanou existující retry mechanismus
+     * (`e is IOException && runAttemptCount < 3` v [doDownload]) místo trvalého selhání
+     * kapitoly na první přechodné chybě (503, dočasně prázdná odpověď apod.).
+     */
+    private suspend fun downloadBytes(url: String): ByteArray {
+        val call = client.newCall(Request.Builder().url(url).build())
+        return suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        cont.resumeWithException(java.io.IOException("Stažení selhalo (${response.code}): $url"))
+                        return@use
+                    }
+                    val bytes = response.body?.bytes()
+                    if (bytes == null) {
+                        cont.resumeWithException(java.io.IOException("Prázdná odpověď: $url"))
+                    } else {
+                        cont.resume(bytes)
+                    }
+                }
+            } catch (e: java.io.IOException) {
+                if (!cont.isCancelled) cont.resumeWithException(e)
+            }
         }
     }
 

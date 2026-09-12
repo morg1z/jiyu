@@ -104,4 +104,29 @@ class MangaLinkRecoveryTest {
         assertEquals("https://new.com/1a", plan.relink[0].second.url)
         assertEquals(0, plan.newOnly.size)
     }
+
+    @Test
+    fun `chapter numbers that differ only by float rounding noise still match`() {
+        // Simuluje Double->Float (zaloha) vs String->Float (zivy zdroj) zaokrouhlovaci sum -
+        // presna Float rovnost by tohle vyhodnotila jako DVE ruzne kapitoly (duplikat).
+        val old = listOf(oldChapter("old-1", 1.005f))
+        val new = listOf(newChapter("https://new.com/1", 1.0051f))
+
+        val plan = planChapterMigration(old, new)
+
+        assertEquals(1, plan.relink.size)
+        assertEquals("old-1", plan.relink[0].first.id)
+        assertEquals(0, plan.newOnly.size)
+    }
+
+    @Test
+    fun `genuinely different chapter numbers are still NOT matched`() {
+        val old = listOf(oldChapter("old-1", 1.1f))
+        val new = listOf(newChapter("https://new.com/1", 1.2f))
+
+        val plan = planChapterMigration(old, new)
+
+        assertEquals(0, plan.relink.size)
+        assertEquals(1, plan.newOnly.size)
+    }
 }

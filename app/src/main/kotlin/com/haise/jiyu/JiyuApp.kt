@@ -55,6 +55,9 @@ class JiyuApp : Application(), Configuration.Provider {
     /** Odblokování zaseknutých stahování při startu - viz [resetStuckDownloads]. */
     @Inject lateinit var mangaRepository: com.haise.jiyu.data.repository.MangaRepository
 
+    /** Obnovení periodické cloud synchronizace při startu - viz [resumeBackgroundSyncIfSignedIn]. */
+    @Inject lateinit var authRepository: com.haise.jiyu.auth.AuthRepository
+
     /**
      * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
      *
@@ -94,6 +97,7 @@ class JiyuApp : Application(), Configuration.Provider {
         initFirebase()
         evictOldTranslationCache()
         resetStuckDownloads()
+        resumeBackgroundSyncIfSignedIn()
     }
 
     /**
@@ -167,6 +171,21 @@ class JiyuApp : Application(), Configuration.Provider {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             runCatching { mangaRepository.resetActiveDownloads() }
                 .onFailure { it.report("download:resetStuckDownloads") }
+        }
+    }
+
+    /**
+     * `AccountViewModel.scheduleBackgroundSync()` se dřív volalo JEN jednou, hned po
+     * úspěšném přihlášení - reinstall appky nebo vymazání dat (smazaná WorkManager DB, ale
+     * uživatel zůstal přihlášený přes perzistentní token) tak periodickou synchronizaci
+     * navždy ztratilo, dokud by se uživatel ručně neodhlásil a nepřihlásil znovu (appka
+     * nemá BOOT_COMPLETED receiver, viz audit nález). `enqueueUniquePeriodicWork` s `KEEP`
+     * politikou (uvnitř [SyncScheduler]) je bezpečné volat na každém startu - u už
+     * naplánované práce je no-op, stejný vzor jako [scheduleChapterUpdates].
+     */
+    private fun resumeBackgroundSyncIfSignedIn() {
+        if (authRepository.currentUserId() != null) {
+            com.haise.jiyu.work.SyncScheduler.schedule(this)
         }
     }
 

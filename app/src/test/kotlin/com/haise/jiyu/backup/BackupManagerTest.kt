@@ -124,4 +124,111 @@ class BackupManagerTest {
     fun `malformed JSON throws instead of silently returning an empty backup`() {
         assertThrows(org.json.JSONException::class.java) { parseBackupJson("{ not valid json") }
     }
+
+    @Test
+    fun `manga fields added in BACKUP_VERSION 4 survive a round-trip`() {
+        val json = backupJson {
+            put("manga", JSONArray().put(manga {
+                put("inLibrary", false)
+                put("lastUpdated", 111L)
+                put("kitsuId", "k1")
+                put("kitsuScore", 8.5)
+                put("mangaUpdatesId", 222L)
+                put("readingTimeMs", 333L)
+                put("isFavorite", true)
+                put("demographic", "Seinen")
+                put("translationCompleted", 1)
+                put("hasAnime", 0)
+                put("finalChapter", "120")
+                put("rating", 9.2)
+                put("followCount", 42)
+                put("rank", 7)
+                put("alternateTitles", "[\"Alt Title\"]")
+                put("translationContextNote", "hrdina je ve skutecnosti zena")
+            }))
+        }
+
+        val m = parseBackupJson(json).manga.single()
+
+        assertEquals(false, m.inLibrary)
+        assertEquals(111L, m.lastUpdated)
+        assertEquals("k1", m.kitsuId)
+        assertEquals(8.5f, m.kitsuScore!!, 0.001f)
+        assertEquals(222L, m.mangaUpdatesId)
+        assertEquals(333L, m.readingTimeMs)
+        assertEquals(true, m.isFavorite)
+        assertEquals("Seinen", m.demographic)
+        assertEquals(true, m.translationCompleted)
+        assertEquals(false, m.hasAnime)
+        assertEquals("120", m.finalChapter)
+        assertEquals(9.2, m.rating!!, 0.001)
+        assertEquals(42, m.followCount)
+        assertEquals(7, m.rank)
+        assertEquals("[\"Alt Title\"]", m.alternateTitles)
+        assertEquals("hrdina je ve skutecnosti zena", m.translationContextNote)
+    }
+
+    @Test
+    fun `a backup from before BACKUP_VERSION 4 without inLibrary still restores as in-library`() {
+        // Stary export (verze nizsi nez 4) pole "inLibrary" vubec nemel - vsechno v nem byl
+        // skutecny obsah knihovny uzivatele, takze chybejici pole musi znamenat true, ne false.
+        val json = backupJson { put("manga", JSONArray().put(manga())) }
+
+        val m = parseBackupJson(json).manga.single()
+
+        assertEquals(true, m.inLibrary)
+    }
+
+    @Test
+    fun `chapter fields added in BACKUP_VERSION 4 survive a round-trip`() {
+        val json = backupJson {
+            put("chapters", JSONArray().put(JSONObject().apply {
+                put("id", "c1"); put("mangaId", "m1"); put("sourceId", "src"); put("url", "/c1")
+                put("name", "Ch 1"); put("chapterNumber", 1.0); put("dateUpload", 0L)
+                put("read", true); put("lastPageRead", 3)
+                put("lastReadAt", 555L)
+                put("lastScrollOffset", 777)
+                put("downloadStatus", "DOWNLOADED")
+                put("localPath", "/downloads/m1/c1")
+                put("pageCount", 20)
+                put("scanlationGroup", "Group X")
+                put("volume", "2")
+                put("groupsJson", "[{\"name\":\"Group X\"}]")
+                put("discoveredAt", 999L)
+                put("verifiedPageCount", 20)
+                put("isFallbackSource", true)
+                put("fallbackChapterId", "c2")
+            }))
+        }
+
+        val c = parseBackupJson(json).chapters.single()
+
+        assertEquals(555L, c.lastReadAt)
+        assertEquals(777, c.lastScrollOffset)
+        assertEquals(com.haise.jiyu.data.db.entity.DownloadStatus.DOWNLOADED, c.downloadStatus)
+        assertEquals("/downloads/m1/c1", c.localPath)
+        assertEquals(20, c.pageCount)
+        assertEquals("Group X", c.scanlationGroup)
+        assertEquals("2", c.volume)
+        assertEquals("[{\"name\":\"Group X\"}]", c.groupsJson)
+        assertEquals(999L, c.discoveredAt)
+        assertEquals(20, c.verifiedPageCount)
+        assertEquals(true, c.isFallbackSource)
+        assertEquals("c2", c.fallbackChapterId)
+    }
+
+    @Test
+    fun `a chapter with no downloadStatus in the backup defaults to NOT_DOWNLOADED, not a crash`() {
+        val json = backupJson {
+            put("chapters", JSONArray().put(JSONObject().apply {
+                put("id", "c1"); put("mangaId", "m1"); put("sourceId", "src"); put("url", "/c1")
+                put("name", "Ch 1"); put("chapterNumber", 1.0); put("dateUpload", 0L)
+                put("read", false); put("lastPageRead", 0)
+            }))
+        }
+
+        val c = parseBackupJson(json).chapters.single()
+
+        assertEquals(com.haise.jiyu.data.db.entity.DownloadStatus.NOT_DOWNLOADED, c.downloadStatus)
+    }
 }

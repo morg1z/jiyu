@@ -80,8 +80,15 @@ object ChapterStorage {
      * stahování, místo aby kapitolu omylem označil za kompletně staženou s chybějící
      * stránkou. Plain-`File` větev `false` nikdy nevrací - `writeBytes` při selhání sama
      * vyhodí výjimku, která propadne stejnou cestou výš.
+     *
+     * Zapisuje se nejdřív pod dočasným jménem (`"$fileName.tmp"`) a až po ÚPLNÉM zápisu se
+     * přejmenuje na finální jméno - kdyby proces zemřel (zabit systémem/OOM) uprostřed
+     * zápisu, zůstal by jen osiřelý `.tmp`, ne torzo pod finálním jménem, které by
+     * [pageExists] (jen `length() > 0`) tiše bral jako kompletně stažené a napořád
+     * přeskočil (nahlášený bug).
      */
     fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray): Boolean {
+        val tempName = "$fileName.tmp"
         if (isSaf(dirPath)) {
             val dir = DocumentFile.fromSingleUri(context, Uri.parse(dirPath)) ?: return false
             val mime = when (fileName.substringAfterLast('.', "").lowercase()) {
@@ -90,11 +97,20 @@ object ChapterStorage {
                 "gif" -> "image/gif"
                 else -> "image/jpeg"
             }
-            val file = dir.createFile(mime, fileName) ?: return false
-            return context.contentResolver.openOutputStream(file.uri)?.use { it.write(bytes) } != null
+            // Osirely .tmp z minuleho preruseneho pokusu smazat predem, jinak by createFile
+            // vytvorilo "fileName.tmp (1)" duplikat misto prepsani.
+            dir.findFile(tempName)?.delete()
+            val tempFile = dir.createFile(mime, tempName) ?: return false
+            val written = context.contentResolver.openOutputStream(tempFile.uri)?.use { it.write(bytes) } != null
+            if (!written) {
+                tempFile.delete()
+                return false
+            }
+            return tempFile.renameTo(fileName)
         } else {
-            File(dirPath, fileName).writeBytes(bytes)
-            return true
+            val tempFile = File(dirPath, tempName)
+            tempFile.writeBytes(bytes)
+            return tempFile.renameTo(File(dirPath, fileName))
         }
     }
 
@@ -130,17 +146,20 @@ object ChapterStorage {
 
     private const val MIN_FREE_BYTES_FOR_DOWNLOAD = 20L * 1024 * 1024
 
-    /** Seřazený seznam URL/URI stránek pro čtečku - Coil umí načíst jak file://, tak content://. */
+    /** Seřazený seznam URL/URI stránek pro čtečku - Coil umí načíst jak file://, tak content://.
+     * `.tmp` (viz [writePage] - dočasný název před dokončením zápisu) se vždy vyřadí, i kdyby
+     * nějaký osiřelý zůstal ležet z přerušeného pokusu před touhle opravou. */
     fun listPageUrls(context: Context, dirPath: String): List<String> {
         return if (isSaf(dirPath)) {
             DocumentFile.fromSingleUri(context, Uri.parse(dirPath))
                 ?.listFiles()
-                ?.filter { it.name?.endsWith(".cbz") != true }
+                ?.filter { it.name?.endsWith(".cbz") != true && it.name?.endsWith(".tmp") != true }
                 ?.sortedBy { it.name ?: "" }
                 ?.map { it.uri.toString() }
                 ?: emptyList()
         } else {
             File(dirPath).listFiles()
+                ?.filter { !it.name.endsWith(".tmp") }
                 ?.sortedBy { it.name }
                 ?.map { "file://${it.absolutePath}" }
                 ?: emptyList()

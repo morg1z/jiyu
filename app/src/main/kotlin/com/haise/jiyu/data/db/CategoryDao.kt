@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
@@ -19,7 +20,12 @@ interface CategoryDao {
     @Query("SELECT * FROM category ORDER BY name ASC")
     fun observeAll(): Flow<List<CategoryEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert, NE @Insert(REPLACE) - REPLACE na konfliktu primárního klíče existující řádek
+    // NEJDŘÍV SMAŽE a pak vloží znovu (SQLite "INSERT OR REPLACE" algoritmus), což s foreign
+    // keys zapnutými (appka je má - PRAGMA foreign_keys = ON) kaskádově smaže i manga_category
+    // vazby té kategorie (ON DELETE CASCADE) - potichu by zmizely přiřazené mangy. @Upsert
+    // generuje bezpečný insert-nebo-update, který konfliktní řádek nikdy nemaže.
+    @Upsert
     suspend fun upsert(category: CategoryEntity)
 
     @Delete
@@ -54,7 +60,7 @@ interface CategoryDao {
         if (getAllOnce().isEmpty()) upsertAll(defaults)
     }
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertAll(categories: List<CategoryEntity>)
 
     @Query("SELECT mangaId, categoryId FROM manga_category")

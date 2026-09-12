@@ -273,6 +273,19 @@ class ComicKChapterResolverTest {
     }
 
     @Test
+    fun `when fetching title info fails, adult sources are still searched (unknown rating treated as possibly adult)`() = runTest {
+        coEvery { comicKSource.getTitleInfo("u1") } throws RuntimeException("network down")
+        val match = SManga(sourceId = "src-adult", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val adultSource = FakeSource("src-adult", "Adult Site", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)), isAdult = true)
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(adultSource)
+
+        val result = resolver.findCandidates("comick-id-14", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(1, result.size)
+        assertEquals("src-adult", result[0].source.id)
+    }
+
+    @Test
     fun `a non-adult ComicK title never searches isAdult sources, even when the source would match`() = runTest {
         coEvery { comicKSource.getTitleInfo("u1") } returns ComicKTitleInfo(emptyList(), "safe")
         val match = SManga(sourceId = "src-adult", url = "u1", title = "Solo Leveling", coverUrl = null)

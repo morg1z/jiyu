@@ -30,6 +30,7 @@ class AniListRepository @Inject constructor(
     companion object {
         private const val API_URL = "https://graphql.anilist.co"
         private const val KEY_TOKEN = "anilist_access_token"
+        private const val KEY_STATE = "anilist_oauth_state"
         private const val REDIRECT_URI = "jiyu://anilist/callback"
     }
 
@@ -37,22 +38,53 @@ class AniListRepository @Inject constructor(
     private val clientId get() = BuildConfig.ANILIST_CLIENT_ID
     val hasClientId get() = clientId.isNotBlank()
 
-    val authUrl: String get() =
-        "https://anilist.co/api/v2/oauth/authorize?client_id=$clientId" +
-        "&redirect_uri=${URLEncoder.encode(REDIRECT_URI, "UTF-8")}&response_type=token"
+    /**
+     * AniList podporuje jen implicit flow (`response_type=token`) - na rozdíl od MAL nemá PKCE,
+     * takže token skutečně přijde přímo ve fragmentu přesměrovací URL. `state` aspoň zajistí,
+     * že appka přijme token JEN jako odpověď na TENHLE konkrétní přihlašovací pokus (CSRF ochrana),
+     * ne z libovolného přesměrování na `jiyu://anilist/...` - stejný `SecureRandom`+base64url vzor
+     * jako [com.haise.jiyu.data.tracking.MalAuthManager.randomUrlSafeToken].
+     *
+     * `secureStore.set` je synchronní (EncryptedSharedPreferences) - proto může zůstat obyčejná
+     * `val` s vedlejším efektem, beze změny na volajícím místě (AccountViewModel/AccountScreen).
+     */
+    val authUrl: String get() {
+        val state = randomUrlSafeToken()
+        secureStore.set(KEY_STATE, state)
+        return "https://anilist.co/api/v2/oauth/authorize?client_id=$clientId" +
+            "&redirect_uri=${URLEncoder.encode(REDIRECT_URI, "UTF-8")}&response_type=token" +
+            "&state=${URLEncoder.encode(state, "UTF-8")}"
+    }
+
+    private fun randomUrlSafeToken(): String {
+        val bytes = ByteArray(32)
+        java.security.SecureRandom().nextBytes(bytes)
+        return android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+    }
 
     private val mapMutex = Mutex()
 
     private val _token = MutableStateFlow(secureStore.get(KEY_TOKEN))
     val isAuthenticated: Flow<Boolean> = _token.map { !it.isNullOrBlank() }
 
-    suspend fun handleCallback(token: String) = withContext(Dispatchers.IO) {
+    /**
+     * [state] musí sedět s hodnotou vygenerovanou v [authUrl] - jinak jde o CSRF pokus a token
+     * se vůbec nepřijme. `null`/chybějící `state` (starší appka bez tohohle pole v přesměrování,
+     * nebo podvržené přesměrování) se bere stejně jako neshoda.
+     */
+    suspend fun handleCallback(token: String, state: String?): Boolean = withContext(Dispatchers.IO) {
+        val expectedState = secureStore.get(KEY_STATE)
+        if (state.isNullOrBlank() || expectedState.isNullOrBlank() || state != expectedState) {
+            return@withContext false
+        }
+        secureStore.remove(KEY_STATE)
         secureStore.set(KEY_TOKEN, token)
         _token.value = token
+        true
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
-        secureStore.remove(KEY_TOKEN)
+        secureStore.remove(KEY_TOKEN, KEY_STATE)
         _token.value = null
         settings.saveAniListIdMap("{}")
     }

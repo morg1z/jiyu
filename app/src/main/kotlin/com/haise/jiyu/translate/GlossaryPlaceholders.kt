@@ -54,9 +54,10 @@ internal object GlossaryPlaceholders {
      * Nahradí výskyty [protectedEntries]' sourceTerm v každé bublině tokenem tvaru
      * `__JIYU_PROTECT_n__`. Delší pojmy se nahrazují dřív než kratší (stejný princip jako
      * [OnDeviceTranslator.prepareGlossary]), aby kratší pojem, který je podřetězcem delšího,
-     * nerozbil substituci delšího dřív, než na něj dojde řada. Case-sensitive shoda (stejně
-     * jako [OnDeviceTranslator]) - OCR text i glosářový pojem se typicky zapisují stejnou
-     * velikostí písmen (vlastní jména).
+     * nerozbil substituci delšího dřív, než na něj dojde řada. Case-INsensitive shoda - manga
+     * bubliny pojem často napíšou celý verzálkami (křik/zvýraznění, např. "FRODO"), a přesně
+     * takovou bublinu má `protectExact` chránit stejně jako běžně psanou - case-sensitive
+     * shoda by ji tiše nechala bez ochrany (nahlášeno v auditu).
      *
      * Beze změny (identita), když [protectedEntries] je prázdné - nejčastější případ, funkce
      * se pak nemusí volat vůbec, ale takhle je volající strana (viz [TranslateRepository])
@@ -70,7 +71,7 @@ internal object GlossaryPlaceholders {
         val targetRestoreMap = tokens.associate { (entry, token) -> token to entry.targetTerm }
         val substituted = classified.map { c ->
             var text = c.raw.text
-            for ((entry, token) in tokens) text = text.replace(entry.sourceTerm, token)
+            for ((entry, token) in tokens) text = text.replace(entry.sourceTerm, token, ignoreCase = true)
             if (text == c.raw.text) c else c.copy(raw = c.raw.copy(text = text))
         }
         return Substitution(substituted, sourceRestoreMap, targetRestoreMap)

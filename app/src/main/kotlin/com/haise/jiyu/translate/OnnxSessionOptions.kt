@@ -27,26 +27,43 @@ internal fun OrtSession.SessionOptions.withXnnpackIfAvailable(): OrtSession.Sess
  *
  * Kopiruje se malym pevnym bufferem (8KB), ne `readBytes()` - to by problem jen presunulo
  * z `createSession` do samotneho kopirovani. Kopie se preskoci, pokud cilovy soubor uz
- * existuje (prezije mezi behy appky). Zapisuje se nejdriv do `.tmp` a pak se prejmenuje -
- * kdyby appka spadla/byla zabita uprostred kopie, pristi spusteni neuvidi napul zapsany
- * soubor jako "uz existuje".
+ * existuje SE SPRAVNOU VELIKOSTI (viz nize) - jinak by budouci APK update s novym modelem
+ * stejneho jmena uzivatele se starym zkopirovanym souborem uz nikdy nedohnal. Zapisuje se
+ * nejdriv do `.tmp` a pak se prejmenuje - kdyby appka spadla/byla zabita uprostred kopie,
+ * pristi spusteni neuvidi napul zapsany soubor jako "uz existuje".
+ *
+ * Assety `.onnx` jsou natvrdo nekomprimovane (`androidResources.noCompress += "onnx"` v
+ * app/build.gradle.kts), takze `AssetFileDescriptor.length` jde precist bez rozbaleni celeho
+ * souboru - staci na jednoduchou (ne kryptograficky silnou, ale k detekci "jiny/novejsi model"
+ * dostacujici) kontrolu shody velikosti.
  */
 internal fun ensureModelFileFromAsset(context: Context, assetPath: String, fileName: String): File {
     val modelsDir = File(context.filesDir, "models").apply { if (!exists()) mkdirs() }
     val outFile = File(modelsDir, fileName)
-    if (!outFile.exists()) {
+    val assetSize = context.assets.openFd(assetPath).use { it.length }
+    if (!outFile.exists() || outFile.length() != assetSize) {
         val tmpFile = File(modelsDir, "$fileName.tmp")
-        context.assets.open(assetPath).use { input ->
-            tmpFile.outputStream().use { output ->
-                val buffer = ByteArray(8 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    output.write(buffer, 0, read)
+        try {
+            context.assets.open(assetPath).use { input ->
+                tmpFile.outputStream().use { output ->
+                    val buffer = ByteArray(8 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                    }
                 }
             }
+            if (!tmpFile.renameTo(outFile)) {
+                // renameTo() muze selhat na nekterych souborovych systemech/zarizenich i pri
+                // uspesnem zapisu - zkopirovat rovnou pres cil misto tise pokracovat, jako by
+                // outFile uz byl hotovy (createSession na chybejicim/starem souboru by pak
+                // spadl mnohem hure citelnou chybou az v ONNX Runtime).
+                tmpFile.copyTo(outFile, overwrite = true)
+            }
+        } finally {
+            tmpFile.delete()
         }
-        tmpFile.renameTo(outFile)
     }
     return outFile
 }

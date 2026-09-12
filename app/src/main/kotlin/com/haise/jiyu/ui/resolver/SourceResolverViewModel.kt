@@ -42,6 +42,20 @@ private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
 
 private const val SUSPICIOUSLY_SHORT_PAGE_FLOOR = 6
 
+/**
+ * Skupinove tokeny (viz preferredGroupTokens/matchesPreferredGroup) pouzivaji fuzzy
+ * `contains` obema smery - samotne obecne slovo jako "scans" by tak matchlo KAZDY zdroj
+ * se stejnym obecnym slovem ve jmene (napr. kazdy "*-scans" zdroj), i kdyz jde o uplne
+ * jinou prekladatelskou skupinu (nahlaseny bug). Delkovy filtr (>=3 znaky) tohle
+ * nezachyti, protoze "scans"/"manga" uz maji 3+ znaku sami o sobe.
+ */
+private val GENERIC_GROUP_TOKENS = setOf(
+    "scans", "scan", "manga", "manhwa", "manhua", "team", "group",
+    "translations", "translation", "sub", "subs", "comics", "comic",
+)
+
+internal fun isGenericGroupToken(token: String): Boolean = token in GENERIC_GROUP_TOKENS
+
 /** Strop na kontrolu kompletnosti kapitoly (viz resolveCompleteChapter) - stejny duvod jako
  * ReaderViewModel.CHAPTER_LOAD_TIMEOUT_MS (RetryInterceptor x CloudflareInterceptor umi viset
  * beze jakekoli vyjimky i pres minutu). Kratsi nez tam (45s) - u alternativnich kandidatu jde
@@ -162,7 +176,7 @@ class SourceResolverViewModel @Inject constructor(
                 preferredGroupTokens = (signalGroupNames + (chapter.scanlationGroup ?: ""))
                     .flatMap { it.split(",") }
                     .map { normalizeGroupToken(it) }
-                    .filter { it.length >= 3 }
+                    .filter { it.length >= 3 && !isGenericGroupToken(it) }
                     .distinct()
                 _searchingMore.value = true
                 resolver.findCandidatesFlow(
@@ -240,8 +254,9 @@ class SourceResolverViewModel @Inject constructor(
     /**
      * Fuzzy shoda: normalizovane jmeno zdroje obsahuje normalizovany token skupiny nebo naopak
      * (delsi retezec obvykle obsahuje kratsi - "asurascans" obsahuje "asura", ne naopak). Kratke
-     * tokeny (< 3 znaky) uz preferredGroupTokens vyfiltrovalo pri nastaveni, aby se predeslo
-     * falesnym shodam u krakich jmen skupin.
+     * tokeny (< 3 znaky) i obecna slova (viz GENERIC_GROUP_TOKENS/isGenericGroupToken) uz
+     * preferredGroupTokens vyfiltrovalo pri nastaveni, aby se predeslo falesnym shodam u
+     * krakich/prilis obecnych jmen skupin.
      */
     private fun matchesPreferredGroup(candidate: ResolvedCandidate): Boolean {
         if (preferredGroupTokens.isEmpty()) return false

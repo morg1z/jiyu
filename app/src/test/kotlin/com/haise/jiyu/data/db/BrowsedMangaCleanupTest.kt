@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.GlossaryEntity
+import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
@@ -114,6 +116,25 @@ class BrowsedMangaCleanupTest {
     }
 
     @Test
+    fun `a manga whose chapter is referenced as a fallback target survives`() = runTest {
+        // SourceResolverViewModel.resolveCompleteChapter presmerovava kapitolu s podezrele
+        // malo strankami na alternativu z jineho zdroje/mangy pres fallbackChapterId - ta
+        // preview-manga ma jinak presne profil "jen prohlizene", ale jde o trvale zapsanou
+        // naucenou nahradu, ne nahodny bordel (nahlaseny bug - jinak by ji uklid smazal).
+        dao.upsert(manga("browsed"))
+        dao.upsert(manga("fallback-target"))
+        db.chapterDao().upsertAll(
+            listOf(
+                chapter("ch-original", "browsed").copy(fallbackChapterId = "ch-alt"),
+                chapter("ch-alt", "fallback-target"),
+            )
+        )
+        assertEquals(1, db.deleteBrowsedManga())
+        assertNull(dao.getById("browsed"))
+        assertNotNull(dao.getById("fallback-target"))
+    }
+
+    @Test
     fun `a manga sorted into a category survives`() = runTest {
         // Zarazeni do kategorie je vedome usporadani uzivatele - i kdyz mangu nema v knihovne
         // a necetl ji, rekl o ni "tahle patri sem" a to nesmi uklid smazat.
@@ -146,5 +167,26 @@ class BrowsedMangaCleanupTest {
     @Test
     fun `an empty database is a no-op`() = runTest {
         assertEquals(0, db.deleteBrowsedManga())
+    }
+
+    @Test
+    fun `glossary entries of a deleted manga are cleaned up, not left as orphans`() = runTest {
+        dao.upsert(manga("browsed"))
+        db.glossaryDao().upsert(
+            GlossaryEntity(id = "browsed::term::Czech", mangaId = "browsed", sourceTerm = "Term", targetTerm = "Pojem", targetLanguage = "Czech"),
+        )
+        db.deleteBrowsedManga()
+        assertEquals(emptyList<GlossaryEntity>(), db.glossaryDao().getForMangaAndLanguage("browsed", "Czech"))
+    }
+
+    @Test
+    fun `manual translations of a deleted manga's chapters are cleaned up, not left as orphans`() = runTest {
+        dao.upsert(manga("browsed"))
+        db.chapterDao().upsertAll(listOf(chapter("ch1", "browsed")))
+        db.manualTranslationDao().upsert(
+            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L),
+        )
+        db.deleteBrowsedManga()
+        assertEquals(emptyList<ManualTranslationEntity>(), db.manualTranslationDao().forPage("ch1", 0))
     }
 }

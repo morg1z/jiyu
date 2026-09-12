@@ -647,18 +647,6 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
   }
 
   const contextClause = contextClauseFor(context, recent);
-
-  // Kontext se do kvóty počítá - je to znaky poslané upstreamu jako každé jiné, a Gemini
-  // cesta si je taky započítává (viz handleGemini, charCount = system.length + user.length).
-  const charCount = texts.reduce(
-    (sum: number, t: unknown) => sum + (typeof t === "string" ? t.length : 0),
-    0,
-  ) + contextClause.length;
-
-  const { allowed, errored } = await checkQuota(charCount);
-  if (errored) return json({ translations: [] }, 500);
-  if (!allowed) return json({ translations: [], error: "daily_quota_exceeded" }, 429);
-
   const fromClause = sourceLanguage && sourceLanguage !== "Auto" ? `from ${sourceLanguage} ` : "";
   const glossaryClause = Object.keys(glossary).length > 0
     ? "\n\nThe following terms MUST be translated exactly as specified below, with no " +
@@ -667,6 +655,20 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
     : "";
 
   const systemPrompt = systemPromptFor(mode, fromClause, targetLanguage) + glossaryClause + contextClause;
+
+  // Cely system prompt (instrukce + glosar + kontext), ne jen kontext samotny - stejny
+  // princip jako handleGemini (charCount = system.length + user.length). Puvodni verze
+  // pocitala do kvoty jen texty+kontext, takze u titulu s velkym glosarem byly skutecne
+  // spotrebovane znaky u LLM znatelne vyssi nez to, co se z denni kvoty odectenim
+  // (nahlaseny bug).
+  const charCount = texts.reduce(
+    (sum: number, t: unknown) => sum + (typeof t === "string" ? t.length : 0),
+    0,
+  ) + systemPrompt.length;
+
+  const { allowed, errored } = await checkQuota(charCount);
+  if (errored) return json({ translations: [] }, 500);
+  if (!allowed) return json({ translations: [], error: "daily_quota_exceeded" }, 429);
 
   // Status 200 i při selhání upstreamu (dřív se u Groqu vracelo 500) - jinak by appka
   // odpověď zahodila jako "server chyba, zkus znovu" a k poli "error", ve kterém stojí

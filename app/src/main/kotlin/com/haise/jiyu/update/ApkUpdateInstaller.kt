@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import androidx.core.net.toUri
+import com.haise.jiyu.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,8 +16,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,7 +47,9 @@ sealed interface UpdateDownloadState {
  * dál sledovalo i po odchodu z Nastavení.
  */
 @Singleton
-class ApkUpdateInstaller @Inject constructor() {
+class ApkUpdateInstaller @Inject constructor(
+    private val settings: SettingsRepository,
+) {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var downloadJob: Job? = null
@@ -60,19 +67,35 @@ class ApkUpdateInstaller @Inject constructor() {
 
     /**
      * Zařadí stažení do DownloadManageru, sleduje postup do [downloadState] a po
-     * dokončení rovnou otevře systémový instalátor balíčků.
+     * dokončení - pokud [expectedSha256] sedí (nebo release žádný digest neposkytl,
+     * viz [extractSha256FromReleaseNotes]) - otevře systémový instalátor balíčků.
      */
-    fun startDownload(context: Context, apkUrl: String, version: String) {
+    fun startDownload(context: Context, apkUrl: String, version: String, expectedSha256: String?) {
         if (_downloadState.value is UpdateDownloadState.Downloading) return
         downloadJob?.cancel()
         _downloadState.value = UpdateDownloadState.Downloading(0)
         _overlayVisible.value = true
         downloadJob = scope.launch {
             val downloadId = enqueueDownload(context, apkUrl, version)
+            settings.setPendingUpdateDownloadId(downloadId)
             observeProgress(context, downloadId).collect { state ->
-                _downloadState.value = state
-                if (state is UpdateDownloadState.ReadyToInstall) {
-                    installDownloaded(context, downloadId)
+                when (state) {
+                    is UpdateDownloadState.ReadyToInstall -> {
+                        if (verifyIntegrity(context, expectedSha256)) {
+                            settings.setPendingUpdateDownloadId(null)
+                            _downloadState.value = state
+                            installDownloaded(context, downloadId)
+                        } else {
+                            deleteDownloadedApk(context)
+                            settings.setPendingUpdateDownloadId(null)
+                            _downloadState.value = UpdateDownloadState.Failed(reason = REASON_INTEGRITY_CHECK_FAILED)
+                        }
+                    }
+                    is UpdateDownloadState.Failed -> {
+                        settings.setPendingUpdateDownloadId(null)
+                        _downloadState.value = state
+                    }
+                    else -> _downloadState.value = state
                 }
             }
         }
@@ -102,14 +125,25 @@ class ApkUpdateInstaller @Inject constructor() {
      * pokusu (i úspěšného, co appka po instalaci nikdy neuklidila) už soubor leží. Uživatel
      * pak vidí jen obecné "nepovedlo se" bez zjevného důvodu - proto se starý soubor před
      * každým novým pokusem smaže.
+     *
+     * Předchozí sledované stahování (viz [SettingsRepository.pendingUpdateDownloadId]) se
+     * navíc přes `manager.remove()` uklidí PŘED založením nového - bez tohohle by restart
+     * appky uprostřed stahování (proces zabit/OOM) resetoval [downloadState] na `Idle`
+     * (jen in-memory), ale původní DownloadManager záznam by zůstal běžet dál. Nový pokus
+     * by pod ním smazal cílový soubor výše a založil kolidující druhé stahování nad stejným
+     * targetem (nahlášený bug) - a starší dokončená stahování se navíc nikdy neuklízela.
      */
-    fun enqueueDownload(context: Context, apkUrl: String, version: String): Long {
+    suspend fun enqueueDownload(context: Context, apkUrl: String, version: String): Long {
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        settings.pendingUpdateDownloadId.first()?.let { oldId ->
+            try { manager.remove(oldId) } catch (_: Exception) {}
+        }
+
         context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?.resolve("jiyu-update.apk")
             ?.takeIf { it.exists() }
             ?.delete()
 
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(apkUrl))
             .setTitle("Jiyu $version")
             .setDescription("Stahování aktualizace")
@@ -117,6 +151,35 @@ class ApkUpdateInstaller @Inject constructor() {
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "jiyu-update.apk")
         return manager.enqueue(request)
+    }
+
+    /**
+     * Ověří SHA-256 staženého APK proti [expectedSha256] z release poznámek - appka není na
+     * Play Storu, takže tenhle krok je jediná kontrola integrity mezi GitHub Release assetem
+     * a systémovým instalátorem (ten sám kontroluje jen shodu podpisu s už nainstalovanou
+     * appkou, ne obsah stahovaného souboru). `null` (starší release bez digestu v poznámkách)
+     * kontrolu z důvodu zpětné kompatibility přeskočí.
+     */
+    private suspend fun verifyIntegrity(context: Context, expectedSha256: String?): Boolean {
+        if (expectedSha256 == null) return true
+        return withContext(Dispatchers.IO) {
+            val file = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve("jiyu-update.apk")
+            if (file == null || !file.exists()) return@withContext false
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (input.read(buffer).also { read = it } != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            actual.equals(expectedSha256, ignoreCase = true)
+        }
+    }
+
+    private fun deleteDownloadedApk(context: Context) {
+        context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve("jiyu-update.apk")?.delete()
     }
 
     /**
@@ -154,7 +217,7 @@ class ApkUpdateInstaller @Inject constructor() {
             }
             delay(300)
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     /** Otevře systémový instalátor balíčků nad staženým APK - uživatel jen potvrdí instalaci. */
     fun installDownloaded(context: Context, downloadId: Long) {
@@ -165,5 +228,13 @@ class ApkUpdateInstaller @Inject constructor() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
         }
         context.startActivity(intent)
+    }
+
+    companion object {
+        /** Sentinel pro [UpdateDownloadState.Failed.reason] - neshoda SHA-256. Záporná
+         * hodnota nekoliduje se skutečnými `DownloadManager.COLUMN_REASON` kódy (ty jsou
+         * všechny kladné zdokumentované konstanty). Viz [AboutSettingsScreen] pro mapování
+         * na čitelnou hlášku. */
+        const val REASON_INTEGRITY_CHECK_FAILED = -1
     }
 }

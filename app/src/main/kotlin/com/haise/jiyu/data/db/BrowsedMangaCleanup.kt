@@ -24,7 +24,10 @@ import androidx.room.withTransaction
  *  - manga s jakoukoli historií čtení nebo `lastReadAt` - četl ji, i když ji nepřidal,
  *  - manga zařazená do kategorie - to je vědomé uspořádání uživatele,
  *  - manga se STAŽENOU kapitolou (`localPath IS NOT NULL`) - smazat záznam by nechalo
- *    soubory ležet na disku bez čehokoli, co by na ně ukazovalo.
+ *    soubory ležet na disku bez čehokoli, co by na ně ukazovalo,
+ *  - manga vlastnící kapitolu, na kterou aktuálně ukazuje nějaký `fallbackChapterId` - viz
+ *    `SourceResolverViewModel.resolveCompleteChapter`, trvale zapsaná naučená náhrada za
+ *    kapitolu s málo stránkami, ne náhodný bordel.
  */
 suspend fun AppDatabase.deleteBrowsedManga(): Int = withTransaction {
     val dao = mangaDao()

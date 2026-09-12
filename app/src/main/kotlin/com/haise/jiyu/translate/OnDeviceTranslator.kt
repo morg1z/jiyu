@@ -201,6 +201,15 @@ class OnDeviceTranslator {
 
     private fun resolveTargetCode(targetLanguage: String): String? = toTranslateLanguage(targetLanguage)
 
+    /**
+     * Zjistí předem, jestli ML Kit vůbec umí daný jazyk přeložit - viz [toTranslateLanguage].
+     * Použito v [com.haise.jiyu.translate.TranslateRepository], aby appka mohla ukázat konkrétní
+     * hlášku ("tenhle jazyk offline režim neumí"), místo obecného "překlad selhal" ve chvíli,
+     * kdy je ML Kit jediná dostupná cesta a cílový jazyk (např. Slovenština - je v UI nabídnutá,
+     * ale ML Kit ji nepodporuje) na ní stejně vždy skončí prázdný.
+     */
+    fun supportsLanguage(languageName: String): Boolean = toTranslateLanguage(languageName) != null
+
     private fun toTranslateLanguage(languageName: String): String? = when (languageName) {
         "Czech" -> TranslateLanguage.CZECH
         "English" -> TranslateLanguage.ENGLISH
