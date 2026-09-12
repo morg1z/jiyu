@@ -74,7 +74,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -165,7 +165,7 @@ internal fun BulkCategoryDialog(
 
 @Composable
 internal fun CategoryAssignDialog(manga: MangaEntity, allCategories: List<CategoryEntity>, viewModel: LibraryViewModel, onDismiss: () -> Unit) {
-    val catIds by viewModel.observeCategoryIdsForManga(manga.id).collectAsState()
+    val catIds by viewModel.observeCategoryIdsForManga(manga.id).collectAsStateWithLifecycle()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -220,7 +220,7 @@ internal fun ManageCategoriesDialog(categories: List<CategoryEntity>, viewModel:
                         val color = remember(cat.colorHex) { try { Color(android.graphics.Color.parseColor(cat.colorHex)) } catch (_: Exception) { Color(0xFF8B5CF6) } }
                         Box(modifier = Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(color))
                         Text(text = cat.name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
-                        IconButton(onClick = { viewModel.deleteCategory(cat) }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { viewModel.deleteCategory(cat) }) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFB0BEC5), modifier = Modifier.size(16.dp))
                         }
                     }

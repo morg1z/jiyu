@@ -22,7 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +48,16 @@ fun ServicesSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val malIsLoggedIn     by viewModel.malIsLoggedIn.collectAsState()
-    val malUsername       by viewModel.malUsername.collectAsState()
-    val kitsuIsLoggedIn   by viewModel.kitsuIsLoggedIn.collectAsState()
-    val kitsuUsername     by viewModel.kitsuUsername.collectAsState()
-    val kitsuLoginLoading by viewModel.kitsuLoginLoading.collectAsState()
-    val kitsuLoginError   by viewModel.kitsuLoginError.collectAsState()
-    val muIsLoggedIn       by viewModel.muIsLoggedIn.collectAsState()
-    val muUsername          by viewModel.muUsername.collectAsState()
-    val muLoginLoading      by viewModel.muLoginLoading.collectAsState()
-    val muLoginError        by viewModel.muLoginError.collectAsState()
+    val malIsLoggedIn     by viewModel.malIsLoggedIn.collectAsStateWithLifecycle()
+    val malUsername       by viewModel.malUsername.collectAsStateWithLifecycle()
+    val kitsuIsLoggedIn   by viewModel.kitsuIsLoggedIn.collectAsStateWithLifecycle()
+    val kitsuUsername     by viewModel.kitsuUsername.collectAsStateWithLifecycle()
+    val kitsuLoginLoading by viewModel.kitsuLoginLoading.collectAsStateWithLifecycle()
+    val kitsuLoginError   by viewModel.kitsuLoginError.collectAsStateWithLifecycle()
+    val muIsLoggedIn       by viewModel.muIsLoggedIn.collectAsStateWithLifecycle()
+    val muUsername          by viewModel.muUsername.collectAsStateWithLifecycle()
+    val muLoginLoading      by viewModel.muLoginLoading.collectAsStateWithLifecycle()
+    val muLoginError        by viewModel.muLoginError.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(

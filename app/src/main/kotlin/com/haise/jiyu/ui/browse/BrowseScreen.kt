@@ -51,7 +51,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,11 +104,11 @@ fun BrowseScreen(
     onGlobalSearch: () -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
-    val sources           by viewModel.sources.collectAsState()
-    val contentTypeFilter by viewModel.contentTypeFilter.collectAsState()
-    val languageFilter    by viewModel.languageFilter.collectAsState()
-    val sourceNameFilter  by viewModel.sourceNameFilter.collectAsState()
-    val favoriteSourceIds by viewModel.favoriteSourceIds.collectAsState()
+    val sources           by viewModel.sources.collectAsStateWithLifecycle()
+    val contentTypeFilter by viewModel.contentTypeFilter.collectAsStateWithLifecycle()
+    val languageFilter    by viewModel.languageFilter.collectAsStateWithLifecycle()
+    val sourceNameFilter  by viewModel.sourceNameFilter.collectAsStateWithLifecycle()
+    val favoriteSourceIds by viewModel.favoriteSourceIds.collectAsStateWithLifecycle()
 
     // false = hledat TITUL napříč všemi zdroji (otevře GlobalSearch, beze změny chování),
     // true = hledat přímo podle NÁZVU ZDROJE (jen lokálně filtruje mřížku níže) - pro
@@ -600,7 +600,7 @@ private fun SourceCard(
                 // IconButton (ne holý Icon) - vlastní clickable zastaví tap dřív, než se
                 // dostane ke klikatelnému Column celé karty (jinak by klik na tři tečky
                 // rovnou otevřel zdroj místo menu).
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(20.dp)) {
+                IconButton(onClick = { showMenu = true }) {
                     Icon(
                         TablerIcons.DotsVertical,
                         contentDescription = stringResource(R.string.browse_source_menu_desc),

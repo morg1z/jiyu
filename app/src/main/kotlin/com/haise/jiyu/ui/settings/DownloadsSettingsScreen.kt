@@ -24,7 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,13 +51,13 @@ fun DownloadsSettingsScreen(
     onOpenDownloadManager: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val downloadFolderUri  by viewModel.downloadFolderUri.collectAsState()
-    val downloadOnlyWifi   by viewModel.downloadOnlyWifi.collectAsState()
-    val autoDeleteRead     by viewModel.autoDeleteRead.collectAsState()
-    val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsState()
-    val saveAsCbz          by viewModel.saveAsCbz.collectAsState()
-    val parallelDownloads  by viewModel.parallelDownloads.collectAsState()
-    val downloadedCount    by viewModel.downloadedCount.collectAsState()
+    val downloadFolderUri  by viewModel.downloadFolderUri.collectAsStateWithLifecycle()
+    val downloadOnlyWifi   by viewModel.downloadOnlyWifi.collectAsStateWithLifecycle()
+    val autoDeleteRead     by viewModel.autoDeleteRead.collectAsStateWithLifecycle()
+    val autoDeleteDelayDays by viewModel.autoDeleteDelayDays.collectAsStateWithLifecycle()
+    val saveAsCbz          by viewModel.saveAsCbz.collectAsStateWithLifecycle()
+    val parallelDownloads  by viewModel.parallelDownloads.collectAsStateWithLifecycle()
+    val downloadedCount    by viewModel.downloadedCount.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(

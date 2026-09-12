@@ -37,7 +37,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,8 +74,8 @@ fun ExtendedStatsScreen(
     onBack: () -> Unit,
     viewModel: ExtendedStatsViewModel = hiltViewModel(),
 ) {
-    val stats by viewModel.stats.collectAsState()
-    val exportState by viewModel.exportState.collectAsState()
+    val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val exportState by viewModel.exportState.collectAsStateWithLifecycle()
     var exportMenuExpanded by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 

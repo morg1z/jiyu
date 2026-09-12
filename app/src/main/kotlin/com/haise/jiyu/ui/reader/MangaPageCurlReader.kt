@@ -3,8 +3,6 @@ package com.haise.jiyu.ui.reader
 import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -32,7 +30,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -116,7 +113,7 @@ fun MangaPageCurlReader(
     var showShareSheet by remember { mutableStateOf(false) }
     var sharePageUrl by remember { mutableStateOf("") }
     if (showShareSheet) {
-        SharePageBottomSheet(pageUrl = sharePageUrl, onDismiss = { showShareSheet = false })
+        SharePageBottomSheet(pageUrl = sharePageUrl, referer = referer, onDismiss = { showShareSheet = false })
     }
 
     // Musí žít MIMO `key(useSpread)` níže - `useSpread = doublePageSpread && isLandscape`, takže
@@ -449,28 +446,12 @@ fun MangaPageCurlReader(
                                 if (sharePageUrl.isNotEmpty()) showShareSheet = true
                             },
                             onDoubleTap = { offset ->
-                                if (scale > 1f) {
-                                    scale = 1f
-                                    panOffset = Offset.Zero
-                                } else {
-                                    val zoom = 2.5f
-                                    val cx = size.width / 2f
-                                    val cy = size.height / 2f
-                                    scale = zoom
-                                    panOffset = Offset(
-                                        (offset.x - cx) * (1f - zoom),
-                                        (offset.y - cy) * (1f - zoom),
-                                    )
-                                }
+                                val result = doubleTapZoomTransform(offset, size, scale)
+                                scale = result.scale
+                                panOffset = result.panOffset
                             },
                             onTap = { offset ->
-                                val action = if (!tapZonesEnabled) {
-                                    TapZoneAction.SHOW_PANEL
-                                } else {
-                                    val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
-                                    val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
-                                    tapZoneGrid[row, col]
-                                }
+                                val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
                                 when (action) {
                                     TapZoneAction.SHOW_PANEL -> onShowPanel()
                                     TapZoneAction.PREV_PAGE -> tryTurn(if (reverseLayout) TurnDirection.NEXT else TurnDirection.PREV)
@@ -493,23 +474,10 @@ fun MangaPageCurlReader(
                     // Tahle verze čeká, dokud nejsou dole aspoň 2 prsty, než začne cokoliv číst
                     // nebo konzumovat - jednoprstové gesto tak projde nedotčené k drag detektoru.
                     .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                var event = awaitPointerEvent()
-                                while (event.changes.count { it.pressed } < 2 && event.changes.any { it.pressed }) {
-                                    event = awaitPointerEvent()
-                                }
-                                if (event.changes.count { it.pressed } < 2) continue
-                                do {
-                                    val zoomChange = event.calculateZoom()
-                                    val panChange = event.calculatePan()
-                                    val newScale = (scale * zoomChange).coerceIn(1f, 5f)
-                                    scale = newScale
-                                    if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
-                                    event.changes.forEach { if (it.positionChanged()) it.consume() }
-                                    event = awaitPointerEvent()
-                                } while (event.changes.count { it.pressed } >= 2)
-                            }
+                        detectTwoFingerPinchZoom { zoomChange, panChange ->
+                            val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                            scale = newScale
+                            if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
                         }
                     },
             ) {

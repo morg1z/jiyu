@@ -30,7 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,8 +69,8 @@ fun HistoryScreen(
     onOpenManga: (mangaId: String) -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
 ) {
-    val groups by viewModel.groups.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
+    val groups by viewModel.groups.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -134,7 +134,7 @@ fun HistoryScreen(
                 },
             )
             if (searchQuery.isNotEmpty()) {
-                IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = { viewModel.setSearchQuery("") }) {
                     Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
             }

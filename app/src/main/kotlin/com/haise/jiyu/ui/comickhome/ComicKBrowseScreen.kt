@@ -46,7 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -105,16 +105,16 @@ fun ComicKBrowseScreen(
     onOpenManga: (String) -> Unit,
     viewModel: ComicKBrowseViewModel = hiltViewModel(),
 ) {
-    val query by viewModel.query.collectAsState()
-    val filters by viewModel.filters.collectAsState()
-    val genreOptions by viewModel.genreOptions.collectAsState()
-    val results by viewModel.results.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val openingManga by viewModel.openingManga.collectAsState()
-    val openError by viewModel.openError.collectAsState()
-    val showAdultContent by viewModel.showAdultContent.collectAsState()
-    val searchHistory by viewModel.searchHistory.collectAsState()
+    val query by viewModel.query.collectAsStateWithLifecycle()
+    val filters by viewModel.filters.collectAsStateWithLifecycle()
+    val genreOptions by viewModel.genreOptions.collectAsStateWithLifecycle()
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val openingManga by viewModel.openingManga.collectAsStateWithLifecycle()
+    val openError by viewModel.openError.collectAsStateWithLifecycle()
+    val showAdultContent by viewModel.showAdultContent.collectAsStateWithLifecycle()
+    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
 
     var showFilterSheet by remember { mutableStateOf(false) }
     var searchFieldFocused by remember { mutableStateOf(false) }
@@ -155,7 +155,7 @@ fun ComicKBrowseScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(TablerIcons.ArrowLeft, contentDescription = null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowLeft, contentDescription = stringResource(R.string.common_back), tint = TextPrimary)
                 }
                 Row(
                     modifier = Modifier
@@ -189,7 +189,7 @@ fun ComicKBrowseScreen(
                         modifier = Modifier.weight(1f).onFocusChanged { searchFieldFocused = it.isFocused },
                     )
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setQuery(""); viewModel.search() }, modifier = Modifier.size(28.dp)) {
+                        IconButton(onClick = { viewModel.setQuery(""); viewModel.search() }) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
@@ -252,7 +252,7 @@ fun ComicKBrowseScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f).padding(start = 12.dp),
                             )
-                            IconButton(onClick = { viewModel.removeHistoryItem(item) }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { viewModel.removeHistoryItem(item) }) {
                                 Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(14.dp))
                             }
                         }

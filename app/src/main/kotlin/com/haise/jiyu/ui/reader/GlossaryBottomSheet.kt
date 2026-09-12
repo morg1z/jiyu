@@ -132,7 +132,7 @@ fun GlossaryBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("${entry.sourceTerm} → ${entry.targetTerm}", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { onToggleProtectExact(entry) }, modifier = Modifier.size(24.dp)) {
+                        IconButton(onClick = { onToggleProtectExact(entry) }) {
                             Icon(
                                 if (entry.protectExact) TablerIcons.Lock else TablerIcons.LockOpen,
                                 contentDescription = stringResource(
@@ -142,7 +142,7 @@ fun GlossaryBottomSheet(
                                 modifier = Modifier.size(14.dp),
                             )
                         }
-                        IconButton(onClick = { onRemove(entry) }, modifier = Modifier.size(24.dp)) {
+                        IconButton(onClick = { onRemove(entry) }) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = Color(0xFFB0BEC5), modifier = Modifier.size(14.dp))
                         }
                     }

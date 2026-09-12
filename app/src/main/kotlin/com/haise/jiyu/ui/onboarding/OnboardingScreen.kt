@@ -46,7 +46,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,14 +87,14 @@ fun OnboardingScreen(
     onFinish: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
-    val step            by viewModel.step.collectAsState()
-    val selectedLang    by viewModel.selectedLanguage.collectAsState()
-    val appMode         by viewModel.appMode.collectAsState()
-    val readingDir      by viewModel.readingDir.collectAsState()
-    val readingMode     by viewModel.readingMode.collectAsState()
-    val downloadFolder  by viewModel.downloadFolderUri.collectAsState()
-    val birthDate       by viewModel.birthDate.collectAsState()
-    val crashReporting  by viewModel.crashReporting.collectAsState()
+    val step            by viewModel.step.collectAsStateWithLifecycle()
+    val selectedLang    by viewModel.selectedLanguage.collectAsStateWithLifecycle()
+    val appMode         by viewModel.appMode.collectAsStateWithLifecycle()
+    val readingDir      by viewModel.readingDir.collectAsStateWithLifecycle()
+    val readingMode     by viewModel.readingMode.collectAsStateWithLifecycle()
+    val downloadFolder  by viewModel.downloadFolderUri.collectAsStateWithLifecycle()
+    val birthDate       by viewModel.birthDate.collectAsStateWithLifecycle()
+    val crashReporting  by viewModel.crashReporting.collectAsStateWithLifecycle()
     var showDatePicker  by remember { mutableStateOf(false) }
 
     val context = LocalContext.current

@@ -54,7 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,32 +117,32 @@ fun MangaDetailInfoScreen(
     onOpenManga: (String) -> Unit = {},
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
-    val manga            by viewModel.manga.collectAsState()
-    val relatedManga     by viewModel.relatedManga.collectAsState()
-    val allCategories    by viewModel.allCategories.collectAsState()
-    val categoryIds      by viewModel.mangaCategoryIds.collectAsState()
-    val autoDownload     by viewModel.autoDownload.collectAsState()
-    val mangaNote        by viewModel.mangaNote.collectAsState()
-    val mangaTags        by viewModel.mangaTags.collectAsState()
-    val glossary         by viewModel.glossary.collectAsState()
-    val defaultTargetLanguage by viewModel.defaultTargetLanguage.collectAsState()
-    val userRating       by viewModel.userRating.collectAsState()
-    val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsState()
-    val malId               by viewModel.malId.collectAsState()
-    val malScore            by viewModel.malScore.collectAsState()
+    val manga            by viewModel.manga.collectAsStateWithLifecycle()
+    val relatedManga     by viewModel.relatedManga.collectAsStateWithLifecycle()
+    val allCategories    by viewModel.allCategories.collectAsStateWithLifecycle()
+    val categoryIds      by viewModel.mangaCategoryIds.collectAsStateWithLifecycle()
+    val autoDownload     by viewModel.autoDownload.collectAsStateWithLifecycle()
+    val mangaNote        by viewModel.mangaNote.collectAsStateWithLifecycle()
+    val mangaTags        by viewModel.mangaTags.collectAsStateWithLifecycle()
+    val glossary         by viewModel.glossary.collectAsStateWithLifecycle()
+    val defaultTargetLanguage by viewModel.defaultTargetLanguage.collectAsStateWithLifecycle()
+    val userRating       by viewModel.userRating.collectAsStateWithLifecycle()
+    val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsStateWithLifecycle()
+    val malId               by viewModel.malId.collectAsStateWithLifecycle()
+    val malScore            by viewModel.malScore.collectAsStateWithLifecycle()
     var showMalSheet        by remember { mutableStateOf(false) }
     var malSearchQuery      by remember { mutableStateOf("") }
-    val aniListIsLoggedIn   by viewModel.aniListIsLoggedIn.collectAsState()
-    val aniListId           by viewModel.aniListId.collectAsState()
-    val kitsuId             by viewModel.kitsuId.collectAsState()
-    val kitsuScore          by viewModel.kitsuScore.collectAsState()
-    val kitsuIsLoggedIn     by viewModel.kitsuIsLoggedIn.collectAsState()
+    val aniListIsLoggedIn   by viewModel.aniListIsLoggedIn.collectAsStateWithLifecycle()
+    val aniListId           by viewModel.aniListId.collectAsStateWithLifecycle()
+    val kitsuId             by viewModel.kitsuId.collectAsStateWithLifecycle()
+    val kitsuScore          by viewModel.kitsuScore.collectAsStateWithLifecycle()
+    val kitsuIsLoggedIn     by viewModel.kitsuIsLoggedIn.collectAsStateWithLifecycle()
     var showAniListSheet    by remember { mutableStateOf(false) }
     var aniListSearchQuery  by remember { mutableStateOf("") }
     var showKitsuSheet      by remember { mutableStateOf(false) }
     var kitsuSearchQuery    by remember { mutableStateOf("") }
-    val muId                by viewModel.muId.collectAsState()
-    val muIsLoggedIn        by viewModel.muIsLoggedIn.collectAsState()
+    val muId                by viewModel.muId.collectAsStateWithLifecycle()
+    val muIsLoggedIn        by viewModel.muIsLoggedIn.collectAsStateWithLifecycle()
     var showMuSheet         by remember { mutableStateOf(false) }
     var muSearchQuery       by remember { mutableStateOf("") }
     val context             = androidx.compose.ui.platform.LocalContext.current
@@ -366,7 +366,6 @@ fun MangaDetailInfoScreen(
                                 if (userRating != null) {
                                     IconButton(
                                         onClick = { viewModel.clearRating() },
-                                        modifier = Modifier.size(32.dp),
                                     ) {
                                         Icon(
                                             TablerIcons.X,
@@ -424,10 +423,10 @@ fun MangaDetailInfoScreen(
                                             viewModel.searchMal(malSearchQuery)
                                             showMalSheet = true
                                         }) { Text(stringResource(R.string.common_change), color = malBlue, fontSize = 12.sp) }
-                                        IconButton(onClick = { viewModel.syncFromMal() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.syncFromMal() }) {
                                             Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_mal), tint = malBlue, modifier = Modifier.size(16.dp))
                                         }
-                                        IconButton(onClick = { viewModel.unlinkMal() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.unlinkMal() }) {
                                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -492,7 +491,7 @@ fun MangaDetailInfoScreen(
                                             viewModel.searchAniList(aniListSearchQuery)
                                             showAniListSheet = true
                                         }) { Text(stringResource(R.string.common_change), color = aniListColor, fontSize = 12.sp) }
-                                        IconButton(onClick = { viewModel.unlinkAniList() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.unlinkAniList() }) {
                                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -550,10 +549,10 @@ fun MangaDetailInfoScreen(
                                             viewModel.searchKitsu(kitsuSearchQuery)
                                             showKitsuSheet = true
                                         }) { Text(stringResource(R.string.common_change), color = kitsuColor, fontSize = 12.sp) }
-                                        IconButton(onClick = { viewModel.syncFromKitsu() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.syncFromKitsu() }) {
                                             Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_kitsu), tint = kitsuColor, modifier = Modifier.size(16.dp))
                                         }
-                                        IconButton(onClick = { viewModel.unlinkKitsu() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.unlinkKitsu() }) {
                                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -610,10 +609,10 @@ fun MangaDetailInfoScreen(
                                             viewModel.searchMu(muSearchQuery)
                                             showMuSheet = true
                                         }) { Text(stringResource(R.string.common_change), color = muColor, fontSize = 12.sp) }
-                                        IconButton(onClick = { viewModel.syncFromMu() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.syncFromMu() }) {
                                             Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_mu), tint = muColor, modifier = Modifier.size(16.dp))
                                         }
-                                        IconButton(onClick = { viewModel.unlinkMu() }, modifier = Modifier.size(32.dp)) {
+                                        IconButton(onClick = { viewModel.unlinkMu() }) {
                                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -638,7 +637,7 @@ fun MangaDetailInfoScreen(
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = stringResource(R.string.detail_info_section_tags), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { showAddTagField = !showAddTagField }, modifier = Modifier.size(28.dp)) {
+                                IconButton(onClick = { showAddTagField = !showAddTagField }) {
                                     Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.detail_info_add_tag), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 }
                             }
@@ -703,7 +702,7 @@ fun MangaDetailInfoScreen(
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = stringResource(R.string.detail_info_section_glossary), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }, modifier = Modifier.size(28.dp)) {
+                                IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }) {
                                     Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.detail_info_add_glossary_entry), tint = TextSecondary, modifier = Modifier.size(16.dp))
                                 }
                             }
@@ -799,7 +798,7 @@ fun MangaDetailInfoScreen(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
-                                            IconButton(onClick = { viewModel.toggleGlossaryProtectExact(entry) }, modifier = Modifier.size(24.dp)) {
+                                            IconButton(onClick = { viewModel.toggleGlossaryProtectExact(entry) }) {
                                                 Icon(
                                                     if (entry.protectExact) TablerIcons.Lock else TablerIcons.LockOpen,
                                                     contentDescription = stringResource(
@@ -809,7 +808,7 @@ fun MangaDetailInfoScreen(
                                                     modifier = Modifier.size(13.dp),
                                                 )
                                             }
-                                            IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }, modifier = Modifier.size(24.dp)) {
+                                            IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }) {
                                                 Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(13.dp))
                                             }
                                         }

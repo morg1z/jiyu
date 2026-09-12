@@ -31,7 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,12 +59,12 @@ fun BackupSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val backupState         by viewModel.backupState.collectAsState()
-    val settingsBackupState by viewModel.settingsBackupState.collectAsState()
-    val autoBackupEnabled   by viewModel.autoBackupEnabled.collectAsState()
-    val backupFolderUri     by viewModel.backupFolderUri.collectAsState()
-    val tachyImportResult      by viewModel.tachyImportResult.collectAsState()
-    val tachyImportInProgress  by viewModel.tachyImportInProgress.collectAsState()
+    val backupState         by viewModel.backupState.collectAsStateWithLifecycle()
+    val settingsBackupState by viewModel.settingsBackupState.collectAsStateWithLifecycle()
+    val autoBackupEnabled   by viewModel.autoBackupEnabled.collectAsStateWithLifecycle()
+    val backupFolderUri     by viewModel.backupFolderUri.collectAsStateWithLifecycle()
+    val tachyImportResult      by viewModel.tachyImportResult.collectAsStateWithLifecycle()
+    val tachyImportInProgress  by viewModel.tachyImportInProgress.collectAsStateWithLifecycle()
 
     val snackbarHost = remember { SnackbarHostState() }
     val errorPrefixTemplate = stringResource(R.string.settings_backup_error_prefix)

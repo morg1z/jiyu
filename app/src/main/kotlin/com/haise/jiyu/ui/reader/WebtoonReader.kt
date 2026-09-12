@@ -5,13 +5,12 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableDefaults
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -47,7 +46,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -243,50 +241,21 @@ fun WebtoonReader(
             // cokoliv číst nebo konzumovat - jednoprstové scrollování tak projde
             // nedotčené k LazyColumn.
             .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        var event = awaitPointerEvent()
-                        while (event.changes.count { it.pressed } < 2 && event.changes.any { it.pressed }) {
-                            event = awaitPointerEvent()
-                        }
-                        if (event.changes.count { it.pressed } < 2) continue
-                        do {
-                            val zoomChange = event.calculateZoom()
-                            val panChange = event.calculatePan()
-                            val newScale = (scale * zoomChange).coerceIn(1f, 5f)
-                            scale = newScale
-                            if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
-                            event.changes.forEach { if (it.positionChanged()) it.consume() }
-                            event = awaitPointerEvent()
-                        } while (event.changes.count { it.pressed } >= 2)
-                    }
+                detectTwoFingerPinchZoom { zoomChange, panChange ->
+                    val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+                    scale = newScale
+                    if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
                 }
             }
             .pointerInput(tapZonesEnabled, tapZoneGrid) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
-                        if (scale > 1f) {
-                            scale = 1f
-                            panOffset = Offset.Zero
-                        } else {
-                            val zoom = 2.5f
-                            val cx = size.width / 2f
-                            val cy = size.height / 2f
-                            scale = zoom
-                            panOffset = Offset(
-                                (offset.x - cx) * (1f - zoom),
-                                (offset.y - cy) * (1f - zoom),
-                            )
-                        }
+                        val result = doubleTapZoomTransform(offset, size, scale)
+                        scale = result.scale
+                        panOffset = result.panOffset
                     },
                     onTap = { offset ->
-                        val action = if (!tapZonesEnabled) {
-                            TapZoneAction.SHOW_PANEL
-                        } else {
-                            val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
-                            val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
-                            tapZoneGrid[row, col]
-                        }
+                        val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
                         // Potlačení náhodného otevření panelu při scrollu
                         if (action == TapZoneAction.SHOW_PANEL && wasRecentlyScrolling) return@detectTapGestures
                         when (action) {
@@ -442,13 +411,30 @@ private fun WebtoonPage(
     var imageLoaded by remember(pageUrl) { mutableStateOf(false) }
     val density = LocalDensity.current
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    // Dokud stránka nemá skutečný obrázek (a tedy ani vlastní výšku), Coilův placeholder
+    // nemá žádný intrinsic rozměr a Box by se v LazyColumn (viz [WebtoonSegmentPages])
+    // změřil na výšku 0 - takže nenačtená stránka nezabírala žádné místo, "zmizela" ze
+    // scrollu (list rovnou skočil na další, už načtenou stránku) a loading indikátor
+    // uvnitř RetryableAsyncImage neměl kam se vykreslit (nahlášeno: "jsem na page 1 a
+    // najednou na page 8, page 2-7 chybí a není tam loading"). Vyhrazený poměr stran po
+    // dobu načítání drží rozumnou výšku, než se nahradí SKUTEČNOU výškou obrázku.
+    val pageModifier = if (imageLoaded) {
+        Modifier.fillMaxWidth()
+    } else {
+        Modifier.fillMaxWidth().aspectRatio(WEBTOON_PLACEHOLDER_ASPECT_RATIO)
+    }
+
+    Box(modifier = pageModifier) {
         RetryableAsyncImage(
             url = pageUrl,
             contentDescription = stringResource(R.string.reader_page_content_desc, pageIndex + 1),
             contentScale = ContentScale.FillWidth,
             cropBorders = cropBorders,
-            modifier = Modifier.fillMaxWidth(),
+            // fillMaxSize (ne jen fillMaxWidth) POUZE dokud platí vyhrazený poměr stran výš -
+            // jinak by loading indikátor (matchParentSize v RetryableAsyncImage) zdědil
+            // stejnou nulovou výšku, kterou má tenhle box vyřešit. Po načtení box zase
+            // jen obaluje skutečný obrázek (fillMaxWidth, výška podle obsahu).
+            modifier = if (imageLoaded) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
             imageModifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { size = it },
@@ -479,3 +465,6 @@ private fun WebtoonPage(
         }
     }
 }
+
+/** Šířka/výška typické manga/manhwa stránky na výšku - jen provizorní odhad, než dorazí skutečný obrázek (viz [WebtoonPage]). */
+private const val WEBTOON_PLACEHOLDER_ASPECT_RATIO = 0.7f

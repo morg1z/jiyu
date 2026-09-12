@@ -65,6 +65,8 @@
     <string name="common_back">Retour</string>
     <string name="common_previous">Précédent</string>
     <string name="common_next">Suivant</string>
+    <string name="common_chapter_number">Chapitre %1$s</string>
+    <string name="cloudflare_challenge_message">Le site %1$s a besoin d\'une vérification rapide que vous n\'êtes pas un robot. Veuillez résoudre le défi ci-dessous.</string>
     <string name="detail_copy_title">Copier le titre</string>
     <string name="detail_title_copied">Titre copié</string>
     <string name="common_clear">Effacer</string>
@@ -75,6 +77,8 @@
     <string name="common_confirm">Confirmer</string>
     <string name="common_edit">Modifier</string>
     <string name="common_download">Télécharger</string>
+    <string name="download_notification_done_title">Téléchargement terminé</string>
+    <string name="download_notification_done_text">Le chapitre est prêt pour la lecture hors ligne</string>
     <string name="common_share">Partager</string>
     <string name="common_retry">Réessayer</string>
     <string name="common_loading">Chargement…</string>
@@ -725,6 +729,7 @@
     <string name="reader_error_translation_failed">Échec de la traduction du chapitre, réessayez</string>
     <string name="reader_fallback_source_notice">Ce chapitre a été récupéré depuis une autre source car la version originale était incomplète.</string>
     <string name="reader_error_rate_limited">Limite quotidienne de traduction IA atteinte, réessayez plus tard</string>
+    <string name="reader_error_language_unsupported_offline">Le mode hors ligne (sans clé API) ne prend pas en charge cette langue cible - essayez une autre langue ou configurez une clé dans les Paramètres</string>
     <string name="reader_on_device_warning">Aucune clé API cloud configurée — aperçu local approximatif affiché.</string>
 
     <!-- Parcourir -->
@@ -789,10 +794,13 @@
     <string name="account_anilist_disconnect">Déconnecter AniList</string>
     <string name="account_anilist_missing_client_id">L\'AniList Client ID n\'est pas défini. Enregistrez l\'appli sur anilist.co/settings/developer (URI de redirection : jiyu://anilist/callback) et ajoutez le Client ID à local.properties sous ANILIST_CLIENT_ID=xxx</string>
     <string name="account_anilist_connect">Connecter AniList</string>
+    <string name="account_anilist_login_failed">Échec de la connexion à AniList. Réessaie.</string>
     <string name="account_cloud_title">Jiyu Cloud</string>
     <string name="account_sync_subtitle">Synchronisez votre bibliothèque entre appareils.</string>
     <string name="account_email">E-mail</string>
     <string name="account_password">Mot de passe</string>
+    <string name="account_show_password">Afficher le mot de passe</string>
+    <string name="account_hide_password">Masquer le mot de passe</string>
     <string name="account_signin_google">Se connecter avec Google</string>
     <string name="account_signup_button">S\'inscrire</string>
     <string name="account_signin_button">Se connecter</string>
@@ -939,6 +947,7 @@
     <string name="settings_about_downloading">Téléchargement de la mise à jour…</string>
     <string name="settings_about_download_failed">Le téléchargement a échoué</string>
     <string name="settings_about_download_failed_space">Le téléchargement a échoué - espace de stockage insuffisant</string>
+    <string name="settings_about_download_failed_integrity">Le fichier téléchargé ne correspond pas à celui attendu, veuillez réessayer</string>
     <string name="settings_about_ready_to_install">Téléchargé — confirme l\'installation dans la boîte de dialogue système</string>
 
     <string name="detail_add_favorite">Ajouter aux favoris</string>

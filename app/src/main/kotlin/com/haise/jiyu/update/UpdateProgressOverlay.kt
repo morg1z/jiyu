@@ -27,7 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -38,9 +38,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.AccentLight
 import com.haise.jiyu.ui.theme.DeepSpace
 import com.haise.jiyu.ui.theme.GlowViolet
@@ -58,8 +60,8 @@ import kotlin.math.sin
  */
 @Composable
 fun UpdateProgressOverlay(installer: ApkUpdateInstaller) {
-    val visible by installer.overlayVisible.collectAsState()
-    val state by installer.downloadState.collectAsState()
+    val visible by installer.overlayVisible.collectAsStateWithLifecycle()
+    val state by installer.downloadState.collectAsStateWithLifecycle()
 
     // Neresitelne selhani nema smysl drzet v teto obrazovce - schovej overlay a
     // necht uzivatele padnout zpet do Nastaveni, kde uz existuje Retry tlacitko.
@@ -78,7 +80,7 @@ fun UpdateProgressOverlay(installer: ApkUpdateInstaller) {
                 onClick = { installer.dismissOverlay() },
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
             ) {
-                Icon(TablerIcons.X, contentDescription = null, tint = TextSecondary)
+                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_close), tint = TextSecondary)
             }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

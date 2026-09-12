@@ -170,7 +170,7 @@ fun ReaderTopBar(
             // Znovu spusti nacitani UPLNE od zacatku (stejna cesta jako skok na jinou
             // kapitolu ze seznamu nize), takze i castecne/rozbite nactene stranky se zahodi
             // a stahnou znovu ze zdroje.
-            IconButton(onClick = onResetChapter, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onResetChapter) {
                 Icon(
                     TablerIcons.Refresh,
                     contentDescription = stringResource(R.string.reader_reset_chapter_desc),
@@ -182,7 +182,7 @@ fun ReaderTopBar(
             // Seznam kapitol - jediná ikona, co v horní liště zůstala (uživatelský požadavek).
             if (allChapters.isNotEmpty()) {
                 var showChapterSheet by remember { mutableStateOf(false) }
-                IconButton(onClick = { showChapterSheet = true }, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = { showChapterSheet = true }) {
                     Icon(
                         TablerIcons.Menu2,
                         contentDescription = stringResource(R.string.reader_pick_chapter_desc),
@@ -382,7 +382,7 @@ fun ReaderBottomPanel(
         ) {
             // Predchozi kapitola - stejny vizualni styl jako "dalsi kapitola" vpravo
             // (uzivatelsky pozadavek - drivejsi ikona skakala jen na prvni stranku).
-            IconButton(onClick = onNavigatePrev, enabled = hasPrevChapter, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onNavigatePrev, enabled = hasPrevChapter) {
                 Icon(
                     TablerIcons.ArrowLeft,
                     contentDescription = stringResource(R.string.reader_prev_chapter_desc),
@@ -393,7 +393,7 @@ fun ReaderBottomPanel(
             // Preklad: klik neprepina rovnou, ale otevre sheet s nastavenim jazyku a
             // vsim souvisejicim (uzivatelsky pozadavek) - "Dalsi moznosti" tlacitko tim
             // padem odpadlo, tohle je ted jediny vstup do stejneho obsahu.
-            IconButton(onClick = { showMore = true }, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = { showMore = true }) {
                 Icon(
                     TablerIcons.Language,
                     contentDescription = stringResource(R.string.reader_translate_settings_desc),
@@ -407,7 +407,7 @@ fun ReaderBottomPanel(
             }
             // Domu - primy skok do Knihovny (uzivatelsky pozadavek, presne uprostred listy -
             // prostredni z 5 ikon, ne hned vedle sipky vpravo).
-            IconButton(onClick = onNavigateHome, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onNavigateHome) {
                 Icon(
                     TablerIcons.Home,
                     contentDescription = stringResource(R.string.reader_home_desc),
@@ -415,7 +415,7 @@ fun ReaderBottomPanel(
                     modifier = Modifier.size(21.dp),
                 )
             }
-            IconButton(onClick = { showBrightness = !showBrightness }, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = { showBrightness = !showBrightness }) {
                 Icon(
                     TablerIcons.Sun,
                     contentDescription = stringResource(R.string.reader_brightness_desc),
@@ -425,7 +425,7 @@ fun ReaderBottomPanel(
             }
             // Dalsi kapitola - vedome posledni ikona v rade (uzivatelsky pozadavek presunout
             // ji na konec).
-            IconButton(onClick = onNavigateNext, enabled = hasNextChapter, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onNavigateNext, enabled = hasNextChapter) {
                 Icon(
                     TablerIcons.ArrowRight,
                     contentDescription = stringResource(R.string.reader_next_chapter_desc),
@@ -766,7 +766,7 @@ private fun ReaderAdvancedSheetContent(
             batchProgress?.let { progress ->
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.reader_translate_all_progress, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    IconButton(onClick = onCancelBatch, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onCancelBatch) {
                         Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
                     }
                 }

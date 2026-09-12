@@ -18,7 +18,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +66,8 @@ fun MainScreen(
     startDestination: String = Routes.LIBRARY,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
-    val newChaptersCount by viewModel.newChaptersCount.collectAsState()
-    val appMode by viewModel.appMode.collectAsState()
+    val newChaptersCount by viewModel.newChaptersCount.collectAsStateWithLifecycle()
+    val appMode by viewModel.appMode.collectAsStateWithLifecycle()
     val tabs = rememberNavTabs(appMode)
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDest = navBackStack?.destination

@@ -32,7 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,8 +65,8 @@ fun DuplicateDetectorScreen(
     onOpenManga: (String) -> Unit = {},
     viewModel: DuplicateDetectorViewModel = hiltViewModel(),
 ) {
-    val groups   by viewModel.groups.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val groups   by viewModel.groups.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -206,7 +206,7 @@ private fun DuplicateMangaRow(
                 maxLines = 1,
             )
         }
-        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onRemove) {
             Icon(
                 TablerIcons.X,
                 contentDescription = stringResource(R.string.duplicates_remove_from_library),

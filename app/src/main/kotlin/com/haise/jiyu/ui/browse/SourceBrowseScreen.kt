@@ -57,7 +57,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -108,15 +108,15 @@ fun SourceBrowseScreen(
     onOpenManga: (String) -> Unit,
     viewModel: SourceBrowseViewModel = hiltViewModel(),
 ) {
-    val source            by viewModel.source.collectAsState()
-    val results           by viewModel.results.collectAsState()
-    val loading           by viewModel.loading.collectAsState()
-    val error             by viewModel.error.collectAsState()
-    val openingManga      by viewModel.openingManga.collectAsState()
-    val openError         by viewModel.openError.collectAsState()
-    val hasMore           by viewModel.hasMore.collectAsState()
-    val activeFilter      by viewModel.activeFilter.collectAsState()
-    val showLatest        by viewModel.showLatest.collectAsState()
+    val source            by viewModel.source.collectAsStateWithLifecycle()
+    val results           by viewModel.results.collectAsStateWithLifecycle()
+    val loading           by viewModel.loading.collectAsStateWithLifecycle()
+    val error             by viewModel.error.collectAsStateWithLifecycle()
+    val openingManga      by viewModel.openingManga.collectAsStateWithLifecycle()
+    val openError         by viewModel.openError.collectAsStateWithLifecycle()
+    val hasMore           by viewModel.hasMore.collectAsStateWithLifecycle()
+    val activeFilter      by viewModel.activeFilter.collectAsStateWithLifecycle()
+    val showLatest        by viewModel.showLatest.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
     var showFilterSheet by remember { mutableStateOf(false) }

@@ -24,7 +24,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,14 +53,14 @@ fun AboutSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val updateCheckLoading by viewModel.updateCheckLoading.collectAsState()
-    val updateInfo by viewModel.updateInfo.collectAsState()
-    val updateCheckedNone by viewModel.updateCheckedAndNoneFound.collectAsState()
-    val downloadState by viewModel.updateDownloadState.collectAsState()
+    val updateCheckLoading by viewModel.updateCheckLoading.collectAsStateWithLifecycle()
+    val updateInfo by viewModel.updateInfo.collectAsStateWithLifecycle()
+    val updateCheckedNone by viewModel.updateCheckedAndNoneFound.collectAsStateWithLifecycle()
+    val downloadState by viewModel.updateDownloadState.collectAsStateWithLifecycle()
     val updateCtx = LocalContext.current
     var showReportDialog by remember { mutableStateOf(false) }
-    val isAdult by viewModel.isAdult.collectAsState()
-    val crashReporting by viewModel.crashReporting.collectAsState()
+    val isAdult by viewModel.isAdult.collectAsStateWithLifecycle()
+    val crashReporting by viewModel.crashReporting.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -132,11 +132,15 @@ fun AboutSettingsScreen(
                                 is UpdateDownloadState.Failed -> {
                                     // DownloadManager.ERROR_INSUFFICIENT_SPACE = 1009 - jediny
                                     // castý duvod, u ktereho ma smysl rict uzivateli KONKRETNE
-                                    // co s tim (misto obecneho "nepovedlo se").
-                                    val message = if (state.reason == 1009) {
-                                        stringResource(R.string.settings_about_download_failed_space)
-                                    } else {
-                                        stringResource(R.string.settings_about_download_failed)
+                                    // co s tim (misto obecneho "nepovedlo se"). -1 je nas vlastni
+                                    // sentinel (viz ApkUpdateInstaller.REASON_INTEGRITY_CHECK_FAILED)
+                                    // pro neshodu SHA-256 - nekoliduje se skutecnymi DownloadManager
+                                    // kody (ty jsou vsechny kladne).
+                                    val message = when (state.reason) {
+                                        1009 -> stringResource(R.string.settings_about_download_failed_space)
+                                        com.haise.jiyu.update.ApkUpdateInstaller.REASON_INTEGRITY_CHECK_FAILED ->
+                                            stringResource(R.string.settings_about_download_failed_integrity)
+                                        else -> stringResource(R.string.settings_about_download_failed)
                                     }
                                     Text(
                                         message,

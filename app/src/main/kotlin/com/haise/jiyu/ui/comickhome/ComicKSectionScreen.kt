@@ -26,7 +26,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,12 +52,12 @@ fun ComicKSectionScreen(
     onOpenManga: (String) -> Unit,
     viewModel: ComicKSectionViewModel = hiltViewModel(),
 ) {
-    val comics by viewModel.comics.collectAsState()
-    val reviews by viewModel.reviews.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val openingManga by viewModel.openingManga.collectAsState()
-    val openError by viewModel.openError.collectAsState()
+    val comics by viewModel.comics.collectAsStateWithLifecycle()
+    val reviews by viewModel.reviews.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val openingManga by viewModel.openingManga.collectAsStateWithLifecycle()
+    val openError by viewModel.openError.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -78,7 +78,7 @@ fun ComicKSectionScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(TablerIcons.ArrowLeft, contentDescription = null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowLeft, contentDescription = stringResource(R.string.common_back), tint = TextPrimary)
                 }
                 Text(viewModel.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
             }

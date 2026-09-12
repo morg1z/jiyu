@@ -77,7 +77,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,23 +134,23 @@ fun MyListScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val library            by viewModel.library.collectAsState()
-    val categories         by viewModel.categories.collectAsState()
-    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
-    val contentTypeFilter      by viewModel.contentTypeFilter.collectAsState()
-    val readingStatusFilter    by viewModel.readingStatusFilter.collectAsState()
-    val searchQuery        by viewModel.searchQuery.collectAsState()
-    val sortOption         by viewModel.sortOption.collectAsState()
-    val sortAscending      by viewModel.sortAscending.collectAsState()
-    val isRefreshing       by viewModel.isRefreshing.collectAsState()
-    val refreshError       by viewModel.refreshError.collectAsState()
-    val readingStats       by settingsViewModel.readingStats.collectAsState()
-    val selectionMode      by viewModel.selectionMode.collectAsState()
-    val selectedIds        by viewModel.selectedIds.collectAsState()
+    val library            by viewModel.library.collectAsStateWithLifecycle()
+    val categories         by viewModel.categories.collectAsStateWithLifecycle()
+    val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
+    val contentTypeFilter      by viewModel.contentTypeFilter.collectAsStateWithLifecycle()
+    val readingStatusFilter    by viewModel.readingStatusFilter.collectAsStateWithLifecycle()
+    val searchQuery        by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val sortOption         by viewModel.sortOption.collectAsStateWithLifecycle()
+    val sortAscending      by viewModel.sortAscending.collectAsStateWithLifecycle()
+    val isRefreshing       by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val refreshError       by viewModel.refreshError.collectAsStateWithLifecycle()
+    val readingStats       by settingsViewModel.readingStats.collectAsStateWithLifecycle()
+    val selectionMode      by viewModel.selectionMode.collectAsStateWithLifecycle()
+    val selectedIds        by viewModel.selectedIds.collectAsStateWithLifecycle()
 
-    val localImportState   by viewModel.localImportState.collectAsState()
-    val gridMode           by viewModel.gridMode.collectAsState()
-    val gridColumns        by viewModel.gridColumns.collectAsState()
+    val localImportState   by viewModel.localImportState.collectAsStateWithLifecycle()
+    val gridMode           by viewModel.gridMode.collectAsStateWithLifecycle()
+    val gridColumns        by viewModel.gridColumns.collectAsStateWithLifecycle()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -172,9 +172,9 @@ fun MyListScreen(
             else -> {}
         }
     }
-    val unreadCounts       by viewModel.unreadCounts.collectAsState()
-    val totalCounts        by viewModel.totalCounts.collectAsState()
-    val downloadedPerManga by viewModel.downloadedPerManga.collectAsState()
+    val unreadCounts       by viewModel.unreadCounts.collectAsStateWithLifecycle()
+    val totalCounts        by viewModel.totalCounts.collectAsStateWithLifecycle()
+    val downloadedPerManga by viewModel.downloadedPerManga.collectAsStateWithLifecycle()
 
     var showManageDialog          by remember { mutableStateOf(false) }
     var showStatsDialog           by remember { mutableStateOf(false) }
@@ -321,7 +321,7 @@ fun MyListScreen(
                             modifier = Modifier.weight(1f),
                         )
                         if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
                                 Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                             }
                         }
@@ -375,8 +375,10 @@ fun MyListScreen(
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.mylist_filter_and_sort), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 Row(
+                    // 48dp výška (a11y minimum dotykové plochy) - ikony uvnitř zůstávají
+                    // 15dp, jen kapsle je vyšší.
                     modifier = Modifier
-                        .height(30.dp)
+                        .height(48.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.White.copy(alpha = 0.05f)),
                 ) {

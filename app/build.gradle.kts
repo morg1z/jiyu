@@ -150,6 +150,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
 
     // Hilt (dependency injection)
     implementation("com.google.dagger:hilt-android:2.57.2")
@@ -172,6 +173,10 @@ dependencies {
 
     // Obrázky
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Lottie animace (zdarma, Apache-2.0) - vlastní loading animace ve čtečce
+    // (viz res/raw/reader_page_loading.json), místo ručně kresleného Canvas indikátoru.
+    implementation("com.airbnb.android:lottie-compose:6.6.2")
 
     // Stahování na pozadí (offline kapitoly)
     implementation("androidx.work:work-runtime-ktx:2.9.1")

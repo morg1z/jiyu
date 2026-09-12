@@ -52,7 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,8 +100,8 @@ internal fun AniListSearchSheet(
     onQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val aniListSearchLoading by viewModel.aniListSearchLoading.collectAsState()
-    val aniListSearchResults by viewModel.aniListSearchResults.collectAsState()
+    val aniListSearchLoading by viewModel.aniListSearchLoading.collectAsStateWithLifecycle()
+    val aniListSearchResults by viewModel.aniListSearchResults.collectAsStateWithLifecycle()
     val aniListSheetColor = Color(0xFF2E51A2)
     ModalBottomSheet(
         onDismissRequest = { onDismiss(); onQueryChange("") },
@@ -174,8 +174,8 @@ internal fun KitsuSearchSheet(
     onQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val kitsuSearchLoading by viewModel.kitsuSearchLoading.collectAsState()
-    val kitsuSearchResults by viewModel.kitsuSearchResults.collectAsState()
+    val kitsuSearchLoading by viewModel.kitsuSearchLoading.collectAsStateWithLifecycle()
+    val kitsuSearchResults by viewModel.kitsuSearchResults.collectAsStateWithLifecycle()
     val kitsuSheetColor = Color(0xFF51A351)
     ModalBottomSheet(
         onDismissRequest = { onDismiss(); onQueryChange("") },
@@ -251,8 +251,8 @@ internal fun MangaUpdatesSearchSheet(
     onQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val muSearchLoading by viewModel.muSearchLoading.collectAsState()
-    val muSearchResults by viewModel.muSearchResults.collectAsState()
+    val muSearchLoading by viewModel.muSearchLoading.collectAsStateWithLifecycle()
+    val muSearchResults by viewModel.muSearchResults.collectAsStateWithLifecycle()
     val muSheetColor = Color(0xFF3B82F6)
     ModalBottomSheet(
         onDismissRequest = { onDismiss(); onQueryChange("") },
@@ -328,8 +328,8 @@ internal fun MalSearchSheet(
     onQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val malSearchLoading by viewModel.malSearchLoading.collectAsState()
-    val malSearchResults by viewModel.malSearchResults.collectAsState()
+    val malSearchLoading by viewModel.malSearchLoading.collectAsStateWithLifecycle()
+    val malSearchResults by viewModel.malSearchResults.collectAsStateWithLifecycle()
     ModalBottomSheet(
         onDismissRequest = { onDismiss(); onQueryChange("") },
         containerColor = NightBlue,

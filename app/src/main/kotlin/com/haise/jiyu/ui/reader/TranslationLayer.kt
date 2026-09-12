@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -203,7 +203,7 @@ fun BubbleOverlayLayer(
             CustomFontEntryPoint::class.java,
         ).customFontRepository()
     }
-    val customFontFile by customFontRepository.activeFontFile.collectAsState(initial = null)
+    val customFontFile by customFontRepository.activeFontFile.collectAsStateWithLifecycle(initialValue = null)
     positioned.forEachIndexed { bubbleIndex, pos ->
         // isUntranslated = model vrátil UNTRANSLATED_MARKER (nečitelné OCR) - stejně jako u
         // SFX bublin appka radši nic nekreslí a nechá prosvítat originál, než aby ukázala

@@ -3,6 +3,7 @@ package com.haise.jiyu
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
@@ -14,7 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
@@ -58,9 +59,14 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Edge-to-edge: obsah se kreslí pod status barem i navigační lištou
         enableEdgeToEdge()
-        // Android 13+ vyžaduje runtime žádost o POST_NOTIFICATIONS
-        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         super.onCreate(savedInstanceState)
+        // POST_NOTIFICATIONS je runtime permission jen od Androidu 13 (API 33) - na starsich
+        // verzich by volani bez SDK guardu bylo zbytecne systemove volani pri KAZDEM vytvoreni
+        // activity, a puvodne bezelo jeste PRED super.onCreate(), coz pri obnove po process-death
+        // riskovalo, ze registry pro activity-result kontrakty jeste neni pripraveny.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // Obsah se kreslí kolem výřezu přední kamery (notch / punch-hole)
         window.attributes.layoutInDisplayCutoutMode =
@@ -77,9 +83,9 @@ class MainActivity : AppCompatActivity() {
             ?.let { _pendingDeepLink.value = intent }
 
         setContent {
-            val theme by settings.theme.collectAsState(initial = ThemeOption.SYSTEM)
+            val theme by settings.theme.collectAsStateWithLifecycle(initialValue = ThemeOption.SYSTEM)
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit
-            val onboardingCompleted by settings.onboardingCompleted.collectAsState(initial = null)
+            val onboardingCompleted by settings.onboardingCompleted.collectAsStateWithLifecycle(initialValue = null)
             val isDark = when (theme) {
                 ThemeOption.DARK, ThemeOption.TRUE_BLACK -> true
                 ThemeOption.LIGHT                        -> false
@@ -98,7 +104,7 @@ class MainActivity : AppCompatActivity() {
                 if (onboardingCompleted != null) {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         val navController = rememberNavController()
-                        val pendingDeepLink by _pendingDeepLink.collectAsState()
+                        val pendingDeepLink by _pendingDeepLink.collectAsStateWithLifecycle()
                         LaunchedEffect(pendingDeepLink) {
                             val i = pendingDeepLink ?: return@LaunchedEffect
                             navController.handleDeepLink(i)

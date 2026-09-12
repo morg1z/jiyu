@@ -32,7 +32,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,9 +76,9 @@ fun UpdatesScreen(
     onOpenManga: (mangaId: String) -> Unit,
     viewModel: UpdatesViewModel = hiltViewModel(),
 ) {
-    val updates      by viewModel.updates.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val refreshError by viewModel.refreshError.collectAsState()
+    val updates      by viewModel.updates.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
     var showOnlyUnread by remember { mutableStateOf(false) }
     val displayedUpdates = if (showOnlyUnread) updates.filter { !it.read } else updates
 

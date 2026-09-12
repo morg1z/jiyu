@@ -365,7 +365,7 @@ internal fun LibraryListRow(
                     }
                 }
             }
-            IconButton(onClick = onMoreClick, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onMoreClick) {
                 Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary, modifier = Modifier.size(18.dp))
             }
         }

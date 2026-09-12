@@ -23,7 +23,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,9 +45,9 @@ fun UpdateCheckSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val updateInterval   by viewModel.updateIntervalHours.collectAsState()
-    val notifyNewChapters by viewModel.notifyNewChapters.collectAsState()
-    val notifyDownloads   by viewModel.notifyDownloads.collectAsState()
+    val updateInterval   by viewModel.updateIntervalHours.collectAsStateWithLifecycle()
+    val notifyNewChapters by viewModel.notifyNewChapters.collectAsStateWithLifecycle()
+    val notifyDownloads   by viewModel.notifyDownloads.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(

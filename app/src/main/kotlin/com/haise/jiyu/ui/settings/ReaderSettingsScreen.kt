@@ -20,7 +20,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,36 +58,36 @@ fun ReaderSettingsScreen(
     onOpenTapZones: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val language           by viewModel.targetLanguage.collectAsState()
-    val direction          by viewModel.readingDirection.collectAsState()
-    val readingMode        by viewModel.readingMode.collectAsState()
-    val tapZonesEnabled    by viewModel.tapZonesEnabled.collectAsState()
-    val tapZoneGrid        by viewModel.tapZoneGrid.collectAsState()
-    val webtoonScrollSpeed by viewModel.webtoonScrollSpeed.collectAsState()
-    val readerTextScale    by viewModel.readerTextScale.collectAsState()
-    val doublePageSpread   by viewModel.doublePageSpread.collectAsState()
-    val fullscreenEnabled  by viewModel.fullscreenEnabled.collectAsState()
-    val readerTheme        by viewModel.readerTheme.collectAsState()
-    val oledMode           by viewModel.oledMode.collectAsState()
-    val autoNextChapter    by viewModel.autoNextChapter.collectAsState()
-    val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsState()
-    val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsState()
-    val curlStyle          by viewModel.curlStyle.collectAsState()
-    val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsState()
-    val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsState()
-    val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsState()
-    val cropBorders        by viewModel.cropBorders.collectAsState()
-    val pageScale          by viewModel.pageScale.collectAsState()
-    val keepScreenOn       by viewModel.keepScreenOn.collectAsState()
-    val volumeKeysNav      by viewModel.volumeKeysNav.collectAsState()
-    val skipReadChapters   by viewModel.skipReadChapters.collectAsState()
-    val customFontUrl      by viewModel.customFontUrl.collectAsState()
-    val customFontStatus   by viewModel.customFontStatus.collectAsState()
+    val language           by viewModel.targetLanguage.collectAsStateWithLifecycle()
+    val direction          by viewModel.readingDirection.collectAsStateWithLifecycle()
+    val readingMode        by viewModel.readingMode.collectAsStateWithLifecycle()
+    val tapZonesEnabled    by viewModel.tapZonesEnabled.collectAsStateWithLifecycle()
+    val tapZoneGrid        by viewModel.tapZoneGrid.collectAsStateWithLifecycle()
+    val webtoonScrollSpeed by viewModel.webtoonScrollSpeed.collectAsStateWithLifecycle()
+    val readerTextScale    by viewModel.readerTextScale.collectAsStateWithLifecycle()
+    val doublePageSpread   by viewModel.doublePageSpread.collectAsStateWithLifecycle()
+    val fullscreenEnabled  by viewModel.fullscreenEnabled.collectAsStateWithLifecycle()
+    val readerTheme        by viewModel.readerTheme.collectAsStateWithLifecycle()
+    val oledMode           by viewModel.oledMode.collectAsStateWithLifecycle()
+    val autoNextChapter    by viewModel.autoNextChapter.collectAsStateWithLifecycle()
+    val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsStateWithLifecycle()
+    val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsStateWithLifecycle()
+    val curlStyle          by viewModel.curlStyle.collectAsStateWithLifecycle()
+    val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsStateWithLifecycle()
+    val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsStateWithLifecycle()
+    val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsStateWithLifecycle()
+    val cropBorders        by viewModel.cropBorders.collectAsStateWithLifecycle()
+    val pageScale          by viewModel.pageScale.collectAsStateWithLifecycle()
+    val keepScreenOn       by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+    val volumeKeysNav      by viewModel.volumeKeysNav.collectAsStateWithLifecycle()
+    val skipReadChapters   by viewModel.skipReadChapters.collectAsStateWithLifecycle()
+    val customFontUrl      by viewModel.customFontUrl.collectAsStateWithLifecycle()
+    val customFontStatus   by viewModel.customFontStatus.collectAsStateWithLifecycle()
     var customFontDraft by androidx.compose.runtime.saveable.rememberSaveable(customFontUrl) { androidx.compose.runtime.mutableStateOf(customFontUrl) }
-    val byokEnabled        by viewModel.byokEnabled.collectAsState()
-    val byokBaseUrl        by viewModel.byokBaseUrl.collectAsState()
-    val byokModel          by viewModel.byokModel.collectAsState()
-    val byokHasApiKey      by viewModel.byokHasApiKey.collectAsState()
+    val byokEnabled        by viewModel.byokEnabled.collectAsStateWithLifecycle()
+    val byokBaseUrl        by viewModel.byokBaseUrl.collectAsStateWithLifecycle()
+    val byokModel          by viewModel.byokModel.collectAsStateWithLifecycle()
+    val byokHasApiKey      by viewModel.byokHasApiKey.collectAsStateWithLifecycle()
     var byokBaseUrlDraft by androidx.compose.runtime.saveable.rememberSaveable(byokBaseUrl) { androidx.compose.runtime.mutableStateOf(byokBaseUrl) }
     var byokModelDraft by androidx.compose.runtime.saveable.rememberSaveable(byokModel) { androidx.compose.runtime.mutableStateOf(byokModel) }
     var byokApiKeyDraft by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }

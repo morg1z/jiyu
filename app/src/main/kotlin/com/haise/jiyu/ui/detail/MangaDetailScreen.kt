@@ -65,7 +65,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -129,29 +129,29 @@ fun MangaDetailScreen(
     onOpenManga: (String) -> Unit = {},
     viewModel: MangaDetailViewModel = hiltViewModel(),
 ) {
-    val manga            by viewModel.manga.collectAsState()
-    val coverGallery     by viewModel.coverGallery.collectAsState()
-    val comments         by viewModel.comments.collectAsState()
-    val commentsTotal    by viewModel.commentsTotal.collectAsState()
-    val commentsLoading  by viewModel.commentsLoading.collectAsState()
-    val commentsError    by viewModel.commentsError.collectAsState()
-    val recommendations  by viewModel.recommendations.collectAsState()
-    val openingRecommendation by viewModel.openingRecommendation.collectAsState()
-    val chapters         by viewModel.chapters.collectAsState()
-    val continueChapter  by viewModel.continueChapter.collectAsState()
-    val firstUnread      by viewModel.firstUnreadChapter.collectAsState()
-    val sortAscending    by viewModel.sortAscending.collectAsState()
-    val isRefreshing     by viewModel.isRefreshing.collectAsState()
-    val errorMessage     by viewModel.errorMessage.collectAsState()
-    val readingTimeMs    by viewModel.readingTimeMs.collectAsState()
-    val readingStatus    by viewModel.readingStatus.collectAsState()
-    val isFavorite       by viewModel.isFavorite.collectAsState()
-    val pendingLibraryAdd by viewModel.pendingLibraryAdd.collectAsState()
-    val chapterFilter       by viewModel.chapterFilter.collectAsState()
-    val statusFilter        by viewModel.statusFilter.collectAsState()
-    val selectedScanlator   by viewModel.selectedScanlator.collectAsState()
-    val availableScanlators by viewModel.availableScanlators.collectAsState()
-    val sourceName         by viewModel.sourceName.collectAsState()
+    val manga            by viewModel.manga.collectAsStateWithLifecycle()
+    val coverGallery     by viewModel.coverGallery.collectAsStateWithLifecycle()
+    val comments         by viewModel.comments.collectAsStateWithLifecycle()
+    val commentsTotal    by viewModel.commentsTotal.collectAsStateWithLifecycle()
+    val commentsLoading  by viewModel.commentsLoading.collectAsStateWithLifecycle()
+    val commentsError    by viewModel.commentsError.collectAsStateWithLifecycle()
+    val recommendations  by viewModel.recommendations.collectAsStateWithLifecycle()
+    val openingRecommendation by viewModel.openingRecommendation.collectAsStateWithLifecycle()
+    val chapters         by viewModel.chapters.collectAsStateWithLifecycle()
+    val continueChapter  by viewModel.continueChapter.collectAsStateWithLifecycle()
+    val firstUnread      by viewModel.firstUnreadChapter.collectAsStateWithLifecycle()
+    val sortAscending    by viewModel.sortAscending.collectAsStateWithLifecycle()
+    val isRefreshing     by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val errorMessage     by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val readingTimeMs    by viewModel.readingTimeMs.collectAsStateWithLifecycle()
+    val readingStatus    by viewModel.readingStatus.collectAsStateWithLifecycle()
+    val isFavorite       by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val pendingLibraryAdd by viewModel.pendingLibraryAdd.collectAsStateWithLifecycle()
+    val chapterFilter       by viewModel.chapterFilter.collectAsStateWithLifecycle()
+    val statusFilter        by viewModel.statusFilter.collectAsStateWithLifecycle()
+    val selectedScanlator   by viewModel.selectedScanlator.collectAsStateWithLifecycle()
+    val availableScanlators by viewModel.availableScanlators.collectAsStateWithLifecycle()
+    val sourceName         by viewModel.sourceName.collectAsStateWithLifecycle()
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -771,7 +771,7 @@ fun MangaDetailScreen(
 
                         // Přetečené menu — méně používané akce nad kapitolami
                         Box {
-                            IconButton(onClick = { showChapterOverflowMenu = true }, modifier = Modifier.size(32.dp)) {
+                            IconButton(onClick = { showChapterOverflowMenu = true }) {
                                 Icon(TablerIcons.DotsVertical, contentDescription = stringResource(R.string.detail_more_options), tint = TextSecondary, modifier = Modifier.size(18.dp))
                             }
                             DropdownMenu(expanded = showChapterOverflowMenu, onDismissRequest = { showChapterOverflowMenu = false }) {
@@ -898,7 +898,7 @@ fun MangaDetailScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             if (chapterFilter.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setChapterFilter("") }, modifier = Modifier.size(24.dp)) {
+                                IconButton(onClick = { viewModel.setChapterFilter("") }) {
                                     Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(14.dp))
                                 }
                             }
@@ -1402,8 +1402,8 @@ internal fun GlassChapterRow(
                         DownloadStatus.DOWNLOADED  -> Icon(TablerIcons.CircleCheck, contentDescription = stringResource(R.string.detail_chapter_downloaded), tint = Cyan, modifier = Modifier.padding(start = 8.dp).size(18.dp))
                         DownloadStatus.DOWNLOADING -> Text("↓", color = Violet, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
                         DownloadStatus.QUEUED      -> Text("⏳", fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp))
-                        DownloadStatus.ERROR       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_retry), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
-                        else                       -> IconButton(onClick = onDownload, modifier = Modifier.size(32.dp)) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_download), tint = TextSecondary, modifier = Modifier.size(18.dp)) }
+                        DownloadStatus.ERROR       -> IconButton(onClick = onDownload) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_retry), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+                        else                       -> IconButton(onClick = onDownload) { Icon(TablerIcons.Download, contentDescription = stringResource(R.string.common_download), tint = TextSecondary, modifier = Modifier.size(18.dp)) }
                     }
                 }
             }
@@ -1438,7 +1438,7 @@ private fun ChapterPaginationBar(currentPage: Int, totalPages: Int, onPageSelect
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onPageSelected(currentPage - 1) }, enabled = currentPage > 0, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = { onPageSelected(currentPage - 1) }, enabled = currentPage > 0) {
             Icon(
                 TablerIcons.ChevronLeft,
                 contentDescription = stringResource(R.string.common_previous),
@@ -1451,25 +1451,32 @@ private fun ChapterPaginationBar(currentPage: Int, totalPages: Int, onPageSelect
                 Text("…", color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
             } else {
                 val selected = page == currentPage
+                // Dotyková plocha 48dp (a11y minimum) je větší než vizuální chip (32dp) -
+                // ten zůstává vycentrovaný uvnitř, aby se nezměnil vzhled stránkování.
                 Box(
                     modifier = Modifier
-                        .padding(horizontal = 2.dp)
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (selected) GlowViolet else Color.Transparent)
+                        .size(48.dp)
                         .clickable { onPageSelected(page) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "${page + 1}",
-                        color = if (selected) Color.White else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) GlowViolet else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "${page + 1}",
+                            color = if (selected) Color.White else TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
                 }
             }
         }
-        IconButton(onClick = { onPageSelected(currentPage + 1) }, enabled = currentPage < totalPages - 1, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = { onPageSelected(currentPage + 1) }, enabled = currentPage < totalPages - 1) {
             Icon(
                 TablerIcons.ChevronRight,
                 contentDescription = stringResource(R.string.common_next),

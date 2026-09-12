@@ -13,7 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,10 +28,10 @@ fun AppearanceSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val theme             by viewModel.theme.collectAsState()
-    val libraryGridColumns by viewModel.libraryGridColumns.collectAsState()
-    val defaultCategoryId  by viewModel.defaultCategoryId.collectAsState()
-    val allCategories      by viewModel.categories.collectAsState()
+    val theme             by viewModel.theme.collectAsStateWithLifecycle()
+    val libraryGridColumns by viewModel.libraryGridColumns.collectAsStateWithLifecycle()
+    val defaultCategoryId  by viewModel.defaultCategoryId.collectAsStateWithLifecycle()
+    val allCategories      by viewModel.categories.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(

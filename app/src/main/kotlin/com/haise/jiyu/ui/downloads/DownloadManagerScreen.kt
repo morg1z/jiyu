@@ -34,7 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,10 +72,10 @@ fun DownloadManagerScreen(
     onBack: () -> Unit,
     viewModel: DownloadManagerViewModel = hiltViewModel(),
 ) {
-    val groups by viewModel.downloadGroups.collectAsState()
-    val totalStorageBytes by viewModel.totalStorageBytes.collectAsState()
-    val isPaused by viewModel.isPaused.collectAsState()
-    val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val groups by viewModel.downloadGroups.collectAsStateWithLifecycle()
+    val totalStorageBytes by viewModel.totalStorageBytes.collectAsStateWithLifecycle()
+    val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
+    val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var showDeleteReadConfirm by remember { mutableStateOf(false) }
 
@@ -258,11 +258,11 @@ private fun DownloadGroupCard(
                 )
             }
             if (queued > 0 || downloading > 0) {
-                IconButton(onClick = onCancelManga, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onCancelManga) {
                     Icon(TablerIcons.X, contentDescription = stringResource(R.string.downloads_manager_cancel_download), tint = Violet, modifier = Modifier.size(20.dp))
                 }
             } else if (downloaded > 0) {
-                IconButton(onClick = { showConfirm = true }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { showConfirm = true }) {
                     Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.downloads_manager_delete_all), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
@@ -351,25 +351,25 @@ private fun ChapterDownloadRow(
             when (chapter.downloadStatus) {
                 DownloadStatus.DOWNLOADED -> {
                     Text(stringResource(R.string.downloads_manager_page_count, chapter.pageCount), color = TextSecondary, fontSize = 11.sp)
-                    IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { showDeleteConfirm = true }) {
                         Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.common_delete), tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.DOWNLOADING -> {
                     Text(stringResource(R.string.downloads_manager_downloading_status), color = Violet, fontSize = 11.sp)
-                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onCancel) {
                         Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = Violet, modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.QUEUED -> {
                     Text(stringResource(R.string.downloads_manager_queued_status), color = TextSecondary, fontSize = 11.sp)
-                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onCancel) {
                         Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = TextSecondary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     }
                 }
                 DownloadStatus.ERROR -> {
                     Text(stringResource(R.string.downloads_manager_error_status), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDelete) {
                         Icon(TablerIcons.AlertCircle, contentDescription = stringResource(R.string.downloads_manager_error_desc), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                     }
                 }

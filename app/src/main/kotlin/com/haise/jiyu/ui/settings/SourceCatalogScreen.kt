@@ -52,7 +52,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,8 +90,8 @@ fun SourceCatalogScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val catalog = viewModel.getCatalog()
-    val customSources by viewModel.customSources.collectAsState()
-    val sourceTestState by viewModel.sourceTestState.collectAsState()
+    val customSources by viewModel.customSources.collectAsStateWithLifecycle()
+    val sourceTestState by viewModel.sourceTestState.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(0) }
     var showAddSheet by remember { mutableStateOf(false) }
@@ -216,7 +216,7 @@ private fun CatalogTab(
     catalog: List<CatalogSource>,
     viewModel: SettingsViewModel,
 ) {
-    val customSources by viewModel.customSources.collectAsState()
+    val customSources by viewModel.customSources.collectAsStateWithLifecycle()
 
     Text(
         text = stringResource(R.string.settings_source_catalog_catalog_desc),

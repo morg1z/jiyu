@@ -28,7 +28,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -60,14 +60,14 @@ fun SourceResolverScreen(
     onSearchManually: (query: String) -> Unit,
     viewModel: SourceResolverViewModel = hiltViewModel(),
 ) {
-    val loading by viewModel.loading.collectAsState()
-    val searchingMore by viewModel.searchingMore.collectAsState()
-    val comicKTitle by viewModel.comicKTitle.collectAsState()
-    val candidates by viewModel.candidates.collectAsState()
-    val totalComicKChapters by viewModel.totalComicKChapters.collectAsState()
-    val resolving by viewModel.resolving.collectAsState()
-    val openedChapterId by viewModel.openedChapterId.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val searchingMore by viewModel.searchingMore.collectAsStateWithLifecycle()
+    val comicKTitle by viewModel.comicKTitle.collectAsStateWithLifecycle()
+    val candidates by viewModel.candidates.collectAsStateWithLifecycle()
+    val totalComicKChapters by viewModel.totalComicKChapters.collectAsStateWithLifecycle()
+    val resolving by viewModel.resolving.collectAsStateWithLifecycle()
+    val openedChapterId by viewModel.openedChapterId.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -95,7 +95,7 @@ fun SourceResolverScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(TablerIcons.ArrowLeft, contentDescription = null, tint = TextPrimary)
+                    Icon(TablerIcons.ArrowLeft, contentDescription = stringResource(R.string.common_back), tint = TextPrimary)
                 }
                 Column(modifier = Modifier.padding(start = 8.dp)) {
                     Text(stringResource(R.string.resolver_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)

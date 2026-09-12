@@ -43,7 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,10 +85,10 @@ fun GlobalSearchScreen(
     initialQuery: String = "",
     viewModel: GlobalSearchViewModel = hiltViewModel(),
 ) {
-    val results by viewModel.results.collectAsState()
-    val query   by viewModel.query.collectAsState()
-    val savedSearches by viewModel.savedSearches.collectAsState()
-    val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsState()
+    val results by viewModel.results.collectAsStateWithLifecycle()
+    val query   by viewModel.query.collectAsStateWithLifecycle()
+    val savedSearches by viewModel.savedSearches.collectAsStateWithLifecycle()
+    val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf(initialQuery) }
     val focusManager = LocalFocusManager.current
 
@@ -185,7 +185,7 @@ fun GlobalSearchScreen(
                                 Spacer(Modifier.width(6.dp))
                                 Text(saved, color = TextPrimary, fontSize = 13.sp)
                                 Spacer(Modifier.width(4.dp))
-                                IconButton(onClick = { viewModel.removeSavedSearch(saved) }, modifier = Modifier.size(20.dp)) {
+                                IconButton(onClick = { viewModel.removeSavedSearch(saved) }) {
                                     Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(12.dp))
                                 }
                             }

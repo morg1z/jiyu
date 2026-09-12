@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -31,10 +30,61 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import coil.transform.Transformation
 import coil.transition.Transition
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
 import com.haise.jiyu.R
 import com.haise.jiyu.util.ScrambledImageUrl
 import compose.icons.TablerIcons
 import compose.icons.tablericons.AlertCircle
+
+/**
+ * Indikátor načítání konkrétně pro stránky čtečky - Lottie animace (viz
+ * res/raw/reader_page_loading.json) místo obecného
+ * [com.haise.jiyu.ui.components.JiyuLoadingIndicator].
+ */
+@Composable
+private fun ReaderPageLoadingIndicator(modifier: Modifier = Modifier) {
+    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.reader_page_loading))
+    val progress by animateLottieCompositionAsState(
+        composition = composition,
+        iterations = LottieConstants.IterateForever,
+    )
+    LottieAnimation(
+        composition = composition,
+        progress = { progress },
+        modifier = modifier.size(72.dp),
+    )
+}
+
+/**
+ * Sdílené mezi [RetryableAsyncImage] (hlavní zobrazovací cesta) a preload/"uložit do galerie"
+ * (`ReaderContent.kt`, `ReaderPager.kt`) - stejný Referer a descramble transformace na VŠECH
+ * místech. Bez tohohle preload stahoval stránku ZNOVU pod jiným cache klíčem (Referer je
+ * součástí OkHttp cache klíče) a "uložit do galerie" uložilo nečitelný obrázek na zdrojích
+ * s dlaždicovým scramblingem (viz [ScrambledImageUrl]) - nahlášeno v auditu.
+ */
+internal fun buildPageImageRequest(
+    context: android.content.Context,
+    url: String,
+    referer: String? = null,
+    cropBorders: Boolean = false,
+    disableCrossfade: Boolean = false,
+): ImageRequest {
+    val scramble = ScrambledImageUrl.parse(url)
+    val transforms = buildList<Transformation> {
+        if (cropBorders) add(CropBordersTransformation())
+        scramble?.let { add(TileDescrambleTransformation(it.grid, it.seed)) }
+    }
+    return ImageRequest.Builder(context)
+        .data(url)
+        .apply { if (transforms.isNotEmpty()) transformations(transforms) }
+        .apply { if (disableCrossfade) transitionFactory(Transition.Factory.NONE) }
+        .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
+        .build()
+}
 
 // ── Stránka s možností opětovného načtení při selhání ────────────────────────
 
@@ -77,20 +127,17 @@ fun RetryableAsyncImage(
     val context = androidx.compose.ui.platform.LocalContext.current
     var retryTrigger by remember(url) { mutableStateOf(0) }
     var isError by remember(url) { mutableStateOf(false) }
+    // Vychozi true - Coil nahlasi prvni AsyncImagePainter.State (Loading) az po prvni
+    // kompozici, takze bez tohohle by na jeden frame blysklo uplne prazdne misto, nez
+    // se stav vubec nastavi. Bez indikatoru vubec appka vypadala, jako by se stranka,
+    // co jeste neni stazena/nacte se pomalu, do seznamu vubec nedostala (nahlaseno
+    // uzivatelem) - misto toho tu ted zustane viditelne misto se spinnerem, dokud
+    // AsyncImage nenahlasi Success/Error.
+    var isLoading by remember(url) { mutableStateOf(true) }
 
     Box(modifier = modifier) {
         val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
-            val scramble = ScrambledImageUrl.parse(url)
-            val transforms = buildList<Transformation> {
-                if (cropBorders) add(CropBordersTransformation())
-                scramble?.let { add(TileDescrambleTransformation(it.grid, it.seed)) }
-            }
-            ImageRequest.Builder(context)
-                .data(url)
-                .apply { if (transforms.isNotEmpty()) transformations(transforms) }
-                .apply { if (disableCrossfade) transitionFactory(Transition.Factory.NONE) }
-                .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
-                .build()
+            buildPageImageRequest(context, url, referer, cropBorders, disableCrossfade)
         }
         AsyncImage(
             model = request,
@@ -99,6 +146,7 @@ fun RetryableAsyncImage(
             modifier = imageModifier,
             onState = { state ->
                 isError = state is AsyncImagePainter.State.Error
+                isLoading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
                 if (state is AsyncImagePainter.State.Success) {
                     val painterSize = state.painter.intrinsicSize
                     if (painterSize.isSpecified && painterSize.width > 0f && painterSize.height > 0f) {
@@ -108,6 +156,11 @@ fun RetryableAsyncImage(
                 onLoadedChange?.invoke(state is AsyncImagePainter.State.Success)
             },
         )
+        if (isLoading && !isError) {
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                ReaderPageLoadingIndicator()
+            }
+        }
         if (isError) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 Column(

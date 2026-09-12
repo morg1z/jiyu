@@ -196,10 +196,10 @@ fun NovelContent(
                     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                         Text(stringResource(R.string.reader_font_size_label, fontSize.toInt()), color = Color(0xFFB0BEC5), fontSize = 13.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(onClick = { if (fontSize > 10f) fontSize -= 1f }, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = { if (fontSize > 10f) fontSize -= 1f }) {
                                 Text(stringResource(R.string.reader_font_decrease), color = Color(0xFFE8E8E8), fontSize = 13.sp)
                             }
-                            IconButton(onClick = { if (fontSize < 30f) fontSize += 1f }, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = { if (fontSize < 30f) fontSize += 1f }) {
                                 Text(stringResource(R.string.reader_font_increase), color = Color(0xFFE8E8E8), fontSize = 17.sp)
                             }
                         }

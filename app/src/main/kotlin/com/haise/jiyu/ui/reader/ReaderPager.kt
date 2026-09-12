@@ -158,7 +158,7 @@ fun MangaReader(
     var showShareSheet by remember { mutableStateOf(false) }
     var sharePageUrl by remember { mutableStateOf("") }
     if (showShareSheet) {
-        SharePageBottomSheet(pageUrl = sharePageUrl, onDismiss = { showShareSheet = false })
+        SharePageBottomSheet(pageUrl = sharePageUrl, referer = referer, onDismiss = { showShareSheet = false })
     }
 
     // Tracks the single page index across recompositions and spread-mode resets.
@@ -272,28 +272,12 @@ fun MangaReader(
                                 if (sharePageUrl.isNotEmpty()) showShareSheet = true
                             },
                             onDoubleTap = { offset ->
-                                if (scale > 1f) {
-                                    scale = 1f
-                                    panOffset = Offset.Zero
-                                } else {
-                                    val zoom = 2.5f
-                                    val cx = size.width / 2f
-                                    val cy = size.height / 2f
-                                    scale = zoom
-                                    panOffset = Offset(
-                                        (offset.x - cx) * (1f - zoom),
-                                        (offset.y - cy) * (1f - zoom),
-                                    )
-                                }
+                                val result = doubleTapZoomTransform(offset, size, scale)
+                                scale = result.scale
+                                panOffset = result.panOffset
                             },
                             onTap = { offset ->
-                            val action = if (!tapZonesEnabled) {
-                                TapZoneAction.SHOW_PANEL
-                            } else {
-                                val col = (offset.x / size.width * 3).toInt().coerceIn(0, 2)
-                                val row = (offset.y / size.height * 3).toInt().coerceIn(0, 2)
-                                tapZoneGrid[row, col]
-                            }
+                            val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
                             when (action) {
                                 TapZoneAction.SHOW_PANEL -> onShowPanel()
                                 TapZoneAction.PREV_PAGE -> {
@@ -461,7 +445,7 @@ fun MangaGroupContent(
  * nikdy nebylo napojeno (viz `ReaderContent.kt`), takže tlačítko i dřív jen zavřelo sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SharePageBottomSheet(pageUrl: String, onDismiss: () -> Unit) {
+fun SharePageBottomSheet(pageUrl: String, referer: String? = null, onDismiss: () -> Unit) {
     val saveContext = androidx.compose.ui.platform.LocalContext.current
     val saveScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -484,7 +468,7 @@ fun SharePageBottomSheet(pageUrl: String, onDismiss: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
-                    saveScope.launch { saveBitmapToGallery(saveContext, pageUrl) }
+                    saveScope.launch { saveBitmapToGallery(saveContext, pageUrl, referer) }
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -499,12 +483,15 @@ fun SharePageBottomSheet(pageUrl: String, onDismiss: () -> Unit) {
     }
 }
 
-internal suspend fun saveBitmapToGallery(context: android.content.Context, url: String) {
+internal suspend fun saveBitmapToGallery(context: android.content.Context, url: String, referer: String? = null) {
     val bitmap: android.graphics.Bitmap? = if (url.startsWith("/") || url.startsWith("file://")) {
         val path = url.removePrefix("file://")
         android.graphics.BitmapFactory.decodeFile(path)
     } else {
-        val request = coil.request.ImageRequest.Builder(context).data(url).build()
+        // Stejny Referer/descramble jako hlavni zobrazovaci cesta - bez nich by ulozeny
+        // obrazek na zdroji s hotlink-ochranou/dlazdicovym scramblingem byl bud nedostupny,
+        // nebo viditelne poskladany spatne (viz audit).
+        val request = buildPageImageRequest(context, url, referer)
         val result = coil.Coil.imageLoader(context).execute(request)
         (result as? coil.request.SuccessResult)?.drawable?.let {
             (it as? android.graphics.drawable.BitmapDrawable)?.bitmap

@@ -43,7 +43,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,23 +106,23 @@ fun ComicKHomeScreen(
     // se vykresluje tady inline misto na vlastni obrazovce.
     searchViewModel: ComicKBrowseViewModel = hiltViewModel(),
 ) {
-    val topFeed by viewModel.topFeed.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val showCompleted by viewModel.showCompleted.collectAsState()
-    val popularNewWindow by viewModel.popularNewWindow.collectAsState()
-    val mostRecentPopularWindow by viewModel.mostRecentPopularWindow.collectAsState()
-    val openingManga by viewModel.openingManga.collectAsState()
-    val openError by viewModel.openError.collectAsState()
+    val topFeed by viewModel.topFeed.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val showCompleted by viewModel.showCompleted.collectAsStateWithLifecycle()
+    val popularNewWindow by viewModel.popularNewWindow.collectAsStateWithLifecycle()
+    val mostRecentPopularWindow by viewModel.mostRecentPopularWindow.collectAsStateWithLifecycle()
+    val openingManga by viewModel.openingManga.collectAsStateWithLifecycle()
+    val openError by viewModel.openError.collectAsStateWithLifecycle()
     var showPreferences by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
 
-    val searchQuery by searchViewModel.query.collectAsState()
-    val searchResults by searchViewModel.results.collectAsState()
-    val searchLoading by searchViewModel.loading.collectAsState()
-    val searchError by searchViewModel.error.collectAsState()
-    val searchOpeningManga by searchViewModel.openingManga.collectAsState()
+    val searchQuery by searchViewModel.query.collectAsStateWithLifecycle()
+    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val searchLoading by searchViewModel.loading.collectAsStateWithLifecycle()
+    val searchError by searchViewModel.error.collectAsStateWithLifecycle()
+    val searchOpeningManga by searchViewModel.openingManga.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -133,7 +133,7 @@ fun ComicKHomeScreen(
         }
     }
 
-    val searchOpenError by searchViewModel.openError.collectAsState()
+    val searchOpenError by searchViewModel.openError.collectAsStateWithLifecycle()
     LaunchedEffect(searchOpenError) {
         searchOpenError?.let {
             snackbarHostState.showSnackbar(it)
@@ -262,10 +262,10 @@ fun ComicKHomeScreen(
                         }
                     } else {
                         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                        val updates by viewModel.updates.collectAsState()
-                        val updatesOrder by viewModel.updatesOrder.collectAsState()
-                        val updatesLoading by viewModel.updatesLoading.collectAsState()
-                        val updatesError by viewModel.updatesError.collectAsState()
+                        val updates by viewModel.updates.collectAsStateWithLifecycle()
+                        val updatesOrder by viewModel.updatesOrder.collectAsStateWithLifecycle()
+                        val updatesLoading by viewModel.updatesLoading.collectAsStateWithLifecycle()
+                        val updatesError by viewModel.updatesError.collectAsStateWithLifecycle()
                         val homeListState = rememberLazyListState()
 
                         // Aktualizace na Domu uz nejsou oreznuty nahled s "Zobrazit vse" -
@@ -388,10 +388,10 @@ fun ComicKHomeScreen(
     }
 
     if (showPreferences) {
-        val updatesCountries by viewModel.updatesCountries.collectAsState()
-        val updatesDemographics by viewModel.updatesDemographics.collectAsState()
-        val updatesMatureFlags by viewModel.updatesMatureFlags.collectAsState()
-        val showAdultContent by viewModel.showAdultContent.collectAsState()
+        val updatesCountries by viewModel.updatesCountries.collectAsStateWithLifecycle()
+        val updatesDemographics by viewModel.updatesDemographics.collectAsStateWithLifecycle()
+        val updatesMatureFlags by viewModel.updatesMatureFlags.collectAsStateWithLifecycle()
+        val showAdultContent by viewModel.showAdultContent.collectAsStateWithLifecycle()
         ComicKUpdatesPreferencesSheet(
             initialCountries = updatesCountries,
             initialDemographics = updatesDemographics,
@@ -457,7 +457,7 @@ private fun ComicKHomeHeader(
                         modifier = Modifier.weight(1f).focusRequester(searchFocusRequester),
                     )
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = onClearQuery, modifier = Modifier.size(28.dp)) {
+                        IconButton(onClick = onClearQuery) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
@@ -662,7 +662,7 @@ private fun UpdatesFeedHeader(order: String, onOrderChange: (String) -> Unit, on
                 onClick = { onOrderChange("new") },
             )
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onOpenPreferences, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onOpenPreferences) {
                 Icon(TablerIcons.Settings, contentDescription = stringResource(R.string.comick_prefs_button), tint = TextSecondary, modifier = Modifier.size(18.dp))
             }
         }

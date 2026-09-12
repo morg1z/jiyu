@@ -48,7 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,16 +99,16 @@ fun LibraryScreen(
     onOpenSection: (LibrarySection) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    val library         by viewModel.library.collectAsState()
-    val searchQuery      by viewModel.searchQuery.collectAsState()
-    val continueReading   by viewModel.continueReading.collectAsState()
-    val recentlyAdded      by viewModel.recentlyAdded.collectAsState()
-    val completed           by viewModel.completed.collectAsState()
-    val unreadCounts         by viewModel.unreadCounts.collectAsState()
-    val totalCounts           by viewModel.totalCounts.collectAsState()
-    val libraryCount            by viewModel.libraryCount.collectAsState()
-    val favoriteCount             by viewModel.favoriteCount.collectAsState()
-    val todayReadingMinutes        by viewModel.todayReadingMinutes.collectAsState()
+    val library         by viewModel.library.collectAsStateWithLifecycle()
+    val searchQuery      by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val continueReading   by viewModel.continueReading.collectAsStateWithLifecycle()
+    val recentlyAdded      by viewModel.recentlyAdded.collectAsStateWithLifecycle()
+    val completed           by viewModel.completed.collectAsStateWithLifecycle()
+    val unreadCounts         by viewModel.unreadCounts.collectAsStateWithLifecycle()
+    val totalCounts           by viewModel.totalCounts.collectAsStateWithLifecycle()
+    val libraryCount            by viewModel.libraryCount.collectAsStateWithLifecycle()
+    val favoriteCount             by viewModel.favoriteCount.collectAsStateWithLifecycle()
+    val todayReadingMinutes        by viewModel.todayReadingMinutes.collectAsStateWithLifecycle()
 
     // Dlouhý stisk na kartu nabídne odebrání z knihovny - viz RemoveFromLibraryDialog níž.
     var pendingRemoval by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -171,7 +171,7 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.size(28.dp)) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
                             Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary, modifier = Modifier.size(15.dp))
                         }
                     }
@@ -375,7 +375,7 @@ private fun HeroContinueReadingCard(
                 color = Violet,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onFavoriteToggle, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onFavoriteToggle) {
                 Icon(
                     imageVector = TablerIcons.Bookmark,
                     contentDescription = if (item.manga.isFavorite) stringResource(R.string.detail_remove_favorite) else stringResource(R.string.detail_add_favorite),
@@ -415,7 +415,7 @@ private fun HeroContinueReadingCard(
                 Text(item.manga.title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Kapitola ${formatChapterNumber(item.lastChapterNumber)}",
+                    text = stringResource(R.string.common_chapter_number, formatChapterNumber(item.lastChapterNumber)),
                     color = TextSecondary,
                     fontSize = 12.sp,
                 )
@@ -587,22 +587,29 @@ private fun ContinueReadingCard(item: ContinueReadingItem, progressPercent: Int,
             // Malé tlačítko navrch obálky - klepnutí na zbytek karty otevře detail (viz
             // onOpenDetail výš), tohle jde rovnou do poslední rozečtené kapitoly. Vnořený
             // clickable dostane klepnutí přednostně před rodičovským pointerInputem karty.
+            // Dotyková plocha 48dp (a11y minimum) je větší než vizuální kruh (26dp) -
+            // ten zůstává vycentrovaný uvnitř, aby se nezměnil vzhled karty.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .size(26.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f))
+                    .size(48.dp)
                     .clickable(onClick = onContinue),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    TablerIcons.PlayerPlay,
-                    contentDescription = stringResource(R.string.action_continue_reading),
-                    tint = Color.White,
-                    modifier = Modifier.size(13.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        TablerIcons.PlayerPlay,
+                        contentDescription = stringResource(R.string.action_continue_reading),
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             }
             Text(
                 text = "$progressPercent %",

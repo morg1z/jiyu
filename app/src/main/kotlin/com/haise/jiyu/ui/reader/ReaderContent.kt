@@ -137,7 +137,11 @@ fun ReaderContent(
         (currentPage + 1..currentPage + 3).mapNotNull { pages.getOrNull(it) }
             .filter { !it.startsWith("file://") }
             .forEach { url ->
-                val req = coil.request.ImageRequest.Builder(preloadContext).data(url).build()
+                // Stejny Referer/descramble jako hlavni zobrazovaci cesta (RetryableAsyncImage) -
+                // jinak preload stahne stranku pod JINYM cache klicem (Referer je soucasti OkHttp
+                // cache klice) a Coil ji pri skutecnem zobrazeni stahne (a rozskladane dlazdice
+                // descrambluje) uplne znovu, cimz preload jen zdvojnasobi provoz misto usetreni.
+                val req = buildPageImageRequest(preloadContext, url, referer)
                 coil.Coil.imageLoader(preloadContext).enqueue(req)
             }
     }

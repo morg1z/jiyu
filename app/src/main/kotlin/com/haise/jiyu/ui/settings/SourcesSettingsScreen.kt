@@ -34,7 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,9 +69,9 @@ fun SourcesSettingsScreen(
     onOpenCustomCss: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val customSources by viewModel.customSources.collectAsState()
-    val showAdultSources by viewModel.showAdultSources.collectAsState()
-    val appMode by viewModel.appMode.collectAsState()
+    val customSources by viewModel.customSources.collectAsStateWithLifecycle()
+    val showAdultSources by viewModel.showAdultSources.collectAsStateWithLifecycle()
+    val appMode by viewModel.appMode.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -204,7 +204,7 @@ fun SourcesSettingsScreen(
                         var statusSel by remember { mutableStateOf("") }
                         var chapterListSel by remember { mutableStateOf("") }
                         var pageImageSel by remember { mutableStateOf("") }
-                        val testState by viewModel.sourceTestState.collectAsState()
+                        val testState by viewModel.sourceTestState.collectAsStateWithLifecycle()
 
                         DisposableEffect(Unit) { onDispose { viewModel.clearSourceTestState() } }
 

@@ -68,6 +68,8 @@
     <string name="common_back">Back</string>
     <string name="common_previous">Previous</string>
     <string name="common_next">Next</string>
+    <string name="common_chapter_number">Chapter %1$s</string>
+    <string name="cloudflare_challenge_message">The site %1$s needs a quick check that you\'re not a robot. Please solve the challenge below.</string>
     <string name="detail_copy_title">Copy title</string>
     <string name="detail_title_copied">Title copied</string>
     <string name="common_clear">Clear</string>
@@ -78,6 +80,8 @@
     <string name="common_confirm">Confirm</string>
     <string name="common_edit">Edit</string>
     <string name="common_download">Download</string>
+    <string name="download_notification_done_title">Download complete</string>
+    <string name="download_notification_done_text">Chapter is ready for offline reading</string>
     <string name="common_share">Share</string>
     <string name="common_retry">Retry</string>
     <string name="common_loading">Loading…</string>
@@ -728,6 +732,7 @@
     <string name="reader_error_translation_failed">Chapter translation failed, try again</string>
     <string name="reader_fallback_source_notice">This chapter was fetched from a different source because the original version was incomplete.</string>
     <string name="reader_error_rate_limited">Daily AI translation limit reached, please try again later</string>
+    <string name="reader_error_language_unsupported_offline">Offline mode (no API key set) doesn\'t support this target language - try a different language or set a key in Settings</string>
     <string name="reader_on_device_warning">No cloud API key configured — showing a rough on-device preview.</string>
 
     <!-- Browse -->
@@ -792,10 +797,13 @@
     <string name="account_anilist_disconnect">Disconnect AniList</string>
     <string name="account_anilist_missing_client_id">AniList Client ID is not set. Register the app at anilist.co/settings/developer (redirect URI: jiyu://anilist/callback) and add the Client ID to local.properties as ANILIST_CLIENT_ID=xxx</string>
     <string name="account_anilist_connect">Connect AniList</string>
+    <string name="account_anilist_login_failed">AniList login failed. Please try again.</string>
     <string name="account_cloud_title">Jiyu Cloud</string>
     <string name="account_sync_subtitle">Sync your library across devices.</string>
     <string name="account_email">Email</string>
     <string name="account_password">Password</string>
+    <string name="account_show_password">Show password</string>
+    <string name="account_hide_password">Hide password</string>
     <string name="account_signin_google">Sign in with Google</string>
     <string name="account_signup_button">Sign up</string>
     <string name="account_signin_button">Sign in</string>
@@ -942,6 +950,7 @@
     <string name="settings_about_downloading">Downloading update…</string>
     <string name="settings_about_download_failed">Download failed</string>
     <string name="settings_about_download_failed_space">Download failed - not enough storage space</string>
+    <string name="settings_about_download_failed_integrity">The downloaded file doesn\'t match what was expected, please try again</string>
     <string name="settings_about_ready_to_install">Downloaded — confirm the install in the system dialog</string>
 
     <string name="detail_add_favorite">Add to favorites</string>

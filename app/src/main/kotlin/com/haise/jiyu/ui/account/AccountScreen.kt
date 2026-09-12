@@ -49,7 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -91,13 +91,21 @@ fun AccountScreen(
     onBack: () -> Unit,
     viewModel: AccountViewModel = hiltViewModel(),
 ) {
-    val currentUser           by viewModel.currentUser.collectAsState()
-    val authState             by viewModel.authState.collectAsState()
-    val syncState             by viewModel.syncState.collectAsState()
-    val isAniListConnected    by viewModel.isAniListAuthenticated.collectAsState()
+    val currentUser           by viewModel.currentUser.collectAsStateWithLifecycle()
+    val authState             by viewModel.authState.collectAsStateWithLifecycle()
+    val syncState             by viewModel.syncState.collectAsStateWithLifecycle()
+    val isAniListConnected    by viewModel.isAniListAuthenticated.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
+    // authUrl se generuje AŽ při kliknutí na "Připojit" a drží se beze změny, dokud je
+    // dialog otevřený - AniListRepository.authUrl je getter s vedlejším efektem (generuje a
+    // uloží nové CSRF `state` při KAŽDÉM čtení), takže číst ho přímo v těle composable by
+    // při každé rekompozici AccountScreen (syncState/authState se mění nezávisle na loginu)
+    // přepsalo uložený `state` pod už otevřeným WebView - stará URL by pak proti novému
+    // uloženému state nikdy neprošla a přihlášení by tiše selhalo pokaždé, kdy rekompozice
+    // stihne proběhnout dřív, než uživatel dokončí přihlášení.
     var showAniListWebView by remember { mutableStateOf(false) }
+    var aniListAuthUrl by remember { mutableStateOf<String?>(null) }
     val errorPrefix = stringResource(R.string.account_error_prefix)
     val passwordResetSentText = stringResource(R.string.account_password_reset_sent)
 
@@ -171,16 +179,20 @@ fun AccountScreen(
             AniListSection(
                 isConnected = isAniListConnected,
                 hasClientId = viewModel.aniListHasClientId,
-                onConnect = { showAniListWebView = true },
+                onConnect = {
+                    aniListAuthUrl = viewModel.aniListAuthUrl
+                    showAniListWebView = true
+                },
                 onDisconnect = { viewModel.aniListSignOut() },
             )
 
-            if (showAniListWebView) {
+            val currentAniListAuthUrl = aniListAuthUrl
+            if (showAniListWebView && currentAniListAuthUrl != null) {
                 AniListLoginDialog(
-                    authUrl = viewModel.aniListAuthUrl,
-                    onTokenReceived = { token ->
+                    authUrl = currentAniListAuthUrl,
+                    onTokenReceived = { token, state ->
                         showAniListWebView = false
-                        viewModel.handleAniListCallback(token)
+                        viewModel.handleAniListCallback(token, state)
                     },
                     onDismiss = { showAniListWebView = false },
                 )
@@ -359,7 +371,10 @@ private fun SignedOutContent(
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                 Icon(
                                     if (passwordVisible) TablerIcons.EyeOff else TablerIcons.Eye,
-                                    contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp),
+                                    contentDescription = stringResource(
+                                        if (passwordVisible) R.string.account_hide_password else R.string.account_show_password
+                                    ),
+                                    tint = TextSecondary, modifier = Modifier.size(18.dp),
                                 )
                             }
                         },
@@ -500,7 +515,7 @@ private fun SignedInContent(
 @Composable
 private fun AniListLoginDialog(
     authUrl: String,
-    onTokenReceived: (String) -> Unit,
+    onTokenReceived: (token: String, state: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Dialog(
@@ -518,10 +533,14 @@ private fun AniListLoginDialog(
                             val url = request.url
                             if (url.scheme == "jiyu" && url.host == "anilist") {
                                 val fragment = url.fragment ?: ""
-                                val token = fragment.split('&')
+                                val params = fragment.split('&')
+                                val token = params
                                     .firstOrNull { it.startsWith("access_token=") }
                                     ?.substringAfter('=')
-                                if (token != null) onTokenReceived(token)
+                                val state = params
+                                    .firstOrNull { it.startsWith("state=") }
+                                    ?.substringAfter('=')
+                                if (token != null) onTokenReceived(token, state)
                                 return true
                             }
                             return false
@@ -530,6 +549,7 @@ private fun AniListLoginDialog(
                     loadUrl(authUrl)
                 }
             },
+            onRelease = { it.destroy() },
         )
     }
 }
