@@ -105,6 +105,13 @@ page still comes out wrong, long-pressing a bubble opens an editor that can
 fix just that one line, drag it to a better spot if the overlay placed it
 awkwardly, or retranslate the whole page from scratch.
 
+**Novel translation** - the same LLM chain translates light novel chapters
+too, split to respect sentence and paragraph boundaries (never mid-sentence)
+with tone and character continuity carried across chunks, aware of the
+title's genre and your own context note. A chapter can be retranslated from
+scratch if it comes out wrong, and long-pressing a single paragraph fixes
+just that one - the same editing model as manga bubbles.
+
 **Offline downloads** - a WorkManager worker downloads a whole chapter in
 the background, optionally zips it into a `.cbz`. Chapters are saved under a
 readable `Manga Title/0012 - Chapter Name` structure, so you can just copy
@@ -147,8 +154,6 @@ can be changed later in Settings.
 ### What's next
 
 - More sources as needed - cheap to add thanks to the `MangaSource` interface
-- Improve OCR on harder bubbles (tight shout bubbles, heavily colored title
-  pages)
 - App settings - finer control over image quality on download
 
 ---
@@ -254,6 +259,13 @@ vyjde špatně, dlouhý stisk na bublinu otevře editor, který umí opravit jen
 tenhle jeden řádek, přetáhnout ji na lepší místo, pokud ji overlay umístil
 nešikovně, nebo přeložit celou stránku úplně znovu.
 
+**Překlad novel** - stejný LLM řetězec překládá i kapitoly light novel,
+rozdělené s respektem k hranicím vět a odstavců (nikdy uprostřed věty), s
+návazností tónu a postav napříč díly a s vědomím žánru titulu i tvé vlastní
+kontextové poznámky. Kapitolu jde kdykoli přeložit znovu od začátku, když
+vyjde špatně, a dlouhý stisk na jeden odstavec opraví jen ten - stejný
+způsob úpravy jako u manga bublin.
+
 **Offline stahování** - WorkManager worker stáhne celou kapitolu na pozadí,
 volitelně zabalí do `.cbz`. Kapitoly se ukládají pod čitelnou strukturou
 `Název mangy/0012 - Název kapitoly`, jde je normálně zkopírovat na PC.
@@ -294,6 +306,4 @@ změnit v Nastavení.
 ### Co dál
 
 - Víc zdrojů podle potřeby - přidávání je levné díky `MangaSource` rozhraní
-- Doladit kvalitu OCR na těžších bublinách (kompaktní shout bubliny, sytě
-  barevné title pages)
 - Nastavení appky - jemnější kontrola kvality obrázků při stahování
