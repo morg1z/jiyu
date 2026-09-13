@@ -36,11 +36,15 @@ class ChapterUpdateWorker @AssistedInject constructor(
     private val settings: SettingsRepository,
 ) : CoroutineWorker(context, params) {
 
+    /** `latestChapterId` - nejnovejsi z nove objevenych kapitol, aby notifikace mohla vest
+     * primo do ctecky misto jen na detail mangy (viz [notify]). */
+    private data class UpdatedMangaInfo(val title: String, val mangaId: String, val count: Int, val latestChapterId: String?)
+
     override suspend fun doWork(): Result {
         return try {
             val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
             val semaphore = Semaphore(5)
-            val updatedManga = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Pair<String, Int>>>())
+            val updatedManga = java.util.Collections.synchronizedList(mutableListOf<UpdatedMangaInfo>())
 
             coroutineScope {
                 library.map { manga ->
@@ -55,7 +59,8 @@ class ChapterUpdateWorker @AssistedInject constructor(
                                 // (nahlaseno uzivatelem).
                                 val uniqueNewChapters = newChapters.distinctBy { it.chapterNumber }
                                 if (uniqueNewChapters.isNotEmpty()) {
-                                    updatedManga.add(manga.title to (manga.id to uniqueNewChapters.size))
+                                    val latest = uniqueNewChapters.maxByOrNull { it.chapterNumber }
+                                    updatedManga.add(UpdatedMangaInfo(manga.title, manga.id, uniqueNewChapters.size, latest?.id))
                                 }
                                 if (manga.autoDownload && uniqueNewChapters.isNotEmpty() && manga.sourceId != "comick") {
                                     uniqueNewChapters.forEach { ch ->
@@ -73,7 +78,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
 
             if (updatedManga.isNotEmpty()) {
                 if (settings.notifyNewChapters.first()) notify(updatedManga)
-                settings.addNewChapters(updatedManga.sumOf { it.second.second })
+                settings.addNewChapters(updatedManga.sumOf { it.count })
             }
             Result.success()
         } catch (e: Exception) {
@@ -85,52 +90,55 @@ class ChapterUpdateWorker @AssistedInject constructor(
         }
     }
 
-    private fun notify(updated: List<Pair<String, Pair<String, Int>>>) {
+    /** Primo do ctecky, kdyz zname konkretni novou kapitolu, jinak fallback na detail mangy
+     * (nahlaseno v auditu - notifikace dosud vedly vzdy jen na detail). */
+    private fun deepLinkFor(info: UpdatedMangaInfo): Uri =
+        if (info.latestChapterId != null) {
+            Uri.parse("jiyu://reader?chapterId=${Uri.encode(info.latestChapterId)}")
+        } else {
+            Uri.parse("jiyu://manga?mangaId=${Uri.encode(info.mangaId)}")
+        }
+
+    private fun notify(updated: List<UpdatedMangaInfo>) {
         val nm = context.getSystemService(NotificationManager::class.java)
-        val totalNew = updated.sumOf { it.second.second }
+        val totalNew = updated.sumOf { it.count }
 
         if (updated.size == 1) {
-            val (title, idAndCount) = updated.first()
-            val (mangaId, count) = idAndCount
-            val encodedId = Uri.encode(mangaId)
-            val deepUri = Uri.parse("jiyu://manga?mangaId=$encodedId")
-            val intent = Intent(Intent.ACTION_VIEW, deepUri).apply {
+            val info = updated.first()
+            val intent = Intent(Intent.ACTION_VIEW, deepLinkFor(info)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                 setClass(context, MainActivity::class.java)
             }
-            val pi = PendingIntent.getActivity(context, mangaId.hashCode(), intent,
+            val pi = PendingIntent.getActivity(context, info.mangaId.hashCode(), intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-            nm.notify(mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
+            nm.notify(info.mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle(if (count == 1) "1 nová kapitola" else "$count nových kapitol")
-                .setContentText(title)
+                .setContentTitle(if (info.count == 1) "1 nová kapitola" else "${info.count} nových kapitol")
+                .setContentText(info.title)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .build())
         } else {
-            val bigText = updated.joinToString("\n") { (t, ic) -> "• $t (+${ic.second})" }
+            val bigText = updated.joinToString("\n") { "• ${it.title} (+${it.count})" }
             val summaryIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             val summaryPi = PendingIntent.getActivity(context, 0, summaryIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-            updated.forEach { (title, idAndCount) ->
-                val (mangaId, count) = idAndCount
-                val encodedId = Uri.encode(mangaId)
-                val deepUri = Uri.parse("jiyu://manga?mangaId=$encodedId")
-                val intent = Intent(Intent.ACTION_VIEW, deepUri).apply {
+            updated.forEach { info ->
+                val intent = Intent(Intent.ACTION_VIEW, deepLinkFor(info)).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     setClass(context, MainActivity::class.java)
                 }
-                val pi = PendingIntent.getActivity(context, mangaId.hashCode(), intent,
+                val pi = PendingIntent.getActivity(context, info.mangaId.hashCode(), intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-                nm.notify(mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
+                nm.notify(info.mangaId.hashCode(), NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(if (count == 1) "1 nová kapitola" else "$count nových kapitol")
-                    .setContentText(title)
+                    .setContentTitle(if (info.count == 1) "1 nová kapitola" else "${info.count} nových kapitol")
+                    .setContentText(info.title)
                     .setContentIntent(pi)
                     .setAutoCancel(true)
                     .setGroup("jiyu_updates")

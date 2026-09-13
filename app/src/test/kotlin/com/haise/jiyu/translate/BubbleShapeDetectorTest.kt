@@ -284,4 +284,100 @@ class BubbleShapeDetectorTest {
 
         assertEquals(false, called)
     }
+
+    // ── kompaktní hranatý "shout" tvar proti plochému MAX_SHAPE_TO_TEXT_AREA_RATIO ──
+
+    /**
+     * 4cípá "výbuchová" hvězda poskládaná z obdélníků (tělo + 4 hroty) - `FakeCanvas` umí
+     * jen `fillRect`, ale to stačí: hroty vytvoří přesně tu vlastnost, kterou [isJaggedShape]
+     * měří (šířka po řádcích se řádek od řádku prudce mění - 20 px v hrotu, 240 px tam, kde
+     * se do řádku vejdou oba boční hroty najednou).
+     *
+     * Tělo 60x60 + 4 hroty (každý sahá 90 px za okraj těla) dá obalový obdélník 240x240 =
+     * 57 600 px. Krátké slovo uvnitř těla (~1200 px, stejný řád jako změřené "DAMN..." výš)
+     * dá poměr 48x - nad dnešním plochým stropem 45x (kalibrovaným jen na hladké bubliny),
+     * ale bezpečně pod hranicí uniklého vylití (~54x+, viz komentář u
+     * [BubbleShapeDetector.MAX_SHAPE_TO_TEXT_AREA_RATIO]).
+     */
+    private fun fourPointedShoutBurst(): FakeCanvas {
+        val canvas = FakeCanvas(400, 400, ART)
+        canvas.fillRect(170, 170, 229, 229, BG) // telo, 60x60
+        canvas.fillRect(190, 80, 209, 169, BG) // horni hrot
+        canvas.fillRect(190, 230, 209, 319, BG) // dolni hrot
+        canvas.fillRect(80, 190, 169, 209, BG) // levy hrot
+        canvas.fillRect(230, 190, 319, 209, BG) // pravy hrot
+        return canvas
+    }
+
+    @Test
+    fun `a compact shout burst shape is jagged`() {
+        val canvas = fourPointedShoutBurst()
+
+        // Bez textAreaPx - jen syrovy kandidatni tvar, at ho muzeme zmerit isJaggedShape,
+        // nez ho MAX_SHAPE_TO_TEXT_AREA_RATIO stihne zamitnout (viz test nize).
+        val shape = BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 400,
+            height = 400,
+            seeds = listOf(199 to 199),
+            bgColorArgb = BG,
+            maxAreaFraction = 0.5f,
+        )
+
+        assertNotNull(shape)
+        assertTrue("hrotovity tvar musi projit jako trsovity/hvezdicovity", isJaggedShape(shape!!))
+    }
+
+    @Test
+    fun `a compact jagged shout burst survives thanks to the higher jagged ratio cap`() {
+        val canvas = fourPointedShoutBurst()
+        // Kratke slovo uvnitr tela, stejny rad jako zmereny "DAMN..." pripad vys.
+        val textArea = 1200L
+        var reportedRatio: Double? = null
+
+        val shape = BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 400,
+            height = 400,
+            seeds = listOf(199 to 199),
+            bgColorArgb = BG,
+            maxAreaFraction = 0.5f,
+            textAreaPx = textArea,
+            onRatioMeasured = { ratio, _ -> reportedRatio = ratio },
+        )
+
+        assertNotNull("callback se musi zavolat, kdyz je textAreaPx > 0", reportedRatio)
+        assertEquals(48.0, reportedRatio!!, 1.0)
+        assertNotNull(
+            "namereny pomer 48x je pod MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO (50x) - plochy " +
+                "strop 45x (kalibrovany jen na hladke bubliny) by tenhle legitimni kompaktni " +
+                "shout tvar drive zamitl",
+            shape,
+        )
+    }
+
+    @Test
+    fun `a jagged shape that also dwarfs the higher jagged cap is still rejected`() {
+        // Stejny 4cipy hrot jako vys, ale s daleko mensim textem uvnitr - i hrotovity tvar
+        // musi mit svuj strop, jinak by MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO otevrelo dvere
+        // uniklym vylitim, ktera nahodou vysla jako hrotovita.
+        val canvas = fourPointedShoutBurst()
+        val textArea = 200L // pomer 57600/200 = 288x, hluboko nad jakymkoli stropem
+        var reportedRatio: Double? = null
+
+        val shape = BubbleShapeDetector.detectShape(
+            source = canvas,
+            width = 400,
+            height = 400,
+            seeds = listOf(199 to 199),
+            bgColorArgb = BG,
+            maxAreaFraction = 0.5f,
+            textAreaPx = textArea,
+            onRatioMeasured = { ratio, _ -> reportedRatio = ratio },
+        )
+
+        assertNotNull(reportedRatio)
+        assertEquals(288.0, reportedRatio!!, 1.0)
+        assertNull("i hrotovity tvar ma svuj strop (50x) - 288x je vysoko nad nim", shape)
+    }
 }

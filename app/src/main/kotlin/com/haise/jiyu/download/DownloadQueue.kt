@@ -12,6 +12,7 @@ import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,4 +70,25 @@ class DownloadQueue @Inject constructor(
     }
 
     fun pauseAll() = cancelAll()
+
+    /**
+     * `cancel()`/`cancelAll()` jen ODESLOU zruseni - WorkManager ho zpracuje asynchronne,
+     * nikoliv okamzite. Kdyz volajici hned po nem prepise DB stav (napr. na NOT_DOWNLOADED),
+     * muze prave bezici worker mezitim doskocit do uspesneho konce a svym markDownloaded()
+     * ten reset prepsat zpatky (nahlaseny "cancel-vs-success race"). Tahle varianta pocka,
+     * az WorkInfo pro dany tag skutecne prejde do finalniho stavu, nez volajici zapise DB -
+     * bez potreby DB migrace/generation counteru. Bounded timeout jako zachranna sit, kdyby
+     * WorkManager stav z nejakeho duvodu nikdy nedorazil (UI akce nesmi viset navzdy).
+     */
+    private suspend fun cancelTagAndAwait(tag: String, timeoutMs: Long = 5000) {
+        val wm = WorkManager.getInstance(context)
+        wm.cancelAllWorkByTag(tag)
+        withTimeoutOrNull(timeoutMs) {
+            wm.getWorkInfosByTagFlow(tag).first { infos -> infos.all { it.state.isFinished } }
+        }
+    }
+
+    suspend fun cancelAndAwait(chapterId: String) = cancelTagAndAwait("download_$chapterId")
+
+    suspend fun cancelAllAndAwait() = cancelTagAndAwait("jiyu_download")
 }

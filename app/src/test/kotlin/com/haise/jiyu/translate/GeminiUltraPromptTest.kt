@@ -78,6 +78,15 @@ class GeminiUltraPromptTest {
     }
 
     @Test
+    fun `for kicks means pro zabavu never pro kopy`() {
+        // Uzivatelska zpetna vazba (Vagabond ch.1): "FOR KICKS!" prelozeno doslovne
+        // ("PRO KOPY!"), spravne je "pro zabavu".
+        val prompt = GeminiUltraPrompt.buildSystemPrompt(emptyMap())
+        assertTrue(prompt.contains("for kicks"))
+        assertTrue(prompt.contains("pro zábavu"))
+    }
+
+    @Test
     fun `warns against the non-standard reflexive verb combination`() {
         // Uzivatelska zpetna vazba: "zbloudit se" je negramaticke - "zbloudit" uz zvratnost
         // vyjadruje samo, pridane "se" mixuje dva vzory.

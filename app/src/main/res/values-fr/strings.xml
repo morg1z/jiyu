@@ -1120,6 +1120,7 @@
     <string name="reader_edit_bubble_label">Texte traduit</string>
     <string name="reader_edit_bubble_hint">Laissez vide pour rétablir la traduction automatique.</string>
     <string name="reader_retranslate_page">Retraduire toute la page</string>
+    <string name="reader_retranslate_novel_chapter">Retraduire le chapitre</string>
     <string name="reader_bubble_position_label">Position de la bulle (glisser le point)</string>
     <string name="reader_bubble_position_reset">Réinitialiser la position</string>
     <string name="detail_translate_next_n">Traduire à l’avance…</string>

@@ -45,6 +45,36 @@ object BubbleClassifier {
     }
 
     /**
+     * Běžná krátká anglická citoslovce/repliky, které se NIKDY nemají klasifikovat jako SFX,
+     * i když je lettering vysází přímo přes kresbu (mimo bublinu) - viz pravidlo o `bgUniform`
+     * v [detectSfx]. To pravidlo záměrně nekontroluje samohlásky (chytá i "BOOM"/"CRASH"), takže
+     * bez týhle pojistky by pohltilo i krátkou legitimní repliku vysázenou pro důraz mimo
+     * bublinu.
+     */
+    private val commonShortWordsNotSfx = setOf(
+        "HEY", "WAIT", "STOP", "HELP", "RUN", "GO", "NOW", "YES", "NO", "OK", "OKAY",
+        "HUH", "WHAT", "WHO", "WHY", "HOW", "COME", "LOOK", "WATCH", "LISTEN", "DAMN",
+    )
+
+    /**
+     * Je [core] víc než jedna stejná instance téhož krátkého zvuku vedle sebe ("GULP GULP",
+     * "BOOM BOOM BOOM")? Viz volání v [detectSfx] - existující pravidla na seznam i na
+     * "bez samohlásky" vyžadují text bez mezery, takže je opakování se skutečnou mezerou uvnitř
+     * obchází všechna najednou.
+     */
+    private fun isRepeatedSfxWord(core: String): Boolean {
+        val tokens = core.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.size < 2 || tokens.any { !it.equals(tokens[0], ignoreCase = true) }) return false
+        val single = tokens[0]
+        val singleUpper = single.uppercase()
+        if (sfxWords.contains(singleUpper) || collapsedSfxWords.contains(collapseRepeats(singleUpper))) return true
+        val singleLetters = single.filter { it.isLetter() }
+        return singleLetters.isNotEmpty() && singleLetters.length <= 6 &&
+            singleLetters.all { it.code <= MAX_LATIN_CODE } &&
+            singleLetters.none { it.uppercaseChar() in LATIN_VOWELS }
+    }
+
+    /**
      * Samohlásky latinky včetně diakritiky (čeština, polština, španělština, vietnamština...) -
      * viz pravidlo "zvuk nemá samohlásku" v [detectSfx].
      */
@@ -156,6 +186,15 @@ object BubbleClassifier {
 
         if (looksLikeWatermark(raw, core)) return true
 
+        // Opakovaná stejná instance krátkého zvuku ("GULP GULP", "BOOM BOOM BOOM") - lettering
+        // je bežně kreslí jako víc oddělených nápisů, ale OCR/spojování řádků je sloučí do
+        // JEDNOHO bloku s mezerou uvnitř. Ostatní pravidla níž (na seznam i na "bez samohlásky")
+        // vyžadují `!core.contains(' ')`, takže tahle mezera je obejde VŠECHNY najednou -
+        // živý nález: "GULP GULP" (v `sfxWords`, ale s mezerou) prošlo jako obyčejný text a
+        // přeložilo se na nesmysl. Kontrola běží PŘED nimi a řeší jen tenhle jeden případ -
+        // opakování TÉHOŽ slova, ne obecně víceslovný text.
+        if (isRepeatedSfxWord(core)) return true
+
         // Holé číslo bez jediného písmene - typicky číslo panelu/stránky vypálené do skenu
         // (běžné u starších scanlation releasů jako MangaStream), ne replika. Skutečný dialog
         // se nikdy nezúží na samotnou číslici bez okolního textu. Bez tohohle OCR box kolem
@@ -183,7 +222,14 @@ object BubbleClassifier {
         // nezávislý signál, který nestojí na žádném seznamu. Chytá i protažené/vymyšlené zvuky,
         // které samohlásku mají a v seznamu nejsou. Na dlouhý text se schválně neuplatní: caption
         // vysázená rovnou do kresby je běžná a věta zvuk nikdy není.
-        if (!raw.bgUniform && letters.isNotEmpty() && letters.length <= 6 && !core.contains(' ')) return true
+        //
+        // commonShortWordsNotSfx: na rozdíl od pravidla výš tohle NEKONTROLUJE samohlásky
+        // schválně (viz komentář výš), takže by bez pojistky pohltilo i krátkou legitimní
+        // repliku vysázenou mimo bublinu ("HEY", "WAIT", "NO") - běžné u komiksového zdůraznění
+        // (nahlášeno v auditu).
+        if (!raw.bgUniform && letters.isNotEmpty() && letters.length <= 6 && !core.contains(' ') &&
+            core.uppercase() !in commonShortWordsNotSfx
+        ) return true
 
         // Stlačení zdvojených písmen kvůli protaženému letteringu - "SOBB"/"BOOOM" je pořád
         // tentýž zvuk (viz [collapsedSfxWords]).

@@ -40,6 +40,9 @@ import androidx.glance.unit.ColorProvider
 import com.haise.jiyu.R
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
@@ -47,6 +50,9 @@ import kotlinx.coroutines.withContext
  * tvrdý limit na velikost přenášených dat (TransactionTooLargeException), a každá obálka
  * je tu předem dekódovaná bitmapa, ne líně natahovaný obrázek. */
 private const val MAX_SHELF_ITEMS = 12
+
+/** Dost pro 110dp dlaždici i na hustších displejích - viz [loadCoverBitmap]. */
+private const val SHELF_COVER_PX = 300
 
 private data class ShelfItem(val id: String, val title: String, val coverBitmap: Bitmap?)
 
@@ -75,8 +81,12 @@ class ShelfWidget : GlanceAppWidget() {
                 } else {
                     db.categoryDao().observeMangaInCategory(categoryId).first()
                 }
-                mangaList.take(MAX_SHELF_ITEMS).map { manga ->
-                    ShelfItem(manga.id, manga.title, loadCoverBitmap(context, manga.coverUrl))
+                // Paralelne + zmensene - sekvencni .map() v plnem rozliseni riskoval
+                // TransactionTooLargeException na 12 obalkach naraz (nahlaseno v auditu).
+                coroutineScope {
+                    mangaList.take(MAX_SHELF_ITEMS).map { manga ->
+                        async { ShelfItem(manga.id, manga.title, loadCoverBitmap(context, manga.coverUrl, SHELF_COVER_PX)) }
+                    }.awaitAll()
                 }
             } catch (_: Exception) {
                 emptyList()

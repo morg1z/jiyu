@@ -158,8 +158,10 @@ class MangaDexSource @Inject constructor(
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
+            // IOException, ne IllegalStateException - RetryInterceptor (AppModule.kt) chyta
+            // jen IOException, takze IllegalStateException tenhle retry uplne obejde (nahlaseno v auditu).
             if (!response.isSuccessful) {
-                throw IllegalStateException("MangaDex API chyba ${response.code}: $url")
+                throw java.io.IOException("MangaDex API chyba ${response.code}: $url")
             }
             return JSONObject(body)
         }

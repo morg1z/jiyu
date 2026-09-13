@@ -39,6 +39,9 @@ abstract class ComicSiteSource(
     open val statusSelector: String = "span.status, div.status"
     open val paginatedPopular: Boolean = false
     open val popularPageParam: String = "?page="
+    // "&", ne "?" - searchPath uz obvykle nese vlastni query string ("/?s=..."), takze dalsi
+    // "?" by vyrobil neplatnou URL se dvema otazniky (nahlaseno v auditu).
+    open val searchPageParam: String = "&page="
 
     protected suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
@@ -60,7 +63,13 @@ abstract class ComicSiteSource(
         else -> "$base/$this"
     }
 
+    // data: URI (base64 vlozeny primo v atributu) neni obrazek k nacteni pres HTTP - Coilu by
+    // se poslal jako "URL" a skoncilo by to chybou/zbytecnou alokaci; navic to bejva jen
+    // lazy-load placeholder, skutecny obrazek je v data-src (nahlaseno v auditu).
+    private fun String.realImageUrlOrBlank(): String = if (startsWith("data:", ignoreCase = true)) "" else absoluteUrl()
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (page > 1 && !paginatedPopular) return@withContext emptyList()
         val url = if (page > 1 && paginatedPopular) "$base$popularPath$popularPageParam$page"
                   else "$base$popularPath"
         val doc = Jsoup.parse(get(url), url)
@@ -72,14 +81,18 @@ abstract class ComicSiteSource(
                 sourceId = id,
                 url = href.removePrefix(base),
                 title = linkEl.text().trim().ifBlank { el.text().trim() },
-                coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src").ifBlank { it.attr("data-lazy-src") } } },
+                coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src").ifBlank { it.attr("data-lazy-src") } } }
+                    ?.realImageUrlOrBlank()?.ifBlank { null },
                 contentType = "COMIC",
             )
         }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val url = "$base$searchPath${query.replace(" ", "+")}"
+        val url = buildString {
+            append(base).append(searchPath).append(query.replace(" ", "+"))
+            if (page > 1) append(searchPageParam).append(page)
+        }
         val doc = Jsoup.parse(get(url), url)
         doc.select(searchResultSelector).mapNotNull { el ->
             val linkEl = el.selectFirst(comicLinkSelector) ?: return@mapNotNull null
@@ -89,7 +102,8 @@ abstract class ComicSiteSource(
                 sourceId = id,
                 url = href.removePrefix(base),
                 title = linkEl.text().trim().ifBlank { el.text().trim() },
-                coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src") } },
+                coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src") } }
+                    ?.realImageUrlOrBlank()?.ifBlank { null },
                 contentType = "COMIC",
             )
         }
@@ -125,7 +139,7 @@ abstract class ComicSiteSource(
         val url = "$base${chapter.url}"
         val doc = Jsoup.parse(get(url), url)
         doc.select(pageImgSelector).mapIndexed { i, img ->
-            val url = img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } }
+            val url = img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } }.realImageUrlOrBlank()
             Page(i, url)
         }.filter { it.url.isNotBlank() }
     }

@@ -117,22 +117,30 @@ internal fun parseSettingsEntries(json: String, excludedKeys: Set<String>): List
     val entries = root.optJSONArray("settings") ?: JSONArray()
     val result = mutableListOf<SettingsEntry>()
     for (i in 0 until entries.length()) {
-        val e = entries.getJSONObject(i)
-        val name = e.getString("key")
-        if (name in excludedKeys) continue
-        val entry = when (e.getString("type")) {
-            "boolean" -> SettingsEntry(name, "boolean", e.getBoolean("value"))
-            "int" -> SettingsEntry(name, "int", e.getInt("value"))
-            "long" -> SettingsEntry(name, "long", e.getLong("value"))
-            "float" -> SettingsEntry(name, "float", e.getDouble("value").toFloat())
-            "string" -> SettingsEntry(name, "string", e.getString("value"))
-            "stringSet" -> {
-                val arr = e.getJSONArray("value")
-                SettingsEntry(name, "stringSet", (0 until arr.length()).map { arr.getString(it) }.toSet())
+        // Per-polozkovy try/catch - bez nej jedna poskozena/rucne upravena polozka
+        // (JSONException z chybejiciho/spatne typovaneho pole) shodila parsovani VSECH
+        // ostatnich platnych zaznamu a cela obnova zalohy skoncila s 0 obnovenymi
+        // nastavenimi (nahlaseno v auditu).
+        try {
+            val e = entries.getJSONObject(i)
+            val name = e.getString("key")
+            if (name in excludedKeys) continue
+            val entry = when (e.getString("type")) {
+                "boolean" -> SettingsEntry(name, "boolean", e.getBoolean("value"))
+                "int" -> SettingsEntry(name, "int", e.getInt("value"))
+                "long" -> SettingsEntry(name, "long", e.getLong("value"))
+                "float" -> SettingsEntry(name, "float", e.getDouble("value").toFloat())
+                "string" -> SettingsEntry(name, "string", e.getString("value"))
+                "stringSet" -> {
+                    val arr = e.getJSONArray("value")
+                    SettingsEntry(name, "stringSet", (0 until arr.length()).map { arr.getString(it) }.toSet())
+                }
+                else -> SettingsEntry(name, "unknown", Unit)
             }
-            else -> SettingsEntry(name, "unknown", Unit)
+            result.add(entry)
+        } catch (_: org.json.JSONException) {
+            // Preskocit tenhle jeden zaznam, zbytek zalohy se obnovi normalne.
         }
-        result.add(entry)
     }
     return result
 }

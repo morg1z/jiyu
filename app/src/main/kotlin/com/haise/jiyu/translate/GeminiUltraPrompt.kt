@@ -132,7 +132,12 @@ object GeminiUltraPrompt {
         val glossaryBlock = if (glossary.isEmpty()) {
             "(žádné zatím uložené pojmy pro tuhle mangu)"
         } else {
-            glossary.entries.joinToString("\n") { (source, target) -> "- \"$source\" -> \"$target\"" }
+            // Uvozovky escapovane na apostrof - jinak by termin s uvozovkou mohl strukturalne
+            // "utect" z pole "- "..." -> "..."" v promptu, stejne riziko jako u OCR
+            // bublinoveho textu nize (nahlaseno v auditu).
+            glossary.entries.joinToString("\n") { (source, target) ->
+                "- \"${source.replace("\"", "'")}\" -> \"${target.replace("\"", "'")}\""
+            }
         }
         val contextBlock = mangaContext.ifBlank { "(neznámé - žádný dodatečný kontext k dispozici)" }
 
@@ -226,6 +231,9 @@ object GeminiUltraPrompt {
               "out of the blue" -> "z ničeho nic" (NE "z modra")
               "break a leg" -> "hodně štěstí" (NE doslovně "zlom si nohu", pokud kontext není
               doslovný požadavek na zlomeninu)
+              "for kicks" / "(just) for kicks" znamená "pro zábavu" / "z legrace" - NIKDY
+              doslovně "pro kopy" ani "kvůli kopům" (kopanec sem nepatří, pokud nejde
+              doslovně o kopání): "You scared me for kicks!" -> "Vystrašils mě pro zábavu!"
 
             === ZVRATNÁ SLOVESA (přidávej "se" jen tam, kam gramaticky patří) ===
             Model má sklon skládat dohromady dva různé vzory a vytvořit negramatickou kombinaci -

@@ -78,6 +78,35 @@ internal fun <T> pickBetterAlternative(originalPageCount: Int, alternatives: Lis
         .maxByOrNull { (_, count) -> count }
         ?.first
 
+/**
+ * Sdilene razeni kandidatu zdroje - oblibeny > shoda prekladatelske skupiny > ma pozadovanou
+ * kapitolu > nejuplnejsi pokryti > nejblizsi kapitola.
+ *
+ * "Oblibeny"/"shoda skupiny" bonus plati JEN kdyz je kandidat aspon skoro kompletni (stejny
+ * prah jako [isCompleteEnoughForEarlyExit], zamerne sdileny - jedna hranice "kompletnosti" v
+ * cele tride) - bez tehle podminky vyhral oblibeny/skupinovy zdroj se 4 kapitolami ze 163 nad
+ * uplnym, jen neoblibenym zdrojem (nahlaseno uzivatelem: early-exit ma tenhle strop uz drive,
+ * ale finalni razeni po dokoncenem hledani ho vubec nepouzivalo). Uzivatelsky pozadavek
+ * "oblibeny/skupina napred" porad plati, jen ne na ukor drasticky neuplneho pokryti - kompletni
+ * zdroj bez preference porad vyhraje nad neuplnym s preferenci. Kdyz ZADNY kandidat neni dost
+ * kompletni, oba boolean bonusy vyjdou false pro vsechny a razeni spadne na matchedChapterCount
+ * nize - stale se vybere nejlepsi dostupny, jen uz bez umeleho zvyhodneni.
+ */
+internal fun rankCandidates(
+    candidates: List<ResolvedCandidate>,
+    totalComicKChapters: Int,
+    isPreferredGroup: (ResolvedCandidate) -> Boolean,
+): List<ResolvedCandidate> {
+    fun isCompleteEnough(c: ResolvedCandidate) = isCompleteEnoughForEarlyExit(c.matchedChapterCount, totalComicKChapters)
+    return candidates.sortedWith(
+        compareByDescending<ResolvedCandidate> { it.isFavorite && isCompleteEnough(it) }
+            .thenByDescending { isPreferredGroup(it) && isCompleteEnough(it) }
+            .thenByDescending { it.hasRequestedChapter }
+            .thenByDescending { it.matchedChapterCount }
+            .thenBy { it.nearestChapterDistance ?: Float.MAX_VALUE }
+    )
+}
+
 @HiltViewModel
 class SourceResolverViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -265,19 +294,12 @@ class SourceResolverViewModel @Inject constructor(
     }
 
     /**
-     * Sdilene razeni kandidatu - stejna priorita jako drive primo v [onCompletion] (oblibeny >
-     * shoda skupiny > ma pozadovanou kapitolu > nejuplnejsi pokryti > nejblizsi kapitola).
-     * Pouziva se jak pro finalni serazeny seznam pro uzivatele, tak pro vyber alternativ v
-     * [resolveCompleteChapter].
+     * Sdilene razeni kandidatu - viz [rankCandidates] pro poradi priorit a duvod, proc "oblibeny"/
+     * "shoda skupiny" bonus vyzaduje i kompletnost. Pouziva se jak pro finalni serazeny seznam
+     * pro uzivatele, tak pro vyber alternativ v [resolveCompleteChapter].
      */
     private fun rankedCandidates(): List<ResolvedCandidate> =
-        _candidates.value.sortedWith(
-            compareByDescending<ResolvedCandidate> { it.isFavorite }
-                .thenByDescending { matchesPreferredGroup(it) }
-                .thenByDescending { it.hasRequestedChapter }
-                .thenByDescending { it.matchedChapterCount }
-                .thenBy { it.nearestChapterDistance ?: Float.MAX_VALUE }
-        )
+        rankCandidates(_candidates.value, _totalComicKChapters.value, ::matchesPreferredGroup)
 
     fun selectCandidate(candidate: ResolvedCandidate) {
         val target = requestedChapterNumber ?: return

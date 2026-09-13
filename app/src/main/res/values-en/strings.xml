@@ -1100,6 +1100,7 @@
     <string name="reader_edit_bubble_label">Translated text</string>
     <string name="reader_edit_bubble_hint">Leave empty to restore the machine translation.</string>
     <string name="reader_retranslate_page">Retranslate this whole page</string>
+    <string name="reader_retranslate_novel_chapter">Retranslate chapter</string>
     <string name="reader_bubble_position_label">Bubble position (drag the dot)</string>
     <string name="reader_bubble_position_reset">Reset position</string>
     <string name="detail_translate_next_n">Translate ahead…</string>

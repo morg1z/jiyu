@@ -125,6 +125,26 @@ class BalancedLineBreakTest {
     }
 
     @Test
+    fun `a single-letter word left alone on the very last line is now also penalized`() {
+        // Rozsireni existujici orphan penalizace i na POSLEDNI radek celeho textu, kdyz je na
+        // nem JEDINYM slovem - nahlaseno v auditu (zivy priklad: "...MAM" + osamocene "O" na
+        // vlastnim radku). Bez penalizace DP zvoli "AAA BBB" / "CCC" / "o" (cena 50 < 74) -
+        // presne ten vzor.
+        val words = listOf("AAA", "BBB", "CCC", "o")
+        val wordWidths = listOf(3f, 3f, 3f, 1f)
+        val allowed = listOf(10f, 8f, 5f)
+
+        val withoutPenalty = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed)
+        assertEquals(listOf("AAA BBB", "CCC", "o"), assembleLines(words, withoutPenalty!!))
+
+        val withPenalty = breakIntoLines(wordWidths, spaceWidth = 1f, allowedWidths = allowed, words = words)
+        assertNotNull(withPenalty)
+        val lines = assembleLines(words, withPenalty!!)
+        assertTrue("no line should be just a lone single-letter word, got $lines", lines.none { it.trim() == "o" })
+        assertEquals(listOf("AAA", "BBB", "CCC o"), lines)
+    }
+
+    @Test
     fun `still returns a split ending in a lone preposition when it is the only feasible option`() {
         // "words" nesmi zpusobit, ze breakIntoLines vrati null misto jedine mozne varianty -
         // penalizace jen zhorsi cenu, nikdy neudela rozdeleni neproveditelnym. Jedina moznost

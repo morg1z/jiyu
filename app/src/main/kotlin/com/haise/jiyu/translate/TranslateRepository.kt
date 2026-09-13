@@ -1104,8 +1104,19 @@ class TranslateRepository @Inject constructor(
          *   postavy se ma drzet rodu z predchozich replik, ne hadat podle jmena/stereotypu.
          *   Netyka se novel cesty (jeji prompt zije na serveru translate-proxy, mimo tenhle
          *   repozitar - viz plan, item 10). Meni to volbu rodu v prekladu, tedy i ulozeny text.
+         * v25 (2026-09-13): tri nezavisle opravy stejny den - (1) [MangaOcrGarbageFilter] (drive
+         *   jen manga-ocr) se ted pouziva i v [OcrEngine.recognizeLines] (ML Kit, VSECHNY
+         *   jazyky) - male UI prvky (napr. teckovy ukazatel postupu) uz se neprectou jako
+         *   "text" a nekolidujou s realnym prekladem. (2) [BubbleShapeDetector] ma novy
+         *   [BubbleShapeDetector.MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO] pro hranate/hvezdicovite
+         *   ("shout") obrysy - drive je odmital stejny plochy strop jako hladke bubliny. (3)
+         *   [CrossPageBubbleMerger] uz nepáruje jen 1:1 - pokracujici radek rozpadly na vic OCR
+         *   radku na zacatku dalsi stranky se ted spoji vsechny (viz [shouldMerge] retezeni),
+         *   drive osirely zbytek unikal bez kontextu. Meni to, ktery text se vubec ulozi jako
+         *   blok, jaky tvar bublina dostane, a jak se spoji fragmenty pres hranici stranky -
+         *   tedy i ulozeny vysledek u vsech tri.
          */
-        private const val PIPELINE_VERSION = 24
+        private const val PIPELINE_VERSION = 25
 
         /** Maximální počet znaků originálu na jedno API volání - drží výstup pod limitem max_tokens. */
         private const val NOVEL_CHUNK_CHAR_LIMIT = 2500
@@ -1170,8 +1181,13 @@ class TranslateRepository @Inject constructor(
         text: String,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
+        // Uzivatelem vyzadane "preloz kapitolu znovu" (viz ReaderViewModel.retranslateNovelChapter) -
+        // stejny vzor jako translatePage's forceRefresh. Ulozeni vysledku (novelDao.upsert nize)
+        // uz je STEJNA cesta jako pri normalnim cache-miss (upsert = REPLACE podle primarniho
+        // klice), takze existujici radek proste prepise.
+        forceRefresh: Boolean = false,
     ): String? {
-        getCachedNovel(chapterId, targetLanguage, sourceLanguage)?.let { return it }
+        if (!forceRefresh) getCachedNovel(chapterId, targetLanguage, sourceLanguage, text)?.let { return it }
         if (!groqClient.isConfigured) return null
 
         val paragraphs = text.split("\n").filter { it.isNotBlank() }
@@ -1226,12 +1242,25 @@ class TranslateRepository @Inject constructor(
             if (isBadBatch(translated)) {
                 translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines)
             }
-            if (translated.size != chunk.size) return null // dávka selhala nebo neúplná -> necachovat polovičatý výsledek
-            if (isWrongTargetLanguage(translated.joinToString(" "), targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+            // Strukturalni selhani na VSECH providerech (spatny pocet odstavcu v odpovedi) -
+            // drive `return null` zahodilo i vsechny uz uspesne prelozene predchozi chunky
+            // cele kapitoly (nahlaseno v auditu). Misto toho se pro tenhle kus pouzije puvodni
+            // (neprelozeny) text - kapitola tak zustane cela a citelna, jen s jednou spatnou
+            // dávkou navic - a cely vysledek se necachuje, aby dalsi (nevynucene) otevreni
+            // dostalo novou sanci na plny preklad. Stejna filozofie jako manga cesta
+            // (accept-best-available/necachovat vadny vysledek), jen tady navic nikdy
+            // nezahodi UZ hotovou praci.
+            val effectiveTranslated = if (translated.size == chunk.size) {
+                translated
+            } else {
+                cacheable = false
+                texts
+            }
+            if (isWrongTargetLanguage(effectiveTranslated.joinToString(" "), targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
                 cacheable = false
             }
-            translatedUnits += translated
-            previousLines = GeminiUltraPrompt.recentContextLines(translated)
+            translatedUnits += effectiveTranslated
+            previousLines = GeminiUltraPrompt.recentContextLines(effectiveTranslated)
         }
 
         // Rekonstrukce odstavců: "continuation" kousky (části jednoho moc dlouhého odstavce
@@ -1249,11 +1278,52 @@ class TranslateRepository @Inject constructor(
         if (cacheable) {
             novelDao.upsert(TranslatedNovelEntity(id = novelCacheId(chapterId, sourceLanguage, targetLanguage), translatedText = result))
         }
-        return result
+        // Rucni opravy odstavcu (viz saveNovelParagraphEdit) se schvalne NEUKLADAJI do cache
+        // vys - stejny duvod jako u manga bublin (ManualTranslationEntity dok. komentar):
+        // preziji zvednuti PIPELINE_VERSION, kdezto cache se pri nem zahodi.
+        return result.withNovelManualEdits(chapterId, text)
     }
 
-    suspend fun getCachedNovel(chapterId: String, targetLanguage: String, sourceLanguage: String = "Auto"): String? =
-        novelDao.getById(novelCacheId(chapterId, sourceLanguage, targetLanguage))?.translatedText
+    suspend fun getCachedNovel(chapterId: String, targetLanguage: String, sourceLanguage: String = "Auto", originalText: String? = null): String? {
+        val cached = novelDao.getById(novelCacheId(chapterId, sourceLanguage, targetLanguage))?.translatedText ?: return null
+        return if (originalText != null) cached.withNovelManualEdits(chapterId, originalText) else cached
+    }
+
+    /**
+     * Sentinel `pageIndex` pro [ManualTranslationEntity] u novel - ta tabulka je navrzena pro
+     * manga stranky (chapterId + pageIndex + originalText), ale novel kapitola zadne stranky
+     * nema, je to jeden plynuly text. -1 nikdy nekoliduje se skutecnym indexem manga stranky
+     * (ten vzdy zacina na 0).
+     */
+    private val NOVEL_MANUAL_EDIT_PAGE_INDEX = -1
+
+    /**
+     * Naparuje ulozene rucni opravy odstavcu (viz [saveNovelParagraphEdit]) na cerstve
+     * prelozenou/cachovanou kapitolu - stejny princip jako [withManualEdits] u manga bublin,
+     * jen misto seznamu bloku pracuje s [originalText] rozdelenym na odstavce (viz
+     * [applyManualEditsToNovelParagraphs]).
+     */
+    private suspend fun String.withNovelManualEdits(chapterId: String, originalText: String): String {
+        val edits = manualDao.forPage(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX)
+        if (edits.isEmpty()) return this
+        val originalParagraphs = originalText.split("\n").filter { it.isNotBlank() }
+        val translatedParagraphs = this.split("\n")
+        val edited = applyManualEditsToNovelParagraphs(
+            translatedParagraphs = translatedParagraphs,
+            originalParagraphs = originalParagraphs,
+            edits = edits.associate { normalizeOriginal(it.originalText) to it.text },
+        )
+        return edited.joinToString("\n")
+    }
+
+    /**
+     * Rucni oprava jednoho odstavce prelozene novel kapitoly - viz [ReaderViewModel.saveNovelParagraphEdit].
+     * Znovupouziva stejnou [ManualTranslationEntity]/[saveManualEdit] jako manga bubliny, jen s
+     * fixnim [NOVEL_MANUAL_EDIT_PAGE_INDEX] (novel kapitola nema "stranky").
+     */
+    suspend fun saveNovelParagraphEdit(chapterId: String, originalParagraphText: String, text: String) {
+        saveManualEdit(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX, originalParagraphText, text)
+    }
 
     /**
      * Klíč cache přeložených novel. [PIPELINE_VERSION] tu dřív CHYBĚL, i když ho klíč

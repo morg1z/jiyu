@@ -320,6 +320,10 @@ class MangaDetailViewModel @Inject constructor(
         val source = sourceTerm.trim()
         val target = targetTerm.trim()
         if (source.isBlank() || target.isBlank()) return
+        // Limit delky/poctu slov - bez nej tenhle primy DAO zapis obchazel jediny filtr v
+        // appce (isPlausibleGlossaryTerm se aplikuje jen na modelem navrzene terminy), takze
+        // sem slo rucne vlozit cokoli libovolne dlouheho, co pak jde do promptu (nahlaseno v auditu).
+        if (!com.haise.jiyu.translate.isWithinGlossaryTermLimits(source, target)) return
         viewModelScope.launch {
             glossaryDao.upsert(
                 GlossaryEntity(

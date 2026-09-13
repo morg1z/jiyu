@@ -149,6 +149,42 @@ class PunctuationBlockProbeTest {
         dump("pestra kresba", busyArtworkPage())
     }
 
+    /**
+     * SONDA k položce "OCR kvalita na sytě barevných title pages" (README "Co dál"): má snad
+     * problém kořen už v BubbleBoxDetector (YOLO), ne až v OCR rozpoznávání? Titulkový text bez
+     * obrysu bubliny (na `artworkCaptionPage`/`busyArtworkPage` - viz [BubbleBoxDetector],
+     * `classId`=1 "text_free") nemá žádný kalibrační komentář na `confThreshold=0.25` jako mají
+     * ostatní prahy v týhle oblasti kódu - není doloženo, jestli 0.25 stačí i na text přímo na
+     * rušivé/barevné kresbě. Sonda přímo zavolá detektor (obchází celý zbytek OCR pipeline) a
+     * zaloguje VŠECHNY vrácené boxy s jejich score - vůbec žádný box by znamenal, že se to samo
+     * o sobě nikdy nedostane ani k rozpoznávání textu. Nic netvrdí, jen měří.
+     */
+    private fun dumpBoxDetections(label: String, bitmap: Bitmap) = runBlocking {
+        val boxes = BubbleBoxDetector(context).detect(bitmap)
+        Log.i(TAG, "=== $label (BubbleBoxDetector): ${boxes.size} boxu ===")
+        if (boxes.isEmpty()) {
+            Log.i(TAG, ">>> $label: ZADNY box - detektor na tuhle stranku vubec nic nenasel")
+        }
+        boxes.forEachIndexed { i, b ->
+            Log.i(
+                TAG,
+                "[$i] classId=${b.classId} (${if (b.classId == 1) "text_free" else "text_bubble"}) " +
+                    "score=${"%.3f".format(b.score)} box=(${"%.3f".format(b.leftF)},${"%.3f".format(b.topF)})-" +
+                    "(${"%.3f".format(b.rightF)},${"%.3f".format(b.bottomF)})",
+            )
+        }
+    }
+
+    @Test
+    fun probe_boxDetectorConfidenceOnArtworkCaption() {
+        dumpBoxDetections("kresba (caption)", artworkCaptionPage())
+    }
+
+    @Test
+    fun probe_boxDetectorConfidenceOnBusyArtwork() {
+        dumpBoxDetections("pestra kresba (caption)", busyArtworkPage())
+    }
+
     private companion object {
         const val TAG = "PunctProbe"
     }

@@ -61,4 +61,13 @@ class ChapterPagePrefetchTest {
             computePrefetchIndices(fromIndex = 0, pageCount = 100, alreadyPrefetched = emptySet()),
         )
     }
+
+    @Test
+    fun `metered window prefetches further ahead than the unmetered default`() {
+        assertEquals(8, PREFETCH_WINDOW_METERED)
+        assertEquals(
+            listOf(0, 1, 2, 3, 4, 5, 6, 7),
+            computePrefetchIndices(fromIndex = 0, pageCount = 100, alreadyPrefetched = emptySet(), count = PREFETCH_WINDOW_METERED),
+        )
+    }
 }

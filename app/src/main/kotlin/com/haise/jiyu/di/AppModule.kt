@@ -328,6 +328,13 @@ object AppModule {
     fun provideImageHttpClient(cloudflare: CloudflareInterceptor): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // callTimeout ohranicuje CELKOVY cas requestu (connect+write+read dohromady), na
+        // rozdil od readTimeout vyse (ktery hlida jen mezeru MEZI jednotlivymi byte cteni).
+        // Spojeni, ktere "kape" data kousek pod hranici readTimeoutu, by jinak mohlo bezet
+        // podstatne dele nez 30s a bez konce - presne pripad pomale/kolisave mobilni site.
+        // Zamerne BEZ navratu RetryInterceptoru (viz komentar tridy vyse) - jde jen o strop
+        // jednoho pokusu, ne o opakovani.
+        .callTimeout(45, TimeUnit.SECONDS)
         .dns(CloudflareDoh)
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(RateLimitInterceptor())

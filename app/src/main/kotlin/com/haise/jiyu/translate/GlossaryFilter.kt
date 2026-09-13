@@ -25,6 +25,7 @@ fun isPlausibleGlossaryTerm(source: String, target: String): Boolean {
     val tgt = target.trim()
     if (src.length < 2 || tgt.isEmpty()) return false
     if (src.length > MAX_TERM_LENGTH || tgt.length > MAX_TERM_LENGTH) return false
+    if (containsControlCharacters(src) || containsControlCharacters(tgt)) return false
 
     // Věta, ne termín. Jméno nemá čtyři slova ani koncovou interpunkci.
     if (src.split(Regex("\\s+")).size > MAX_TERM_WORDS) return false
@@ -38,9 +39,35 @@ fun isPlausibleGlossaryTerm(source: String, target: String): Boolean {
     return true
 }
 
-private const val MAX_TERM_LENGTH = 48
-private const val MAX_TERM_WORDS = 5
+const val MAX_TERM_LENGTH = 48
+const val MAX_TERM_WORDS = 5
 private val SENTENCE_PUNCTUATION = setOf('.', '!', '?', ',', ';', ':')
+
+/**
+ * Jen limity délky/počtu slov - na rozdíl od [isPlausibleGlossaryTerm] BEZ seznamu běžných
+ * slov. Ten seznam má smysl jen pro filtrování modelem navržených termínů (chránit glosář
+ * před halucinací); ruční položku, kterou si uživatel sám napsal do Slovníku, nemá smysl
+ * blokovat proto, že obsahuje běžné slovo - jen ji shora omezit v délce, ať nejde přes
+ * `GlossaryRepository`/přímý DAO zápis (viz [com.haise.jiyu.ui.detail.MangaDetailViewModel])
+ * propašovat cokoli extrémně dlouhého do promptu (nahlášeno v auditu).
+ */
+fun isWithinGlossaryTermLimits(source: String, target: String): Boolean {
+    val src = source.trim()
+    val tgt = target.trim()
+    if (src.isEmpty() || tgt.isEmpty()) return false
+    if (src.length > MAX_TERM_LENGTH || tgt.length > MAX_TERM_LENGTH) return false
+    if (containsControlCharacters(src) || containsControlCharacters(tgt)) return false
+    if (src.split(Regex("\\s+")).size > MAX_TERM_WORDS) return false
+    return true
+}
+
+/**
+ * Termín/pojem je vždy JEDEN řádek - vložený `\n`/`\r`/jiný řídicí znak by se v
+ * [GeminiUltraPrompt]'s `glossaryBlock` propsal přímo do systémového promptu (escapuje se tam
+ * jen `"`, ne řídicí znaky). Slovní limit výš to samo nezachytí - `\s+` bere `\n` jako
+ * obyčejnou mezeru, takže víceřádkový text s málo "slovy" by jinak prošel.
+ */
+private fun containsControlCharacters(s: String): Boolean = s.any { it.isISOControl() }
 
 /**
  * Běžná anglická slova, která nikdy nejsou vlastní jméno. Není to slovník - jen ta slova,

@@ -1,9 +1,11 @@
 package com.haise.jiyu.ui.reader
 
 import android.content.Context
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.repeatOnLifecycle
 import coil.Coil
-import coil.request.ImageRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
@@ -342,6 +344,27 @@ class ReaderViewModel @Inject constructor(
     private val _translatedPages = MutableStateFlow<Map<Int, List<TranslatedBlock>>>(emptyMap())
     val translatedPages: StateFlow<Map<Int, List<TranslatedBlock>>> = _translatedPages.asStateFlow()
 
+    /**
+     * PERZISTENTNÍ obdoba [_translatedPages] klíčovaná i podle kapitoly - jen pro
+     * [WebtoonReader]. `_translatedPages` je plochá mapa jen podle indexu stránky V RÁMCI
+     * AKTUÁLNÍ kapitoly - v běžném (stránkovaném) čtení je vždy jen jedna "aktuální"
+     * kapitola, takže to stačí. Ve "Nekonečném čtení" ale LazyColumn drží (a prefetchuje)
+     * stránky VÍCE kapitol současně, a lokální index se v každé kapitole čísluje znovu od 0 -
+     * sdílená plochá mapa tak mohla ukázat bubliny JEDNÉ kapitoly na stránkách JINÉ (nahlášeno
+     * v auditu, "cizí bubliny na cizích stránkách"). Tahle mapa se navíc (na rozdíl od
+     * [_translatedPages]) NIKDY neresetuje při přechodu mezi segmenty - jako vedlejší efekt to
+     * řeší i dřívější nález "scroll přes hranici kapitoly zahodí už hotový překlad".
+     */
+    private val _translatedPagesByChapter = MutableStateFlow<Map<String, Map<Int, List<TranslatedBlock>>>>(emptyMap())
+    val translatedPagesByChapter: StateFlow<Map<String, Map<Int, List<TranslatedBlock>>>> = _translatedPagesByChapter.asStateFlow()
+
+    /** Zapíše do OBOU map najednou - viz komentář u [_translatedPagesByChapter]. */
+    private fun putTranslatedPage(chapterId: String, pageIndex: Int, blocks: List<TranslatedBlock>) {
+        _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+        val forChapter = (_translatedPagesByChapter.value[chapterId] ?: emptyMap()) + (pageIndex to blocks)
+        _translatedPagesByChapter.value = _translatedPagesByChapter.value + (chapterId to forChapter)
+    }
+
     // Stejná výchozí hodnota jako v SettingsRepository - než se nastavení načte, nesmí tu
     // chvíli platit jiný jazyk, než jaký uživatel uvidí ve čtečce.
     private val _sourceLanguage = MutableStateFlow("Auto")
@@ -467,6 +490,69 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Zahodí cache a přeloží CELOU kapitolu novely znovu (viz [TranslateRepository.translateNovelChapter]'s
+     * `forceRefresh`) - stejný důvod jako [retranslatePage] u manga stránek, jen novely tuhle
+     * možnost dřív vůbec neměly (jediná cesta ven z jednou vadného překladu byla smazat data
+     * appky). Spouští se jen v [novelTranslateMode] - přeložit znovu něco, co se ještě
+     * nepřekládá, nedává smysl.
+     */
+    fun retranslateNovelChapter() {
+        if (!_novelTranslateMode.value) return
+        val chapterId = currentChapter?.id ?: return
+        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
+        val text = _novelText.value
+        if (text.isBlank()) return
+        novelTranslationJob?.cancel()
+        novelTranslationJob = viewModelScope.launch {
+            _novelTranslating.value = true
+            try {
+                val result = translateRepository.translateNovelChapter(
+                    chapterId = chapterId,
+                    mangaId = mangaId,
+                    text = text,
+                    targetLanguage = _targetLanguage.value,
+                    sourceLanguage = _sourceLanguage.value,
+                    forceRefresh = true,
+                )
+                if (result != null) {
+                    _novelTranslatedText.value = result
+                } else {
+                    _translationError.value = context.getString(R.string.reader_error_translation_failed)
+                }
+            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
+                _translationError.value = context.getString(R.string.reader_error_rate_limited)
+            } catch (_: Exception) {
+                _translationError.value = context.getString(R.string.reader_error_translation_failed)
+            } finally {
+                _novelTranslating.value = false
+            }
+        }
+    }
+
+    /**
+     * Ruční oprava JEDNOHO přeloženého odstavce novely - stejný důvod jako [saveBubbleEdit] u
+     * manga bublin, jen novely tuhle možnost dřív vůbec neměly (jediná cesta ven ze špatného
+     * odstavce byla přeložit celou kapitolu znovu, viz [retranslateNovelChapter]). Identita
+     * (uložený originalText) se dohledá pozičně z NEPŘELOŽENÉHO textu kapitoly - UI zná jen
+     * index zobrazeného (přeloženého) odstavce, ne jeho originál.
+     */
+    fun saveNovelParagraphEdit(paragraphIndex: Int, newText: String) {
+        val chapterId = currentChapter?.id ?: return
+        val originalParagraphs = _novelText.value.split("\n").filter { it.isNotBlank() }
+        val originalText = originalParagraphs.getOrNull(paragraphIndex) ?: return
+        viewModelScope.launch {
+            translateRepository.saveNovelParagraphEdit(chapterId, originalText, newText)
+            val trimmed = newText.trim()
+            if (trimmed.isBlank()) return@launch
+            val current = _novelTranslatedText.value ?: return@launch
+            val translatedParagraphs = current.split("\n").toMutableList()
+            if (paragraphIndex !in translatedParagraphs.indices) return@launch
+            translatedParagraphs[paragraphIndex] = trimmed
+            _novelTranslatedText.value = translatedParagraphs.joinToString("\n")
+        }
+    }
+
     // ── Sleep timer (#42) ────────────────────────────────────────────────────
     val sleepTimerRemaining: StateFlow<Int?> = sleepTimerManager.remainingSeconds
 
@@ -559,21 +645,20 @@ class ReaderViewModel @Inject constructor(
             val blocks = _translatedPages.value[pageIndex] ?: return@launch
             val trimmed = text.trim()
             if (trimmed.isBlank()) return@launch
-            _translatedPages.value = _translatedPages.value + (
-                pageIndex to blocks.map { block ->
-                    if (normalizeOriginal(block.originalText) == normalizeOriginal(originalText)) {
-                        block.copy(
-                            translatedText = trimmed,
-                            displayText = trimmed,
-                            isUntranslated = false,
-                            offsetXDp = offsetXDp ?: block.offsetXDp,
-                            offsetYDp = offsetYDp ?: block.offsetYDp,
-                        )
-                    } else {
-                        block
-                    }
+            val updated = blocks.map { block ->
+                if (normalizeOriginal(block.originalText) == normalizeOriginal(originalText)) {
+                    block.copy(
+                        translatedText = trimmed,
+                        displayText = trimmed,
+                        isUntranslated = false,
+                        offsetXDp = offsetXDp ?: block.offsetXDp,
+                        offsetYDp = offsetYDp ?: block.offsetYDp,
+                    )
+                } else {
+                    block
                 }
-                )
+            }
+            putTranslatedPage(chapterId, pageIndex, updated)
         }
     }
 
@@ -602,7 +687,7 @@ class ReaderViewModel @Inject constructor(
                 sourceLanguage = _sourceLanguage.value,
                 forceRefresh = true,
             )
-            if (blocks.isNotEmpty()) _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+            if (blocks.isNotEmpty()) putTranslatedPage(chapterId, pageIndex, blocks)
         }
     }
 
@@ -682,10 +767,15 @@ class ReaderViewModel @Inject constructor(
         // Série čtení je taky zapsaná stopa, takže ji anonymní čtení nezvedá. Rozhoduje stav
         // při otevření kapitoly - přepnutí přepínače uprostřed už zpětně nic neubírá.
         if (!startIncognito) viewModelScope.launch { settings.updateReadingStreak() }
+        // repeatOnLifecycle(STARTED) na ProcessLifecycleOwner - bez tohohle tikal ticker i po
+        // zaminimalizovani appky, protoze viewModelScope zije, dokud existuje ViewModel (cela
+        // obrazovka), ne dokud je appka v popredi (nahlaseno v auditu).
         viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _sessionElapsed.value = System.currentTimeMillis() - sessionStartMs
+            ProcessLifecycleOwner.get().lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(1000)
+                    _sessionElapsed.value = System.currentTimeMillis() - sessionStartMs
+                }
             }
         }
     }
@@ -906,7 +996,11 @@ class ReaderViewModel @Inject constructor(
      */
     private fun prefetchPagesFrom(fromIndex: Int) {
         val pages = _pages.value
-        val indices = computePrefetchIndices(fromIndex, pages.size, prefetchedPageIndices)
+        // Sirsi okno na zpoplatnenem/mobilnim pripojeni - na pomale/vysoke-latenci lince
+        // ctenar frontu 4 predstazenych stranek pri normalnim tempu cteni dojede a pak
+        // ceka stranku po strance; na WiFi 4 staci s rezervou.
+        val count = if (networkMonitor.isUnmetered) PREFETCH_WINDOW else PREFETCH_WINDOW_METERED
+        val indices = computePrefetchIndices(fromIndex, pages.size, prefetchedPageIndices, count)
         if (indices.isEmpty()) return
         val referer = _pageReferer.value
         val imageLoader = Coil.imageLoader(context)
@@ -914,10 +1008,11 @@ class ReaderViewModel @Inject constructor(
             val url = pages[index]
             if (url.isBlank()) continue
             prefetchedPageIndices += index
-            val request = ImageRequest.Builder(context)
-                .data(url)
-                .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
-                .build()
+            // buildPageImageRequest (ne rucne stavany request) - musi sedet se skutecnym
+            // zobrazovacim requestem (viz ReaderImage.buildPageImageRequest), jinak si Coil
+            // spocita jiny cache klic (transformace jsou jeho soucasti) a predstazeni je
+            // k nicemu: stranka se pri zobrazeni stahne/dekoduje znovu (nahlaseno v auditu).
+            val request = buildPageImageRequest(context, url, referer, cropBorders.value)
             imageLoader.enqueue(request)
         }
     }
@@ -1169,6 +1264,9 @@ class ReaderViewModel @Inject constructor(
         _sourceLanguage.value = lang
         viewModelScope.launch { settings.setSourceLanguage(lang) }
         _translatedPages.value = emptyMap()
+        // I perzistentní by-chapter mapa - jinak by kapitola navštívená PŘED změnou jazyka
+        // (a tedy ve WebtoonReaderu dál "živá" v paměti) ukazovala překlad ve starém jazyce.
+        _translatedPagesByChapter.value = emptyMap()
         _translateMode.value = false
     }
 
@@ -1176,6 +1274,7 @@ class ReaderViewModel @Inject constructor(
         _targetLanguage.value = lang
         viewModelScope.launch { settings.setTargetLanguage(lang) }
         _translatedPages.value = emptyMap()
+        _translatedPagesByChapter.value = emptyMap()
         _translateMode.value = false
     }
 
@@ -1216,7 +1315,7 @@ class ReaderViewModel @Inject constructor(
                     targetLanguage = lang,
                     sourceLanguage = _sourceLanguage.value,
                 ) { pageIndex, blocks ->
-                    _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+                    putTranslatedPage(chapterId, pageIndex, blocks)
                     done++
                     _translationProgress.value = TranslationProgress(done, pages.size)
                 }
@@ -1258,7 +1357,7 @@ class ReaderViewModel @Inject constructor(
                     targetLanguage = lang,
                     sourceLanguage = _sourceLanguage.value,
                 ) { pageIndex, blocks ->
-                    _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+                    putTranslatedPage(chapterId, pageIndex, blocks)
                     done++
                     _batchProgress.value = TranslationProgress(done, pages.size)
                 }

@@ -239,7 +239,10 @@ class MangaRepository @Inject constructor(
      * chapterId() nize) nezdedilo stary stav z doby pred odebranim - viz nahlaseny bug,
      * kdy cerstve pridany titul vypadal jako uz kompletne precteny.
      */
-    suspend fun removeFromLibrary(mangaId: String) {
+    // db.withTransaction - 3 nezavisle zapisy bez ni mohly pri pádu appky uprostred nechat
+    // nekonzistentni stav (napr. inLibrary=false, ale stary read progress nesmazany -
+    // nahlaseno v auditu).
+    suspend fun removeFromLibrary(mangaId: String) = db.withTransaction {
         mangaDao.setInLibrary(mangaId, false)
         mangaDao.resetReadProgress(mangaId)
         chapterDao.resetProgressForManga(mangaId)

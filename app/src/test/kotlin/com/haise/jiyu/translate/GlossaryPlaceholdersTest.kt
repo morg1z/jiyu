@@ -50,7 +50,7 @@ class GlossaryPlaceholdersTest {
         val bubbles = listOf(classified("Frodo went home."))
         val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo")))
         val text = substitution.classified[0].raw.text
-        assertTrue("expected a placeholder token, got \"$text\"", text.startsWith("__JIYU_PROTECT_"))
+        assertTrue("expected a placeholder token, got \"$text\"", text.startsWith("⟦JIYU_PROTECT_"))
         assertTrue(text.endsWith("went home."))
     }
 
@@ -64,7 +64,7 @@ class GlossaryPlaceholdersTest {
             listOf(entry("Frodo", "Frodo"), entry("Frodo Baggins", "Frodo Pytlík")),
         )
         val text = substitution.classified[0].raw.text
-        assertTrue("expected the whole longer term replaced by exactly one token, got \"$text\"", Regex("^__JIYU_PROTECT_\\d+__ carried the ring\\.$").matches(text))
+        assertTrue("expected the whole longer term replaced by exactly one token, got \"$text\"", Regex("^⟦JIYU_PROTECT_\\d+⟧ carried the ring\\.$").matches(text))
     }
 
     @Test
@@ -74,7 +74,7 @@ class GlossaryPlaceholdersTest {
         val bubbles = listOf(classified("FRODO WENT HOME."))
         val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo")))
         val text = substitution.classified[0].raw.text
-        assertTrue("expected a placeholder token, got \"$text\"", text.startsWith("__JIYU_PROTECT_"))
+        assertTrue("expected a placeholder token, got \"$text\"", text.startsWith("⟦JIYU_PROTECT_"))
         assertTrue(text.endsWith(" WENT HOME."))
     }
 
@@ -115,6 +115,19 @@ class GlossaryPlaceholdersTest {
             ),
         )
         assertSame(response, substitution.restoreResponse(response))
+    }
+
+    @Test
+    fun `a token returned with different letter case by the model still restores`() {
+        // Levny/free-tier provider obcas vrati token s jinou velikosti pismen, nez dostal
+        // (nahlaseno v auditu) - bez case-insensitive obnovy by token zustal syrovy v
+        // konecnem prekladu misto skutecneho jmena.
+        val bubbles = listOf(classified("Frodo went home."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo Pytlík")))
+        val token = substitution.classified[0].raw.text.substringBefore(" went home.")
+        val mangledToken = token.lowercase()
+
+        assertEquals("Frodo Pytlík šel domů.", substitution.restoreTranslatedOnly("$mangledToken šel domů."))
     }
 
     // ── restoreTranslatedOnly (position-based Groq path) ──

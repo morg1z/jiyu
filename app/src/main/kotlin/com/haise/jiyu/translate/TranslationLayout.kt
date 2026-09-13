@@ -75,6 +75,11 @@ private fun PositionedTranslationBlock.toObstacleRect() = NeighborRect(leftF, mi
  */
 private const val NEARBY_PROXIMITY_F = 0.005f
 
+/** Viz komentář u výpočtu `maxBottom` v [layoutHeuristic] - nezávislý strop na to, jak daleko
+ * smí box expandovat SMĚREM K SOUSEDOVI, i když je skutečný soused dál. Řádově stejné jako
+ * existující 3x šířkový strop. */
+private const val NEIGHBOR_DISTANCE_CAP_MULTIPLIER = 6f
+
 private fun layoutHeuristic(
     blocks: List<TranslatedBlock>,
     shapeObstacles: List<PositionedTranslationBlock> = emptyList(),
@@ -133,7 +138,16 @@ private fun layoutHeuristic(
         // rezervu, ne plných 2 řádky navíc.
         val avgLineHeightForCap = (b.bottomF - b.topF) / b.lineCount.coerceAtLeast(1)
         val verticalExpandFactor = if (b.bgUniform) 2f else 0.5f
-        val maxBottom = (belowNeighbor?.let { it.topF - 0.005f } ?: (b.bottomF + avgLineHeightForCap * verticalExpandFactor))
+        // Bez souseda mame prirozeny strop (avgLineHeightForCap * verticalExpandFactor), ale
+        // KDYZ soused existuje, puvodni kod expandoval AZ K NEMU bez ohledu na vzdalenost -
+        // u male SFX bubliny (napr. "GULP GULP" osamocene v panelu) s dalsim blokem daleko
+        // dole to znamenalo box pres pulku panelu (nahlaseno v auditu). Nezavisly strop:
+        // nikdy vic nez NEIGHBOR_DISTANCE_CAP_MULTIPLIER-nasobek vlastni vysky bloku, i kdyz
+        // je soused dal - stejny princip jako uz ma sirka (ownWidth*expandFactor je vzdy
+        // jeden z minOf(...) kandidatu pri vypoctu halfWidth vyse).
+        val ownHeightForCap = (b.bottomF - b.topF).coerceAtLeast(0.001f)
+        val neighborDistanceCap = b.bottomF + ownHeightForCap * NEIGHBOR_DISTANCE_CAP_MULTIPLIER
+        val maxBottom = (belowNeighbor?.let { minOf(it.topF - 0.005f, neighborDistanceCap) } ?: (b.bottomF + avgLineHeightForCap * verticalExpandFactor))
             .coerceAtLeast(b.bottomF).coerceIn(0f, 1f)
 
         // Jen víceřádkové bloky (viz doc komentář [PositionedTranslationBlock.minTopF]) -

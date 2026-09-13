@@ -123,7 +123,10 @@ class BubbleMaskSegmenter @Inject constructor(
      * @param minOverlapIou minimální překryv (IoU) mezi detekcí modelu a OCR boxem, aby se
      *   detekce vůbec považovala za TU SAMOU bublinu - bez týhle kontroly by appka mohla vzít
      *   tvar úplně jiné (jen nejbližší) bubliny na přeplněné stránce.
-     * @return null, když žádná detekce dost nepřekrývala zadaný box.
+     * @return null, když žádná detekce dost nepřekrývala zadaný box, NEBO když je výsledná
+     *   maska nesmyslně velká proti textu uvnitř (viz [BubbleShapeDetector.exceedsAreaRatio] -
+     *   stejná kontrola, jakou už dávno má `detectShape`/`edgeAwareShape`, tahle cesta ji dřív
+     *   vůbec neměla a mohla tak vrátit masku přes půl stránky, nahlášeno v auditu).
      */
     fun matchShape(
         page: PageSegmentation,
@@ -148,7 +151,7 @@ class BubbleMaskSegmenter @Inject constructor(
 
         val mask = reconstructMask(best.maskCoeffs, page.protoFlat, page.protoH, page.protoW)
         val protoScale = (INPUT_SIZE / page.protoW).coerceAtLeast(1)
-        return maskToShapePoints(
+        val points = maskToShapePoints(
             mask = mask,
             maskW = page.protoW,
             maskH = page.protoH,
@@ -156,7 +159,19 @@ class BubbleMaskSegmenter @Inject constructor(
             letterbox = page.params,
             srcWidth = page.bitmapWidth,
             srcHeight = page.bitmapHeight,
-        )
+        ) ?: return null
+        if (points.size < 2) return points
+
+        val boundsAreaPx = ((points.maxOf { it.rightF } - points.minOf { it.leftF }) * page.bitmapWidth).toLong() *
+            ((points.last().yF - points.first().yF) * page.bitmapHeight).toLong()
+        val textAreaPx = ((targetRightF - targetLeftF) * page.bitmapWidth).toLong() *
+            ((targetBottomF - targetTopF) * page.bitmapHeight).toLong()
+        // jagged: viz BubbleShapeDetector.MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO - hrotovity
+        // ("shout") tvar smi mit vyssi pomer, protoze hroty obalovy obdelnik nafouknou vic
+        // nez u hladke bubliny stejne fyzicke velikosti.
+        if (BubbleShapeDetector.exceedsAreaRatio(boundsAreaPx, textAreaPx, jagged = isJaggedShape(points))) return null
+
+        return points
     }
 
     /** Detekční tenzor `[channels][anchors]` -> plochý `FloatArray`, viz [decodeYoloSegOutput]. */

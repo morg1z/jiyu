@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ButtonDefaults
@@ -25,6 +27,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -40,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +69,8 @@ fun NovelContent(
     translatedText: String? = null,
     translating: Boolean = false,
     onToggleTranslate: () -> Unit = {},
+    onRetranslate: () -> Unit = {},
+    onEditParagraph: (paragraphIndex: Int, newText: String) -> Unit = { _, _ -> },
     sourceLanguage: String = "Auto",
     targetLanguage: String = "Czech",
     onSourceLanguageChange: (String) -> Unit = {},
@@ -82,6 +88,9 @@ fun NovelContent(
     var showSettings by remember { mutableStateOf(false) }
     var showLangSettings by remember { mutableStateOf(false) }
     var showGlossarySheet by remember { mutableStateOf(false) }
+    // Index odstavce, ktery se prave rucne opravuje (viz onEditParagraph) - null = zavreno.
+    // Dlouhy stisk na prelozeny odstavec, stejny vzor jako manga bubliny (viz TranslationLayer).
+    var editingParagraphIndex by remember { mutableStateOf<Int?>(null) }
 
     val bgOptions = listOf(
         Color(0xFF0A0A14) to Color(0xFFE8E8E8),
@@ -170,9 +179,40 @@ fun NovelContent(
                         TextButton(onClick = { onToggleTranslate(); showLangSettings = false }) {
                             Text(stringResource(if (translateMode) R.string.reader_original_toggle else R.string.reader_translate_toggle), color = Color(0xFF34D1BF))
                         }
+                        // Jen kdyz uz je kapitola prelozena/se preklada - "preloz znovu" na
+                        // neprelozenem textu nedava smysl (viz onToggleTranslate vys).
+                        if (translateMode) {
+                            TextButton(onClick = { onRetranslate(); showLangSettings = false }) {
+                                Text(stringResource(R.string.reader_retranslate_novel_chapter), color = Color(0xFF34D1BF))
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        editingParagraphIndex?.let { index ->
+            var draft by remember(index) { mutableStateOf(paragraphs.getOrNull(index) ?: "") }
+            AlertDialog(
+                onDismissRequest = { editingParagraphIndex = null },
+                title = { Text(stringResource(R.string.reader_edit_bubble_title)) },
+                text = {
+                    Column {
+                        OutlinedTextField(value = draft, onValueChange = { draft = it }, minLines = 3, maxLines = 8)
+                        Text(stringResource(R.string.reader_edit_bubble_hint), fontSize = 12.sp, color = Color(0xFFB0BEC5))
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { onEditParagraph(index, draft); editingParagraphIndex = null }) {
+                        Text(stringResource(R.string.common_save))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingParagraphIndex = null }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                },
+            )
         }
 
         if (showGlossarySheet) {
@@ -246,13 +286,24 @@ fun NovelContent(
                 modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                items(paragraphs) { paragraph: String ->
+                itemsIndexed(paragraphs) { index, paragraph: String ->
                     Text(
                         text = paragraph,
                         color = textColor,
                         fontSize = fontSize.sp,
                         lineHeight = (fontSize * lineSpacing).sp,
-                        modifier = Modifier.padding(bottom = (fontSize * 0.75f).dp),
+                        modifier = Modifier
+                            .padding(bottom = (fontSize * 0.75f).dp)
+                            // Rucni oprava jen na PRELOZENY text - opravovat original nedava smysl.
+                            .let { m ->
+                                if (translateMode) {
+                                    m.pointerInput(index) {
+                                        detectTapGestures(onLongPress = { editingParagraphIndex = index })
+                                    }
+                                } else {
+                                    m
+                                }
+                            },
                     )
                 }
                 item {

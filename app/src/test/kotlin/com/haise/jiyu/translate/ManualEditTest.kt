@@ -104,6 +104,37 @@ class ManualEditTest {
         )
     }
 
+    // ── applyManualEditsToNovelParagraphs (rucni oprava odstavce novely) ──
+
+    @Test
+    fun `a novel edit replaces the paragraph at the matching position`() {
+        val result = applyManualEditsToNovelParagraphs(
+            translatedParagraphs = listOf("Ahoj tam.", "Druhý odstavec."),
+            originalParagraphs = listOf("Hello there.", "Second paragraph."),
+            edits = mapOf(normalizeOriginal("Hello there.") to "Nazdar!"),
+        )
+        assertEquals(listOf("Nazdar!", "Druhý odstavec."), result)
+    }
+
+    @Test
+    fun `a mismatched paragraph count changes nothing`() {
+        // Pipeline mezitim rozdelila text jinak - indexy uz bezpecne nesedi, radsi
+        // nic neprepisovat naslepo (stejny princip jako u bublin).
+        val translated = listOf("Ahoj tam.", "Druhý odstavec.")
+        val result = applyManualEditsToNovelParagraphs(
+            translatedParagraphs = translated,
+            originalParagraphs = listOf("Hello there."),
+            edits = mapOf(normalizeOriginal("Hello there.") to "Nazdar!"),
+        )
+        assertEquals(translated, result)
+    }
+
+    @Test
+    fun `no edits means the novel paragraphs come back untouched`() {
+        val translated = listOf("Ahoj tam.")
+        assertEquals(translated, applyManualEditsToNovelParagraphs(translated, listOf("Hello there."), emptyMap()))
+    }
+
     // ── applyManualPositionOffsets (viz item 11 - rucni posun pozice bubliny) ──
 
     @Test

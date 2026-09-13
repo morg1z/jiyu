@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.di.ImageHttpClient
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.util.ScrambledImageUrl
@@ -24,17 +25,31 @@ import dagger.assisted.AssistedInject
 import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 const val CHANNEL_DOWNLOADS = "channel_downloads"
+
+/**
+ * Kolik stránek jedné kapitoly se stahuje současně - viz [ChapterDownloadWorker.doDownload].
+ * Bez ohledu na tuhle hodnotu OkHttpův vestavěný `Dispatcher` limituje max. 5 souběžných
+ * požadavků na stejného hostitele (proto `imageHttpClient` v `AppModule` záměrně nemá
+ * vlastní throttle interceptor) - tahle konstanta tak nemůže zdroj zahltit nad rámec toho,
+ * co OkHttp už dnes dovoluje, ani při souběhu s paralelním stahováním více kapitol.
+ */
+private const val PAGE_DOWNLOAD_CONCURRENCY = 4
 
 @HiltWorker
 class ChapterDownloadWorker @AssistedInject constructor(
@@ -42,7 +57,12 @@ class ChapterDownloadWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val repository: MangaRepository,
     private val settings: SettingsRepository,
-    private val client: OkHttpClient,
+    // @ImageHttpClient (ne defaultni provideOkHttpClient) - ten ma RetryInterceptor(3x) +
+    // ThrottleInterceptor navic urcene pro scraping HTML zdroju. Bez tehle kvalifikace by
+    // se kazdy downloadBytes() mohl interne az 3x preopakovat (kazdy pokus az 60s) PRED
+    // tim, nez vubec vyhodi vyjimku, a pak by WorkManageruv vlastni retry (runAttemptCount)
+    // zopakoval CELOU kapitolu znovu - vrstvene az 3x3 pokusy na jednu spatnou stranku.
+    @ImageHttpClient private val client: OkHttpClient,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -107,42 +127,58 @@ class ChapterDownloadWorker @AssistedInject constructor(
                     throw java.io.IOException("Nedostatek volného místa v úložišti")
                 }
 
-                pages.forEachIndexed { index, page ->
-                    val imageUrl = page.imageUrl ?: page.url
-                    // Příponu/scramble lze určit čistě z URL bez síťového volání - umožňuje
-                    // zjistit cílové jméno souboru PŘED stahováním a přeskočit stránky, které
-                    // už jsou z předchozího (přerušeného) pokusu na disku hotové.
-                    val scramble = ScrambledImageUrl.parse(imageUrl)
-                    val extension = if (scramble != null) "jpg" else imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
-                    val fileName = "%03d.%s".format(index, extension)
+                // Souběžně místo striktně sekvenčně (viz PAGE_DOWNLOAD_CONCURRENCY) - na
+                // vysoké latenci bylo stahování jedné stránky za druhou N×RTT navíc. `async`
+                // + `coroutineScope` = structured concurrency: první výjimka (síťová chyba,
+                // selhání zápisu na disk) zruší zbylé souběžné stránky a probublá ven úplně
+                // stejně, jako když forEachIndexed vyhodilo výjimku uprostřed - beze změny
+                // chování retry/error logiky níž. Dokončení teď nepřichází v indexovém
+                // pořadí, proto AtomicInteger čítač místo `index + 1` v progress hlášce.
+                val pageSemaphore = Semaphore(PAGE_DOWNLOAD_CONCURRENCY)
+                val completedPages = AtomicInteger(0)
+                coroutineScope {
+                    pages.mapIndexed { index, page ->
+                        async {
+                            pageSemaphore.withPermit {
+                                val imageUrl = page.imageUrl ?: page.url
+                                // Příponu/scramble lze určit čistě z URL bez síťového volání - umožňuje
+                                // zjistit cílové jméno souboru PŘED stahováním a přeskočit stránky, které
+                                // už jsou z předchozího (přerušeného) pokusu na disku hotové.
+                                val scramble = ScrambledImageUrl.parse(imageUrl)
+                                val extension = if (scramble != null) "jpg" else imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
+                                val fileName = "%03d.%s".format(index, extension)
 
-                    if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
-                        var bytes = downloadBytes(imageUrl)
-                        if (scramble != null) {
-                            bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
+                                if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
+                                    var bytes = downloadBytes(imageUrl)
+                                    if (scramble != null) {
+                                        bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
+                                    }
+                                    val written = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName, bytes)
+                                    if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
+                                }
+                                val completed = completedPages.incrementAndGet()
+                                val fraction = completed.toFloat() / pages.size
+                                // Vlastní try/catch: zamítnuté POST_NOTIFICATIONS (Android 13+) by SecurityException
+                                // z notify() jinak spadlo do stejného catch níž jako chyba stahování a shodilo by
+                                // celou kapitolu kvůli notifikaci, ne kvůli skutečnému problému se stahováním.
+                                try {
+                                    nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
+                                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                                        .setContentTitle("Stahování kapitoly")
+                                        .setContentText("$completed / ${pages.size} stránek")
+                                        .setProgress(pages.size, completed, false)
+                                        .setOngoing(true)
+                                        .build())
+                                } catch (e: SecurityException) {
+                                    e.report("download:notify:progress")
+                                }
+                                setProgress(workDataOf(
+                                    KEY_PROGRESS to fraction,
+                                    KEY_CHAPTER_ENTITY_ID to chapterEntityId,
+                                ))
+                            }
                         }
-                        val written = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName, bytes)
-                        if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
-                    }
-                    val fraction = (index + 1).toFloat() / pages.size
-                    // Vlastní try/catch: zamítnuté POST_NOTIFICATIONS (Android 13+) by SecurityException
-                    // z notify() jinak spadlo do stejného catch níž jako chyba stahování a shodilo by
-                    // celou kapitolu kvůli notifikaci, ne kvůli skutečnému problému se stahováním.
-                    try {
-                        nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
-                            .setSmallIcon(android.R.drawable.stat_sys_download)
-                            .setContentTitle("Stahování kapitoly")
-                            .setContentText("${index + 1} / ${pages.size} stránek")
-                            .setProgress(pages.size, index + 1, false)
-                            .setOngoing(true)
-                            .build())
-                    } catch (e: SecurityException) {
-                        e.report("download:notify:progress")
-                    }
-                    setProgress(workDataOf(
-                        KEY_PROGRESS to fraction,
-                        KEY_CHAPTER_ENTITY_ID to chapterEntityId,
-                    ))
+                    }.awaitAll()
                 }
 
                 nm.cancel(progressId)

@@ -226,6 +226,10 @@ fun JiyuNavGraph(
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("incognito") { type = NavType.BoolType; defaultValue = false },
             ),
+            // Notifikace o nove kapitole i "pokracovat ve cteni" widget dosud vedly vzdy jen
+            // na detail mangy, i kdyz uz presne vedely, kterou konkretni kapitolu chteji
+            // otevrit (nahlaseno v auditu).
+            deepLinks = listOf(navDeepLink { uriPattern = "jiyu://reader?chapterId={chapterId}" }),
         ) { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId")
             ReaderScreen(

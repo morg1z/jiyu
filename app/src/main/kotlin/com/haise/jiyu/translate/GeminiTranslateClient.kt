@@ -124,7 +124,11 @@ class GeminiTranslateClient @Inject constructor(
                 providerHealth.markAllUnavailable()
                 throw RateLimitedException()
             }
-            if (!resp.isSuccessful) return@use ProxyOutcome.Retryable
+            // Jen 5xx (prechodne selhani proxy) je hodne opakovat - trvala 4xx chyba (spatne
+            // sestaveny request...) by druhy pokus stejne nikdy nespravil, jen by zbytecne
+            // ztratil cas na RETRY_DELAY_MILLIS pred padem na dalsiho providera v retezci
+            // (stejna oprava jako GroqTranslateClient, ktery volá stejnou proxy).
+            if (!resp.isSuccessful) return@use if (resp.code in 500..599) ProxyOutcome.Retryable else ProxyOutcome.BatchFailed
             val body = resp.body?.string() ?: return@use ProxyOutcome.Retryable
             val jsonBody = JSONObject(body)
             when (val error = jsonBody.optString("error").takeIf { it.isNotBlank() }) {

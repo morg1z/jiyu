@@ -151,6 +151,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.8")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+    // ProcessLifecycleOwner - pro repeatOnLifecycle() v ReaderViewModel (viz session ticker).
+    implementation("androidx.lifecycle:lifecycle-process:2.8.4")
 
     // Hilt (dependency injection)
     implementation("com.google.dagger:hilt-android:2.57.2")

@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "translated_page")
 data class TranslatedPageEntity(
-    /** "$chapterId::$pageIndex::$targetLang" */
+    /** Viz TranslateRepository.cacheId: "$chapterId::$pageIndex::$sourceLanguage::$targetLanguage::v$PIPELINE_VERSION" */
     @PrimaryKey val id: String,
     val blocksJson: String,
     val createdAt: Long = System.currentTimeMillis(),

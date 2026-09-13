@@ -26,8 +26,30 @@ class CrossPageBubbleMergerTest {
         val merges = findCrossPageMerges(bubblesByPage, pageOrder = listOf(0, 1))
         assertEquals(1, merges.size)
         assertEquals(BubbleLocation(0, 0), merges[0].first)
-        assertEquals(BubbleLocation(1, 0), merges[0].second)
+        assertEquals(listOf(BubbleLocation(1, 0)), merges[0].continuations)
         assertEquals("WE NEED TO HURRY THE HARVEST BEFORE WINTER COMES", merges[0].mergedText)
+    }
+
+    /**
+     * Nahlaseno uzivatelem: pokracujici radek na zacatku dalsi stranky se sam rozpadl na DVA
+     * OCR radky ("Thev're calling this" + "e an" - zbytek "one an", spatne rozpoznane) misto
+     * jednoho. Puvodni kod bral jen jeden "nejlepsi" match a to druhe osirele "e an" se
+     * prelozilo samo o sobe bez kontextu (vykreslilo se jako zmateny prekryv navic).
+     */
+    @Test
+    fun `a continuation split into two OCR lines on the next page merges both`() {
+        val bubblesByPage = mapOf(
+            0 to listOf(bubble("L-Rank Extermination Mission.", 0.15f, 0.90f, 0.80f, 0.99f)),
+            1 to listOf(
+                bubble("Thev're calling this", 0.10f, 0.01f, 0.70f, 0.06f),
+                bubble("e an", 0.72f, 0.01f, 0.85f, 0.06f),
+            ),
+        )
+        val merges = findCrossPageMerges(bubblesByPage, pageOrder = listOf(0, 1))
+        assertEquals(1, merges.size)
+        assertEquals(BubbleLocation(0, 0), merges[0].first)
+        assertEquals(listOf(BubbleLocation(1, 0), BubbleLocation(1, 1)), merges[0].continuations)
+        assertEquals("L-Rank Extermination Mission. Thev're calling this e an", merges[0].mergedText)
     }
 
     @Test
@@ -126,7 +148,7 @@ class CrossPageBubbleMergerTest {
             ),
             1 to listOf(bubble("THE HARVEST", 0.15f, 0.01f, 0.85f, 0.10f)),
         )
-        val merges = listOf(CrossPageMerge(BubbleLocation(0, 0), BubbleLocation(1, 0), "WE NEED TO HURRY THE HARVEST"))
+        val merges = listOf(CrossPageMerge(BubbleLocation(0, 0), listOf(BubbleLocation(1, 0)), "WE NEED TO HURRY THE HARVEST"))
 
         val result = applyCrossPageMerges(bubblesByPage, merges)
 

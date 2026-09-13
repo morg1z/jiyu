@@ -192,7 +192,11 @@ class GroqTranslateClient @Inject constructor(
                         throw RateLimitedException()
                     }
                     if (!resp.isSuccessful) {
-                        retryable = true
+                        // Jen 5xx (prechodne selhani serveru) je hodne opakovat - trvala 4xx
+                        // chyba (spatny pozadavek, spatny klic...) druhy pokus nikdy nespravi,
+                        // jen zbytecne ztrati cas na RETRY_DELAY_MILLIS pred padem na dalsiho
+                        // providera v retezci.
+                        retryable = resp.code in 500..599
                         return@use null
                     }
                     val responseText = resp.body?.string()

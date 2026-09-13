@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -143,11 +144,19 @@ fun BrowseScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        // bleedHorizontal (ne jen fillMaxWidth) - LazyGridItemScope nema
+                        // fillParentMaxWidth() jako LazyItemScope, takze by se fillMaxWidth
+                        // zmerilo jen proti jiz o contentPadding (12.dp z kazde strany)
+                        // zmensene dostupne sirce mrizky. Bez tohohle byl gradient pozadi
+                        // hlavicky uzsi nez cela obrazovka a na krajich pod stavovou listou
+                        // prosvital odlisny screenGradient jako viditelny pruh (nahlaseno
+                        // uzivatelem).
+                        .bleedHorizontal(12.dp)
                         .background(Brush.verticalGradient(colors = listOf(NightBlue, DeepSpace.copy(alpha = 0f))))
-                        // Vodorovné odsazení je 4.dp, ne 16.dp: mřížka přidává svých 12.dp
-                        // v contentPadding, takže výsledek zůstává na původních 16.dp.
-                        .padding(horizontal = 4.dp, vertical = 12.dp),
+                        // Stejne odsazeni jako HistoryScreen/HistoryEntryRow hlavicka (20/16.dp) -
+                        // drivejsich 4/12.dp delalo nadpis viditelne jinak vysoko nez na
+                        // ostatnich obrazovkach (nahlaseno uzivatelem).
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
                 ) {
                     Text(
                         text = stringResource(R.string.browse_title),
@@ -307,6 +316,25 @@ fun BrowseScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * "Vykrvácí" přes horizontální contentPadding rodičovské LazyVerticalGrid/LazyColumn -
+ * na rozdíl od LazyItemScope (fillParentMaxWidth) LazyGridItemScope žádný ekvivalent
+ * nemá. Rozšíří dostupnou šířku o 2×[inset] a posune vykreslení o [inset] doleva, takže
+ * položka vizuálně sahá až na skutečný okraj obrazovky i uvnitř odsazené mřížky/seznamu.
+ */
+private fun Modifier.bleedHorizontal(inset: Dp): Modifier = layout { measurable, constraints ->
+    val insetPx = inset.roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(
+            minWidth = constraints.minWidth + insetPx * 2,
+            maxWidth = constraints.maxWidth + insetPx * 2,
+        )
+    )
+    layout(placeable.width, placeable.height) {
+        placeable.place(-insetPx, 0)
     }
 }
 

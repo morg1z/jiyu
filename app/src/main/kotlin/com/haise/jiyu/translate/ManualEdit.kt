@@ -39,6 +39,26 @@ fun applyManualEdits(blocks: List<TranslatedBlock>, edits: Map<String, String>):
 }
 
 /**
+ * Novel varianta [applyManualEdits] - přeložená kapitola je prostý `String`, ne seznam bloků
+ * s vlastním `originalText`, takže se identita (normalizovaný původní text) hledá podle POZICE
+ * v [originalParagraphs] místo v datovém modelu bloku. Rozjetý počet odstavců (pipeline mezitím
+ * rozdělila text jinak) znamená, že indexy už bezpečně neodpovídají - radši nic nepřepsat
+ * naslepo, stejný princip jako u bublin.
+ *
+ * @param edits mapa `normalizovaný původní text odstavce -> ruční text`
+ */
+fun applyManualEditsToNovelParagraphs(
+    translatedParagraphs: List<String>,
+    originalParagraphs: List<String>,
+    edits: Map<String, String>,
+): List<String> {
+    if (edits.isEmpty() || translatedParagraphs.size != originalParagraphs.size) return translatedParagraphs
+    return translatedParagraphs.mapIndexed { i, translated ->
+        edits[normalizeOriginal(originalParagraphs[i])] ?: translated
+    }
+}
+
+/**
  * Naparuje uložené ruční posuny pozice (viz [com.haise.jiyu.data.db.entity.ManualTranslationEntity.offsetXDp]/
  * `offsetYDp`) na čerstvě přeložené bloky - stejná identita (normalizovaný původní text) jako
  * [applyManualEdits], ale SAMOSTATNÁ funkce/mapa, aby původní text-only cesta (a její testy)

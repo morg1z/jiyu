@@ -605,11 +605,13 @@ class ComicKSource @Inject constructor(
     private fun requestBuilder(url: String) = Request.Builder().url(url)
         .header("User-Agent", CloudflareInterceptor.CHROME_UA)
 
+    // IOException, ne check()/IllegalStateException - RetryInterceptor (AppModule.kt) chyta
+    // jen IOException, takze IllegalStateException tenhle retry uplne obejde (nahlaseno v auditu).
     private fun getArray(url: String): JSONArray {
         val request = requestBuilder(url).build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            check(response.isSuccessful) { "ComicK API chyba ${response.code}: $url" }
+            if (!response.isSuccessful) throw java.io.IOException("ComicK API chyba ${response.code}: $url")
             return JSONArray(body)
         }
     }
@@ -618,10 +620,8 @@ class ComicKSource @Inject constructor(
         val request = requestBuilder(url).build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            if (response.code == 404 && notFoundMessage != null) {
-                check(response.isSuccessful) { notFoundMessage }
-            } else {
-                check(response.isSuccessful) { "ComicK API chyba ${response.code}: $url" }
+            if (!response.isSuccessful) {
+                throw java.io.IOException(if (response.code == 404 && notFoundMessage != null) notFoundMessage else "ComicK API chyba ${response.code}: $url")
             }
             return JSONObject(body)
         }

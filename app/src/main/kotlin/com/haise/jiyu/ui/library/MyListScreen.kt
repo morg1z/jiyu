@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +102,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -122,6 +124,26 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.VioletLight
 import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
+
+/**
+ * "Vykrvácí" přes horizontální contentPadding rodičovské LazyVerticalGrid/LazyColumn -
+ * na rozdíl od LazyItemScope (fillParentMaxWidth) LazyGridItemScope žádný ekvivalent
+ * nemá. Rozšíří dostupnou šířku o 2×[inset] a posune vykreslení o [inset] doleva, takže
+ * položka vizuálně sahá až na skutečný okraj obrazovky i uvnitř odsazené mřížky/seznamu.
+ * S `inset = 0.dp` (list režim, žádné horizontální contentPadding) je no-op.
+ */
+private fun Modifier.bleedHorizontal(inset: Dp): Modifier = layout { measurable, constraints ->
+    val insetPx = inset.roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(
+            minWidth = constraints.minWidth + insetPx * 2,
+            maxWidth = constraints.maxWidth + insetPx * 2,
+        )
+    )
+    layout(placeable.width, placeable.height) {
+        placeable.place(-insetPx, 0)
+    }
+}
 
 /** Celá filtrovaná knihovna (dřív hlavní Knihovna) - vlastní tab, dashboard Knihovna teď žije v LibraryScreen.kt. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -210,14 +232,27 @@ fun MyListScreen(
         // (kazdy koren se polozi na stejnou pozici) - overeno zive na emulatoru (nadpis,
         // filtry cteni i "Filtrovat a radit" se vykreslovaly pres sebe). Vnejsi Column tenhle
         // rozdil vyrusi - dovnitr jde jen jediny uzel bez ohledu na typ kontejneru.
-        val header: @Composable () -> Unit = {
+        // bleed: LazyGridItemScope (grid rezim, 6.dp contentPadding z kazde strany) na rozdil
+        // od LazyItemScope (list rezim, bez horizontalniho contentPadding) nema
+        // fillParentMaxWidth() - bez kompenzace bleedHorizontal by gradientni pozadi
+        // hlavicky bylo v grid rezimu uzsi nez cela obrazovka a na krajich pod stavovou
+        // listou by prosvital odlisny screenGradient jako viditelny pruh (nahlaseno
+        // uzivatelem).
+        val header: @Composable (bleed: Dp) -> Unit = { bleed ->
         Column {
         Column(
             modifier = Modifier
+                // bleedHorizontal musi byt PRVNI (nejvic vne) v retezci - dostane tak
+                // puvodni (jiz o contentPadding zmensene) constraints od mrizky/seznamu
+                // jeste PRED fillMaxWidth, a muze je rozsirit pro vse pod sebou.
+                .bleedHorizontal(bleed)
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(NightBlue, DeepSpace.copy(alpha = 0f))))
                 .padding(horizontal = 12.dp)
-                .padding(top = 10.dp, bottom = 8.dp),
+                // top = 16.dp - stejne jako HistoryScreen/BrowseScreen hlavicka, drivejsich
+                // 10.dp delalo nadpis viditelne jinak vysoko nez na ostatnich obrazovkach
+                // (nahlaseno uzivatelem).
+                .padding(top = 16.dp, bottom = 8.dp),
         ) {
             if (selectionMode) {
                 Row(
@@ -363,7 +398,10 @@ fun MyListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .height(44.dp)
+                    // 48.dp (ne 44.dp) - stejna vyska jako toggle kapsle nize (a11y touch
+                    // target minimum), jinak ji tenhle obal oriznul zpet na 44.dp a kapsle
+                    // do nej "nepadla" (nahlaseno uzivatelem).
+                    .height(48.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(NightBlue)
                     .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
@@ -421,7 +459,7 @@ fun MyListScreen(
         ) {
             if (library.isEmpty()) {
                 Column {
-                    header()
+                    header(0.dp)
                     LibraryEmptyState(
                         hasSearch = searchQuery.isNotEmpty(),
                         onOpenBrowse = onOpenBrowse,
@@ -435,7 +473,7 @@ fun MyListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { header() }
+                    item(span = { GridItemSpan(maxLineSpan) }) { header(6.dp) }
                     items(library, key = { it.id }) { manga ->
                         val isSelected = manga.id in selectedIds
                         var dropdownExpanded by remember { mutableStateOf(false) }
@@ -487,7 +525,7 @@ fun MyListScreen(
                     contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp + navBottom),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    item { header() }
+                    item { header(0.dp) }
                     items(library, key = { it.id }) { manga ->
                         var dropdownExpanded by remember { mutableStateOf(false) }
                         Box {

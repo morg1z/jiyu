@@ -111,6 +111,40 @@ class SettingsBackupManagerTest {
 
         assertFalse(parseSettingsEntries(json, emptySet()).isNotEmpty())
     }
+
+    @Test
+    fun `a single corrupted entry is skipped, the rest of the backup still restores`() {
+        // Nahlaseny bug: "int" deklarovany typ s neciselnou hodnotou hodi JSONException,
+        // ktera drive shodila parsovani VSECH ostatnich platnych zaznamu - ted se ma
+        // preskocit jen tenhle jeden a zbytek zalohy se obnovi normalne.
+        val arr = org.json.JSONArray().apply {
+            put(org.json.JSONObject().apply { put("key", "before"); put("type", "boolean"); put("value", true) })
+            put(org.json.JSONObject().apply { put("key", "corrupted"); put("type", "int"); put("value", "not_a_number") })
+            put(org.json.JSONObject().apply { put("key", "after"); put("type", "string"); put("value", "ok") })
+        }
+        val json = org.json.JSONObject().apply { put("version", 1); put("settings", arr) }.toString()
+
+        val result = parseSettingsEntries(json, emptySet()).associateBy { it.key }
+
+        assertTrue(result.containsKey("before"))
+        assertTrue(result.containsKey("after"))
+        assertFalse(result.containsKey("corrupted"))
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun `an entry missing the required value field is skipped, not fatal`() {
+        val arr = org.json.JSONArray().apply {
+            put(org.json.JSONObject().apply { put("key", "no_value"); put("type", "string") })
+            put(org.json.JSONObject().apply { put("key", "fine"); put("type", "boolean"); put("value", true) })
+        }
+        val json = org.json.JSONObject().apply { put("version", 1); put("settings", arr) }.toString()
+
+        val result = parseSettingsEntries(json, emptySet())
+
+        assertEquals(1, result.size)
+        assertEquals("fine", result.single().key)
+    }
 }
 
 /** Malý pomocník pro sestavení stejného JSON tvaru, jaký zapisuje [SettingsBackupManager.exportToUri]. */

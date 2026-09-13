@@ -77,6 +77,7 @@ fun ReaderScreen(
     val translateMode       by viewModel.translateMode.collectAsStateWithLifecycle()
     val translationProgress by viewModel.translationProgress.collectAsStateWithLifecycle()
     val translatedPages     by viewModel.translatedPages.collectAsStateWithLifecycle()
+    val translatedPagesByChapter by viewModel.translatedPagesByChapter.collectAsStateWithLifecycle()
     val batchTranslating    by viewModel.batchTranslating.collectAsStateWithLifecycle()
     val batchProgress       by viewModel.batchProgress.collectAsStateWithLifecycle()
     val showOriginal        by viewModel.showOriginal.collectAsStateWithLifecycle()
@@ -251,6 +252,8 @@ fun ReaderScreen(
                 translatedText = novelTranslatedText,
                 translating = novelTranslating,
                 onToggleTranslate = { viewModel.toggleNovelTranslate() },
+                onRetranslate = { viewModel.retranslateNovelChapter() },
+                onEditParagraph = { index, newText -> viewModel.saveNovelParagraphEdit(index, newText) },
                 sourceLanguage = sourceLanguage,
                 targetLanguage = targetLanguage,
                 onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
@@ -280,6 +283,7 @@ fun ReaderScreen(
                 translateMode = translateMode,
                 translationProgress = translationProgress,
                 translatedPages = translatedPages,
+                translatedPagesByChapter = translatedPagesByChapter,
                 batchTranslating = batchTranslating,
                 batchProgress = batchProgress,
                 showOriginal = showOriginal,

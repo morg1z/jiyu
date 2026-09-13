@@ -50,6 +50,8 @@ fun ReaderContent(
     translateMode: Boolean,
     translationProgress: TranslationProgress?,
     translatedPages: Map<Int, List<TranslatedBlock>>,
+    // Jen pro WebtoonReader - viz ReaderViewModel._translatedPagesByChapter.
+    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>> = emptyMap(),
     batchTranslating: Boolean,
     batchProgress: TranslationProgress?,
     showOriginal: Boolean,
@@ -185,7 +187,7 @@ fun ReaderContent(
                 onNeedMoreSegments = onNeedMoreWebtoonSegments,
                 onVisibleChapterChanged = onWebtoonVisibleChapterChanged,
                 translateMode = effectiveTranslateMode,
-                translatedPages = translatedPages,
+                translatedPagesByChapter = translatedPagesByChapter,
                 textScale = textScale,
                 tapZoneGrid = tapZoneGrid,
                 tapZonesEnabled = tapZonesEnabled,

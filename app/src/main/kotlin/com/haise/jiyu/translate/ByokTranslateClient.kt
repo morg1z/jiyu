@@ -46,14 +46,20 @@ internal fun buildByokPrompt(texts: List<String>, targetLanguage: String, source
  * přesně požadovaný formát. Vrátí null, když se počet řádků neshoduje s [expectedCount] -
  * volající pak zkusí bezpečnější cestu (po jedné větě zvlášť), stejný vzor jako
  * [OnDeviceTranslator.translateChunk].
+ *
+ * Strip číslování hledá KONKRÉTNÍ očekávané pořadové číslo dané řádky (1 pro první, 2 pro
+ * druhou, ...), ne libovolné číslo na začátku - text určený k překladu (herní UI, menu se
+ * seznamem "1. Útok" / "2. Obrana"...) může sám legitimně začínat číslem s tečkou, a
+ * obecný `^\d+[.).:]\s*` vzor by takový začátek omylem uřízl jako by šlo o naši vlastní
+ * přidanou číslovací předponu (nahlášeno v auditu).
  */
 internal fun parseByokResponse(content: String, expectedCount: Int): List<String>? {
     val lines = content.trim().lines().map { it.trim() }.filter { it.isNotEmpty() }
     if (lines.size != expectedCount) return null
-    return lines.map { it.replace(NUMBERING_PREFIX, "") }
+    return lines.mapIndexed { i, line -> line.replace(numberingPrefixFor(i + 1), "") }
 }
 
-private val NUMBERING_PREFIX = Regex("""^\d+[.).:]\s*""")
+private fun numberingPrefixFor(lineNumber: Int): Regex = Regex("""^$lineNumber[.).:]\s*""")
 
 /**
  * Volitelný "bring your own key" vlastní LLM endpoint - poslední záloha PŘED on-device ML Kit

@@ -113,6 +113,28 @@ class BubbleClassifierTest {
     }
 
     @Test
+    fun `a short legit word drawn off-panel is not misclassified as sfx`() {
+        // Pravidlo pro text mimo bublinu (!bgUniform) schválně nekontroluje samohlásky (chytá
+        // i "BOOM"/"CRASH"), takže bez allowlistu by pohltilo i krátkou legitimní repliku
+        // vysázenou mimo bublinu pro důraz (nahlášeno v auditu).
+        listOf("HEY", "WAIT", "NO", "STOP", "GO").forEach { text ->
+            val block = rawBlock(text, bgUniform = false)
+            assertFalse("$text mimo bublinu nesmí být SFX", BubbleClassifier.classify(block, lineCount = 1).isSfx)
+        }
+    }
+
+    @Test
+    fun `a repeated instance of the same short sfx word is still recognized as sfx`() {
+        // Živý nález: lettering kreslí "GULP GULP" jako dvě oddělené instance, ale OCR/spojení
+        // řádků je slije do JEDNOHO bloku s mezerou uvnitř - ostatní pravidla (seznam i
+        // bez-samohlásky) vyžadují text bez mezery, takže by tohle prošlo VŠEMI a přeložilo se
+        // jako obyčejný text (živý dopad: "GULP GULP" -> "ZÁVĚS").
+        assertTrue(BubbleClassifier.classify(rawBlock("GULP GULP"), lineCount = 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("BOOM BOOM BOOM"), lineCount = 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("gulp gulp"), lineCount = 1).isSfx)
+    }
+
+    @Test
     fun `a comma at the end used to slip past the safety list entirely`() {
         // Druhá, širší polovina nálezu: "core" se ořezávalo jen o !?. a mezeru, takže do
         // porovnání se seznamem šlo "WAIT," a to se nikdy netrefilo. I slova, která seznam

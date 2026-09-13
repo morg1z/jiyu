@@ -23,19 +23,33 @@ package com.haise.jiyu.translate
 /** Kde přesně bublina leží - index stránky v kapitole + index bubliny na téhle stránce. */
 internal data class BubbleLocation(val pageIndex: Int, val bubbleIndex: Int)
 
-/** Jeden nalezený pár pokračujících fragmentů + jejich už spojený text. */
+/**
+ * Jeden nalezený pár pokračujících fragmentů + jejich už spojený text.
+ * @param continuations fragmenty na DALŠÍ stránce, seřazené shora dolů - většinou jeden, ale
+ *   pokračující řádek se na hranici stránky někdy sám rozpadne na víc OCR řádků (viz
+ *   [findCrossPageMerges]).
+ */
 internal data class CrossPageMerge(
     val first: BubbleLocation,
-    val second: BubbleLocation,
+    val continuations: List<BubbleLocation>,
     val mergedText: String,
 )
 
 /**
  * Najde páry bublin, které pokračují ze stránky na následující - fragment u DOLNÍHO okraje
- * stránky (viz [EDGE_TOUCH_FRACTION]) + fragment u HORNÍHO okraje další stránky, se
- * SLUŠNÝM vodorovným překryvem (viz [horizontalOverlapRatio]/[minHorizontalOverlap] - bublina
+ * stránky (viz [EDGE_TOUCH_FRACTION]) + fragment u HORNÍHO okraje další stránky, se SLUŠNÝM
+ * vodorovným překryvem (viz [horizontalOverlapRatio]/[minHorizontalOverlap] - bublina
  * pokračující přes hranici zůstává přibližně na stejném vodorovném místě, i když se stránky
  * liší výškou).
+ *
+ * Od prvního nalezeného fragmentu se dál řetězí přes [shouldMerge] (stejná logika jako
+ * spojování řádků JEDNÉ bubliny) - nahlášený bug: pokračující řádek se na začátku další
+ * stránky sám rozpadl na dva OCR řádky vedle sebe ("Thev're calling this" + "e an" - zbytek
+ * "one an", špatně rozpoznané). Vodorovný překryv proti PŮVODNÍMU dolnímu fragmentu by druhý
+ * kus nenašel (dvě slova vedle sebe na jednom řádku se navzájem vodorovně nepřekrývají, jen
+ * mají malou mezeru - přesně to, co [shouldMerge] už umí rozpoznat). Appka dřív spojila jen
+ * ten první kus a osiřelé "e an" se přeložilo samo o sobě bez kontextu, což se vykreslilo jako
+ * zmatený přesah navíc.
  *
  * @param pageOrder pořadí stránek KAPITOLY (ne nutně 0,1,2... - viz `translatable` v
  *   [TranslateRepository.translateChapter], které přeskakuje prázdné stránky). Porovnávají se
@@ -55,6 +69,7 @@ internal fun findCrossPageMerges(
         if (pageOrder[i + 1] != pageOrder[i] + 1) continue
         val currentBubbles = bubblesByPage[pageOrder[i]] ?: continue
         val nextBubbles = bubblesByPage[pageOrder[i + 1]] ?: continue
+        fun isTopEdgeCandidate(bj: Int) = !nextBubbles[bj].isSfx && nextBubbles[bj].raw.topF <= edgeTouchFraction
         val usedNextIndices = mutableSetOf<Int>()
         for (bi in currentBubbles.indices) {
             val bottom = currentBubbles[bi]
@@ -62,23 +77,40 @@ internal fun findCrossPageMerges(
             var bestIndex = -1
             var bestOverlap = minHorizontalOverlap
             for (bj in nextBubbles.indices) {
-                if (bj in usedNextIndices) continue
-                val top = nextBubbles[bj]
-                if (top.isSfx || top.raw.topF > edgeTouchFraction) continue
-                val overlap = horizontalOverlapRatio(bottom.raw, top.raw)
+                if (bj in usedNextIndices || !isTopEdgeCandidate(bj)) continue
+                val overlap = horizontalOverlapRatio(bottom.raw, nextBubbles[bj].raw)
                 if (overlap >= bestOverlap) {
                     bestOverlap = overlap
                     bestIndex = bj
                 }
             }
-            if (bestIndex >= 0) {
-                usedNextIndices += bestIndex
-                merges += CrossPageMerge(
-                    first = BubbleLocation(pageOrder[i], bi),
-                    second = BubbleLocation(pageOrder[i + 1], bestIndex),
-                    mergedText = concatenateDeduplicating(bottom.raw.text, nextBubbles[bestIndex].raw.text),
-                )
+            if (bestIndex < 0) continue
+
+            val chainIndices = mutableListOf(bestIndex)
+            var frontier = nextBubbles[bestIndex].raw
+            var extended = true
+            while (extended) {
+                extended = false
+                for (bj in nextBubbles.indices) {
+                    if (bj in usedNextIndices || bj in chainIndices || !isTopEdgeCandidate(bj)) continue
+                    if (shouldMerge(frontier, nextBubbles[bj].raw)) {
+                        chainIndices += bj
+                        frontier = nextBubbles[bj].raw
+                        extended = true
+                        break
+                    }
+                }
             }
+            usedNextIndices += chainIndices
+            // Poradi cteni: shora dolu, v ramci stejneho radku zleva doprava.
+            val ordered = chainIndices.sortedWith(compareBy({ nextBubbles[it].raw.topF }, { nextBubbles[it].raw.leftF }))
+            var mergedText = bottom.raw.text
+            for (bj in ordered) mergedText = concatenateDeduplicating(mergedText, nextBubbles[bj].raw.text)
+            merges += CrossPageMerge(
+                first = BubbleLocation(pageOrder[i], bi),
+                continuations = ordered.map { bj -> BubbleLocation(pageOrder[i + 1], bj) },
+                mergedText = mergedText,
+            )
         }
     }
     return merges
@@ -115,10 +147,11 @@ internal fun concatenateDeduplicating(first: String, second: String): String {
 }
 
 /**
- * Aplikuje [merges] na [bubblesByPage] - oba fragmenty páru dostanou STEJNÝ [CrossPageMerge.mergedText]
- * místo svého původního (neúplného) textu, takže překladač uvidí u OBOU celou větu. Zbytek
+ * Aplikuje [merges] na [bubblesByPage] - VŠECHNY fragmenty jednoho merge (viz
+ * [CrossPageMerge.continuations]) dostanou STEJNÝ [CrossPageMerge.mergedText] místo svého
+ * původního (neúplného) textu, takže překladač uvidí u KAŽDÉHO z nich celou větu. Zbytek
  * bublin na stránce zůstává beze změny. Vlastní geometrie/pozice/tvar fragmentů se NEMĚNÍ -
- * obě poloviny se dál vykreslí každá na svém původním místě (viz doc komentář souboru).
+ * každý se dál vykreslí na svém původním místě (viz doc komentář souboru).
  */
 internal fun applyCrossPageMerges(
     bubblesByPage: Map<Int, List<ClassifiedBubble>>,
@@ -129,7 +162,7 @@ internal fun applyCrossPageMerges(
     val overrides = HashMap<BubbleLocation, String>()
     for (merge in merges) {
         overrides[merge.first] = merge.mergedText
-        overrides[merge.second] = merge.mergedText
+        for (loc in merge.continuations) overrides[loc] = merge.mergedText
     }
     return bubblesByPage.mapValues { (pageIndex, bubbles) ->
         bubbles.mapIndexed { bubbleIndex, bubble ->

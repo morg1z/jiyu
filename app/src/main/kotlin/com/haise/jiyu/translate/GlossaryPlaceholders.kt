@@ -77,13 +77,28 @@ internal object GlossaryPlaceholders {
         return Substitution(substituted, sourceRestoreMap, targetRestoreMap)
     }
 
+    /**
+     * Case-INsensitive nahrazeni (na rozdil od obycejneho String.replace) - model muze token
+     * vratit s jinou velikosti pismen, nez dostal (male/velke JIYU misto Jiyu apod.), zvlast
+     * u levneho/free-tier providera. Bez tohohle by se token vubec neobnovil a uzivatel by
+     * v prekladu videl syrovy placeholder misto skutecneho jmena.
+     */
     private fun restoreTokens(text: String, restoreMap: Map<String, String>): String {
         if (restoreMap.isEmpty()) return text
         var result = text
-        for ((token, term) in restoreMap) result = result.replace(token, term)
+        for ((token, term) in restoreMap) {
+            result = Regex(Regex.escape(token), RegexOption.IGNORE_CASE).replace(result, Regex.escapeReplacement(term))
+        }
         return result
     }
 
-    private const val TOKEN_PREFIX = "__JIYU_PROTECT_"
-    private const val TOKEN_SUFFIX = "__"
+    // Znaky `⟦`/`⟧` (matematicke zavorky, U+27E6/U+27E7) - zamerne NE "__..._n__". Puvodni
+    // format dvou podtrzitek na obou koncich je vizualne totozny s Markdown tucnym pismem
+    // ("__text__"), a model (zvlast levny/free-tier) ho pri "prekladu" obcas "opravi"/
+    // preformatuje presne jako by slo o formatovani - token se pak nikdy nenajde a
+    // neobnovi, uzivatel misto skutecneho jmena uvidi syrovy placeholder (nahlaseno v
+    // auditu). Tyhle znaky se v beznem textu neobjevuji a nic markdown-like nepripominaji,
+    // takze pro model neni duvod je jakkoli "opravovat".
+    private const val TOKEN_PREFIX = "⟦JIYU_PROTECT_"
+    private const val TOKEN_SUFFIX = "⟧"
 }

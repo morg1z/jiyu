@@ -18,6 +18,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -201,17 +203,26 @@ class SourceBrowseViewModel @Inject constructor(
         }
     }
 
+    private var searchJob: Job? = null
+
+    // Debounce primo tady (misto sdileneho _query flow jako ComicKBrowseViewModel) - fce se
+    // vola primo z onQueryChange na kazde pismeno, bez tohohle by nektere zdroje (napr.
+    // MangaPlus, ktery pri hledani filtruje cely katalog v pameti) delaly drahou praci na
+    // kazdy keystroke (nahlaseno v auditu).
     fun search(query: String, filter: MangaFilter = _activeFilter.value) {
-        if (query.isBlank()) { loadPopular(filter); return }
+        if (query.isBlank()) { searchJob?.cancel(); loadPopular(filter); return }
         lastQuery = query
         currentPage = 1
         if (!networkMonitor.isOnline) {
+            searchJob?.cancel()
             _error.value = appContext.getString(R.string.detail_error_no_internet)
             _results.value = emptyList()
             _hasMore.value = false
             return
         }
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(350)
             _loading.value = true
             _error.value = null
             try {

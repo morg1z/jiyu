@@ -96,9 +96,14 @@ fun breakIntoLines(
                 var cost = prev + slack * slack
                 // j < wordCount = za tímhle řádkem ještě něco následuje, takže poslední slovo
                 // na něm (index j-1) by bylo vizuálně odtržené od zbytku své fráze. Poslední
-                // slovo CELÉHO textu penalizaci nedostává - tam už nic nenásleduje, co by bylo
-                // "odtržené".
-                if (words != null && j < wordCount && isOrphanProneWord(words[j - 1])) {
+                // slovo CELÉHO textu tuhle penalizaci nedostává - tam už nic nenásleduje, co by
+                // bylo "odtržené".
+                //
+                // j - k == 1 je NEZÁVISLÝ druhý důvod k penalizaci, platný i na posledním řádku:
+                // řádek tvořený JEN týmhle jedním písmenkem vypadá stejně špatně, ať už za ním
+                // něco následuje, nebo je to konec celého textu (nahlášeno v auditu - "...MÁM"
+                // + osamocené "O" na vlastním řádku).
+                if (words != null && isOrphanProneWord(words[j - 1]) && (j < wordCount || j - k == 1)) {
                     cost += ORPHAN_LINE_END_PENALTY
                 }
                 if (cost < dp[line][j]) {

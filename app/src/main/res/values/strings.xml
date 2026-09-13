@@ -1133,6 +1133,7 @@
     <string name="reader_edit_bubble_label">Český text</string>
     <string name="reader_edit_bubble_hint">Prázdné pole vrátí strojový překlad.</string>
     <string name="reader_retranslate_page">Přeložit celou stránku znovu</string>
+    <string name="reader_retranslate_novel_chapter">Přeložit kapitolu znovu</string>
     <string name="reader_bubble_position_label">Pozice bubliny (přetáhni tečku)</string>
     <string name="reader_bubble_position_reset">Zpět na výchozí</string>
     <string name="detail_translate_next_n">Přeložit dopředu…</string>

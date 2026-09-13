@@ -1,7 +1,14 @@
 package com.haise.jiyu.ui.reader
 
-/** Kolik stránek dopředu se má předstáhnout - viz [computePrefetchIndices]. */
+/** Kolik stránek dopředu se má předstáhnout na nezpoplatněném (WiFi) připojení - viz [computePrefetchIndices]. */
 const val PREFETCH_WINDOW = 4
+
+/**
+ * Širší okno na zpoplatněném/mobilním připojení (viz [com.haise.jiyu.util.NetworkMonitor.isUnmetered]) -
+ * na vysoké latenci a nižší rychlosti čtenář frontu 4 předstažených stránek při normálním tempu
+ * čtení dojede a pak čeká stránku po stránce; hlubší fronta dá síti víc času na doběhnutí dopředu.
+ */
+const val PREFETCH_WINDOW_METERED = 8
 
 /**
  * Spočítá, které indexy stránek je potřeba předstáhnout (aktuální pozice + [count] dopředu),

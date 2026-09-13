@@ -52,4 +52,16 @@ class MangaOcrGarbageFilterTest {
     fun `three character repeating pattern is flagged`() {
         assertTrue(MangaOcrGarbageFilter.isPathologicalOutput("あいうあいうあいうあいうあいう"))
     }
+
+    /**
+     * Nahlašeno na "herni stat box" (viz BubbleMerge.kt STRUCTURED_FIELD_*, real logcat)
+     * - ML Kit omylem precetl teckovy ukazatel postupu vedle "God's Legion Mage"/"Skye Han"
+     * jako text "- e******" (confidence 0,371), ktery pak vizualne kolidoval s prekladem
+     * realnych poli. Filtr uz presne tenhle vzor resil pro manga-ocr cestu ([OcrEngine.recognizeLines]
+     * ho ted pouziva i pro ML Kit).
+     */
+    @Test
+    fun `misread UI dot indicator is flagged`() {
+        assertTrue(MangaOcrGarbageFilter.isPathologicalOutput("- e******"))
+    }
 }

@@ -141,6 +141,67 @@ class ComicSiteSourceTest {
     }
 
     @Test
+    fun `paginatedPopular=false with page greater than 1 returns empty list, not page 1 again`() = runTest {
+        // Bez tohohle vracela kazda dalsi stranka porad stejnou stranku 1 - falesne
+        // "ma to dalsi stranku" donekonecna (nahlaseno v auditu). paginatedPopular je ve
+        // sdilenem TestComicSource false (vychozi hodnota).
+        val result = source.getPopular(2)
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `search appends page number for page greater than 1`() = runTest {
+        server.shutdown()
+        server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/Search/Comics") && path.contains("page=2") ->
+                        MockResponse().setBody(
+                            """<html><body><ul class="list-comic"><li><a href="/Wonder-Woman">Wonder Woman</a></li></ul></body></html>"""
+                        )
+                    path.startsWith("/Search/Comics") -> MockResponse().setBody(listHtml)
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        val pagedSource = TestComicSource(base = server.url("").toString().trimEnd('/'), client = redirectingClient(server))
+
+        val page1 = pagedSource.search("batman", 1)
+        val page2 = pagedSource.search("batman", 2)
+
+        assertEquals(2, page1.size)
+        assertEquals(1, page2.size)
+        assertEquals("Wonder Woman", page2[0].title)
+    }
+
+    @Test
+    fun `data URI cover is dropped, protocol-relative cover is absolutized`() = runTest {
+        server.shutdown()
+        server = MockWebServer()
+        val html = """
+            <html><body>
+            <ul class="list-comic">
+              <li><a href="/A">A</a><img src="data:image/png;base64,AAAA" /></li>
+              <li><a href="/B">B</a><img src="//cdn.example.com/b.jpg" /></li>
+            </ul>
+            </body></html>
+        """.trimIndent()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setBody(html)
+        }
+        server.start()
+        val imgSource = TestComicSource(base = server.url("").toString().trimEnd('/'), client = redirectingClient(server))
+
+        val result = imgSource.getPopular(1)
+
+        assertEquals(null, result[0].coverUrl)
+        assertEquals("https://cdn.example.com/b.jpg", result[1].coverUrl)
+    }
+
+    @Test
     fun `malformed empty body returns empty list, not an exception`() = runTest {
         server.shutdown()
         server = MockWebServer()

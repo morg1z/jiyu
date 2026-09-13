@@ -24,6 +24,13 @@ class LocalMangaImporter @Inject constructor(
 ) {
     private val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "webp", "avif", "bmp")
 
+    companion object {
+        // 500 MB rozbaleno je pro jeden komiks/svazek velkoryse, ale zastavi zip bombu
+        // (extremni kompresni pomer) drive, nez zaplni disk (nahlaseno v auditu).
+        private const val MAX_TOTAL_UNCOMPRESSED_BYTES = 500L * 1024 * 1024
+        private const val MAX_ENTRIES = 5000
+    }
+
     suspend fun import(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val displayName = resolveFilename(uri) ?: "lokalni_${System.currentTimeMillis()}"
@@ -39,23 +46,36 @@ class LocalMangaImporter @Inject constructor(
             outputDir.mkdirs()
 
             val images = mutableListOf<File>()
-            context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-                ZipInputStream(input).use { zip ->
-                    var entry = zip.nextEntry
-                    while (entry != null) {
-                        val name = entry.name
-                        val ext = name.substringAfterLast('.', "").lowercase()
-                        if (!entry.isDirectory && ext in imageExtensions) {
-                            val flatName = name.substringAfterLast('/')
-                            val outFile = File(outputDir, flatName)
-                            outFile.outputStream().buffered().use { out -> zip.copyTo(out) }
-                            images.add(outFile)
+            try {
+                var totalBytes = 0L
+                var entryCount = 0
+                context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+                    ZipInputStream(input).use { zip ->
+                        var entry = zip.nextEntry
+                        while (entry != null) {
+                            entryCount++
+                            if (entryCount > MAX_ENTRIES) error("Archiv obsahuje příliš mnoho souborů")
+                            val name = entry.name
+                            val ext = name.substringAfterLast('.', "").lowercase()
+                            if (!entry.isDirectory && ext in imageExtensions) {
+                                val flatName = name.substringAfterLast('/')
+                                val outFile = File(outputDir, flatName)
+                                outFile.outputStream().buffered().use { out ->
+                                    totalBytes += zip.copyToWithLimit(out, MAX_TOTAL_UNCOMPRESSED_BYTES - totalBytes)
+                                }
+                                images.add(outFile)
+                            }
+                            zip.closeEntry()
+                            entry = zip.nextEntry
                         }
-                        zip.closeEntry()
-                        entry = zip.nextEntry
                     }
-                }
-            } ?: error("Soubor nelze otevřít")
+                } ?: error("Soubor nelze otevřít")
+            } catch (e: Exception) {
+                // Uklidit rozpracovany vystup - jinak by po chybe (napr. prekroceny limit
+                // nize) zustal na disku napul rozbaleny archiv (nahlaseno v auditu).
+                outputDir.deleteRecursively()
+                throw e
+            }
 
             if (images.isEmpty()) {
                 outputDir.deleteRecursively()
@@ -110,4 +130,21 @@ class LocalMangaImporter @Inject constructor(
         }
         return uri.lastPathSegment
     }
+}
+
+/** Jako `InputStream.copyTo`, ale hodi [java.io.IOException], kdyz zapsana data prekroci
+ * `limit` - obycejny `copyTo` by rozbalil libovolne velky (i podvrzeny) obsah bez omezeni.
+ * Top-level `internal`, ne `private` clenska metoda - aby slo otestovat primo bez
+ * Android/Context runtime (viz [LocalMangaImporterTest]). */
+internal fun java.io.InputStream.copyToWithLimit(out: java.io.OutputStream, limit: Long): Long {
+    val buffer = ByteArray(8192)
+    var copied = 0L
+    while (true) {
+        val n = read(buffer)
+        if (n < 0) break
+        copied += n
+        if (copied > limit) throw java.io.IOException("Archiv překračuje limit velikosti (možná zip bomba)")
+        out.write(buffer, 0, n)
+    }
+    return copied
 }

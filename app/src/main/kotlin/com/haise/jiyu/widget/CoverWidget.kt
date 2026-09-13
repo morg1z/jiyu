@@ -92,12 +92,17 @@ private data class CoverWidgetData(val item: ContinueReadingItem, val coverBitma
 /** Coil uz je globalne nakonfigurovany v JiyuApp.onCreate (disk cache, MangaPlusImageFetcher
  * atd.) - `Coil.imageLoader(context)` znovupouziva presne tenhle sdileny loader. Hardware
  * bitmapy nejdou pouzit v RemoteViews (widget bezi mimo appku), proto allowHardware(false). */
-internal suspend fun loadCoverBitmap(context: Context, url: String?): Bitmap? {
+/** `maxDimensionPx` - nepovinne omezeni dekodovaneho rozmeru (ctvercove, ContentScale.Crop v
+ * kompozici si to stejne orizne). Bez toho Coil dekoduje v plnem rozliseni i pro maly dlazdicovy
+ * nahled (viz [com.haise.jiyu.widget.ShelfWidget]), zbytecna pamet/cas navic riziko
+ * TransactionTooLargeException (nahlaseno v auditu). */
+internal suspend fun loadCoverBitmap(context: Context, url: String?, maxDimensionPx: Int? = null): Bitmap? {
     if (url.isNullOrBlank()) return null
     return try {
         val loader = Coil.imageLoader(context)
-        val request = ImageRequest.Builder(context).data(url).allowHardware(false).build()
-        val drawable = loader.execute(request).drawable ?: return null
+        val requestBuilder = ImageRequest.Builder(context).data(url).allowHardware(false)
+        if (maxDimensionPx != null) requestBuilder.size(maxDimensionPx)
+        val drawable = loader.execute(requestBuilder.build()).drawable ?: return null
         drawableToBitmap(drawable)
     } catch (_: Exception) {
         null
@@ -143,7 +148,15 @@ private fun CoverWidgetContent(mangaId: String?, data: CoverWidgetData?, configu
                 )
             }
         } else {
-            val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse("jiyu://manga?mangaId=$mangaId"))
+            // Primo do ctecky na rozectenou kapitolu, kdyz existuje - jinak fallback na detail
+            // (titul jeste nema zadny cteni progress). Nahlaseno v auditu - dosud vedlo vzdy
+            // jen na detail, i kdyz appka uz vedela, kterou kapitolu ma uzivatel rozectenou.
+            val readerChapterId = data.item.manga.lastReadChapterId
+            val openIntent = Intent(
+                Intent.ACTION_VIEW,
+                if (readerChapterId != null) Uri.parse("jiyu://reader?chapterId=${Uri.encode(readerChapterId)}")
+                else Uri.parse("jiyu://manga?mangaId=$mangaId"),
+            )
             if (data.coverBitmap != null) {
                 Image(
                     provider = ImageProvider(data.coverBitmap),

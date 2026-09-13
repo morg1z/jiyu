@@ -78,14 +78,17 @@ class DownloadManagerViewModel @Inject constructor(
 
     fun cancelChapter(chapter: ChapterEntity) {
         viewModelScope.launch {
-            downloadQueue.cancel(chapter.id)
+            // cancelAndAwait pocka na skutecne zastaveni workeru - bez tohohle mohl worker
+            // dokoncit stazeni PO resetu a svym markDownloaded() ho prepsat zpatky (nahlaseny
+            // "cancel-vs-success race").
+            downloadQueue.cancelAndAwait(chapter.id)
             repository.resetDownloadForChapter(chapter.id)
         }
     }
 
     fun cancelAll(chapters: List<ChapterEntity>) {
         viewModelScope.launch {
-            downloadQueue.cancelAll()
+            downloadQueue.cancelAllAndAwait()
             chapters.forEach { repository.resetDownloadForChapter(it.id) }
         }
     }

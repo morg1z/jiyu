@@ -21,6 +21,8 @@ import okhttp3.Response
  * neúspěch legitimně znamená `null`, ne chybu).
  */
 fun Response.bodyOrThrow(url: String): String {
-    check(isSuccessful) { "HTTP $code při načítání $url" }
+    // IOException, ne check()/IllegalStateException - RetryInterceptor (AppModule.kt) chyta
+    // jen IOException, takze IllegalStateException tenhle retry uplne obejde (nahlaseno v auditu).
+    if (!isSuccessful) throw java.io.IOException("HTTP $code při načítání $url")
     return body?.string().orEmpty()
 }

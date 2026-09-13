@@ -183,6 +183,23 @@ class TranslationLayoutTest {
     }
 
     @Test
+    fun `uniform background block does not expand all the way to a distant neighbor`() {
+        // Živý nález (audit): malá SFX bublina ("GULP GULP") osamocená ve velkém panelu bez
+        // blízkého souseda - nejbližší dalsí text (titulek příští scény) je daleko dole. Box
+        // dřív expandoval AŽ K NĚMU bez ohledu na vzdálenost = bílý box přes půl panelu.
+        val ownHeight = 0.02f
+        val small = block(0.30f, 0.10f, 0.40f, 0.10f + ownHeight, text = "GULP")
+        val farBelow = block(0.20f, 0.70f, 0.80f, 0.72f, text = "far away caption")
+        val positioned = layoutTranslationBlocks(listOf(small, farBelow))
+        val smallPos = positioned.first { it.block === small }
+
+        assertTrue(
+            "vertical growth toward a distant neighbor must stay capped, not reach it (${smallPos.maxBottomF})",
+            smallPos.maxBottomF < 0.60f,
+        )
+    }
+
+    @Test
     fun `heuristic block does not expand across an adjacent shape-based bubble`() {
         // Reprodukce nahlášeného bugu: tvarová bublina ("Budeme se učit spolu") vedle
         // heuristické bubliny ("C'mon"/"No tak"), o které heuristika vůbec nevěděla a

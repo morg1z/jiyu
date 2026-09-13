@@ -164,6 +164,23 @@ internal fun shouldShowTranslationOverlay(hasBlocks: Boolean, imageLoaded: Boole
  *   (viz ReaderViewModel.toggleBubbleFlip) - bubbleIndex je pozice bubliny v [positioned], ne
  *   v původním (nefiltrovaném) `blocks`.
  */
+/** Přemapuje frakce bloku (a jeho shape, pokud existuje) z prostoru "celý originál" do prostoru
+ * "obrázek po CropBordersTransformation" - viz [CropBordersTransformation.cropFractionsFor]
+ * a komentář u [BubbleOverlayLayer]. */
+private fun TranslatedBlock.remapForCrop(crop: CropFractions): TranslatedBlock {
+    val spanX = (1f - crop.leftF - crop.rightF).coerceAtLeast(0.01f)
+    val spanY = (1f - crop.topF - crop.bottomF).coerceAtLeast(0.01f)
+    fun remapX(f: Float) = ((f - crop.leftF) / spanX).coerceIn(0f, 1f)
+    fun remapY(f: Float) = ((f - crop.topF) / spanY).coerceIn(0f, 1f)
+    return copy(
+        leftF = remapX(leftF),
+        rightF = remapX(rightF),
+        topF = remapY(topF),
+        bottomF = remapY(bottomF),
+        shape = shape?.map { it.copy(yF = remapY(it.yF), leftF = remapX(it.leftF), rightF = remapX(it.rightF)) },
+    )
+}
+
 @Composable
 fun BubbleOverlayLayer(
     blocks: List<TranslatedBlock>,
@@ -172,11 +189,34 @@ fun BubbleOverlayLayer(
     pageIndex: Int = -1,
     /** URL zobrazované stránky - potřeba jen pro záplaty (viz [TextPatchProvider]). */
     pageUrl: String? = null,
+    /** Je zapnuté "Oříznout okraje"? Bez tohohle by OCR frakce (změřené vůči PŮVODNÍMU
+     * obrázku, viz [PageBitmapLoader]) neseděly na `imageRect` (spočítaný z už OŘÍZNUTÉHO
+     * `intrinsicSize`) - systematický posun bublin, nahlášeno v auditu. */
+    cropBorders: Boolean = false,
     flippedBubbles: Set<String> = emptySet(),
     onToggleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
 ) {
-    val positioned = remember(blocks) { layoutTranslationBlocks(blocks) }
+    // Bloky se remapuji na prostor UZ OŘÍZNUTÉHO obrázku PŘED layoutem - tak se stejná
+    // korekce automaticky projeví i do heuristické expanze (TranslationLayout.kt) a do
+    // shape bodů, misto aby se muselo opravovat kazde pouziti frakci zvlast.
+    val adjustedBlocks = remember(blocks, cropBorders, pageUrl) {
+        val crop = if (cropBorders && pageUrl != null) CropBordersTransformation.cropFractionsFor(pageUrl) else null
+        if (crop == null || (crop.leftF == 0f && crop.topF == 0f && crop.rightF == 0f && crop.bottomF == 0f)) {
+            blocks
+        } else {
+            blocks.map { it.remapForCrop(crop) }
+        }
+    }
+    val positioned = remember(adjustedBlocks) { layoutTranslationBlocks(adjustedBlocks) }
+    // Záplaty (viz níž) se řežou přímo z PIXELŮ stránky - ale [PageBitmapLoader] (na rozdíl
+    // od zobrazovací cesty) crop okrajů nikdy neaplikuje, takže bitmapa, ze které se řeže, je
+    // vždy ta PŮVODNÍ, neořízlá. `positioned` výš je ale přemapovaný na ořízlý prostor kvůli
+    // zobrazení - kdyby se stejný (přemapovaný) seznam použil i tady, záplata by se vyřízla
+    // ze ŠPATNÝCH pixelů. Pořadí/počet bloků je mezi oběma seznamy shodné (stejné `blocks`,
+    // remapForCrop nemění shape==null vs != null, takže se `layoutTranslationBlocks` rozdělí
+    // stejně), takže `bubbleIndex` sedí na oba.
+    val originalPositioned = remember(blocks) { layoutTranslationBlocks(blocks) }
 
     // Záplaty se počítají až tady, při zobrazení, a žijí jen v paměti - do Room nic nepřibývá,
     // takže se kvůli nim nemusela zvedat PIPELINE_VERSION a hotové překlady zůstaly platné.
@@ -192,7 +232,7 @@ fun BubbleOverlayLayer(
     }
     val patches by produceState(initialValue = emptyMap<Int, android.graphics.Bitmap>(), pageUrl, blocks) {
         val url = pageUrl
-        value = if (url == null) emptyMap() else patchProvider.patchesFor(url, positioned)
+        value = if (url == null) emptyMap() else patchProvider.patchesFor(url, originalPositioned)
     }
     // Vlastní font uživatele (viz CustomFontRepository, item 15) - stejný EntryPoint důvod
     // jako u patchProvider výš. Null = žádný nastavený/stažený, render zůstává na vestavěné

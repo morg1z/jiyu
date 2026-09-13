@@ -78,11 +78,18 @@ class MangaOcrPipelineOnDeviceTest {
      * falešně červeným. Skutečná přesnost se ověřuje ručně na reálné manga stránce.
      */
     @Test
-    fun recognizeCrop_doesNotCrashOnSyntheticJapanese() = runBlocking {
-        assumeRealOnnxAssets(context, "models/manga_ocr_encoder.onnx", "models/manga_ocr_decoder_init.onnx", "models/manga_ocr_decoder_step.onnx")
-        val crop = japaneseCrop("こんにちは")
-        val text = pipeline.recognizeCrop(crop)
-        Log.i("MangaOcrProbe", "recognizeCrop vratil: \"$text\"")
+    // Blokove telo (ne "= runBlocking { ... }") - JUnit4 vyzaduje, aby @Test metody vracely
+    // void; expression-body varianta konci na Log.i(...), ktere vraci Int, takze cela metoda
+    // mela odvozeny navratovy typ Int misto Unit - JUnit takovou tridu odmitl jako celek
+    // (InvalidTestClassError), coz shodilo VSECHNY testy v tehle tride, ne jen tenhle jeden
+    // (nahlaseno v CI - viz .github/workflows/android-tests.yml).
+    fun recognizeCrop_doesNotCrashOnSyntheticJapanese() {
+        runBlocking {
+            assumeRealOnnxAssets(context, "models/manga_ocr_encoder.onnx", "models/manga_ocr_decoder_init.onnx", "models/manga_ocr_decoder_step.onnx")
+            val crop = japaneseCrop("こんにちは")
+            val text = pipeline.recognizeCrop(crop)
+            Log.i("MangaOcrProbe", "recognizeCrop vratil: \"$text\"")
+        }
     }
 
     @Test

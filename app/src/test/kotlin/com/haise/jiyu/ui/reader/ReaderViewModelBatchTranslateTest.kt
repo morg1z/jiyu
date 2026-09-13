@@ -261,4 +261,50 @@ class ReaderViewModelBatchTranslateTest {
         assertEquals("Prvni", vm.translatedPages.value[0]?.first()?.translatedText)
         assertEquals("Druha", vm.translatedPages.value[1]?.first()?.translatedText)
     }
+
+    @Test
+    fun `translatedPagesByChapter keeps two chapters' page-0 translations separate for WebtoonReader`() = runBlocking {
+        // JADRO NAHLASENEHO BUGU (audit): WebtoonReader v "Nekonecnem cteni" muze mit
+        // soucasne rozpracovane/vykreslene dve kapitoly, kazda cislovana lokalne od 0.
+        // Plocha _translatedPages by na indexu 0 drzela jen JEDNU z nich - druha kapitola
+        // by ukazala cizi bubliny. translatedPagesByChapter musi drzet obe zaroven, oddelene
+        // podle chapterId.
+        val chapter2 = ChapterEntity(
+            id = "ch2", mangaId = "m1", sourceId = "src", url = "/ch2",
+            name = "Chapter 2", chapterNumber = 2f, dateUpload = 0L, pageCount = 1,
+        )
+        coEvery { repository.getChapter("ch2") } returns chapter2
+        coEvery { repository.getAllChapters("m1") } returns listOf(chapter, chapter2)
+        coEvery { repository.getChapterPages("src", "/ch2", any()) } returns listOf(
+            com.haise.jiyu.source.Page(0, "q1.jpg", "q1.jpg"),
+        )
+        coEvery {
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
+        } coAnswers {
+            @Suppress("UNCHECKED_CAST")
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            onPageReady(0, listOf(block("Kapitola 1")))
+        }
+        coEvery {
+            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any())
+        } coAnswers {
+            @Suppress("UNCHECKED_CAST")
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            onPageReady(0, listOf(block("Kapitola 2")))
+        }
+
+        val vm = viewModel()
+        vm.translateAllPages()
+        vm.jumpToChapter("ch2")
+        vm.translateAllPages()
+
+        assertEquals(
+            "Kapitola 1",
+            vm.translatedPagesByChapter.value["ch1"]?.get(0)?.first()?.translatedText,
+        )
+        assertEquals(
+            "Kapitola 2",
+            vm.translatedPagesByChapter.value["ch2"]?.get(0)?.first()?.translatedText,
+        )
+    }
 }

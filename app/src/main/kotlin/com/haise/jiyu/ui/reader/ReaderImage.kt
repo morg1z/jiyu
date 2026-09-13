@@ -55,7 +55,7 @@ private fun ReaderPageLoadingIndicator(modifier: Modifier = Modifier) {
     LottieAnimation(
         composition = composition,
         progress = { progress },
-        modifier = modifier.size(72.dp),
+        modifier = modifier.size(36.dp),
     )
 }
 
@@ -75,7 +75,7 @@ internal fun buildPageImageRequest(
 ): ImageRequest {
     val scramble = ScrambledImageUrl.parse(url)
     val transforms = buildList<Transformation> {
-        if (cropBorders) add(CropBordersTransformation())
+        if (cropBorders) add(CropBordersTransformation(url))
         scramble?.let { add(TileDescrambleTransformation(it.grid, it.seed)) }
     }
     return ImageRequest.Builder(context)

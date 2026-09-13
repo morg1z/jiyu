@@ -81,17 +81,20 @@ class MangaPlusSource @Inject constructor(
             .header("User-Agent", "okhttp/4.12.0")
             .build()
         return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@use ByteArray(0)
+            // IOException, ne tiche ByteArray(0) - jinak nejde rozlisit "server/secret ma
+            // problem" od "opravdu prazdna odpoved", a jednou ziskany deviceSecret platil
+            // navzdy i po banu (nahlaseno v auditu). Navic tim MangaPlus zapadne do sdileneho
+            // RetryInterceptoru (chyta jen IOException).
+            if (!response.isSuccessful) throw java.io.IOException("MangaPlus API chyba ${response.code}: $url")
             response.body?.bytes() ?: ByteArray(0)
         }
     }
 
     /**
      * Registruje nahodne "zarizeni" a vrati free-tier deviceSecret; vysledek se cachuje po
-     * dobu behu appky. `rawGet` vraci prazdne pole na JAKEKOLI HTTP chybe (viz jeho komentar)
-     * bez rozliseni od "opravdu prazdna odpoved" - bez cooldownu by tak kazdy dalsi pozadavek
-     * behem vypadku/rate-limitu MangaPlus API znovu spustil cely `PUT /register` (spam
-     * registrace vuci jejich API presne v okamziku, kdy uz maji problem).
+     * dobu behu appky. Cooldown po chybe brani tomu, aby kazdy dalsi pozadavek behem
+     * vypadku/rate-limitu MangaPlus API znovu spustil cely `PUT /register` (spam registrace
+     * vuci jejich API presne v okamziku, kdy uz maji problem).
      */
     private fun ensureSecret(): String? {
         deviceSecret?.let { return it }
@@ -102,13 +105,18 @@ class MangaPlusSource @Inject constructor(
             val deviceId = UUID.randomUUID().toString()
             val deviceToken = md5(deviceId)
             val securityKey = md5(deviceToken + "4Kin9vGg")
-            val bytes = rawGet(
-                "$apiBase/register?device_token=$deviceToken&security_key=$securityKey&os=android&os_ver=$osVersion&app_ver=$appVersion",
-                method = "PUT",
-            )
-            val secret = bytes.parseProto().msg(1)?.msg(2)?.str(1)
-            if (secret == null) lastRegisterFailureAt = now else deviceSecret = secret
-            return secret
+            return try {
+                val bytes = rawGet(
+                    "$apiBase/register?device_token=$deviceToken&security_key=$securityKey&os=android&os_ver=$osVersion&app_ver=$appVersion",
+                    method = "PUT",
+                )
+                val secret = bytes.parseProto().msg(1)?.msg(2)?.str(1)
+                if (secret == null) lastRegisterFailureAt = now else deviceSecret = secret
+                secret
+            } catch (e: java.io.IOException) {
+                lastRegisterFailureAt = now
+                null
+            }
         }
     }
 

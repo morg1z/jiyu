@@ -48,20 +48,22 @@ class HttpResponseExtTest {
         // Presne ten pripad, ktery driv tise propadl: Cloudflare/WAF vrati 403 s HTML
         // strankou, ta se naparsuje, nic se v ni nenajde -> "zadne vysledky".
         server.enqueue(MockResponse().setResponseCode(403).setBody("<html>Sorry, you have been blocked</html>"))
-        val e = assertThrows(IllegalStateException::class.java) { fetch() }
+        // IOException, ne IllegalStateException - RetryInterceptor (AppModule.kt) chyta jen
+        // IOException, IllegalStateException by mu tenhle nalez znovu obesel (nahlaseno v auditu).
+        val e = assertThrows(java.io.IOException::class.java) { fetch() }
         assertTrue("hlaska musi nest stavovy kod, jinak je nalez k nicemu", e.message!!.contains("403"))
     }
 
     @Test
     fun `dead source returning 404 throws`() {
         server.enqueue(MockResponse().setResponseCode(404).setBody("<html>Not Found</html>"))
-        assertThrows(IllegalStateException::class.java) { fetch() }
+        assertThrows(java.io.IOException::class.java) { fetch() }
     }
 
     @Test
     fun `server error throws`() {
         server.enqueue(MockResponse().setResponseCode(503).setBody("maintenance"))
-        assertThrows(IllegalStateException::class.java) { fetch() }
+        assertThrows(java.io.IOException::class.java) { fetch() }
     }
 
     @Test

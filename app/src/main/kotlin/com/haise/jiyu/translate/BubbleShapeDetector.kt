@@ -50,7 +50,27 @@ object BubbleShapeDetector {
      * s rezervou na obě strany. Když se překročí, vrátí se null a použije se heuristický
      * obdélník - horší odhad tvaru, ale nikdy ne placka přes kresbu.
      */
-    private const val MAX_SHAPE_TO_TEXT_AREA_RATIO = 45L
+    const val MAX_SHAPE_TO_TEXT_AREA_RATIO = 45L
+
+    /**
+     * Vyšší strop pro obrysy, které [isJaggedShape] označí jako trsovité/hvězdicovité (typicky
+     * "shout" výbuchy) - hroty obalový obdélník nafouknou víc než u hladké bubliny stejné
+     * fyzické velikosti. Změřeno na syntetickém kompaktním 4cípém hrotu (viz
+     * `BubbleShapeDetectorTest`, "a compact jagged shout burst..."): 48x, nad plochým [MAX_SHAPE_TO_TEXT_AREA_RATIO]
+     * (45x), ale s rezervou pod hranicí uniklého vylití (~54x+, viz komentář tam). Vodoznaky/
+     * uniklé výlevy hrotovitý profil nemívají, takže je [isJaggedShape] gate samo o sobě
+     * neprojpustí sem.
+     */
+    const val MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO = 50L
+
+    /** Stejná kontrola jako uvnitř [detectShape]/[edgeAwareShape], ale zpřístupněná i pro
+     * [BubbleMaskSegmenter.matchShape] - ten svůj výsledek (YOLO segmentační maska) dřív
+     * vůbec neporovnával s velikostí OCR textu, takže mohl vrátit libovolně velkou plochu
+     * (nahlášeno v auditu). @param textAreaPx <= 0 kontrolu vypne (vrátí false). */
+    fun exceedsAreaRatio(boundsAreaPx: Long, textAreaPx: Long, jagged: Boolean = false): Boolean {
+        val cap = if (jagged) MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO else MAX_SHAPE_TO_TEXT_AREA_RATIO
+        return textAreaPx > 0 && boundsAreaPx > textAreaPx * cap
+    }
 
     /**
      * BFS flood-fill (fronta, ne rekurze - kvůli velkým bublinám a JVM stack limitu).
@@ -187,21 +207,9 @@ object BubbleShapeDetector {
         for (y in topY..bottomY) if (rowMin[y] != Int.MAX_VALUE) sortedRows.add(y)
         if (sortedRows.isEmpty()) return null
 
-        // Obrys nesmyslně velký proti textu, který má obepínat - viz [MAX_SHAPE_TO_TEXT_AREA_RATIO].
-        if (textAreaPx > 0) {
-            var minX = Int.MAX_VALUE
-            var maxX = Int.MIN_VALUE
-            for (y in sortedRows) {
-                if (rowMin[y] < minX) minX = rowMin[y]
-                if (rowMax[y] > maxX) maxX = rowMax[y]
-            }
-            val boundsArea = (maxX - minX + 1).toLong() * (bottomY - topY + 1).toLong()
-            val accepted = boundsArea <= textAreaPx * MAX_SHAPE_TO_TEXT_AREA_RATIO
-            onRatioMeasured(boundsArea.toDouble() / textAreaPx, accepted)
-            if (!accepted) return null
-        }
-
-        return (0 until SAMPLE_COUNT).map { i ->
+        // Vzorky se musi spocitat PRED kontrolou pomeru - isJaggedShape (viz nize) pracuje
+        // primo s nima, ne se syrovymi rowMin/rowMax poli.
+        val sampled = (0 until SAMPLE_COUNT).map { i ->
             val frac = i / (SAMPLE_COUNT - 1).toFloat()
             val targetY = (topY + frac * (bottomY - topY)).toInt().coerceIn(topY, bottomY)
             val nearestY = nearestRowWithData(sortedRows, targetY)
@@ -211,6 +219,29 @@ object BubbleShapeDetector {
                 rightF = rowMax[nearestY] / width.toFloat(),
             )
         }
+
+        // Obrys nesmyslně velký proti textu, který má obepínat - viz [MAX_SHAPE_TO_TEXT_AREA_RATIO].
+        if (textAreaPx > 0) {
+            var minX = Int.MAX_VALUE
+            var maxX = Int.MIN_VALUE
+            for (y in sortedRows) {
+                if (rowMin[y] < minX) minX = rowMin[y]
+                if (rowMax[y] > maxX) maxX = rowMax[y]
+            }
+            val boundsArea = (maxX - minX + 1).toLong() * (bottomY - topY + 1).toLong()
+            // Hranaty/hvezdicovity ("shout") obrys ma hroty, ktere obalovy obdelnik nafouknou
+            // vic nez u hladke bubliny stejne fyzicke velikosti (zmereno - BubbleShapeDetectorTest,
+            // "a compact jagged shout burst..." - kompaktni ctyrcipy hrot vysel na 48x, nad
+            // plochym stropem 45x kalibrovanym jen na hladke bubliny). Vyssi strop platí jen pro
+            // tvary, ktere isJaggedShape opravdu oznaci - unikle vylevy (vodoznaky, tmave pruhy)
+            // hrotovity profil nemivaji, takze zustavaji chranene puvodnim 45x stropem.
+            val ratioCap = if (isJaggedShape(sampled)) MAX_JAGGED_SHAPE_TO_TEXT_AREA_RATIO else MAX_SHAPE_TO_TEXT_AREA_RATIO
+            val accepted = boundsArea <= textAreaPx * ratioCap
+            onRatioMeasured(boundsArea.toDouble() / textAreaPx, accepted)
+            if (!accepted) return null
+        }
+
+        return sampled
     }
 
     /** true = pixel je nový (dosud nenavštívený) A barevně patří k pozadí bubliny, takže se má zařadit do fronty. */

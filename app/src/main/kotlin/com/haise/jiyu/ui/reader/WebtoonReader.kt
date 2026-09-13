@@ -80,7 +80,9 @@ fun WebtoonReader(
     onNeedMoreSegments: () -> Unit = {},
     onVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
     translateMode: Boolean,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
+    // Klíčovaná chapterId, ne plochá jako u ReaderPageru/MangaPageCurlReaderu - viz komentář
+    // u ReaderViewModel._translatedPagesByChapter (kolize indexů mezi segmenty, nahlášeno v auditu).
+    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>>,
     textScale: Float,
     tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     tapZonesEnabled: Boolean = true,
@@ -286,7 +288,7 @@ fun WebtoonReader(
             webtoonSegmentItems(
                 segment = seg,
                 translateMode = translateMode,
-                translatedPages = translatedPages,
+                translatedPagesByChapter = translatedPagesByChapter,
                 textScale = textScale,
                 cropBorders = cropBorders,
                 flippedBubbles = flippedBubbles,
@@ -311,7 +313,7 @@ fun WebtoonReader(
 private fun LazyListScope.webtoonSegmentItems(
     segment: WebtoonSegment,
     translateMode: Boolean,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
+    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>>,
     textScale: Float,
     cropBorders: Boolean,
     flippedBubbles: Set<String>,
@@ -319,12 +321,13 @@ private fun LazyListScope.webtoonSegmentItems(
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     referer: String?,
 ) {
+    val chapterTranslations = translatedPagesByChapter[segment.chapterId] ?: emptyMap()
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
         WebtoonPage(
             pageUrl = pageUrl,
             pageIndex = index,
             translateMode = translateMode,
-            translatedBlocks = translatedPages[index] ?: emptyList(),
+            translatedBlocks = chapterTranslations[index] ?: emptyList(),
             textScale = textScale,
             cropBorders = cropBorders,
             flippedBubbles = flippedBubbles,
@@ -458,6 +461,7 @@ private fun WebtoonPage(
                 textScale = textScale,
                 pageIndex = pageIndex,
                 pageUrl = pageUrl,
+                cropBorders = cropBorders,
                 flippedBubbles = flippedBubbles,
                 onToggleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,

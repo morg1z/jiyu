@@ -494,6 +494,14 @@ class OcrEngine @Inject constructor(
         return result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
             val box = line.boundingBox ?: return@mapNotNull null
             if (line.text.isBlank()) return@mapNotNull null
+            // Male UI prvky (teckovy ukazatel postupu, prazdna listovaci lista...) obcas ML Kit
+            // omylem precte jako par znaku/hvezdicek - nahlaseno na "herni stat box" (viz
+            // BubbleMerge.kt STRUCTURED_FIELD_*): vedle "God's Legion Mage"/"Skye Han" se
+            // objevil blok "- e******" (confidence 0,371), ktery pak vizualne kolidoval s
+            // realnym prekladem. MangaOcrGarbageFilter uz presne tenhle vzor (kratky
+            // opakujici se retezec) resil pro manga-ocr cestu - ML Kit cesta ho dosud vubec
+            // nemela, i kdyz stejnemu druhu chyby nijak nebrani.
+            if (MangaOcrGarbageFilter.isPathologicalOutput(line.text)) return@mapNotNull null
             logOcrConfidence(language, line.confidence, line.text)
             RawTextBlock(
                 text = line.text,
