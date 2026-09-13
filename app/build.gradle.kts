@@ -269,3 +269,16 @@ dependencies {
     kspAndroidTest("com.google.dagger:hilt-android-compiler:2.57.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+// forkEvery = 1: bez tohohle Gradle defaultne pousti VSECHNY testovaci tridy v JEDNE sdilene
+// JVM za sebou. Kdyz nejaky test (kdekoli v cele sade) necha uniknout nezachycenou vyjimku z
+// korutiny (napr. viewModelScope.launch, ktery test nestihl/nemusel plne odcerpat pred koncem),
+// kotlinx-coroutines-test ji nahlasi az u DALSIHO testu, ktery zavola runTest - projevuje se to
+// jako "UncaughtExceptionsBeforeTest" u naprosto nesouvisejiciho testu, pokazde jineho, podle
+// toho, kdo zrovna bezel jako dalsi ve sdilene JVM (nahlaseno - GlobalSearchViewModelTest a
+// SleepTimerManagerTest obe padaly na tenhle presne pribeh, prestoze samy o sobe v izolaci
+// vzdy prosly). Kazda testovaci trida ve vlastni cerstve JVM tenhle cely druh mezitridove
+// kontaminace odstrani, za cenu o neco delsiho behu cele sady (vic startu JVM).
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+}
