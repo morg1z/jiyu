@@ -82,7 +82,7 @@ class SourceBrowseViewModelTest {
     fun `a cloudflare error exposes the solve action and performing it retries the load`() = runTest(dispatcher) {
         val handler = mockk<com.haise.jiyu.source.ErrorActionHandler>()
         coEvery { handler.perform(any()) } returns true
-        coEvery { repository.getPopular("src", 1, any()) } throws
+        coEvery { repository.getPopular("src", 1, any(), any()) } throws
             com.haise.jiyu.util.CloudflareProtectedException("site.test", "https://site.test/manga/")
 
         val vm = viewModel(handler)
@@ -90,7 +90,7 @@ class SourceBrowseViewModelTest {
         assertEquals(com.haise.jiyu.util.ErrorAction.SolveCloudflare("https://site.test/manga/"), vm.errorAction.value)
 
         // Po ručním vyřešení web odpoví normálně.
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1))
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(manga(1))
         vm.performErrorAction()
         advanceUntilIdle()
 
@@ -107,18 +107,18 @@ class SourceBrowseViewModelTest {
             com.haise.jiyu.source.MirrorResolution.Applied("new.example"),
         )
         // První pokus spadne na spojení, po použití nové adresy projde.
-        coEvery { repository.getPopular("src", 1, any()) } throws java.net.UnknownHostException("old") andThen listOf(manga(1))
+        coEvery { repository.getPopular("src", 1, any(), any()) } throws java.net.UnknownHostException("old") andThen listOf(manga(1))
         val vm = viewModel(handler)
         advanceUntilIdle()
         assertEquals(1, vm.results.value.size)
         assertEquals(null, vm.error.value)
-        coVerify(exactly = 2) { repository.getPopular("src", 1, any()) }
+        coVerify(exactly = 2) { repository.getPopular("src", 1, any(), any()) }
 
         // Jiná značka domény: jen návrh.
         val suggest = com.haise.jiyu.util.ErrorAction.UseNewDomain("src", "elsewhere.org")
         val handler2 = mockk<com.haise.jiyu.source.ErrorActionHandler>()
         coEvery { handler2.resolveConnectionError("src", any()) } returns com.haise.jiyu.source.MirrorResolution.Suggested(suggest)
-        coEvery { repository.getPopular("src", 1, any()) } throws java.net.UnknownHostException("old")
+        coEvery { repository.getPopular("src", 1, any(), any()) } throws java.net.UnknownHostException("old")
         val vm2 = viewModel(handler2)
         advanceUntilIdle()
         assertEquals(suggest, vm2.errorAction.value)
@@ -129,15 +129,15 @@ class SourceBrowseViewModelTest {
         val handler = mockk<com.haise.jiyu.source.ErrorActionHandler>()
         coEvery { handler.perform(any()) } returns false
         coEvery { handler.resolveConnectionError(any(), any()) } returns com.haise.jiyu.source.MirrorResolution.None
-        coEvery { repository.getPopular("src", 1, any()) } throws
+        coEvery { repository.getPopular("src", 1, any(), any()) } throws
             com.haise.jiyu.util.CloudflareProtectedException("site.test", "https://site.test/manga/")
         val vm = viewModel(handler)
         advanceUntilIdle()
         vm.performErrorAction()
         advanceUntilIdle()
-        coVerify(exactly = 1) { repository.getPopular("src", 1, any()) }
+        coVerify(exactly = 1) { repository.getPopular("src", 1, any(), any()) }
 
-        coEvery { repository.getPopular("src", 1, any()) } throws java.io.IOException("net")
+        coEvery { repository.getPopular("src", 1, any(), any()) } throws java.io.IOException("net")
         val plain = viewModel(handler)
         advanceUntilIdle()
         assertEquals(null, plain.errorAction.value)
@@ -145,7 +145,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `a full first page means there may be more to load`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
 
         val vm = viewModel()
         advanceUntilIdle()
@@ -161,7 +161,7 @@ class SourceBrowseViewModelTest {
         // vycerpany, i kdyz web mel dalsi stranky plne titulu (overeno zive u MangaWorld,
         // KuraManga a ~17 dalsich zdroju - jina strana 2 nez strana 1). "Konec seznamu"
         // ted pozna appka jedine podle PRAZDNE stranky, ne podle poctu polozek.
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1), manga(2))
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(manga(1), manga(2))
 
         val vm = viewModel()
         advanceUntilIdle()
@@ -171,7 +171,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `an empty first page means there is nothing to show`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns emptyList()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns emptyList()
 
         val vm = viewModel()
         advanceUntilIdle()
@@ -181,7 +181,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `loadMore appends the next page instead of replacing the results`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.getPopular("src", 2, any()) } returns listOf(manga(21))
 
         val vm = viewModel()
@@ -197,7 +197,7 @@ class SourceBrowseViewModelTest {
     fun `a failed loadMore rewinds the page counter so retry asks for the SAME page`() = runTest(dispatcher) {
         // Jadro veci: kdyby se citac nevratil, dalsi pokus by stranku 2 preskocil a
         // uzivateli by 20 titulu tise zmizelo, aniz by se cokoli tvarilo jako chyba.
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.getPopular("src", 2, any()) } throws RuntimeException("503")
 
         val vm = viewModel()
@@ -215,7 +215,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `loadMore does nothing once an empty page confirmed the end of the list`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1))
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(manga(1))
         coEvery { repository.getPopular("src", 2, any()) } returns emptyList()
 
         val vm = viewModel()
@@ -261,7 +261,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `search results replace popular results rather than piling onto them`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.search("src", "naruto", 1, any()) } returns listOf(manga(99))
 
         val vm = viewModel()
@@ -275,7 +275,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `loadMore after a search keeps searching, it does not fall back to popular`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.search("src", "naruto", 1, any()) } returns fullPage()
         coEvery { repository.search("src", "naruto", 2, any()) } returns listOf(manga(99))
 
@@ -292,7 +292,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `opening the same manga twice in a row does not fire two requests`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.openPreview(any()) } returns "manga-1"
 
         val vm = viewModel()
@@ -306,7 +306,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `a failed open surfaces its own error without wiping the loaded grid`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns fullPage()
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
         coEvery { repository.openPreview(any()) } throws RuntimeException("nope")
 
         val vm = viewModel()
@@ -321,7 +321,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `fetchCoverIfMissing patches only the matching item once the cover arrives`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1), manga(2))
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(manga(1), manga(2))
         coEvery { repository.fetchCover(manga(1)) } returns "https://cdn.example.com/cover1.jpg"
 
         val vm = viewModel()
@@ -335,7 +335,7 @@ class SourceBrowseViewModelTest {
 
     @Test
     fun `fetchCoverIfMissing for the same item twice fires only one network call`() = runTest(dispatcher) {
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1))
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(manga(1))
         coEvery { repository.fetchCover(manga(1)) } returns "https://cdn.example.com/cover1.jpg"
 
         val vm = viewModel()
@@ -350,7 +350,7 @@ class SourceBrowseViewModelTest {
     @Test
     fun `fetchCoverIfMissing does nothing when the item already has a cover`() = runTest(dispatcher) {
         val withCover = manga(1).copy(coverUrl = "https://cdn.example.com/already-has-one.jpg")
-        coEvery { repository.getPopular("src", 1, any()) } returns listOf(withCover)
+        coEvery { repository.getPopular("src", 1, any(), any()) } returns listOf(withCover)
 
         val vm = viewModel()
         advanceUntilIdle()

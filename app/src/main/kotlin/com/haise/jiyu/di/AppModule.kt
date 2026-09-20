@@ -296,11 +296,35 @@ private object CloudflareDoh : Dns {
             .build()
     }
 
-    override fun lookup(hostname: String): List<InetAddress> = try {
-        delegate.lookup(hostname)
-    } catch (_: IOException) {
-        Dns.SYSTEM.lookup(hostname)
+    // Odpovědi se drží v paměti pár minut: každý nový hostitel (web, CDN obálek, CDN stránek) jinak stál jeden dotaz
+    // na cloudflare-dns.com (desítky až stovky ms) i tehdy, když už ho appka před chvílí překládala.
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
+
+    // Když DoH selže (typicky zablokované 1.1.1.1 na síti), každý další dotaz by čekal až 5 s na timeout, než se
+    // spadne na systémové DNS. Po selhání se DoH na chvíli vypne a rovnou se použije systémové DNS.
+    @Volatile private var dohDisabledUntilMs = 0L
+
+    override fun lookup(hostname: String): List<InetAddress> {
+        val now = System.currentTimeMillis()
+        cache[hostname]?.let { (addresses, expiresAt) -> if (expiresAt > now) return addresses }
+        val addresses = if (now < dohDisabledUntilMs) {
+            Dns.SYSTEM.lookup(hostname)
+        } else {
+            try {
+                delegate.lookup(hostname)
+            } catch (_: IOException) {
+                dohDisabledUntilMs = now + DOH_BACKOFF_MS
+                Dns.SYSTEM.lookup(hostname)
+            }
+        }
+        if (cache.size >= MAX_CACHED_HOSTS) cache.clear()
+        cache[hostname] = addresses to now + DNS_CACHE_TTL_MS
+        return addresses
     }
+
+    private const val DNS_CACHE_TTL_MS = 5L * 60 * 1000
+    private const val DOH_BACKOFF_MS = 60_000L
+    private const val MAX_CACHED_HOSTS = 512
 
     private fun tryGetByIp(ip: String): InetAddress? = try {
         InetAddress.getByName(ip)
@@ -376,6 +400,7 @@ object AppModule {
         // se stránka "nenačetla", i když spojení běželo. Zaseknuté spojení pořád hlídá readTimeout (30 s
         // bez dat), tenhle strop je jen pojistka proti pomalému, ale živému stahování.
         .callTimeout(120, TimeUnit.SECONDS)
+        .connectionPool(okhttp3.ConnectionPool(32, 5, TimeUnit.MINUTES))
         .dns(CloudflareDoh)
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(DomainOverrideInterceptor(domainOverrides))

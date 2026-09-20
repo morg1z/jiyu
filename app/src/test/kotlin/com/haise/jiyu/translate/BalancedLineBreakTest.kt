@@ -249,6 +249,44 @@ class BalancedLineBreakTest {
         )
 
     @Test
+    fun `an oval too small for the old floor still gets the text when the floor is lowered`() {
+        val words = "TOHLE JE DLOUHY PREKLAD CO SE MUSI VEJIT".split(" ")
+        fun fitWithFloor(floor: Float) = fitTextToShape(
+            words = words,
+            minFontSp = floor,
+            maxFontSp = 36f,
+            shape = ovalShape(),
+            centerF = 0.5f,
+            shapeTopF = 0f,
+            shapeBottomF = 1f,
+            pageWidthPx = 60f,
+            pageHeightPx = 20f,
+            measureWord = { word, fontSp -> word.length * fontSp * 0.6f },
+            spaceWidth = { fontSp -> fontSp * 0.6f },
+            lineHeightPx = { fontSp -> fontSp * 1.25f },
+        )
+        assertNull("does not fit at a floor of 6sp", fitWithFloor(6f))
+        val layout = fitWithFloor(2f)
+        assertNotNull("fits once the floor is 2sp", layout)
+        assertEquals(words.joinToString(" "), layout!!.lines.joinToString(" "))
+        assertTrue(layout.fontSp < 6f && layout.fontSp >= 2f)
+    }
+
+    @Test
+    fun `the floor is tried exactly even when the coarse step does not land on it`() {
+        val words = listOf("AAAAAAAAAA")
+        val layout = fitTextToShape(
+            words = words, minFontSp = 2f, maxFontSp = 35.5f, shape = ovalShape(), centerF = 0.5f,
+            shapeTopF = 0f, shapeBottomF = 1f, pageWidthPx = 20f, pageHeightPx = 10f,
+            measureWord = { word, fontSp -> word.length * fontSp * 0.6f },
+            spaceWidth = { fontSp -> fontSp * 0.6f },
+            lineHeightPx = { fontSp -> fontSp * 1.25f },
+        )
+        assertNotNull("the floor (2sp) must be tried; the coarse steps alone stop at 3.5sp", layout)
+        assertTrue("got ${layout!!.fontSp}", layout.fontSp >= 2f && layout.fontSp < 3.5f)
+    }
+
+    @Test
     fun `fits text into an oval and never breaks a word apart`() {
         val text = "KDYBYCH VEDEL JAKA TA CESTA BUDE"
         val layout = fitOval(text)

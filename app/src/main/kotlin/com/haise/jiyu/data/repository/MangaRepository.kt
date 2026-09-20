@@ -40,6 +40,8 @@ import javax.inject.Singleton
 private const val PAGES_TTL_MS = 10L * 60 * 1000
 private const val PAGES_MAX = 8
 private const val DETAILS_TTL_MS = 5L * 60 * 1000
+private const val LISTING_TTL_MS = 3L * 60 * 1000
+private const val LISTING_MAX = 48
 private const val DETAILS_MAX = 16
 
 /** Manga entita v knihovně, o které appka usoudila, že je stejná jako nově přidávaná (podle názvu). */
@@ -116,9 +118,17 @@ class MangaRepository @Inject constructor(
         return source.search(query, page, filter)
     }
 
-    suspend fun getPopular(sourceId: String, page: Int = 1, filter: MangaFilter = MangaFilter()): List<SManga> {
+    /**
+     * Výpis titulů zdroje (popular/latest). Krátce se drží v paměti ([LISTING_TTL_MS]) a souběžná volání se sdílejí,
+     * takže návrat na zdroj (např. zpět z detailu titulu) nezačíná novým scrapováním webu. [force] = uživatelské
+     * "zkusit znovu" načte čerstvá data. Vyhledávání se záměrně nekešuje: volá se i z hromadného hledání, které běží s
+     * vlastními pravidly pro Cloudflare (ta by se v kešovacím scope ztratila).
+     */
+    suspend fun getPopular(sourceId: String, page: Int = 1, filter: MangaFilter = MangaFilter(), force: Boolean = false): List<SManga> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
-        return source.getPopular(page, filter)
+        return contentCache.getOrLoad("listing", "$sourceId|$page|$filter", LISTING_TTL_MS, LISTING_MAX, force) {
+            source.getPopular(page, filter)
+        }
     }
 
     // ── Manga CRUD ───────────────────────────────────────────────────────────

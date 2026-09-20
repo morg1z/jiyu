@@ -36,6 +36,10 @@ data class ResolvedCandidate(
     // (nebo teprve zacal az od nejake pozdejsi kapitoly) - "nejvic kapitol" totiz
     // nerika nic o tom, KDE presne ty kapitoly jsou.
     val nearestChapterDistance: Float? = null,
+    /** Nejnižší a nejvyšší číslo kapitoly, kterou zdroj u titulu má - null = neznámé. Z rozsahu se pozná zdroj, který
+     * má jen pár kapitol (nebo jen začátek/konec), i když je jeho počet kapitol "dost velký". */
+    val minChapterNumber: Float? = null,
+    val maxChapterNumber: Float? = null,
 )
 
 /**
@@ -87,6 +91,7 @@ class ComicKChapterResolver @Inject constructor(
         comicKTitle: String,
         comicKContentType: String,
         requestedChapterNumber: Float?,
+        priorityGroupTokens: List<String> = emptyList(),
     ): Flow<ResolvedCandidate> = channelFlow {
         val favorites = settings.favoriteSourceIds.first()
         val cached = cache.get(comicKMangaId)
@@ -95,7 +100,7 @@ class ComicKChapterResolver @Inject constructor(
             return@channelFlow
         }
         val found = java.util.Collections.synchronizedList(mutableListOf<CachedCandidate>())
-        searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType) { candidate ->
+        searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens) { candidate ->
             found.add(candidate)
             send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
         }
@@ -121,6 +126,8 @@ class ComicKChapterResolver @Inject constructor(
             nearestChapterDistance = requestedChapterNumber?.let { target ->
                 c.chapters.minOfOrNull { abs(it.chapterNumber - target) }
             },
+            minChapterNumber = c.chapters.minOfOrNull { it.chapterNumber },
+            maxChapterNumber = c.chapters.maxOfOrNull { it.chapterNumber },
         )
 
     /**
@@ -141,6 +148,7 @@ class ComicKChapterResolver @Inject constructor(
         comicKMangaUrl: String,
         comicKTitle: String,
         comicKContentType: String,
+        priorityGroupTokens: List<String>,
         onFound: suspend (CachedCandidate) -> Unit,
     ) {
         // Hromadne prohledavani desitek zdroju najednou nema interaktivni Cloudflare vyzvu
@@ -150,7 +158,7 @@ class ComicKChapterResolver @Inject constructor(
         // early-exit) flag spolehlive vrati zpet, aby normalni prime prochazeni zdroje dal fungovalo.
         cloudflareInterceptor.suppressInteractiveChallenge = true
         try {
-            searchAndFetchStreamingInternal(comicKMangaUrl, comicKTitle, comicKContentType, onFound)
+            searchAndFetchStreamingInternal(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens, onFound)
         } finally {
             cloudflareInterceptor.suppressInteractiveChallenge = false
         }
@@ -160,6 +168,7 @@ class ComicKChapterResolver @Inject constructor(
         comicKMangaUrl: String,
         comicKTitle: String,
         comicKContentType: String,
+        priorityGroupTokens: List<String>,
         onFound: suspend (CachedCandidate) -> Unit,
     ) = coroutineScope {
         val semaphore = Semaphore(5)
@@ -182,14 +191,22 @@ class ComicKChapterResolver @Inject constructor(
         val isAdultTitle = titleInfoFetchFailed || isAdultRating(titleInfo.contentRating)
         val searchTitle = alternateTitles.firstOrNull() ?: comicKTitle
         val normalizedTargets = (alternateTitles + comicKTitle).map { normalizeMangaTitle(it) }.toSet()
-        sourceManager.getAllForCrossSourceSearch()
+        val eligible = sourceManager.getAllForCrossSourceSearch()
             .filter { it.id != "comick" && it.includeInGlobalSearch && isSameContentGroup(it.contentType, comicKContentType) }
             // Ne-adult ComicK titul nikdy neprohledává isAdult zdroje (i kdyz je uzivatel
             // globalne povolil v Nastaveni) - a adult titul je naopak vzdy zahrne, i kdyz
             // je uzivatel globalne skryl z Prochazet/hledani. Zamerne nezavisle na
             // SourceManager.getAll()/showAdultSources - viz getAllForCrossSourceSearch.
             .filter { isAdultTitle || !it.isAdult }
-            .map { source ->
+            // Hledá se jen v anglických zdrojích: ComicK je anglický katalog, překlad do jiného jazyka (ru, pt, es...)
+            // by při otevření kapitoly dal titul, který uživatel nemůže číst, a zbytečně by zatěžoval hledání.
+            .filter { isSearchLanguage(it.language) }
+        // Dvě fáze: nejdřív zdroje skupin, které titul překládají TEĎ (skupiny posledních kapitol) - když ten zdroj
+        // máme a má titul kompletní, hledání se ukončí hned (viz early-exit ve ViewModelu); teprve potom všechny
+        // ostatní anglické zdroje včetně agregátorů (hubů).
+        val (priority, rest) = eligible.partition { matchesGroupSource(it.name, priorityGroupTokens) }
+        for (phase in listOf(priority, rest)) {
+            phase.map { source ->
                 launch {
                     semaphore.withPermit {
                         try {
@@ -209,7 +226,11 @@ class ComicKChapterResolver @Inject constructor(
                     }
                 }
             }.forEach { it.join() }
+        }
     }
+
+    /** Anglický zdroj ("en", "en-US"...). */
+    private fun isSearchLanguage(language: String): Boolean = language.lowercase().startsWith("en")
 
     /** "erotica"/"pornographic" = 18+ na ComicK škále (stejná škála jako MangaDex/MangaFire content_rating filtr), "safe"/"suggestive"/null = ne. */
     private fun isAdultRating(contentRating: String?): Boolean = contentRating in ADULT_CONTENT_RATINGS
@@ -227,6 +248,13 @@ class ComicKChapterResolver @Inject constructor(
     }
 
     private companion object {
+        /** Zdroj skupiny = normalizovaný název zdroje obsahuje normalizovaný token skupiny (nebo naopak). */
+        fun matchesGroupSource(sourceName: String, tokens: List<String>): Boolean {
+            if (tokens.isEmpty()) return false
+            val name = sourceName.lowercase().filter { it.isLetterOrDigit() }
+            return name.isNotEmpty() && tokens.any { name.contains(it) || it.contains(name) }
+        }
+
         val ADULT_CONTENT_RATINGS = setOf("erotica", "pornographic")
         const val MAX_CACHED_TITLES = 128
     }

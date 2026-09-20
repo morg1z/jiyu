@@ -149,8 +149,13 @@ class SourceBrowseViewModel @Inject constructor(
         }
     }
 
+    // "Zkusit znovu" musí obejít krátkou paměťovou cache výpisu (viz MangaRepository.getPopular), jinak by se po
+    // chybě znovu ukázal stejný (prázdný/starý) výsledek.
+    private var forceNextListing = false
+
     fun retry() {
         val q = lastQuery
+        forceNextListing = true
         if (q == null) loadPopular(_activeFilter.value) else search(q, _activeFilter.value)
     }
 
@@ -224,7 +229,9 @@ class SourceBrowseViewModel @Inject constructor(
             _error.value = null
             _errorAction.value = null
             try {
-                val page = repository.getPopular(sourceId, 1, filter)
+                val force = forceNextListing
+                forceNextListing = false
+                val page = repository.getPopular(sourceId, 1, filter, force = force)
                 _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
             } catch (e: Exception) {

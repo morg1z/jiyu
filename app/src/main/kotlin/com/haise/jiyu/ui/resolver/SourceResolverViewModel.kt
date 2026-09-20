@@ -40,6 +40,51 @@ internal fun isCompleteEnoughForEarlyExit(matchedChapterCount: Int, totalComicKC
 
 private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
 
+/** Od které do které kapitoly ComicK titul eviduje (nejnižší a nejvyšší číslo kapitoly). */
+internal data class ChapterRange(val first: Float, val last: Float)
+
+/**
+ * Pokrývá zdroj rozsah kapitol titulu? Zdroj s počtem kapitol "skoro jako ComicK" může mít jen jeho část (třeba jen
+ * posledních 40 kapitol) a nemá smysl ho otevírat místo úplného. Tolerance: na konci pár kapitol (zdroje vydávají
+ * nejnovější o něco později), na začátku ~1-2 kapitoly (ComicK často začíná od 0, zdroje od 1).
+ * Neznámý rozsah zdroje nebo titulu = pokrývá (není důvod ho vyřazovat).
+ */
+internal fun coversChapterRange(candidateFirst: Float?, candidateLast: Float?, range: ChapterRange?): Boolean {
+    if (range == null || candidateFirst == null || candidateLast == null) return true
+    val span = (range.last - range.first).coerceAtLeast(0f)
+    val endTolerance = maxOf(3f, span * 0.03f)
+    val startTolerance = maxOf(1.5f, span * 0.03f)
+    return candidateLast >= range.last - endTolerance && candidateFirst <= range.first + startTolerance
+}
+
+/** Skupiny, které titul překládají TEĎ (posledních 2 kapitoly), a ty, které ho začaly (první 2 kapitoly). */
+internal data class GroupSignals(val activeTokens: List<String>, val originTokens: List<String>) {
+    /**
+     * Které skupiny mají ovlivnit výběr zdroje: jen ty, co překládají teď. Skupina, která titul jen začala a v
+     * posledních kapitolách už není (skončila, zdroj mohl být zrušen), se NEpreferuje - jinak by appka otevřela
+     * zdroj s nedokončeným překladem. Bez informace o posledních skupinách se použijí aspoň ty původní.
+     */
+    val preferredTokens: List<String> get() = activeTokens.ifEmpty { originTokens }
+}
+
+/**
+ * Z kapitol ComicK titulu (jedna kapitola bývá vícekrát, po jednom záznamu za skupinu) vytáhne skupiny první dvou a
+ * posledních dvou kapitol. Čísla se sjednocují přes floor(), stejně jako počítání kompletnosti.
+ */
+internal fun deriveGroupSignals(chapters: List<ChapterEntity>, normalize: (String) -> String, isGeneric: (String) -> Boolean): GroupSignals {
+    val numbersDesc = chapters.map { floor(it.chapterNumber).toInt() }.distinct().sortedDescending()
+    fun tokensOf(numbers: Set<Int>): List<String> = chapters
+        .filter { floor(it.chapterNumber).toInt() in numbers }
+        .flatMap { (it.scanlationGroup ?: "").split(",") }
+        .map(normalize)
+        .filter { it.length >= 3 && !isGeneric(it) }
+        .distinct()
+    return GroupSignals(
+        activeTokens = tokensOf(numbersDesc.take(2).toSet()),
+        originTokens = tokensOf(numbersDesc.takeLast(2).toSet()),
+    )
+}
+
 private const val SUSPICIOUSLY_SHORT_PAGE_FLOOR = 6
 
 /**
@@ -96,8 +141,11 @@ internal fun rankCandidates(
     candidates: List<ResolvedCandidate>,
     totalComicKChapters: Int,
     isPreferredGroup: (ResolvedCandidate) -> Boolean,
+    comicKRange: ChapterRange? = null,
 ): List<ResolvedCandidate> {
-    fun isCompleteEnough(c: ResolvedCandidate) = isCompleteEnoughForEarlyExit(c.matchedChapterCount, totalComicKChapters)
+    fun isCompleteEnough(c: ResolvedCandidate) =
+        isCompleteEnoughForEarlyExit(c.matchedChapterCount, totalComicKChapters) &&
+            coversChapterRange(c.minChapterNumber, c.maxChapterNumber, comicKRange)
     return candidates.sortedWith(
         compareByDescending<ResolvedCandidate> { it.isFavorite && isCompleteEnough(it) }
             .thenByDescending { isPreferredGroup(it) && isCompleteEnough(it) }
@@ -129,6 +177,10 @@ class SourceResolverViewModel @Inject constructor(
     // pro fuzzy porovnani se jmeny nasich zdroju (viz matchesPreferredGroup). ComicK umi u jedne
     // kapitoly vracet i vic skupin najednou, oddelene carkou (ChapterEntity.scanlationGroup).
     private var preferredGroupTokens: List<String> = emptyList()
+
+    // Od které do které kapitoly ComicK titul eviduje - zdroj s jen částí rozsahu se nebere jako "kompletní"
+    // (viz coversChapterRange) a nevyhrává ani early-exit, ani bonusy za oblíbený zdroj / skupinu.
+    private var comicKRange: ChapterRange? = null
 
     // Jakmile prijde dost dobry kandidat (viz collect nize), appka uz nemusi cekat na
     // zbytek desitek zdroju - zrusi zbyvajici hledani (searchJob) a rovnou otevre. Flag
@@ -193,20 +245,14 @@ class SourceResolverViewModel @Inject constructor(
                 // kapitola ukazuje, kdo preklad zacal, posledni dve kdo ho aktivne dodava ted -
                 // dohromady spolehlivejsi signal "hlavniho" prekladatele nez jen jedna nahodna
                 // otevrena kapitola (ta muze byt od vedlejsi/jednorazove skupiny).
-                val distinctNumbersDesc = allComicKChapters.map { floor(it.chapterNumber).toInt() }.distinct().sortedDescending()
-                val signalNumbers = setOfNotNull(
-                    distinctNumbersDesc.firstOrNull(),
-                    distinctNumbersDesc.getOrNull(1),
-                    distinctNumbersDesc.lastOrNull(),
-                )
-                val signalGroupNames = allComicKChapters
-                    .filter { floor(it.chapterNumber).toInt() in signalNumbers }
-                    .map { it.scanlationGroup ?: "" }
-                preferredGroupTokens = (signalGroupNames + (chapter.scanlationGroup ?: ""))
-                    .flatMap { it.split(",") }
-                    .map { normalizeGroupToken(it) }
-                    .filter { it.length >= 3 && !isGenericGroupToken(it) }
-                    .distinct()
+                //
+                // Upřesnění: rozhodují skupiny posledních DVOU kapitol (kdo titul překládá teď). Skupina, která
+                // přeložila jen začátek, se nepreferuje - její zdroj bývá zrušený/nedokončený. Když nemáme žádný
+                // zdroj aktivních skupin, hledá se dál mezi všemi anglickými zdroji včetně agregátorů.
+                val signals = deriveGroupSignals(allComicKChapters, ::normalizeGroupToken, ::isGenericGroupToken)
+                preferredGroupTokens = signals.preferredTokens
+                val numbers = allComicKChapters.map { it.chapterNumber }
+                comicKRange = if (numbers.isEmpty()) null else ChapterRange(numbers.min(), numbers.max())
                 _searchingMore.value = true
                 resolver.findCandidatesFlow(
                     comicKMangaId = manga.id,
@@ -214,6 +260,7 @@ class SourceResolverViewModel @Inject constructor(
                     comicKTitle = manga.title,
                     comicKContentType = manga.contentType,
                     requestedChapterNumber = chapter.chapterNumber,
+                    priorityGroupTokens = preferredGroupTokens,
                 )
                     .onCompletion {
                         _searchingMore.value = false
@@ -261,7 +308,8 @@ class SourceResolverViewModel @Inject constructor(
                         // rovnou otevre a zbytek hledani zrusi (viz searchJob).
                         if (!hasAutoResolved && candidate.hasRequestedChapter &&
                             (candidate.isFavorite || matchesPreferredGroup(candidate)) &&
-                            isCompleteEnoughForEarlyExit(candidate.matchedChapterCount, _totalComicKChapters.value)
+                            isCompleteEnoughForEarlyExit(candidate.matchedChapterCount, _totalComicKChapters.value) &&
+                            coversChapterRange(candidate.minChapterNumber, candidate.maxChapterNumber, comicKRange)
                         ) {
                             hasAutoResolved = true
                             selectCandidate(candidate)
@@ -299,7 +347,7 @@ class SourceResolverViewModel @Inject constructor(
      * pro uzivatele, tak pro vyber alternativ v [resolveCompleteChapter].
      */
     private fun rankedCandidates(): List<ResolvedCandidate> =
-        rankCandidates(_candidates.value, _totalComicKChapters.value, ::matchesPreferredGroup)
+        rankCandidates(_candidates.value, _totalComicKChapters.value, ::matchesPreferredGroup, comicKRange)
 
     fun selectCandidate(candidate: ResolvedCandidate) {
         val target = requestedChapterNumber ?: return

@@ -252,6 +252,12 @@ fun fitTextToShape(
         coarse -= SHAPED_COARSE_STEP_SP
         result = attempt(coarse)
     }
+    // Hrubý krok nemusí na podlahu trefit přesně (např. strop 35,5 a podlaha 2) - poslední záchrana je zkusit
+    // přímo podlahu, ať text, který se vejde jen na ní, nepropadne do náhradní sazby.
+    if (result == null && coarse > minFontSp) {
+        coarse = minFontSp
+        result = attempt(coarse)
+    }
     var best = result ?: return null
 
     var fine = coarse
@@ -340,6 +346,11 @@ fun fitFixedLinesToShape(
     var centerResult = attempt(coarse)
     while (centerResult == null && coarse - SHAPED_COARSE_STEP_SP >= minFontSp) {
         coarse -= SHAPED_COARSE_STEP_SP
+        centerResult = attempt(coarse)
+    }
+    // Viz fitTextToShape: podlaha se vždycky zkusí přesně, i když na ni hrubý krok netrefí.
+    if (centerResult == null && coarse > minFontSp) {
+        coarse = minFontSp
         centerResult = attempt(coarse)
     }
     var bestCenter = centerResult ?: return null

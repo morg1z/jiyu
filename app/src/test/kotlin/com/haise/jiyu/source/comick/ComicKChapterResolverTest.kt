@@ -37,6 +37,7 @@ private class FakeSource(
     private val chapters: List<SChapter> = emptyList(),
     private val failSearch: Boolean = false,
     override val isAdult: Boolean = false,
+    override val language: String = "en",
 ) : MangaSource {
     override suspend fun search(query: String, page: Int, filter: MangaFilter) =
         if (failSearch) throw RuntimeException("boom") else searchResults
@@ -334,6 +335,60 @@ class ComicKChapterResolverTest {
         val result = resolver.findCandidates("comick-id-15", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
 
         assertEquals(2, result.size)
+    }
+
+    @Test
+    fun `sources in other languages than English are not searched`() = runTest {
+        val match = SManga(sourceId = "x", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val english = FakeSource("src-en", "English Site", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)))
+        val portuguese = FakeSource("src-pt", "Site PT", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)), language = "pt")
+        val russian = FakeSource("src-ru", "Site RU", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)), language = "ru")
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(english, portuguese, russian)
+
+        val result = resolver.findCandidates("comick-id-lang", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(listOf("src-en"), result.map { it.source.id })
+    }
+
+    @Test
+    fun `a regional English variant such as en-US counts as English`() = runTest {
+        val match = SManga(sourceId = "x", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val us = FakeSource("src-us", "US Site", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)), language = "en-US")
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(us)
+
+        val result = resolver.findCandidates("comick-id-lang2", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(1, result.size)
+    }
+
+    @Test
+    fun `sources of the groups that translate the title now are searched before all the others`() = runTest {
+        val match = SManga(sourceId = "x", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val other = FakeSource("src-other", "Some Hub", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)))
+        val asura = FakeSource("src-asura", "Asura Scans", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)))
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(other, asura)
+
+        val result = resolver.findCandidatesFlow(
+            "comick-id-prio", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null,
+            priorityGroupTokens = listOf("asura"),
+        ).toList()
+
+        assertEquals(listOf("src-asura", "src-other"), result.map { it.source.id })
+    }
+
+    @Test
+    fun `the candidate carries the range of chapters the source has`() = runTest {
+        val match = SManga(sourceId = "x", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val source = FakeSource(
+            "src-range", "Range Site", "MANHWA", searchResults = listOf(match),
+            chapters = listOf(chapter(3f), chapter(1f), chapter(40.5f)),
+        )
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(source)
+
+        val result = resolver.findCandidates("comick-id-range", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(1f, result.single().minChapterNumber)
+        assertEquals(40.5f, result.single().maxChapterNumber)
     }
 
     private fun chapter(number: Float) = SChapter(

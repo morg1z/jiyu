@@ -110,8 +110,13 @@ fun largestInscribedRect(shape: List<BubbleShapePoint>): InscribedRect? {
  *
  * Je to podlaha POSLEDNÍ ZÁCHRANY, ne běžná velikost - fitter vždycky vybírá největší písmo,
  * které se do bubliny vejde, takže sem dosáhne jen text, co se jinam nevejde vůbec.
+ *
+ * Snížena z 4 na 2 sp (na polovinu): u drobných bublin a u laloků spojených ("kaskádových") bublin, kde
+ * text nevyšel ani na 4 sp, se dřív zbytek ořízl obrysem bubliny; drobné písmo je lepší než chybějící text
+ * (klepnutím jde stejně přepnout na originál). Fitter k podlaze klesá po krocích, takže k 2 sp dojde jen ten
+ * text, který se nevejde ani o něco větší.
  */
-const val ABSOLUTE_MIN_FONT_SP = 4f
+const val ABSOLUTE_MIN_FONT_SP = 2f
 
 /**
  * Dolní mez velikosti písma pro sazbu překladu, odvozená z uživatelova nastavení velikosti
@@ -215,7 +220,9 @@ fun fitFontSizeToBox(
 
     var coarse = searchCeiling
     while (coarse > minFontSp && !fits(coarse)) {
-        coarse -= COARSE_STEP_SP
+        // coerceAtLeast: hrubý krok nesmí podlézt podlahu (dřív např. 5 -> 3 při podlaze 4 ověřil velikost, kterou
+        // pak coerceIn stejně zvedl zpátky na 4, kde se text nevešel) - a podlaha se vždycky zkusí přesně.
+        coarse = (coarse - COARSE_STEP_SP).coerceAtLeast(minFontSp)
     }
     if (!fits(coarse)) return ShapeFitResult(minFontSp, boxWidthPx)
 

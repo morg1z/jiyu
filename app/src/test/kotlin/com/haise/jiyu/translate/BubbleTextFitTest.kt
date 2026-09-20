@@ -166,6 +166,45 @@ class BubbleTextFitTest {
     }
 
     @Test
+    fun `the absolute floor is half of the old 4sp`() {
+        assertEquals(2f, ABSOLUTE_MIN_FONT_SP, 0.001f)
+        assertEquals(2f, minTranslationFontSp(1f), 0.001f)
+        assertEquals(1.4f, minTranslationFontSp(0.7f), 0.001f)
+        // Větší písmo v nastavení podlahu nezvedá (viz doc minTranslationFontSp).
+        assertEquals(2f, minTranslationFontSp(1.6f), 0.001f)
+    }
+
+    @Test
+    fun `text that does not fit at 4sp is squeezed down towards the 2sp floor instead of being clipped`() {
+        val text = "TOHLE JE DLOUHY PREKLAD CO SE MUSI VEJIT DO MALE BUBLINY"
+        val result = fitFontSizeToBox(
+            minFontSp = ABSOLUTE_MIN_FONT_SP,
+            maxFontSp = 36f,
+            boxWidthPx = 30f,
+            maxHeightPx = 11f,
+            measure = { fontSp, maxW -> fakeMeasure(text, fontSp, maxW) },
+        )
+        assertTrue("expected the font below the old 4sp floor, got ${result.fontSp}", result.fontSp < 4f)
+        assertTrue("never below the floor, got ${result.fontSp}", result.fontSp >= ABSOLUTE_MIN_FONT_SP)
+        val m = fakeMeasure(text, result.fontSp, result.widthPx)
+        assertTrue("chosen size must really fit the height", m.totalHeightPx <= 11f)
+    }
+
+    @Test
+    fun `the coarse search never tests a size below the floor`() {
+        val tested = mutableListOf<Float>()
+        fitFontSizeToBox(
+            minFontSp = 4f,
+            maxFontSp = 9f,
+            boxWidthPx = 1f,
+            maxHeightPx = 1f,
+            measure = { fontSp, _ -> tested += fontSp; fakeMeasure("XXXXXXXXXX", fontSp, 1f) },
+        )
+        assertTrue("sizes tested: $tested", tested.all { it >= 4f - 0.0001f })
+        assertTrue("the floor itself must be tried, sizes tested: $tested", tested.any { kotlin.math.abs(it - 4f) < 0.0001f })
+    }
+
+    @Test
     fun `grows font size well beyond the old fixed 11sp cap when the box has plenty of room`() {
         val result = fitFontSizeToBox(
             minFontSp = 6f,
