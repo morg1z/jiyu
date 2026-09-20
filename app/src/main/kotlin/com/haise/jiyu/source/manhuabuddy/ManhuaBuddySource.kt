@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.manhuabuddy
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -38,7 +41,7 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
         return Jsoup.parse(html)
@@ -51,11 +54,11 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
             val title = el.parent()?.selectFirst("h3.title")?.text()?.trim().orEmpty()
                 .ifBlank { link.selectFirst("img")?.attr("alt")?.trim().orEmpty() }
                 .ifBlank { return@mapNotNull null }
-            val cover = link.selectFirst("img")?.attr("data-original")?.takeIf { it.startsWith("http") }
+            val cover = link.selectFirst("img")?.attr("data-original")?.let { absoluteMediaUrl(base, it) }
             // Web pri redesignu 2026 zmenil "div.visual a" na relativni href (drive
             // absolutni) - OkHttp Request.Builder().url() na relativni URL vyhodi
             // IllegalArgumentException, ktera se ztrati v try/catch jako prazdny seznam.
-            val absoluteHref = href.takeIf { it.startsWith("http") } ?: (base + href)
+            val absoluteHref = href.let { absoluteMediaUrl(base, it) } ?: (base + href)
             SManga(sourceId = id, url = absoluteHref, title = title, coverUrl = cover, contentType = "MANHWA")
         }
 
@@ -80,29 +83,29 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val genre = filter.genres.firstOrNull()
         if (genre != null) {
-            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // /popular a /new-manga jsou samostatne cesty, ne query parametr - overeno zivě,
         // vraci prokazatelne jine tituly.
         val path = if (filter.sortBy == "latest") "new-manga" else "popular"
-        try { parseList(get("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/$path?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val genre = filter.genres.firstOrNull()
         if (genre != null) {
-            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get("$base/genre/$genre?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?s=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun lineContent(doc: Document, label: String): String? =
@@ -120,7 +123,7 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
                 genres = genresSpan?.select("a.item-tag")?.map { it.text().trim() }?.filter { it.isNotBlank() } ?: emptyList(),
                 contentType = "MANHWA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -151,19 +154,19 @@ class ManhuaBuddySource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = parseIsoDate(entry.optString("datePublished")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(text: String): Long = try {
         OffsetDateTime.parse(text).toInstant().toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             get(chapter.url).select("div.chapter-content div.item-photo img").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

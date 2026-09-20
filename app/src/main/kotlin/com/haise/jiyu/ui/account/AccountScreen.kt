@@ -94,6 +94,7 @@ fun AccountScreen(
     val currentUser           by viewModel.currentUser.collectAsStateWithLifecycle()
     val authState             by viewModel.authState.collectAsStateWithLifecycle()
     val syncState             by viewModel.syncState.collectAsStateWithLifecycle()
+    val ownerConflict         by viewModel.ownerConflict.collectAsStateWithLifecycle()
     val isAniListConnected    by viewModel.isAniListAuthenticated.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
@@ -130,6 +131,29 @@ fun AccountScreen(
             is SyncState.Error -> { snackbarHost.showSnackbar(errorPrefix.format(s.message)); viewModel.clearSyncState() }
             else -> Unit
         }
+    }
+
+    if (ownerConflict) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { viewModel.dismissOwnerConflict() },
+            title = { Text(stringResource(R.string.account_owner_conflict_title)) },
+            text = { Text(stringResource(R.string.account_owner_conflict_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { viewModel.resolveOwnerConflictUseCloud() }) {
+                    Text(stringResource(R.string.account_owner_conflict_use_cloud))
+                }
+            },
+            dismissButton = {
+                Row {
+                    androidx.compose.material3.TextButton(onClick = { viewModel.dismissOwnerConflict() }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                    androidx.compose.material3.TextButton(onClick = { viewModel.resolveOwnerConflictKeepLocal() }) {
+                        Text(stringResource(R.string.account_owner_conflict_keep_local))
+                    }
+                }
+            },
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize().background(screenGradient)) {

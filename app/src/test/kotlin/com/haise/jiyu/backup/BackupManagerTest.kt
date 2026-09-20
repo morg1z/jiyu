@@ -1,5 +1,7 @@
 package com.haise.jiyu.backup
 
+import com.haise.jiyu.data.db.entity.CategoryEntity
+import com.haise.jiyu.data.db.entity.ChapterEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -230,5 +232,84 @@ class BackupManagerTest {
         val c = parseBackupJson(json).chapters.single()
 
         assertEquals(com.haise.jiyu.data.db.entity.DownloadStatus.NOT_DOWNLOADED, c.downloadStatus)
+    }
+    @Test
+    fun `one malformed chapter is skipped and counted instead of failing the whole restore`() {
+        val json = backupJson {
+            put("chapters", JSONArray()
+                .put(JSONObject().apply { put("id", "broken") })
+                .put(JSONObject().apply {
+                    put("id", "c1"); put("mangaId", "m1"); put("sourceId", "src"); put("url", "/c1")
+                    put("name", "Ch 1")
+                }))
+        }
+
+        val parsed = parseBackupJson(json)
+
+        assertEquals(listOf("c1"), parsed.chapters.map { it.id })
+        assertEquals(1, parsed.skippedCount)
+    }
+
+    @Test
+    fun `a chapter missing optional numeric fields falls back to defaults`() {
+        val json = backupJson {
+            put("chapters", JSONArray().put(JSONObject().apply {
+                put("id", "c1"); put("mangaId", "m1"); put("sourceId", "src"); put("url", "/c1")
+                put("name", "Ch 1")
+            }))
+        }
+
+        val c = parseBackupJson(json).chapters.single()
+
+        assertEquals(0f, c.chapterNumber, 0f)
+        assertEquals(false, c.read)
+        assertEquals(0, c.lastPageRead)
+        assertEquals(0L, c.dateUpload)
+    }
+
+    @Test
+    fun `a malformed manga is skipped together with its category assignments`() {
+        val json = backupJson {
+            put("manga", JSONArray()
+                .put(JSONObject().apply { put("id", "broken") })
+                .put(manga("m1") { put("categoryIds", JSONArray().put("cat1")) }))
+        }
+
+        val parsed = parseBackupJson(json)
+
+        assertEquals(listOf("m1"), parsed.manga.map { it.id })
+        assertEquals(listOf("m1" to "cat1"), parsed.categoryAssignments)
+        assertEquals(1, parsed.skippedCount)
+    }
+    private fun chapter(id: String, read: Boolean, lastReadAt: Long, lastPageRead: Int = 0) = ChapterEntity(
+        id = id, mangaId = "m1", sourceId = "src", url = "/$id", name = id, chapterNumber = 1f,
+        dateUpload = 0L, read = read, lastPageRead = lastPageRead, lastReadAt = lastReadAt,
+    )
+
+    @Test
+    fun `newer local reading progress survives a restore`() {
+        val backup = listOf(chapter("c1", read = false, lastReadAt = 100L), chapter("c2", read = false, lastReadAt = 100L))
+        val local = mapOf(
+            "c1" to chapter("c1", read = true, lastReadAt = 500L, lastPageRead = 7),
+            "c2" to chapter("c2", read = true, lastReadAt = 50L),
+        )
+
+        val merged = keepNewerLocalProgress(backup, local).associateBy { it.id }
+
+        assertEquals(true, merged.getValue("c1").read)
+        assertEquals(7, merged.getValue("c1").lastPageRead)
+        assertEquals(false, merged.getValue("c2").read)
+    }
+
+    @Test
+    fun `backup categories with the same name as a local one are mapped onto it, not duplicated`() {
+        val backupCats = listOf(CategoryEntity("b1", "Favorites"), CategoryEntity("b2", "Nová"))
+        val local = listOf(CategoryEntity("l1", "favorites"))
+        val assignments = listOf("m1" to "b1", "m2" to "b2")
+
+        val (toWrite, mapped) = mergeCategoriesByName(backupCats, assignments, local)
+
+        assertEquals(listOf("b2"), toWrite.map { it.id })
+        assertEquals(listOf("m1" to "l1", "m2" to "b2"), mapped)
     }
 }

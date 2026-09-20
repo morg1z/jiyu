@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.stats
 
+import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -46,8 +47,7 @@ sealed interface StatsExportState {
 class ExtendedStatsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
-    private val historyDao: ReadHistoryDao,
-    private val mangaDao: MangaDao,
+    private val historyRepository: HistoryRepository,
     private val repository: MangaRepository,
 ) : ViewModel() {
 
@@ -63,7 +63,7 @@ class ExtendedStatsViewModel @Inject constructor(
         val cal = Calendar.getInstance()
         val dbFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val today = cal.time
-        val dailyMap = historyDao.getDailyReadCounts(since).associate { it.day to it.count }
+        val dailyMap = historyRepository.dailyReadCounts(since).associate { it.day to it.count }
         val allDays = (0..29).map { offset ->
             cal.time = today
             cal.add(Calendar.DAY_OF_YEAR, -29 + offset)
@@ -73,7 +73,7 @@ class ExtendedStatsViewModel @Inject constructor(
         }
 
         val genreMap = mutableMapOf<String, Int>()
-        mangaDao.getAllLibraryGenres().forEach { raw ->
+        repository.getAllLibraryGenres().forEach { raw ->
             raw.split(",").forEach { g ->
                 val genre = g.trim()
                 if (genre.isNotBlank()) genreMap[genre] = (genreMap[genre] ?: 0) + 1
@@ -82,13 +82,13 @@ class ExtendedStatsViewModel @Inject constructor(
         val topGenres = genreMap.entries.sortedByDescending { it.value }.take(6).map { it.key to it.value }
 
         val authorMap = mutableMapOf<String, Int>()
-        mangaDao.getAllLibraryAuthors().forEach { a ->
+        repository.getAllLibraryAuthors().forEach { a ->
             val author = a.trim()
             if (author.isNotBlank()) authorMap[author] = (authorMap[author] ?: 0) + 1
         }
         val topAuthors = authorMap.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
 
-        val library = mangaDao.getAllLibrary()
+        val library = repository.getAllLibraryManga()
         val statusBreakdown = library
             .groupBy { it.readingStatus ?: "UNSET" }
             .mapValues { it.value.size }

@@ -54,7 +54,19 @@ class ComicKChapterResolver @Inject constructor(
 ) {
     private data class CachedCandidate(val source: MangaSource, val manga: SManga, val chapters: List<SChapter>)
 
-    private val cache = java.util.Collections.synchronizedMap(mutableMapOf<String, List<CachedCandidate>>())
+    // Ohranicena LRU cache - appka za dobu behu muze projit desitky/stovky ComicK titulu, bez
+    // stropu by mapa rostla neomezene po celou dobu behu procesu (stejny audit nalez jako
+    // ThrottleInterceptor.semaphores v AppModule.kt). Schvalne NE android.util.LruCache - ten
+    // je v lokalnich JVM unit testech jen stub (isReturnDefaultValues v build.gradle.kts z nej
+    // dela tichy no-op), coz by rozbilo testy, ktere cachovani primo overuji (viz
+    // ComicKChapterResolverTest). LinkedHashMap s access-order=true + removeEldestEntry je
+    // stejna LRU sémantika, ale čistý JDK, funguje shodně v testu i za běhu appky.
+    private val cache = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, List<CachedCandidate>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<CachedCandidate>>): Boolean =
+                size > MAX_CACHED_TITLES
+        },
+    )
 
     /**
      * Stejné jako dřívější `findCandidates`, jen misto cekani na uplne vsechny zdroje najednou
@@ -77,7 +89,7 @@ class ComicKChapterResolver @Inject constructor(
         requestedChapterNumber: Float?,
     ): Flow<ResolvedCandidate> = channelFlow {
         val favorites = settings.favoriteSourceIds.first()
-        val cached = cache[comicKMangaId]
+        val cached = cache.get(comicKMangaId)
         if (cached != null) {
             cached.forEach { send(toResolvedCandidate(it, favorites, requestedChapterNumber)) }
             return@channelFlow
@@ -87,7 +99,10 @@ class ComicKChapterResolver @Inject constructor(
             found.add(candidate)
             send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
         }
-        if (found.isNotEmpty()) cache[comicKMangaId] = found.toList()
+        // I prazdny vysledek se cachuje (negativni cache) - bez tohohle drahe cross-source
+        // hledani přes VŠECHNY zdroje probíhalo znovu při každém otevření titulu bez shody,
+        // ne jen jednou (audit nalez).
+        cache.put(comicKMangaId, found.toList())
     }
 
     private fun toResolvedCandidate(c: CachedCandidate, favorites: Set<String>, requestedChapterNumber: Float?): ResolvedCandidate =
@@ -151,6 +166,8 @@ class ComicKChapterResolver @Inject constructor(
         var titleInfoFetchFailed = false
         val titleInfo = try {
             comicKSource.getTitleInfo(comicKMangaUrl)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.report("comick:resolver:titleInfo")
             titleInfoFetchFailed = true
@@ -166,7 +183,7 @@ class ComicKChapterResolver @Inject constructor(
         val searchTitle = alternateTitles.firstOrNull() ?: comicKTitle
         val normalizedTargets = (alternateTitles + comicKTitle).map { normalizeMangaTitle(it) }.toSet()
         sourceManager.getAllForCrossSourceSearch()
-            .filter { it.id != "comick" && isSameContentGroup(it.contentType, comicKContentType) }
+            .filter { it.id != "comick" && it.includeInGlobalSearch && isSameContentGroup(it.contentType, comicKContentType) }
             // Ne-adult ComicK titul nikdy neprohledává isAdult zdroje (i kdyz je uzivatel
             // globalne povolil v Nastaveni) - a adult titul je naopak vzdy zahrne, i kdyz
             // je uzivatel globalne skryl z Prochazet/hledani. Zamerne nezavisle na
@@ -181,6 +198,11 @@ class ComicKChapterResolver @Inject constructor(
                                 val match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
                                 match?.let { m -> onFound(CachedCandidate(source, m, source.getChapterList(m))) }
                             }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: com.haise.jiyu.source.SourceRateLimitedException) {
+                            // Zdroj je docasne omezeny (429) - proste se pro tenhle titul preskoci,
+                            // ostatni zdroje bezi dal a nema to jit do Crashlytics jako chyba.
                         } catch (e: Exception) {
                             e.report("comick:resolver:${source.id}")
                         }
@@ -206,5 +228,6 @@ class ComicKChapterResolver @Inject constructor(
 
     private companion object {
         val ADULT_CONTENT_RATINGS = setOf("erotica", "pornographic")
+        const val MAX_CACHED_TITLES = 128
     }
 }

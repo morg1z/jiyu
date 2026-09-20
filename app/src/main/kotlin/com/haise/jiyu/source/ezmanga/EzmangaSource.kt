@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.ezmanga
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -75,21 +78,14 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manga" -> "MANGA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANHWA"
     }
 
     private fun parseListJson(json: String): List<SManga> {
@@ -104,7 +100,7 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 sourceId = id, url = "/series/$slug", title = title,
                 coverUrl = o.optString("cover").ifBlank { null },
                 status = o.optString("status").ifBlank { null }?.lowercase(),
-                contentType = normalizeContentType(o.optString("type")),
+                contentType = normalizeContentType(o.optString("type"), default = "MANHWA"),
                 rating = if (o.has("avgRating")) o.optDouble("avgRating").takeIf { !it.isNaN() } else null,
             )
         }
@@ -116,7 +112,7 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             val sort = if (filter.sortBy == "popular") "&sort=popular" else ""
             val genreParam = if (genre != null) "&genre=${URLEncoder.encode(genre, "UTF-8")}" else ""
             parseListJson(get("$api/v1/series?page=$page$sort$genreParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // "/v1/series/search" nepodporuje "genre" parametr (400) - pri fulltextovem
@@ -126,7 +122,7 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseListJson(get("$api/v1/series/search?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun slugFromMangaUrl(mangaUrl: String): String = mangaUrl.removePrefix("/series/")
@@ -147,15 +143,15 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 author = o.optString("author").ifBlank { null },
                 artist = o.optString("artist").ifBlank { null },
                 genres = genres,
-                contentType = normalizeContentType(o.optString("type").ifBlank { null } ?: manga.contentType),
+                contentType = normalizeContentType(o.optString("type").ifBlank { null } ?: manga.contentType, default = "MANHWA"),
                 alternateTitles = o.optString("alternativeTitles").ifBlank { null }?.let { listOf(it) } ?: manga.alternateTitles,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun parseIsoDate(iso: String): Long = try {
         Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -183,7 +179,7 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 cursor = o.optString("nextCursor").ifBlank { break }
             }
             chapters.distinctBy { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val chapterPathRegex = Regex("""^/series/([a-zA-Z0-9-]+)/([a-zA-Z0-9-]+)$""")
@@ -197,6 +193,6 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 val url = images.optJSONObject(i)?.optString("url")?.takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

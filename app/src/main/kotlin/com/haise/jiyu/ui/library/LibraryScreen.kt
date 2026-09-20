@@ -84,6 +84,7 @@ import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.Warning
+import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
 import com.haise.jiyu.ui.theme.violetGlow
@@ -127,7 +128,7 @@ fun LibraryScreen(
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(NightBlue, DeepSpace.copy(alpha = 0f))))
                 .padding(horizontal = 12.dp)
-                .padding(top = 10.dp, bottom = 8.dp),
+                .padding(top = 16.dp, bottom = 8.dp),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -147,24 +148,28 @@ fun LibraryScreen(
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 4.dp)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(Color.White.copy(alpha = 0.06f))
-                        .border(1.dp, if (searchQuery.isNotEmpty()) GlowViolet.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(50.dp))
+                        // Stejný tvar a styl jako vyhledávací pole na Procházet (zaoblený obdélník 14 dp, NightBlue, jemný okraj).
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(NightBlue.copy(alpha = 0.7f))
+                        .then(
+                            if (searchQuery.isNotEmpty()) Modifier.border(1.dp, GlowViolet.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                            else Modifier.glassBorder(14.dp)
+                        )
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary.copy(alpha = 0.6f), modifier = Modifier.size(17.dp))
+                    Icon(TablerIcons.Search, contentDescription = null, tint = if (searchQuery.isNotEmpty()) GlowViolet else TextSecondary, modifier = Modifier.size(18.dp))
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = { viewModel.setSearchQuery(it) },
                         singleLine = true,
-                        textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                        textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = {}),
                         decorationBox = { inner ->
                             Box(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                                if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 14.sp)
+                                if (searchQuery.isEmpty()) Text(stringResource(R.string.library_search_placeholder), color = TextSecondary, fontSize = 15.sp)
                                 inner()
                             }
                         },

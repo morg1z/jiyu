@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.novelfire
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -33,7 +37,7 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -48,8 +52,8 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
             val href = link.attr("href").ifBlank { return@mapNotNull null }
             val title = link.selectFirst("h4.novel-title")?.text()?.trim()?.ifBlank { null } ?: link.text().trim().ifBlank { return@mapNotNull null }
             val cover = el.selectFirst("img")?.let {
-                it.attr("data-src").ifBlank { it.attr("src") }
-            }?.let { if (it.startsWith("http")) it else "$base$it" }
+                it.lazySrc().orEmpty()
+            }?.let { resolveSourceUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
         }
     }
@@ -79,7 +83,7 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int, sortBy: String): String {
@@ -89,28 +93,28 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // /ranking (Popularni) pouziva jiny sablonovy layout (h2.title) nez
         // /latest-release-novels (h4.novel-title) - parseList uz oboje umi
         // (fallback na "h2.title a"), overeno zivě jako prokazatelne jine tituly.
         val path = if (filter.sortBy == "latest") "latest-release-novels" else "ranking"
-        try { parseList(get("$base/$path?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/$path?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?keyword=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val description = doc.select("div.summary div.content p").joinToString("\n\n") { it.text().trim() }
                 .ifBlank { null }
             manga.copy(
@@ -121,7 +125,7 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
                 status = doc.selectFirst("strong.ongoing, strong.completed, strong.hiatus")?.text()?.trim(),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -153,21 +157,21 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
                 page++
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseDate(text: String?): Long {
         if (text.isNullOrBlank()) return 0L
         return try {
             java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH).parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
+        } catch (e: Exception) { e.rethrowIfControl(); 0L }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val text = doc.selectFirst("div#content")?.text()?.trim().orEmpty()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

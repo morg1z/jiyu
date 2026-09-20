@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.hentaizap
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -40,7 +42,7 @@ class HentaiZapSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -63,7 +65,7 @@ class HentaiZapSource @Inject constructor(
             // samostatny popularitni zebricek - dva skutecne odlisne seznamy.
             val path = if (filter.sortBy == "latest") "/?page=$page" else "/popular/?page=$page"
             try { parseGalleryList(fetchDocument("$base$path")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -72,7 +74,7 @@ class HentaiZapSource @Inject constructor(
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/search/?key=$q&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -88,7 +90,7 @@ class HentaiZapSource @Inject constructor(
             val genres = metadata?.select("a[href^=/tag/] span.hz-gallery-tag__name")
                 ?.mapNotNull { it.text().trim().ifBlank { null } } ?: emptyList()
             manga.copy(title = title, artist = artist, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -120,6 +122,6 @@ class HentaiZapSource @Inject constructor(
                     Page(index = i, url = full, imageUrl = full)
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

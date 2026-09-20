@@ -19,12 +19,6 @@ interface MangaTagDao {
     @Delete
     suspend fun delete(tag: MangaTagEntity)
 
-    @Query("SELECT DISTINCT tag FROM manga_tag ORDER BY tag ASC")
-    fun observeAllTags(): Flow<List<String>>
-
-    @Query("SELECT mangaId FROM manga_tag WHERE tag = :tag")
-    suspend fun getMangaIdsForTag(tag: String): List<String>
-
     @Query("SELECT * FROM manga_tag")
     suspend fun getAll(): List<MangaTagEntity>
 

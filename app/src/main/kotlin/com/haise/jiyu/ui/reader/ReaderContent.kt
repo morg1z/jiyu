@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.haise.jiyu.util.findActivity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -134,6 +135,11 @@ fun ReaderContent(
 
     // Přednačtení stránek do Coil cache
     val preloadContext = androidx.compose.ui.platform.LocalContext.current
+    val preloadHandles = remember { mutableListOf<coil.request.Disposable>() }
+    // Po odchodu ze čtečky se rozběhnuté přednačítání ruší (nedrží sloty hostitele pro obálky ve výpisu).
+    DisposableEffect(Unit) {
+        onDispose { preloadHandles.forEach { it.dispose() }; preloadHandles.clear() }
+    }
     LaunchedEffect(currentPage, pages) {
         if (pages.isEmpty()) return@LaunchedEffect
         (currentPage + 1..currentPage + 3).mapNotNull { pages.getOrNull(it) }
@@ -144,8 +150,9 @@ fun ReaderContent(
                 // cache klice) a Coil ji pri skutecnem zobrazeni stahne (a rozskladane dlazdice
                 // descrambluje) uplne znovu, cimz preload jen zdvojnasobi provoz misto usetreni.
                 val req = buildPageImageRequest(preloadContext, url, referer)
-                coil.Coil.imageLoader(preloadContext).enqueue(req)
+                preloadHandles += coil.Coil.imageLoader(preloadContext).enqueue(req)
             }
+        preloadHandles.removeAll { it.isDisposed }
     }
 
     // Jas obrazovky; -1f = systémový výchozí (okno se nezmění dokud uživatel nepohne sliderem).
@@ -154,13 +161,13 @@ fun ReaderContent(
     val view = LocalView.current
     LaunchedEffect(brightness) {
         if (brightness >= 0f) {
-            val window = (view.context as android.app.Activity).window
+            val window = view.context.findActivity()?.window ?: return@LaunchedEffect
             window.attributes = window.attributes.apply { screenBrightness = brightness }
         }
     }
     DisposableEffect(Unit) {
         onDispose {
-            val window = (view.context as android.app.Activity).window
+            val window = view.context.findActivity()?.window ?: return@onDispose
             window.attributes = window.attributes.apply { screenBrightness = -1f }
         }
     }

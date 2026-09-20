@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.nextseries
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -7,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -50,12 +54,13 @@ class NextSeriesSource(
     private val client: OkHttpClient,
     override val contentType: String = "MANHWA",
 ) : MangaSource {
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = baseUrl
     private val base get() = baseUrl.trimEnd('/')
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -79,7 +84,7 @@ class NextSeriesSource(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             parseList(get("$base/series?page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -87,7 +92,7 @@ class NextSeriesSource(
             if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/series?search=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val genreRegex = Regex(""""genre":\[([^]]*)\]""")
@@ -97,16 +102,9 @@ class NextSeriesSource(
         doc.select("span").firstOrNull { it.text().trim().equals(label, ignoreCase = true) }
             ?.nextElementSibling()?.text()?.trim()?.ifBlank { null }
 
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manga" -> "MANGA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANHWA"
-    }
-
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${manga.url}")
+            val html = get(resolveSourceUrl(base, manga.url))
             val doc = Jsoup.parse(html)
             val genres = genreRegex.find(html)?.groupValues?.get(1)
                 ?.split(",")?.map { it.trim().trim('"') }?.filter { it.isNotBlank() } ?: manga.genres
@@ -118,16 +116,16 @@ class NextSeriesSource(
                 description = description,
                 genres = genres,
                 status = statValue(doc, "Status")?.lowercase(),
-                contentType = normalizeContentType(statValue(doc, "Type")),
+                contentType = normalizeContentType(statValue(doc, "Type"), default = "MANHWA"),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private val chapterUrlRegex = Regex("""^/series/comic/[a-zA-Z0-9-]+/chapter/(\d+(?:\.\d+)?)""")
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("a[href*=/chapter/]").mapNotNull { a ->
                 val href = a.attr("href")
                 val num = chapterUrlRegex.find(href)?.groupValues?.get(1)?.toFloatOrNull()
@@ -135,18 +133,18 @@ class NextSeriesSource(
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = "Chapter $num",
                     chapterNumber = num, dateUpload = 0L)
             }.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val pageImageRegex = Regex("""/uploads/series/[a-zA-Z0-9-]+/c[a-zA-Z0-9-]+/p\d+\.webp""")
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${chapter.url}")
+            val html = get(resolveSourceUrl(base, chapter.url))
             pageImageRegex.findAll(html).map { it.value }.distinct().mapIndexed { i, path ->
                 val url = "$base$path"
                 Page(i, url, url)
             }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

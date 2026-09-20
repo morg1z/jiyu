@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.mangapark
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -35,13 +39,14 @@ class MangaParkSource @Inject constructor(
 
     override val id = "mangapark"
     override val name = "MangaPark"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
 
     private val base = "https://mangapark.page"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -62,7 +67,7 @@ class MangaParkSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/series?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/series?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -80,7 +85,7 @@ class MangaParkSource @Inject constructor(
                     coverUrl = c.optString("image").takeIf { it.isNotBlank() },
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Slug bez hashe pouzity v /get-chapter-list?slug=... - "gachiakuta.NTE9Qw" -> "gachiakuta". */
@@ -88,16 +93,16 @@ class MangaParkSource @Inject constructor(
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst("h1[itemprop=name]")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst("[itemprop=image] img")?.let {
-                    it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
+                    it.lazySrc().orEmpty()
                 }?.takeIf { it.isNotBlank() } ?: manga.coverUrl,
                 description = doc.selectFirst("[itemprop=description]")?.text()?.trim(),
                 genres = doc.select("a[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -118,17 +123,17 @@ class MangaParkSource @Inject constructor(
                     dateUpload = 0L,
                 )
             }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img[data-number]").sortedBy { it.attr("data-number").toIntOrNull() ?: 0 }
                 .mapIndexedNotNull { i, img ->
                     val url = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                     Page(i, url, url)
                 }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.projectsuki
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -33,7 +38,7 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -41,7 +46,7 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun resolvedUrl(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.request.url.toString() }
@@ -83,7 +88,7 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
             }
             val doc = Jsoup.parse(get("$base/browse/$page"))
             doc.select("a:has(img.browse)").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -91,19 +96,19 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
             return@withContext try {
                 val doc = Jsoup.parse(get(genreUrl(filter.genres.first(), page)))
                 doc.select("a:has(img.browse)").mapNotNull(::parseCard)
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (page > 1) return@withContext emptyList()
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?q=$q"))
             doc.select("a:has(img.browse)").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val fields = doc.select("div.strong").associate { label ->
                 label.text().trim().trimEnd(':') to (label.nextElementSibling()?.text()?.trim().orEmpty())
             }
@@ -113,19 +118,19 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
                 status = fields["Status"]?.takeIf { it.isNotBlank() },
                 genres = doc.select("div[itemprop=genre] a").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("a[href^=/read/]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val name = a.text().trim().ifBlank { return@mapNotNull null }
-                val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                val num = parseChapterNumber(name) ?: 0f
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href.trimEnd('/').substringBeforeLast('/'), name = name, chapterNumber = num, dateUpload = 0L)
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -135,14 +140,14 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
             (1..lastPage).map { p ->
                 Page(index = p - 1, url = "$base${chapter.url}/$p")
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(page.url))
-            doc.selectFirst("img.img-fluid.center-block[src*=/images/gallery/]")?.attr("src")?.takeIf { it.startsWith("http") }
+            doc.selectFirst("img.img-fluid.center-block[src*=/images/gallery/]")?.attr("src")?.let { absoluteMediaUrl(base, it) }
                 ?: page.url
-        } catch (_: Exception) { page.url }
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 }

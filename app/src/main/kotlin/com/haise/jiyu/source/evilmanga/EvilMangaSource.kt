@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.evilmanga
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -25,7 +30,7 @@ class EvilMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -39,12 +44,12 @@ class EvilMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 ?: doc.select("article, .item")
         ).mapNotNull { el ->
             val link = el.selectFirst("a[href*='evil-manga'], a[href^='/']") ?: return@mapNotNull null
-            val href = link.attr("href").let { if (it.startsWith("http")) it.removePrefix(base) else it }
+            val href = link.attr("href").let { toSourcePath(base, it) }
             val title = (el.selectFirst(".manga-name, .post-title, h3, h2, .title")?.text()
                 ?: link.attr("title")
                 ?: link.text()).trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val cover = el.selectFirst("img")?.let {
-                it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
+                it.lazySrc().orEmpty()
             }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
@@ -59,50 +64,50 @@ class EvilMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         // JS challenge tady zabranila zivemu curl overeni konkretniho rozdilu v obsahu,
         // ale parametr sam je standardni Madara konvence (overeno jinde, viz MadaraSource).
         val orderby = if (filter.sortBy == "latest") "latest" else "views"
-        try { parseList(get("$base/manga/page/$page/?m_orderby=$orderby")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/manga/page/$page/?m_orderby=$orderby")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/?s=$q"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst("h1, .manga-title, .post-title")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst(".manga-cover img, .summary_image img, .book-cover img")?.let {
-                    it.attr("data-src").takeIf { s -> s.isNotBlank() } ?: it.attr("src")
+                    it.lazySrc().orEmpty()
                 } ?: manga.coverUrl,
                 description = doc.selectFirst(".manga-summary, .summary__content, .description p")?.text(),
                 genres = doc.select(".genres a, .manga-genres a").map { it.text() },
                 author = doc.selectFirst(".author a, .manga-authors a")?.text(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val chapters = doc.select(".wp-manga-chapter a, .chapter-list a, .chapters a, li.chapter a")
             chapters.mapIndexed { i, a ->
                 SChapter(
                     sourceId = id, mangaUrl = manga.url,
-                    url = a.attr("href").removePrefix(base),
+                    url = toSourcePath(base, a.attr("href")),
                     name = a.text().trim().takeIf { it.isNotBlank() } ?: "Kapitola ${i + 1}",
                     chapterNumber = (chapters.size - i).toFloat(),
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select(".reading-content img, .page-break img, .chapter-content img").mapIndexedNotNull { i, img ->
                 val url = img.attr("data-src").takeIf { it.isNotBlank() }
                     ?: img.attr("data-lazy-src").takeIf { it.isNotBlank() }
@@ -110,6 +115,6 @@ class EvilMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                     ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

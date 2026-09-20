@@ -7,6 +7,7 @@ import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -143,5 +144,22 @@ class ChapterDaoTest {
         assertEquals(13, better.verifiedPageCount)
         assertEquals(true, better.isFallbackSource)
         assertNull(better.fallbackChapterId)
+    }
+    @Test
+    fun `chapters without a parsed number are counted individually, numbered duplicates still merge`() = runTest {
+        dao.upsertAll(
+            listOf(
+                chapter("a", chapterNumber = 0f),
+                chapter("b", chapterNumber = 0f),
+                chapter("c", chapterNumber = 5f),
+                chapter("d", chapterNumber = 5f, read = true), // stejné číslo od jiné skupiny, jedna už přečtená
+            ),
+        )
+
+        val total = dao.observeTotalCounts().first().single { it.mangaId == "manga-1" }.count
+        val unread = dao.observeUnreadCounts().first().single { it.mangaId == "manga-1" }.count
+
+        assertEquals(3, total)  // dvě bezčíselné + jedna kapitola 5
+        assertEquals(2, unread) // kapitola 5 je díky přečtené kopii přečtená
     }
 }

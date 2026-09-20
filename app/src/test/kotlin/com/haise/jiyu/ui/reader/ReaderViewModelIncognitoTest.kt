@@ -1,5 +1,8 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.translate.GlossaryRepository
+import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
+import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -52,8 +55,9 @@ class ReaderViewModelIncognitoTest {
 
     private lateinit var repository: MangaRepository
     private lateinit var settings: SettingsRepository
-    private lateinit var historyDao: ReadHistoryDao
+    private lateinit var historyRepository: HistoryRepository
     private lateinit var context: Context
+    private lateinit var malRepository: MalRepository
 
     private val chapter = ChapterEntity(
         id = "ch1", mangaId = "m1", sourceId = "src", url = "/ch1",
@@ -69,8 +73,9 @@ class ReaderViewModelIncognitoTest {
         Dispatchers.setMain(dispatcher)
         repository = mockk(relaxed = true)
         settings = mockk(relaxed = true)
-        historyDao = mockk(relaxed = true)
+        historyRepository = mockk(relaxed = true)
         context = mockk(relaxed = true)
+        malRepository = mockk(relaxed = true)
 
         coEvery { repository.getChapter("ch1") } returns chapter
         coEvery { repository.getAllChapters("m1") } returns listOf(chapter)
@@ -117,14 +122,17 @@ class ReaderViewModelIncognitoTest {
         repository = repository,
         translateRepository = mockk<TranslateRepository>(relaxed = true),
         settings = settings,
-        historyDao = historyDao,
-        aniListRepository = mockk<AniListRepository>(relaxed = true),
-        malRepository = mockk<MalRepository>(relaxed = true),
-        kitsuRepository = mockk<KitsuRepository>(relaxed = true),
-        muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
-        glossaryDao = mockk<GlossaryDao>(relaxed = true),
+        historyRepository = historyRepository,
+        trackerSyncCoordinator = TrackerSyncCoordinator(
+            aniListRepository = mockk<AniListRepository>(relaxed = true),
+            malRepository = malRepository,
+            kitsuRepository = mockk<KitsuRepository>(relaxed = true),
+            muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
+        ),
+        glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
+        errorActionHandler = mockk(relaxed = true),
     )
 
     @Test
@@ -159,7 +167,7 @@ class ReaderViewModelIncognitoTest {
         val vm = viewModel(incognito = true)
         vm.onPageChanged(1)
 
-        coVerify(exactly = 0) { historyDao.record(any()) }
+        coVerify(exactly = 0) { historyRepository.record(any()) }
     }
 
     @Test
@@ -179,5 +187,20 @@ class ReaderViewModelIncognitoTest {
 
         coVerify(atLeast = 1) { settings.addPagesRead(1) }
         coVerify(atLeast = 1) { settings.updateReadingStreak() }
+    }
+
+    @Test
+    fun `stepping back from the last page never un-reads the chapter and trackers fire only once`() = runBlocking {
+        coEvery { repository.getManga("m1") } returns manga.copy(malId = 42)
+        val vm = viewModel(incognito = false)
+
+        vm.onPageChanged(1)   // posledni stranka -> prectena
+        vm.onPageChanged(0)   // krok zpet
+        vm.onPageChanged(1)   // znovu na posledni
+
+        // Dřív krok zpět zapsal read = false a dočtená kapitola se tvářila jako nepřečtená.
+        coVerify(exactly = 0) { repository.updateReadProgress("ch1", false, any(), any()) }
+        // Dřív se při každém návratu na poslední stránku znovu volaly všechny trackery.
+        coVerify(exactly = 1) { malRepository.updateMangaStatus(malId = 42, status = "reading", numChaptersRead = 1) }
     }
 }

@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.library
 
+import com.haise.jiyu.util.relativeTimeLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -223,14 +224,3 @@ private fun LibrarySectionRow(
 private fun chapterLabel(n: Float): String =
     if (n == n.toInt().toFloat()) n.toInt().toString() else n.toString()
 
-/** "před 2 h", "před 3 dny" apod. - stejny vzor jako u Aktualizaci na ComicK Domu. */
-private fun relativeTimeLabel(ms: Long): String {
-    val diffMin = (System.currentTimeMillis() - ms) / 60_000L
-    return when {
-        diffMin < 1     -> "teď"
-        diffMin < 60    -> "před ${diffMin} min"
-        diffMin < 1440  -> "před ${diffMin / 60} h"
-        diffMin < 43200 -> "před ${diffMin / 1440} dny"
-        else            -> java.text.SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(java.util.Date(ms))
-    }
-}

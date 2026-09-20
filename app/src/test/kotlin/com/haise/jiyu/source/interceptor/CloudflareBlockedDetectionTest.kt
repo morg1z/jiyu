@@ -55,6 +55,25 @@ class CloudflareBlockedDetectionTest {
     }
 
     @Test
+    fun `custom origin-level fingerprint plus PoW gate is flagged even behind a 404`() {
+        // Realny nahlaseny pripad (BatCave) - misto skutecneho 403 vraci origin za Cloudflare
+        // "nevinnou" 404 s vlastnim JS fingerprint+proof-of-work skriptem misto obsahu, aby
+        // odradil automatizovane klienty bez toho, aby to vypadalo jako block.
+        val resp = response(
+            404,
+            mapOf("Server" to "cloudflare"),
+            body = """<script>var p={token:"...",caps:{webdriver: navigator.webdriver===true}}; params.push("pow_nonce=" + p.powNonce);</script>""",
+        )
+        assertTrue(isCloudflareBlocked(resp))
+    }
+
+    @Test
+    fun `custom fingerprint markers without a cloudflare server header are not flagged`() {
+        val resp = response(404, mapOf("Server" to "nginx"), body = "navigator.webdriver pow_nonce")
+        assertFalse(isCloudflareBlocked(resp))
+    }
+
+    @Test
     fun `wordfence-style hard block page is detected as unsolvable`() {
         val resp = response(
             403,

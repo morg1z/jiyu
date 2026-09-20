@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.luacomic
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -27,13 +30,14 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id = "luacomic"
     override val name = "Lua Comic"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://luacomic.org"
     private val apiBase = "https://api.luacomic.org"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .header("Origin", base)
             .build()
@@ -63,7 +67,7 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
             val json = JSONObject(get("$apiBase/query?adult=true&query_string=&page=$page"))
             val data = json.optJSONArray("data") ?: return@withContext emptyList()
             (0 until data.length()).mapNotNull { data.optJSONObject(it)?.let(::parseManga) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -72,7 +76,7 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
             val json = JSONObject(get("$apiBase/query?adult=true&query_string=$q&page=$page"))
             val data = json.optJSONArray("data") ?: return@withContext emptyList()
             (0 until data.length()).mapNotNull { data.optJSONObject(it)?.let(::parseManga) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = manga
@@ -86,10 +90,10 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
                 val c = data.optJSONObject(i) ?: return@mapNotNull null
                 val slug = c.optString("chapter_slug").ifBlank { return@mapNotNull null }
                 val name = c.optString("chapter_name").ifBlank { slug }
-                val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                val num = parseChapterNumber(name) ?: 0f
                 SChapter(sourceId = id, mangaUrl = manga.url, url = slug, name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -102,6 +106,6 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
                 .distinct()
                 .toList()
                 .mapIndexed { i, url -> Page(i, url, url) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

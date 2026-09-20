@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.vcomics
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -47,12 +50,13 @@ class VComicsSource(
     private val baseUrl: String,
     private val client: OkHttpClient,
 ) : MangaSource {
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = baseUrl
     private val root get() = baseUrl.trimEnd('/')
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -87,7 +91,7 @@ class VComicsSource(
                 .toList()
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(genreId: String, page: Int): String =
@@ -96,13 +100,6 @@ class VComicsSource(
     private val listItemRegex = Regex(
         """&quot;id&quot;:\[0,\d+],&quot;slug&quot;:\[0,&quot;(.*?)&quot;],&quot;postTitle&quot;:\[0,&quot;(.*?)&quot;],&quot;featuredImage&quot;:\[0,(?:&quot;(.*?)&quot;|null)],&quot;seriesType&quot;:\[0,&quot;(.*?)&quot;]""",
     )
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.uppercase()) {
-        "MANHWA" -> "MANHWA"
-        "MANHUA" -> "MANHUA"
-        "NOVEL"  -> "NOVEL"
-        else -> "MANGA"
-    }
 
     private fun parseListing(html: String): List<SManga> =
         listItemRegex.findAll(html).mapNotNull { m ->
@@ -125,7 +122,7 @@ class VComicsSource(
             }
             val url = if (page <= 1) "$root/series" else "$root/series?page=$page"
             parseListing(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Server-side filtr na "/series" nefunguje (ověřeno živě) - místo něj se prohledá
@@ -139,9 +136,9 @@ class VComicsSource(
             val q = query.trim()
             (1..5).flatMap { p ->
                 val url = if (p <= 1) "$root/series" else "$root/series?page=$p"
-                try { parseListing(get(url)) } catch (_: Exception) { emptyList() }
+                try { parseListing(get(url)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }.distinctBy { it.url }.filter { it.title.contains(q, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun field(html: String, name: String): String? =
@@ -160,7 +157,7 @@ class VComicsSource(
                 status = field(html, "seriesStatus")?.lowercase(),
                 contentType = normalizeContentType(field(html, "seriesType")),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private val chapterRegex = Regex(
@@ -185,12 +182,12 @@ class VComicsSource(
                     dateUpload = parseIsoDate(createdAt),
                 )
             }.distinctBy { it.url }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(text: String): Long = try {
         java.time.Instant.parse(text).toEpochMilli()
-    } catch (_: Exception) {
+    } catch (e: Exception) { e.rethrowIfControl();
         System.currentTimeMillis()
     }
 
@@ -203,6 +200,6 @@ class VComicsSource(
                 .filter { it.contains("/upload/series/") }
                 .mapIndexed { i, url -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

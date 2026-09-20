@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.oppaistream
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -43,7 +45,7 @@ class OppaiStreamSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -80,24 +82,25 @@ class OppaiStreamSource @Inject constructor(
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun genreSearchUrl(query: String, page: Int, genres: List<String>): String {
+    private fun genreSearchUrl(query: String, page: Int, genres: List<String>, order: String = ""): String {
         val q = URLEncoder.encode(query, "UTF-8")
         val g = URLEncoder.encode(genres.joinToString(","), "UTF-8")
-        return "$base/api-search.php?text=$q&order=&page=$page&limit=18&status=&genres=$g&blacklist="
+        return "$base/api-search.php?text=$q&order=$order&page=$page&limit=18&status=&genres=$g&blacklist="
     }
+
+    // Řazení "api-search.php?order=" z webu (checkboxy Order): views = Most Views, uploaded = Recently
+    // Uploaded (nové kapitoly), recent = Recently Released (nové tituly, výchozí pořadí load-more.php).
+    // Dřív "Populární" i "Nejnovější" vracely totéž pořadí (load-more.php), takže přepínač nic nedělal.
+    private fun orderFor(filter: MangaFilter) = if (filter.sortBy == "latest") "uploaded" else "views"
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try {
-                if (filter.genres.isNotEmpty()) {
-                    return@withContext parseCardListing(fetchDocument(genreSearchUrl("", page, filter.genres)))
-                }
-                val offset = (page - 1) * 18
-                parseCardListing(fetchDocument("$base/load-more.php?amount=18&offset=$offset&chapters=0"))
-            } catch (_: Exception) { emptyList() }
+                parseCardListing(fetchDocument(genreSearchUrl("", page, filter.genres, orderFor(filter))))
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -105,14 +108,14 @@ class OppaiStreamSource @Inject constructor(
             if (filter.genres.isNotEmpty()) {
                 return@withContext try {
                     parseCardListing(fetchDocument(genreSearchUrl(query.trim(), page, filter.genres)))
-                } catch (_: Exception) { emptyList() }
+                } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }
             if (query.isBlank()) return@withContext getPopular(page, filter)
             if (page > 1) return@withContext emptyList()
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseCardListing(fetchDocument("$base/api-search.php?text=$q"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -126,7 +129,7 @@ class OppaiStreamSource @Inject constructor(
             val genres = doc.select("div.genres a h5").mapNotNull { it.text().trim().ifBlank { null } }
 
             manga.copy(title = title, author = author, description = description, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -149,7 +152,7 @@ class OppaiStreamSource @Inject constructor(
                     dateUpload = parseRelativeDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseRelativeDate(text: String?): Long {
@@ -177,6 +180,6 @@ class OppaiStreamSource @Inject constructor(
                 val url = "$cdnBase/$slug/$chapterNum/$i.jpg"
                 Page(index = i - 1, url = url, imageUrl = url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

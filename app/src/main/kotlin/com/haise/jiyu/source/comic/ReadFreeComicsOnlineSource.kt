@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.comic
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.Page
@@ -60,7 +64,7 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Genre archiv ("/category/{slug}/[page/N/]") pouziva standardni WP theme
@@ -74,7 +78,7 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
             val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = linkEl.text().trim(),
                 coverUrl = cover?.attr("src")?.ifBlank { cover.attr("data-src") },
                 contentType = "COMIC",
@@ -94,7 +98,7 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
             val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = linkEl.text().trim(),
                 coverUrl = cover?.attr("src")?.ifBlank { cover.attr("data-src") },
                 contentType = "COMIC",
@@ -104,14 +108,14 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
-        val url = "$base$searchPath${query.replace(" ", "+")}"
+        val url = "$base$searchPath${java.net.URLEncoder.encode(query.trim(), "UTF-8")}"
         Jsoup.parse(get(url)).select(searchResultSelector).mapNotNull { el ->
             val linkEl = el.selectFirst(comicLinkSelector) ?: return@mapNotNull null
             val href = linkEl.attr("href").ifBlank { return@mapNotNull null }
             val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = linkEl.text().trim().ifBlank { el.text().trim() },
                 coverUrl = cover?.attr("src")?.ifBlank { cover.attr("data-src") },
                 contentType = "COMIC",
@@ -120,7 +124,7 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
-        val doc = Jsoup.parse(get("$base${manga.url}"))
+        val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
         manga.copy(
             description = doc.selectFirst("meta[property=og:description]")?.attr("content"),
             coverUrl = doc.selectFirst("meta[property=og:image]")?.attr("content") ?: manga.coverUrl,
@@ -142,9 +146,9 @@ class ReadFreeComicsOnlineSource @Inject constructor(client: OkHttpClient) : Com
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
-        val doc = Jsoup.parse(get("$base${chapter.url}"))
+        val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
         doc.select("div.entry-content img").mapIndexed { i, img ->
-            val url = img.attr("src").ifBlank { img.attr("data-src") }
+            val url = img.lazySrc().orEmpty()
             Page(i, url)
         }.filter { it.url.isNotBlank() }
     }

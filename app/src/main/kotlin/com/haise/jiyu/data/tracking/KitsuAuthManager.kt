@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -71,6 +73,52 @@ class KitsuAuthManager @Inject constructor(
             e.report("tracking:kitsu:login")
             false
         }
+    }
+
+    /**
+     * Obnoví access token z uloženého refresh tokenu (dřív se refresh token ukládal, ale nikdy nepoužil,
+     * takže po vypršení access tokenu sync do Kitsu tiše přestal - audit nález JIYU-ARCH-1). Mutex +
+     * [staleToken] mají stejný smysl jako u [MalAuthManager.refreshAccessToken]: souběžné požadavky
+     * neobnovují dvakrát. Odmítnutý refresh token (400/401) znamená nutnost nového přihlášení.
+     */
+    suspend fun refresh(staleToken: String? = null): Boolean = refreshMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = secureStore.get(KEY_TOKEN)
+            if (staleToken != null && !current.isNullOrBlank() && current != staleToken) return@withContext true
+            val refreshToken = secureStore.get(KEY_REFRESH) ?: return@withContext false
+            try {
+                val body = FormBody.Builder()
+                    .add("grant_type", "refresh_token")
+                    .add("refresh_token", refreshToken)
+                    .add("client_id", CLIENT_ID)
+                    .add("client_secret", CLIENT_SECRET)
+                    .build()
+                val req = Request.Builder().url(TOKEN_URL).post(body).build()
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        if (resp.code == 400 || resp.code == 401) clearSession()
+                        return@withContext false
+                    }
+                    val json = JSONObject(resp.body?.string() ?: return@withContext false)
+                    val access = json.optString("access_token").takeIf { it.isNotBlank() } ?: return@withContext false
+                    json.optString("refresh_token").takeIf { it.isNotBlank() }?.let { secureStore.set(KEY_REFRESH, it) }
+                    secureStore.set(KEY_TOKEN, access)
+                    _token.value = access
+                    true
+                }
+            } catch (e: Exception) {
+                e.report("tracking:kitsu:refresh")
+                false
+            }
+        }
+    }
+
+    private val refreshMutex = Mutex()
+
+    private fun clearSession() {
+        secureStore.remove(KEY_TOKEN, KEY_REFRESH, KEY_USERNAME, KEY_USER_ID)
+        _token.value = null
+        _username.value = ""
     }
 
     suspend fun saveUserId(id: String) = withContext(Dispatchers.IO) { secureStore.set(KEY_USER_ID, id) }

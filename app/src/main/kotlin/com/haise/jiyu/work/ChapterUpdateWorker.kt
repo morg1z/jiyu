@@ -1,5 +1,6 @@
 package com.haise.jiyu.work
 
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -40,7 +41,10 @@ class ChapterUpdateWorker @AssistedInject constructor(
      * primo do ctecky misto jen na detail mangy (viz [notify]). */
     private data class UpdatedMangaInfo(val title: String, val mangaId: String, val count: Int, val latestChapterId: String?)
 
-    override suspend fun doWork(): Result {
+    // Na pozadí se nikdy neukazuje interaktivní výzva Cloudflare (viz InteractiveChallengePolicy).
+    override suspend fun doWork(): Result = InteractiveChallengePolicy.suppressed { runUpdate() }
+
+    private suspend fun runUpdate(): Result {
         return try {
             val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
             val semaphore = Semaphore(5)
@@ -69,6 +73,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException) throw e
                                 e.report("work:chapterUpdate:manga")
                             }
                         }
@@ -82,6 +87,7 @@ class ChapterUpdateWorker @AssistedInject constructor(
             }
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // Strop pokusů jako u SyncWorker/AutoBackupWorker - trvalá chyba (rozbitá DB
             // dotaz, chybějící oprávnění) by se jinak opakovala navždy při každém
             // periodickém běhu.

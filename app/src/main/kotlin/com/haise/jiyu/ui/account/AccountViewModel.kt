@@ -16,6 +16,7 @@ import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.auth.AuthRepository
 import com.haise.jiyu.auth.JiyuUser
+import com.haise.jiyu.sync.SyncOutcome
 import com.haise.jiyu.sync.SyncRepository
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
@@ -68,6 +69,16 @@ class AccountViewModel @Inject constructor(
 
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+
+    /** Lokální knihovna patří jinému účtu - synchronizace čeká na rozhodnutí uživatele (viz [SyncRepository.sync]). */
+    private val _ownerConflict = MutableStateFlow(false)
+    val ownerConflict: StateFlow<Boolean> = _ownerConflict.asStateFlow()
+
+    fun dismissOwnerConflict() { _ownerConflict.value = false }
+
+    fun resolveOwnerConflictKeepLocal() = runSync { syncRepository.syncClaimingLocalData() }
+
+    fun resolveOwnerConflictUseCloud() = runSync { syncRepository.syncDiscardingLocalData() }
 
     fun signInWithGoogle(context: Context) {
         viewModelScope.launch {
@@ -136,13 +147,20 @@ class AccountViewModel @Inject constructor(
 
     fun clearAuthState() { _authState.value = AuthUiState.Idle }
 
-    fun syncNow() {
+    fun syncNow() = runSync { syncRepository.sync() }
+
+    private fun runSync(block: suspend () -> SyncOutcome) {
         viewModelScope.launch {
+            _ownerConflict.value = false
             _syncState.value = SyncState.Syncing
             try {
-                syncRepository.pushToCloud()
-                syncRepository.pullFromCloud()
-                _syncState.value = SyncState.Done(appContext.getString(R.string.account_sync_done))
+                when (block()) {
+                    SyncOutcome.SYNCED -> _syncState.value = SyncState.Done(appContext.getString(R.string.account_sync_done))
+                    SyncOutcome.OWNER_CONFLICT -> {
+                        _ownerConflict.value = true
+                        _syncState.value = SyncState.Idle
+                    }
+                }
             } catch (e: Exception) {
                 e.report("account:syncNow")
                 _syncState.value = SyncState.Error(e.toFriendlyMessage())

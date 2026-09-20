@@ -145,13 +145,16 @@ class ToongodSourceTest {
     }
 
     @Test
-    fun `getChapterList reads chapter number and falls back to now without a date`() = runTest {
+    fun `getChapterList reads chapter number and leaves the date unknown when the page has none`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
         assertEquals(2, chapters.size)
         assertTrue(chapters.any { it.chapterNumber == 2f })
         assertTrue(chapters.any { it.chapterNumber == 1f })
-        assertTrue(chapters.all { it.dateUpload > 0 })
+        // "17 Dec 2025" se teď rozpozná (dřív spadlo na "teď"); chybějící datum je 0, ne "teď" - jinak by se
+        // kapitola při každém stažení seznamu tvářila jako nová.
+        assertEquals(java.time.Instant.parse("2025-12-17T00:00:00Z").toEpochMilli(), chapters.first { it.chapterNumber == 2f }.dateUpload)
+        assertEquals(0L, chapters.first { it.chapterNumber == 1f }.dateUpload)
     }
 
     @Test

@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- firebase-analytics táhne reklamní permissiony (AD_ID, AdServices, Play install referrer), které appka
+         nepoužívá (žádné reklamy, žádná atribuce instalací; nedistribuuje se přes Play). Sloučený manifest je
+         proto odstraní. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove" />
+    <uses-permission android:name="com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE" tools:node="remove" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -22,6 +30,16 @@
         android:theme="@style/Theme.Jiyu"
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- Sběr pádů a analytiky je vypnutý až do souhlasu uživatele (JiyuApp.initFirebase ho
+             zapíná za běhu). Bez tohohle Firebase sbírá už od okamžiku, než Application.onCreate
+             stihne přečíst nastavení. -->
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
 
         <!-- WorkManager se jinak sam inicializuje pres ContentProvider driv,
              nez JiyuApp.workManagerConfiguration staci nastavit HiltWorkerFactory -

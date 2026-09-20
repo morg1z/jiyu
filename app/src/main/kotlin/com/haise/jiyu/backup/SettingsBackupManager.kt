@@ -1,5 +1,6 @@
 package com.haise.jiyu.backup
 
+import com.haise.jiyu.R
 import android.content.Context
 import android.net.Uri
 import androidx.datastore.core.DataStore
@@ -34,6 +35,8 @@ class SettingsBackupManager @Inject constructor(
             "kitsu_access_token", "kitsu_refresh_token", "kitsu_username", "kitsu_user_id",
             "mu_session_token", "mu_username",
             "anilist_access_token",
+            "cloudflare_clearance_cache", "mangacloud_session_cache",
+            "pending_removed_manga_ids", "local_data_owner_id",
         )
     }
 
@@ -53,12 +56,12 @@ class SettingsBackupManager @Inject constructor(
             put("settings", entries)
         }
         context.contentResolver.openOutputStream(uri)?.use { it.write(root.toString(2).toByteArray()) }
-            ?: error("Nelze otevřít výstupní soubor")
+            ?: error(context.getString(R.string.backup_error_open_output))
     }
 
     suspend fun importFromUri(uri: Uri): Result<Int> = runCatching {
         val json = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
-            ?: error("Nelze otevřít soubor zálohy")
+            ?: error(context.getString(R.string.backup_error_open_input))
         val entries = parseSettingsEntries(json, EXCLUDED_KEYS)
         dataStore.edit { prefs ->
             entries.forEach { entry ->

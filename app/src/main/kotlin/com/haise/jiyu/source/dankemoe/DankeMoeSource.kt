@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.dankemoe
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -28,12 +31,13 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id = "dankemoe"
     override val name = "Danke fürs Lesen"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://danke.moe"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -47,10 +51,10 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val img = a.selectFirst("img") ?: return@mapNotNull null
                 val title = img.attr("alt").trim().removePrefix("Cover for ").ifBlank { return@mapNotNull null }
-                val cover = img.attr("data-src").trim().takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else "$base$it" }
+                val cover = img.attr("data-src").trim().takeIf { it.isNotBlank() }?.let { resolveSourceUrl(base, it) }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Web nema funkcni server-side hledani (?search= je ticha no-op), ale homepage
@@ -74,7 +78,7 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
                 author = json.optString("author").takeIf { it.isNotBlank() },
                 artist = json.optString("artist").takeIf { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -93,7 +97,7 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
                 val folder = c.optString("folder")
                 SChapter(sourceId = id, mangaUrl = manga.url, url = "$slug|$folder|$groupId", name = name, chapterNumber = num, dateUpload = 0L)
             }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -113,6 +117,6 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
                 val url = "$base/media/manga/$slug/chapters/$folder/$groupId/$filename"
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

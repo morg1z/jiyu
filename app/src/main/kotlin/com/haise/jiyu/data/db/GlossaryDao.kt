@@ -19,6 +19,12 @@ interface GlossaryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: GlossaryEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entries: List<GlossaryEntity>)
+
+    @Query("SELECT * FROM glossary_entry")
+    suspend fun getAll(): List<GlossaryEntity>
+
     @Delete
     suspend fun delete(entry: GlossaryEntity)
 }

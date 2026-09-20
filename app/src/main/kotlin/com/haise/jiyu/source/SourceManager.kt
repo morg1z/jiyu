@@ -25,6 +25,7 @@ import com.haise.jiyu.source.nhentai.NhentaiSource
 import com.haise.jiyu.source.madara.MadaraCommentStyle
 import com.haise.jiyu.source.madara.MadaraSelectors
 import com.haise.jiyu.source.madara.MadaraSource
+import com.haise.jiyu.source.mangathemesia.MangaThemesiaSource
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.source.mangaplus.MangaPlusSource
 import com.haise.jiyu.source.webtoon.WebtoonSource
@@ -38,13 +39,14 @@ import com.haise.jiyu.source.i18n.ScanVFSource
 import com.haise.jiyu.source.mangadotnet.MangaDotNetSource
 import com.haise.jiyu.source.kaliscan.KaliScanSource
 import com.haise.jiyu.source.mangacloud.MangaCloudSource
-import com.haise.jiyu.source.galaxymanga.GalaxyMangaSource
 import com.haise.jiyu.source.kuramanga.KuraMangaSource
 import com.haise.jiyu.source.novelfire.NovelFireSource
 import com.haise.jiyu.source.wuxiabox.WuxiaBoxSource
 import com.haise.jiyu.source.novelcool.NovelCoolSource
 import com.haise.jiyu.source.novelhall.NovelHallSource
 import com.haise.jiyu.source.mangakatana.MangaKatanaSource
+import com.haise.jiyu.source.mangafreak.MangaFreakSource
+import com.haise.jiyu.source.reaperscans.ReaperScansSource
 import com.haise.jiyu.source.baozimanhua.BaoziManhuaSource
 import com.haise.jiyu.source.mangapill.MangapillSource
 import com.haise.jiyu.source.mangatown.MangaTownSource
@@ -65,7 +67,6 @@ import com.haise.jiyu.source.mangarawbest.MangaRawBestSource
 import com.haise.jiyu.source.weloma.WeLoMaSource
 import com.haise.jiyu.source.mangadoom.MangaDoomSource
 import com.haise.jiyu.source.projectsuki.ProjectSukiSource
-import com.haise.jiyu.source.rokaricomics.RokariComicsSource
 import com.haise.jiyu.source.silentquill.KDTScansSource
 import com.haise.jiyu.source.mangamikan.MangaMikanSource
 import com.haise.jiyu.source.mangacherri.MangaCherriSource
@@ -116,13 +117,11 @@ import com.haise.jiyu.source.simplyhentai.SimplyHentaiSource
 import com.haise.jiyu.source.oppaistream.OppaiStreamSource
 import com.haise.jiyu.source.thunderscans.ThunderscansSource
 import com.haise.jiyu.source.evascans.EvaScansSource
-import com.haise.jiyu.source.scythescans.ScytheScansSource
 import com.haise.jiyu.source.vcomics.VComicsSource
 import com.haise.jiyu.source.hadesscans.HadesScansSource
 import com.haise.jiyu.source.astratoons.AstraToonsSource
 import com.haise.jiyu.source.utoon.UtoonSource
 import com.haise.jiyu.source.kscans.KScansSource
-import com.haise.jiyu.source.lagoonscans.LagoonScansSource
 import com.haise.jiyu.source.meowingtoons.MeowingToonsSource
 import com.haise.jiyu.source.valirscans.ValirScansSource
 import com.haise.jiyu.source.coloredmanga.ColoredMangaSource
@@ -175,13 +174,14 @@ class SourceManager @Inject constructor(
     mangaDotNetSource: MangaDotNetSource,
     kaliScanSource: KaliScanSource,
     mangaCloudSource: MangaCloudSource,
-    galaxyMangaSource: GalaxyMangaSource,
     kuraMangaSource: KuraMangaSource,
     novelFireSource: NovelFireSource,
     wuxiaBoxSource: WuxiaBoxSource,
     novelCoolSource: NovelCoolSource,
     novelHallSource: NovelHallSource,
     mangaKatanaSource: MangaKatanaSource,
+    mangaFreakSource: MangaFreakSource,
+    reaperScansSource: ReaperScansSource,
     baoziManhuaSource: BaoziManhuaSource,
     mangapillSource: MangapillSource,
     mangaTownSource: MangaTownSource,
@@ -210,7 +210,6 @@ class SourceManager @Inject constructor(
     weLoMaSource: WeLoMaSource,
     mangaDoomSource: MangaDoomSource,
     projectSukiSource: ProjectSukiSource,
-    rokariComicsSource: RokariComicsSource,
     kdtScansSource: KDTScansSource,
     mangaMikanSource: MangaMikanSource,
     mangaCherriSource: MangaCherriSource,
@@ -259,21 +258,24 @@ class SourceManager @Inject constructor(
     oppaiStreamSource: OppaiStreamSource,
     thunderscansSource: ThunderscansSource,
     evaScansSource: EvaScansSource,
-    scytheScansSource: ScytheScansSource,
     hadesScansSource: HadesScansSource,
     astraToonsSource: AstraToonsSource,
     utoonSource: UtoonSource,
     kScansSource: KScansSource,
-    lagoonScansSource: LagoonScansSource,
     valirScansSource: ValirScansSource,
     coloredMangaSource: ColoredMangaSource,
     kiryuuSource: KiryuuSource,
     private val customSourceDao: CustomSourceDao,
     private val client: OkHttpClient,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
+    private val domainOverrides: com.haise.jiyu.source.interceptor.DomainOverrides,
+    private val jsRunner: com.haise.jiyu.util.WebViewJsRunner,
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val _cache = MutableStateFlow<List<MangaSource>>(emptyList())
+
+    // Rozšířený katalog webů na šablonách Madara/MangaThemesia (viz CommunitySources).
+    private val communitySources: List<MangaSource> = com.haise.jiyu.source.community.CommunitySources.build(client, jsRunner)
 
     private val staticSources: List<MangaSource> = listOf(
         mangaDexSource,
@@ -471,7 +473,7 @@ class SourceManager @Inject constructor(
         mangaDotNetSource,
         kaliScanSource,
         mangaCloudSource,
-        galaxyMangaSource,
+        MangaThemesiaSource("galaxymanga", "Galaxy Manga", "https://galaxymanga.io", client, contentTypeOverride = "MANHWA"),
         kuraMangaSource,
         // ── Novely (nový vlastní scraping) ───────────────────────────────────
         // LightNovelWorld odstraneno 2026-08-24 - web se oficialne zavrel a presunul
@@ -485,6 +487,12 @@ class SourceManager @Inject constructor(
         // Adult zdroj, pridano na vyslovne prani uzivatele (viz konverzace 2026-07-18)
         novelHallSource,
         mangaKatanaSource,
+        // Zaregistrovano - implementace uz existovala (bodyOrThrow, URL-encode, kompletni
+        // MangaSource rozhrani), jen chybela v tomhle seznamu (audit nalez "sirotci, hotove
+        // ale neregistrovane zdroje"). Zive neoverovano od doby vzniku - overit funkcnost
+        // po prvnim skutecnem pouziti.
+        mangaFreakSource,
+        reaperScansSource,
         baoziManhuaSource,
         mangapillSource,
         mangaTownSource,
@@ -559,7 +567,7 @@ class SourceManager @Inject constructor(
         // Rokari Comics (rokaricomics.com) - stejna Mangathemesia/"Mangastream"
         // sablona jako GalaxyMangaSource/RawKumaSource, ale status/typ jsou v
         // <table><tr><td> radcich misto div.imptdt.
-        rokariComicsSource,
+        MangaThemesiaSource("rokaricomics", "Rokari Comics", "https://rokaricomics.com", client, userAgent = SourceHttp.USER_AGENT_DESKTOP_124, sendReferer = true, genreArchive = true),
         kdtScansSource,
         // MangaMikan a MangaCherri - vlastni sablony (2026-08-09 kolo).
         // MangaMikan obrazky maji uz hotovy podepsany token primo v HTML.
@@ -810,7 +818,7 @@ class SourceManager @Inject constructor(
         // Scans) - overeno zive (PowerShell Invoke-WebRequest + rucni rozbor markupu),
         // viz komentare primo v jednotlivych tridach.
         evaScansSource,
-        scytheScansSource,
+        MangaThemesiaSource("scythescans", "Scythe Scans", "https://scythescans.com", client, pathPagination = true, hasChapterComments = true),
         // Kayn Scan a Ken Scans bezi na stejne sdilene komercni Astro sablone "vcomics"
         // (build cesta /_vcomics/..., identicka struktura dat) - overeno zive na obou,
         // proto spolecna generic trida VComicsSource misto dvou skoro identickych kopii.
@@ -853,7 +861,8 @@ class SourceManager @Inject constructor(
         kScansSource,
         // Lagoon Scans - MangaThemesia jako Thunderscans, jen jina info-karta
         // (table.infotable misto div.imptdt), viz komentar ve tride.
-        lagoonScansSource,
+        // Lagoon: "/manga/page/2/?order=" vrací stále stránku 1 (ověřeno živě) - stránkování funguje jen přes "?page=N".
+        MangaThemesiaSource("lagoonscans", "Lagoon Scans", "https://lagoonscans.com", client, hasChapterComments = true),
         // ManhuaNext - genuine nezmeneny Madara, zadny prepis netreba.
         MadaraSource("manhuanext", "ManhuaNext", "https://manhuanext.com", client, contentTypeOverride = "MANHUA", selectors = MadaraSelectors(commentStyle = MadaraCommentStyle.WPDISCUZ)),
         // Timeless Toons a Genz Toons bezi na stejne sdilene komercni sablone (CDN
@@ -938,9 +947,23 @@ class SourceManager @Inject constructor(
     )
 
     init {
+        // Uživatelská "zrcadla": původní host zdroje (z homepageUrl) -> nový host, ten pak přepisuje
+        // DomainOverrideInterceptor. Mapa se skládá znovu při každé změně nastavení i seznamu zdrojů.
+        scope.launch {
+            combine(_cache, settings.sourceDomainOverrides) { sources, overrides ->
+                buildMap {
+                    for ((sourceId, newHost) in overrides) {
+                        val home = sources.find { it.id == sourceId }?.homepageUrl ?: continue
+                        val original = runCatching { java.net.URI(home).host }.getOrNull()
+                            ?.let(com.haise.jiyu.source.interceptor.DomainOverrides::canonicalHost) ?: continue
+                        if (original != newHost) put(original, newHost)
+                    }
+                }
+            }.collect { domainOverrides.hostMap = it }
+        }
         scope.launch {
             customSourceDao.observeAll().collect { customs ->
-                _cache.value = staticSources + customs.map { custom ->
+                _cache.value = staticSources + communitySources + customs.map { custom ->
                     val defaults = MadaraSelectors.DEFAULT
                     MadaraSource(
                         id = "madara:${custom.id}",
@@ -979,6 +1002,7 @@ class SourceManager @Inject constructor(
     fun observeAll(): Flow<List<MangaSource>> =
         combine(_cache, settings.showAdultSources, settings.appMode) { all, showAdult, appMode ->
             all
+                .filterNot { s -> s.isBroken }
                 .let { if (showAdult) it else it.filterNot { s -> s.isAdult } }
                 .let { if (appMode == com.haise.jiyu.settings.AppMode.COMICK) it else it.filterNot { s -> s.id == "comick" } }
         }

@@ -51,6 +51,7 @@ internal object Routes {
     const val UPDATES       = "updates"
     const val BROWSE        = "browse"
     const val SOURCE_BROWSE = "source_browse/{sourceId}"
+    const val SOURCE_WEB    = "source_web?url={url}"
     const val DETAIL        = "detail/{mangaId}"
     const val DETAIL_INFO   = "detail_info/{mangaId}"
     const val READER        = "reader/{chapterId}?incognito={incognito}"
@@ -89,6 +90,7 @@ internal object Routes {
     fun detail(mangaId: String) = "detail/${android.net.Uri.encode(mangaId)}"
     fun detailInfo(mangaId: String) = "detail_info/${android.net.Uri.encode(mangaId)}"
     fun sourceBrowse(sourceId: String) = "source_browse/${android.net.Uri.encode(sourceId)}"
+    fun sourceWeb(url: String) = "source_web?url=${android.net.Uri.encode(url)}"
 
     /**
      * Cesta, na kterou vede záložka "Procházet" - závisí na režimu appky (Task 4,
@@ -189,6 +191,17 @@ fun JiyuNavGraph(
             SourceBrowseScreen(
                 onBack = { navController.popBackStack() },
                 onOpenManga = { mangaId -> navController.navigate(Routes.detail(mangaId)) },
+                onOpenSourceWeb = { url -> navController.navigate(Routes.sourceWeb(url)) },
+            )
+        }
+
+        composable(
+            route = Routes.SOURCE_WEB,
+            arguments = listOf(navArgument("url") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            com.haise.jiyu.ui.source.SourceWebScreen(
+                url = backStackEntry.arguments?.getString("url").orEmpty(),
+                onDone = { navController.popBackStack() },
             )
         }
 

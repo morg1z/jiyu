@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.utoon
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -37,6 +39,7 @@ import javax.inject.Singleton
 class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "utoon"
     override val name = "Utoon"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val root = "https://www.utoon.us"
     private val base = "$root/en"
@@ -44,7 +47,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -55,7 +58,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
             params.forEach { (k, v) -> add(k, v) }
         }.build()
         val req = Request.Builder().url(ajaxUrl)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(form)
             .build()
         val body = client.newCall(req).execute().use { it.bodyOrThrow(ajaxUrl) }
@@ -89,7 +92,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                 val json = loadMore(mapOf("nonce" to nonce, "page" to page.toString(), "type" to "series_grid", "lang" to "en"))
                 parseCardList(json.optJSONObject("data")?.optString("html").orEmpty())
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -104,7 +107,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                 val json = loadMore(mapOf("nonce" to nonce, "page" to page.toString(), "type" to "search", "search_query" to query, "lang" to "en"))
                 parseCardList(json.optJSONObject("data")?.optString("html").orEmpty())
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -114,7 +117,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                 title = doc.selectFirst("h1.series-title")?.text()?.trim() ?: manga.title,
                 description = doc.selectFirst("div.series-description")?.text()?.trim()?.ifBlank { null },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun chapterFromArticle(article: org.jsoup.nodes.Element, mangaUrl: String): SChapter? {
@@ -157,7 +160,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                 }
             }
             chapters.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -168,6 +171,6 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                 if (src.startsWith("data:")) return@mapIndexedNotNull null
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

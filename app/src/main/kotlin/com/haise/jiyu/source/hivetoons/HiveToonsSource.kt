@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.hivetoons
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -49,7 +53,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
         return Jsoup.parse(html)
@@ -57,7 +61,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun getJson(url: String): JSONObject {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "application/json")
             .build()
         val body = client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -68,7 +72,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
         doc.select("a[href^=\"/series/\"][title]").mapNotNull { el ->
             val href = el.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val title = el.attr("title").trim().ifBlank { return@mapNotNull null }
-            val cover = el.selectFirst("img")?.attr("src")?.takeIf { it.startsWith("http") }
+            val cover = el.selectFirst("img")?.attr("src")?.let { absoluteMediaUrl(base, it) }
             SManga(sourceId = id, url = base + href, title = title, coverUrl = cover, contentType = "MANHWA")
         }
             // Kazda karta ma DVA <a href="/series/..." title="..."> odkazy na stejnou
@@ -91,7 +95,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
         cachedTags?.let { return@withContext it }
         try {
             val req = Request.Builder().url("$apiBase/api/genres")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
                 .header("Accept", "application/json")
                 .build()
             val body = client.newCall(req).execute().use { it.bodyOrThrow("$apiBase/api/genres") }
@@ -103,7 +107,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreSlug(name: String): String =
@@ -132,7 +136,7 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
         if (filter.genres.isNotEmpty()) {
             return@withContext try {
                 parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // Bez koncoveho lomitka web posle 301 na "http://..." (ne https) - Android to
         // spravne odmitne jako cleartext (viz network_security_config.xml) a appka pak
@@ -148,19 +152,19 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
             } else {
                 parseList(get("$base/series/?page=$page"))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
             return@withContext try {
                 parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (page > 1) return@withContext emptyList()
         try {
             parseList(get("$base/series/")).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -170,18 +174,18 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
                 ?.parent()?.selectFirst("p")?.text()?.trim()
             manga.copy(
                 title = doc.selectFirst("h1[itemprop=name]")?.text()?.trim() ?: manga.title,
-                coverUrl = doc.selectFirst("img[itemprop=image]")?.attr("src")?.takeIf { it.startsWith("http") } ?: manga.coverUrl,
+                coverUrl = doc.selectFirst("img[itemprop=image]")?.attr("src")?.let { absoluteMediaUrl(base, it) } ?: manga.coverUrl,
                 description = doc.selectFirst("div[itemprop=description]")?.text()?.trim(),
                 genres = doc.select("a[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
                 status = status,
                 contentType = "MANHWA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val relPath = manga.url.removePrefix(base)
+            val relPath = toSourcePath(base, manga.url)
             val doc = get(manga.url)
             doc.select("a[href^=\"$relPath/chapter-\"]").mapNotNull { a ->
                 val href = a.attr("href")
@@ -198,15 +202,15 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             get(chapter.url).select("img[data-reader-page-image]").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

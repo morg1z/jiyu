@@ -30,7 +30,9 @@ class MangaPlusImageFetcher(
         val cleanUrl = uri.toString().substringBeforeLast("#")
 
         val bytes = withContext(Dispatchers.IO) {
-            val req = Request.Builder().url(cleanUrl).header("User-Agent", "okhttp/4.12.0").build()
+            val req = Request.Builder().url(cleanUrl).header("User-Agent", "okhttp/4.12.0")
+                // Šifrovaná data - přes obrazový proxy by se poškodila (viz ImageProxyInterceptor).
+                .header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1").build()
             httpClient.newCall(req).execute().use { resp ->
                 // isSuccessful kontrola PRED cimkoli dalsim - bez ni by se treba 403 "Just a
                 // moment" HTML telo proste proXORovalo a ulozilo do Coil cache jako platny

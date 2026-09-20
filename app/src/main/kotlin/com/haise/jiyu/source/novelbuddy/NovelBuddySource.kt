@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.novelbuddy
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -39,7 +41,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -94,7 +96,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
             }.sortedBy { it.label }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
@@ -110,7 +112,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
             append("$api/titles/search?page=$page&limit=24$sortParam")
             appendGenreFilter(filter)
         }
-        try { parseItems(get(url)) } catch (_: Exception) { emptyList() }
+        try { parseItems(get(url)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -121,7 +123,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
                 appendGenreFilter(filter)
             }
             parseItems(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -136,7 +138,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
                 genres = t.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.getJSONObject(it).optString("name") } } ?: manga.genres,
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -155,14 +157,14 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
                     dateUpload = parseDate(c.optString("updated_at")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseDate(text: String?): Long {
         if (text.isNullOrBlank()) return 0L
         return try {
             java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.ENGLISH).parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
+        } catch (e: Exception) { e.rethrowIfControl(); 0L }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -170,6 +172,6 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
             val doc = Jsoup.parse(get("$base${pathOf(chapter.url)}"))
             val text = doc.select("div.novel-tts-content p:not([class])").joinToString("\n\n") { it.text() }
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

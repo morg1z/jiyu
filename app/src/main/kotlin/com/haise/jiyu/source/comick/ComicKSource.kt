@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.comick
 
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.LanguageMap
@@ -9,6 +10,7 @@ import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SGroup
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -322,8 +324,9 @@ class ComicKSource @Inject constructor(
     suspend fun getCoverGallery(mangaUrl: String): List<SCover> = withContext(Dispatchers.IO) {
         try {
             val slug = mangaUrl.substringAfterLast("/")
-            val html = requestBuilder("$homepageUrl/comic/$slug/cover").build().let { req ->
-                client.newCall(req).execute().use { it.body?.string().orEmpty() }
+            val coverPageUrl = "$homepageUrl/comic/$slug/cover"
+            val html = requestBuilder(coverPageUrl).build().let { req ->
+                client.newCall(req).execute().use { it.bodyOrThrow(coverPageUrl) }
             }
             val mangaDexId = Regex("""uploads\.mangadex\.org/covers/([a-f0-9-]{36})/""")
                 .find(html)?.groupValues?.get(1) ?: return@withContext emptyList()
@@ -340,7 +343,7 @@ class ComicKSource @Inject constructor(
                     imageUrl = "https://uploads.mangadex.org/covers/$mangaDexId/$fileName",
                 )
             }.sortedByDescending { it.volume?.toFloatOrNull() ?: -1f }
-        } catch (_: Exception) {
+        } catch (e: Exception) { e.rethrowIfControl();
             emptyList()
         }
     }
@@ -729,7 +732,7 @@ class ComicKSource @Inject constructor(
 
     private fun parseIso(iso: String): Long = try {
         java.time.Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) {
+    } catch (e: Exception) { e.rethrowIfControl();
         // 0L, ne now() - stejna konvence jako u vsech ostatnich zdroju v appce (DemonicScans,
         // MangaDex, MangaWorld, ...). now() by poskozene/neparsovatelne datum udelalo tise
         // "nejnovejsi" misto "nejstarsi/nezname" (nahlaseny bug).

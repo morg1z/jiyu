@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.nyxscans
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -7,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -54,22 +58,16 @@ import javax.inject.Singleton
 class NyxScansSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "nyxscans"
     override val name = "Nyx Scans"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://nyxscans.com"
     private val api = "https://api.nyxscans.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manga" -> "MANGA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANHWA"
     }
 
     private fun mangaFromJson(o: JSONObject): SManga? {
@@ -82,7 +80,7 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
             sourceId = id, url = "/series/$slug", title = title,
             coverUrl = o.optString("featuredImage").ifBlank { null },
             status = o.optString("seriesStatus").ifBlank { null }?.lowercase(),
-            contentType = if (o.optBoolean("isNovel")) "NOVEL" else normalizeContentType(o.optString("seriesType")),
+            contentType = if (o.optBoolean("isNovel")) "NOVEL" else normalizeContentType(o.optString("seriesType"), default = "MANHWA"),
             genres = genres,
             rating = if (o.has("averageRating")) o.optDouble("averageRating").takeIf { !it.isNaN() } else null,
         )
@@ -97,7 +95,7 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             parseListJson(get("$api/api/posts?page=$page&perPage=20"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -105,7 +103,7 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
             if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseListJson(get("$api/api/posts?page=$page&perPage=20&searchTerm=$q"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun slugFromMangaUrl(mangaUrl: String) = mangaUrl.removePrefix("/series/")
@@ -127,15 +125,15 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 author = p.optString("author").ifBlank { null },
                 artist = p.optString("artist").ifBlank { null },
                 genres = genres,
-                contentType = if (p.optBoolean("isNovel")) "NOVEL" else normalizeContentType(p.optString("seriesType").ifBlank { null }),
+                contentType = if (p.optBoolean("isNovel")) "NOVEL" else normalizeContentType(p.optString("seriesType").ifBlank { null }, default = "MANHWA"),
                 alternateTitles = p.optString("alternativeTitles").ifBlank { null }?.let { listOf(it.trim()) } ?: manga.alternateTitles,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun parseIsoDate(iso: String): Long = try {
         Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -153,20 +151,20 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
                     dateUpload = parseIsoDate(c.optString("createdAt")),
                 )
             }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val pageImageRegex = Regex("""https://storage\.nyxscans\.com/[a-zA-Z0-9_/.-]*/page-(\d+)[a-zA-Z0-9_.-]*\.(?:webp|jpe?g|png)""")
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${chapter.url}")
+            val html = get(resolveSourceUrl(base, chapter.url))
             pageImageRegex.findAll(html)
                 .map { it.value to (it.groupValues[1].toIntOrNull() ?: 0) }
                 .distinctBy { it.first }
                 .sortedBy { it.second }
                 .mapIndexed { i, (url, _) -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

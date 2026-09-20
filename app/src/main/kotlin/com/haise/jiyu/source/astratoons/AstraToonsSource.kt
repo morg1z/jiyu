@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.astratoons
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +11,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -39,21 +43,15 @@ import javax.inject.Singleton
 class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "astratoons"
     override val name = "AstraToons"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://astratoons.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
     }
 
     private fun normalizeStatus(text: String?): String? = when (text?.trim()?.lowercase()) {
@@ -92,22 +90,22 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             parseListing(get("$base/api/comics?page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseListing(get("$base/api/comics?search=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Filtrování podle tagů/žánrů ───────────────────────────────────────
@@ -157,7 +155,7 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseComicsPageJson(html: String): List<SManga> {
@@ -179,7 +177,7 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
         try {
             val q = URLEncoder.encode(manga.title, "UTF-8")
             parseListing(get("$base/api/comics?search=$q")).firstOrNull { it.url == manga.url } ?: manga
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private val comicIdRegex = Regex("""comicId:\s*(\d+)""")
@@ -213,7 +211,7 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
                 page++
             }
             chapters.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseRelativeDatePt(text: String?): Long {
@@ -240,9 +238,9 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
             val doc = Jsoup.parse(get(chapter.url), base)
             doc.select("canvas[data-src]").mapIndexedNotNull { i, el ->
                 val src = el.attr("data-src").trim().ifBlank { return@mapIndexedNotNull null }
-                val abs = if (src.startsWith("http")) src else "$base$src"
+                val abs = resolveSourceUrl(base, src)
                 Page(i, abs, abs)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

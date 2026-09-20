@@ -114,7 +114,12 @@ fun DownloadManagerScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            val hasQueued = groups.any { g -> g.chapters.any { it.downloadStatus == com.haise.jiyu.data.db.entity.DownloadStatus.DOWNLOADING } }
+            val hasQueued = groups.any { g ->
+                g.chapters.any {
+                    it.downloadStatus == com.haise.jiyu.data.db.entity.DownloadStatus.DOWNLOADING ||
+                        it.downloadStatus == com.haise.jiyu.data.db.entity.DownloadStatus.QUEUED
+                }
+            }
             if (hasQueued || isPaused) {
                 IconButton(onClick = { if (isPaused) viewModel.resumeAll() else viewModel.pauseAll() }) {
                     Icon(

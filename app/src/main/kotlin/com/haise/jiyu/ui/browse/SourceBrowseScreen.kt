@@ -106,12 +106,22 @@ import com.haise.jiyu.ui.theme.violetGlow
 fun SourceBrowseScreen(
     onBack: () -> Unit,
     onOpenManga: (String) -> Unit,
+    onOpenSourceWeb: (String) -> Unit = {},
     viewModel: SourceBrowseViewModel = hiltViewModel(),
 ) {
     val source            by viewModel.source.collectAsStateWithLifecycle()
     val results           by viewModel.results.collectAsStateWithLifecycle()
     val loading           by viewModel.loading.collectAsStateWithLifecycle()
     val error             by viewModel.error.collectAsStateWithLifecycle()
+    val errorAction       by viewModel.errorAction.collectAsStateWithLifecycle()
+    // Po návratu z webu zdroje (přihlášení / akce) se načtení zopakuje.
+    var openedSourceWeb by remember { mutableStateOf(false) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (openedSourceWeb) {
+            openedSourceWeb = false
+            viewModel.retry()
+        }
+    }
     val openingManga      by viewModel.openingManga.collectAsStateWithLifecycle()
     val openError         by viewModel.openError.collectAsStateWithLifecycle()
     val hasMore           by viewModel.hasMore.collectAsStateWithLifecycle()
@@ -154,6 +164,7 @@ fun SourceBrowseScreen(
             onSearchSubmit = { viewModel.search(query) },
             showLatest = showLatest,
             onSetShowLatest = { viewModel.setShowLatest(it) },
+            showSortToggle = source?.availableSorts?.containsAll(listOf("popular", "latest")) != false,
         )
     }
 
@@ -198,6 +209,33 @@ fun SourceBrowseScreen(
                             )
                             OutlinedButton(onClick = { viewModel.retry() }) {
                                 Text(stringResource(R.string.common_retry), color = Violet)
+                            }
+                            // Akce podle typu chyby (Vyřešit ověření Cloudflare, nová adresa zdroje...).
+                            val action = errorAction
+                            if (action != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (action is com.haise.jiyu.util.ErrorAction.OpenSourceWeb) {
+                                            openedSourceWeb = true
+                                            onOpenSourceWeb(action.url)
+                                        } else {
+                                            viewModel.performErrorAction()
+                                        }
+                                    },
+                                    modifier = Modifier.padding(top = 8.dp),
+                                ) {
+                                    Text(
+                                        when (action) {
+                                            is com.haise.jiyu.util.ErrorAction.SolveCloudflare ->
+                                                stringResource(R.string.error_action_solve_cloudflare)
+                                            is com.haise.jiyu.util.ErrorAction.UseNewDomain ->
+                                                stringResource(R.string.error_action_use_new_domain, action.host)
+                                            is com.haise.jiyu.util.ErrorAction.OpenSourceWeb ->
+                                                stringResource(R.string.error_action_open_web)
+                                        },
+                                        color = GlowViolet,
+                                    )
+                                }
                             }
                         }
                     }
@@ -292,6 +330,7 @@ private fun SourceBrowseHeader(
     onSearchSubmit: () -> Unit,
     showLatest: Boolean,
     onSetShowLatest: (Boolean) -> Unit,
+    showSortToggle: Boolean = true,
 ) {
     Column(modifier = Modifier.statusBarsPadding().background(screenGradient)) {
         // ── Top bar ─────────────────────────────────────────────────────────
@@ -342,7 +381,8 @@ private fun SourceBrowseHeader(
         )
 
         // ── Popular / Latest toggle ───────────────────────────────────────────
-        if (query.isBlank()) {
+        // U zdroje, který obě záložky neumí seřadit jinak, by přepínač jen ukazoval totéž (viz supportsSortOrder).
+        if (query.isBlank() && showSortToggle) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -492,12 +532,13 @@ private fun BrowseFilterSheet(
         "completed" to stringResource(R.string.source_browse_status_completed),
         "hiatus" to stringResource(R.string.source_browse_status_hiatus),
     )
+    val availableSorts = source?.availableSorts
     val sorts = listOf(
         "popular" to stringResource(R.string.source_browse_popular),
         "latest" to stringResource(R.string.source_browse_latest),
         "rating" to stringResource(R.string.source_browse_sort_rating),
         "title" to stringResource(R.string.source_browse_sort_title),
-    )
+    ).filter { availableSorts == null || it.first in availableSorts }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -565,23 +606,25 @@ private fun BrowseFilterSheet(
             )
 
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.source_browse_sort_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-            Box {
-                OutlinedButton(
-                    onClick = { sortDropdownExpanded = true },
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
-                ) {
-                    Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = Color.White)
-                }
-                DropdownMenu(
-                    expanded = sortDropdownExpanded,
-                    onDismissRequest = { sortDropdownExpanded = false },
-                ) {
-                    sorts.forEach { (value, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = { selectedSort = value; sortDropdownExpanded = false },
-                        )
+            if (sorts.size > 1) {
+                Text(stringResource(R.string.source_browse_sort_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Box {
+                    OutlinedButton(
+                        onClick = { sortDropdownExpanded = true },
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                    ) {
+                        Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = Color.White)
+                    }
+                    DropdownMenu(
+                        expanded = sortDropdownExpanded,
+                        onDismissRequest = { sortDropdownExpanded = false },
+                    ) {
+                        sorts.forEach { (value, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { selectedSort = value; sortDropdownExpanded = false },
+                            )
+                        }
                     }
                 }
             }

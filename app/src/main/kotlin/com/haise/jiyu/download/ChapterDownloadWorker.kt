@@ -1,5 +1,6 @@
 package com.haise.jiyu.download
 
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
@@ -44,12 +45,16 @@ const val CHANNEL_DOWNLOADS = "channel_downloads"
 
 /**
  * Kolik stránek jedné kapitoly se stahuje současně - viz [ChapterDownloadWorker.doDownload].
- * Bez ohledu na tuhle hodnotu OkHttpův vestavěný `Dispatcher` limituje max. 5 souběžných
- * požadavků na stejného hostitele (proto `imageHttpClient` v `AppModule` záměrně nemá
- * vlastní throttle interceptor) - tahle konstanta tak nemůže zdroj zahltit nad rámec toho,
- * co OkHttp už dnes dovoluje, ani při souběhu s paralelním stahováním více kapitol.
+ * OkHttpův `Dispatcher` limituje 5 požadavků na hostitele jen u asynchronního `enqueue()`, kdežto
+ * worker volá synchronní `execute()` - tenhle limit se tedy NEUPLATNÍ. Souběh přes více
+ * paralelně běžících kapitol proto hlídá [TOTAL_PAGE_DOWNLOADS] (sdílený mezi všemi workery);
+ * `imageHttpClient` nemá throttle záměrně, aby stahování nezpomalovalo čtení (Coil).
  */
 private const val PAGE_DOWNLOAD_CONCURRENCY = 4
+
+/** Strop souběžných stažení stránek napříč VŠEMI běžícími workery (viz [PAGE_DOWNLOAD_CONCURRENCY]). */
+private const val TOTAL_PAGE_DOWNLOADS = 6
+private val totalPageDownloadPermits = Semaphore(TOTAL_PAGE_DOWNLOADS)
 
 @HiltWorker
 class ChapterDownloadWorker @AssistedInject constructor(
@@ -65,7 +70,10 @@ class ChapterDownloadWorker @AssistedInject constructor(
     @ImageHttpClient private val client: OkHttpClient,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    // Na pozadí se nikdy neukazuje interaktivní výzva Cloudflare (viz InteractiveChallengePolicy).
+    override suspend fun doWork(): Result = InteractiveChallengePolicy.suppressed { runDownload() }
+
+    private suspend fun runDownload(): Result {
         val chapterEntityId = inputData.getString(KEY_CHAPTER_ENTITY_ID) ?: return Result.failure()
         val sourceId = inputData.getString(KEY_SOURCE_ID) ?: return Result.failure()
         val chapterUrl = inputData.getString(KEY_CHAPTER_URL) ?: return Result.failure()
@@ -92,7 +100,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
 
         val progressNotification = NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Stahování kapitoly")
+            .setContentTitle(applicationContext.getString(R.string.download_notification_title))
             .setProgress(0, 0, true)
             .setOngoing(true)
             .build()
@@ -107,13 +115,17 @@ class ChapterDownloadWorker @AssistedInject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val pages = repository.getChapterPages(sourceId, chapterUrl, mangaUrl)
+                // Zdroj nevrátil žádné stránky (web změnil markup, chyba spolknutá ve zdroji, všechny URL
+                // vyfiltrované) - dřív se kapitola s 0 stránkami označila jako STAŽENÁ a čtečka pak
+                // ukazovala prázdno. Teď jde jako chyba do stejného retry/ERROR toku jako síťový výpadek.
+                if (pages.isEmpty()) throw EmptyChapterException()
                 val downloadFolderUri = settings.downloadFolderUri.first()
                 // Čitelné jméno "Název mangy/0012 - Název kapitoly" místo dřívějšího
                 // "sourceId::URL kapitoly" - uživatel si stažené kapitoly kopíruje na PC
                 // (viz uživatelský dotaz), kde by opaque URL jméno bylo nepoužitelné/
                 // rozbité (Windows zakazuje ':' a '/' ve jméně souboru).
                 val chapterEntity = repository.getChapter(chapterEntityId)
-                val mangaTitle = repository.getMangaByUrl(mangaUrl)?.title ?: "Manga"
+                val mangaTitle = chapterEntity?.let { repository.getManga(it.mangaId) }?.title ?: "Manga"
                 val chapterFolderName = if (chapterEntity != null) {
                     ChapterStorage.chapterFolderName(chapterEntity.chapterNumber, chapterEntity.name)
                 } else {
@@ -124,7 +136,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 // Kanárek PŘED stahováním - selhání se dozvíme hned, ne až po 3 marných
                 // pokusech shodně léčených jako obyčejný síťový výpadek (viz níže ENOSPC vetev).
                 if (!ChapterStorage.hasEnoughFreeSpace(chapterDirPath)) {
-                    throw java.io.IOException("Nedostatek volného místa v úložišti")
+                    throw DiskFullException()
                 }
 
                 // Souběžně místo striktně sekvenčně (viz PAGE_DOWNLOAD_CONCURRENCY) - na
@@ -149,7 +161,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
                                 val fileName = "%03d.%s".format(index, extension)
 
                                 if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
-                                    var bytes = downloadBytes(imageUrl)
+                                    var bytes = totalPageDownloadPermits.withPermit { downloadBytes(imageUrl) }
                                     if (scramble != null) {
                                         bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
                                     }
@@ -164,8 +176,8 @@ class ChapterDownloadWorker @AssistedInject constructor(
                                 try {
                                     nm.notify(progressId, NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
                                         .setSmallIcon(android.R.drawable.stat_sys_download)
-                                        .setContentTitle("Stahování kapitoly")
-                                        .setContentText("$completed / ${pages.size} stránek")
+                                        .setContentTitle(applicationContext.getString(R.string.download_notification_title))
+                                        .setContentText(applicationContext.getString(R.string.download_notification_progress, completed, pages.size))
                                         .setProgress(pages.size, completed, false)
                                         .setOngoing(true)
                                         .build())
@@ -210,7 +222,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 // zavádějící "neznámá chyba" hláškou místo skutečné příčiny.
                 if (isDiskFullError(e)) {
                     repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
-                    if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, java.io.IOException("Nedostatek volného místa v úložišti", e))
+                    if (settings.notifyDownloads.first()) notifyFailed(chapterEntityId, DiskFullException(e))
                     return@withContext Result.failure()
                 }
                 // Přechodná síťová chyba (výpadek, timeout, DNS) dostane pár automatických
@@ -218,8 +230,16 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 // vždycky stahování ručně spustit znovu, i u obyčejného zakolísání sítě.
                 // Trvalé chyby (rozbitý parser, chybějící stránky) po stropu pokusů skončí
                 // stejně jako dřív. Strop 3 sedí se stejným vzorem v SyncWorker.
-                if (e is java.io.IOException && runAttemptCount < 3) {
+                // Limit zdroje (429, SourceRateLimitedException - od opravy polykani vyjimek ve zdrojich
+                // se sem dostane, dřív zdroj vrátil prázdný seznam stránek) je taky přechodný.
+                if ((e is java.io.IOException || e is com.haise.jiyu.source.SourceRateLimitedException) && runAttemptCount < 3) {
                     repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
+                    // Web řekl, jak dlouho počkat (Retry-After) - vyčká se aspoň tak, ne jen pevných 30 s backoffu
+                    // WorkManageru, který by limit znovu narazil. Delší čekání než 5 min se nedrží ve workeru.
+                    if (e is com.haise.jiyu.source.SourceRateLimitedException) {
+                        val wait = retryAfterWaitMs(e.retryAfterMs)
+                        if (wait > 0) kotlinx.coroutines.delay(wait)
+                    }
                     return@withContext Result.retry()
                 }
                 repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
@@ -241,29 +261,24 @@ class ChapterDownloadWorker @AssistedInject constructor(
     }
 
     private suspend fun notifyFailed(chapterId: String, error: Exception) {
-        val chapterName = repository.getChapter(chapterId)?.name ?: "Kapitola"
+        val chapterName = repository.getChapter(chapterId)?.name
+            ?: applicationContext.getString(R.string.download_chapter_fallback_name)
+        // Text pro uživatele podle jazyka appky; zpráva samotné výjimky je pro vývojáře (logy) a česky.
+        val reason = if (error is DiskFullException) {
+            applicationContext.getString(R.string.download_error_disk_full)
+        } else if (error is EmptyChapterException) {
+            applicationContext.getString(R.string.download_error_no_pages)
+        } else {
+            error.message ?: applicationContext.getString(R.string.download_error_unknown)
+        }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
             .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("Stahování selhalo")
-            .setContentText("$chapterName: ${error.message ?: "neznámá chyba"}")
+            .setContentTitle(applicationContext.getString(R.string.download_notification_failed_title))
+            .setContentText(applicationContext.getString(R.string.download_notification_failed_text, chapterName, reason))
             .setAutoCancel(true)
             .build()
         applicationContext.getSystemService(NotificationManager::class.java)
             .notify(chapterId.hashCode() xor 0x2000, notification)
-    }
-
-    /**
-     * Java/Android nemá pro "plný disk" vlastní výjimku - `ENOSPC` se propaguje jako obyčejná
-     * [java.io.IOException], rozpoznatelná jen podle textu zprávy (`hasEnoughFreeSpace`
-     * předletový kanárek výše chytí většinu případů předem, tohle je záchranná síť pro to,
-     * co se zaplní ažpo startu stahování).
-     */
-    private fun isDiskFullError(e: Exception): Boolean {
-        if (e !is java.io.IOException) return false
-        val message = e.message ?: return false
-        return message.contains("ENOSPC", ignoreCase = true) ||
-            message.contains("No space left", ignoreCase = true) ||
-            message.contains("Nedostatek volného místa", ignoreCase = true)
     }
 
     /**
@@ -276,7 +291,12 @@ class ChapterDownloadWorker @AssistedInject constructor(
      * kapitoly na první přechodné chybě (503, dočasně prázdná odpověď apod.).
      */
     private suspend fun downloadBytes(url: String): ByteArray {
-        val call = client.newCall(Request.Builder().url(url).build())
+        // Stahování kapitol vždy v originální kvalitě, mimo úsporný režim obrázků (viz ImageProxyInterceptor).
+        val call = client.newCall(
+            Request.Builder().url(url)
+                .header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+                .build(),
+        )
         return suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
             try {
@@ -343,3 +363,29 @@ class ChapterDownloadWorker @AssistedInject constructor(
         }
     }
 }
+
+/** Zdroj pro kapitolu nevrátil žádné stránky - viz [ChapterDownloadWorker]. */
+class EmptyChapterException : java.io.IOException("Zdroj nevrátil žádné stránky")
+
+/** Plný disk - vlastní typ, aby se rozpoznával podle třídy, ne podle (lokalizovaného) textu zprávy. */
+class DiskFullException(cause: Throwable? = null) : java.io.IOException("Nedostatek volného místa v úložišti", cause)
+
+/**
+ * Java/Android nemá pro "plný disk" vlastní výjimku - `ENOSPC` se propaguje jako obyčejná
+ * [java.io.IOException] rozpoznatelná jen podle textu zprávy od systému. Předletový kanárek
+ * (`hasEnoughFreeSpace`) hází [DiskFullException]; tohle je záchranná síť pro to, co se zaplní
+ * až po startu stahování.
+ */
+internal fun isDiskFullError(e: Exception): Boolean {
+    if (e is DiskFullException) return true
+    if (e !is java.io.IOException) return false
+    val message = e.message ?: return false
+    return message.contains("ENOSPC", ignoreCase = true) ||
+        message.contains("No space left", ignoreCase = true)
+}
+
+/** Nejdelší Retry-After, na který se ve workeru skutečně čeká (delší necháme na backoff WorkManageru). */
+internal const val MAX_RETRY_AFTER_WAIT_MS = 5L * 60 * 1000
+
+/** Kolik ms počkat podle Retry-After: 0 = nečekat, jinak hodnota omezená stropem [MAX_RETRY_AFTER_WAIT_MS]. */
+internal fun retryAfterWaitMs(retryAfterMs: Long): Long = retryAfterMs.coerceIn(0L, MAX_RETRY_AFTER_WAIT_MS)

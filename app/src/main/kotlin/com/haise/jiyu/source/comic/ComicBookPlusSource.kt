@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.comic
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -30,6 +33,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
 
     override val id = "comicbookplus"
     override val name = "ComicBookPlus"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "COMIC"
     override val homepageUrl get() = base
     private val base = "https://comicbookplus.com"
@@ -37,7 +41,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
     private fun get(url: String): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
@@ -86,7 +90,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseGenreListing(doc: Document): List<SManga> =
@@ -115,7 +119,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
             }
             val doc = Jsoup.parse(get("$base/?cbplus=latestuploads_l_s_${(page - 1).coerceAtLeast(0)}"))
             parseListing(doc)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -133,12 +137,12 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
                 results += items.filter { it.title.contains(query, ignoreCase = true) }
             }
             results
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 description = doc.selectFirst("meta[itemprop=description]")?.attr("content"),
                 genres = doc.selectFirst("meta[itemprop=genre]")?.attr("content")
@@ -147,10 +151,8 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
                 status = "Complete",
                 contentType = "COMIC",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
-
-    private val seriesDateFormat = SimpleDateFormat("yyyy-MM", Locale.US)
 
     // Genre archiv (viz parseGenreListing) vraci cele serialy (`?cid=`), ne jednotliva
     // cisla - jejich stranka detailu ma seznam cisel jako schema.org "hasPart" radky
@@ -160,8 +162,13 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val cid = Regex("""cid=(\d+)""").find(manga.url)?.groupValues?.get(1)
         if (cid != null) {
+            // Lokalni instance na kazde volani, ne sdilene pole - SimpleDateFormat.parse()
+            // neni thread-safe a getChapterList muze bezet soubezne z vice korutin (napr.
+            // ComicKChapterResolver.searchAndFetchStreaming) na te same instanci zdroje
+            // (audit nalez).
+            val seriesDateFormat = SimpleDateFormat("yyyy-MM", Locale.US)
             return@withContext try {
-                val doc = Jsoup.parse(get("$base${manga.url}"))
+                val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
                 doc.select("tr[itemprop=hasPart]").mapNotNull { row ->
                     val name = row.selectFirst("span[itemprop=name]")?.text()?.trim()?.ifBlank { null }
                         ?: return@mapNotNull null
@@ -179,7 +186,7 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
                         dateUpload = dateStr?.let { runCatching { seriesDateFormat.parse(it)?.time }.getOrNull() } ?: 0L,
                     )
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         listOf(
             SChapter(
@@ -195,12 +202,12 @@ class ComicBookPlusSource @Inject constructor(private val client: OkHttpClient) 
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val pageCount = doc.selectFirst("span[itemprop=numberOfPages]")?.text()?.trim()?.toIntOrNull()
                 ?: return@withContext emptyList()
             val thumbUrl = doc.selectFirst("meta[itemprop=thumbnailUrl]")?.attr("content") ?: return@withContext emptyList()
             val dir = thumbUrl.substringBeforeLast('/')
             (0 until pageCount).map { i -> Page(i, "$dir/$i.jpg") }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

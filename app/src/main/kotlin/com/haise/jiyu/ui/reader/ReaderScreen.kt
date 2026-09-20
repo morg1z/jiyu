@@ -2,7 +2,6 @@ package com.haise.jiyu.ui.reader
 
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 
-import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,7 +41,11 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.haise.jiyu.util.findActivity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -135,18 +138,18 @@ fun ReaderScreen(
     val flippedBubbles       by viewModel.flippedBubbles.collectAsStateWithLifecycle()
     val webtoonSegments      by viewModel.webtoonSegments.collectAsStateWithLifecycle()
 
-    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showSleepTimerDialog by rememberSaveable { mutableStateOf(false) }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
     // je identita bubliny napříč přepočty - viz manualEditId.
-    var bubbleEdit by remember { mutableStateOf<BubbleEditState?>(null) }
-    val activity = LocalView.current.context as Activity
+    var bubbleEdit by rememberSaveable(stateSaver = BubbleEditState.Saver) { mutableStateOf<BubbleEditState?>(null) }
+    val activity = LocalView.current.context.findActivity()
 
     // Čtečku zavírá až tenhle sběratel, ne lambda předaná do časovače. Ta totiž putovala do
     // singletonu, který ji držel po celou dobu odpočtu i poté, co uživatel ze čtečky odešel -
     // a spolu s ní i celou Activity. Takhle je Activity potřeba jen ve chvíli, kdy odpočet
     // opravdu doběhne, a to už tady nikdo neposlouchá, pokud čtečka mezitím zmizela.
     LaunchedEffect(Unit) {
-        viewModel.sleepTimerFinished.collect { activity.finish() }
+        viewModel.sleepTimerFinished.collect { activity?.finish() }
     }
 
     // Sleep timer dialog
@@ -189,7 +192,8 @@ fun ReaderScreen(
     // schovává vždy (viz MainActivity), takže po odchodu je necháváme schované
     val view = LocalView.current
     DisposableEffect(fullscreenEnabled) {
-        val ctrl = WindowCompat.getInsetsController((view.context as Activity).window, view)
+        val window = view.context.findActivity()?.window ?: return@DisposableEffect onDispose {}
+        val ctrl = WindowCompat.getInsetsController(window, view)
         ctrl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         if (fullscreenEnabled) ctrl.hide(WindowInsetsCompat.Type.systemBars())
         else ctrl.show(WindowInsetsCompat.Type.systemBars())
@@ -197,13 +201,13 @@ fun ReaderScreen(
     }
 
     DisposableEffect(keepScreenOn) {
-        val window = (view.context as Activity).window
+        val window = view.context.findActivity()?.window ?: return@DisposableEffect onDispose {}
         if (keepScreenOn) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     DisposableEffect(readerOrientation) {
-        val act = view.context as Activity
+        val act = view.context.findActivity() ?: return@DisposableEffect onDispose {}
         act.requestedOrientation = when (readerOrientation) {
             "portrait"  -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             "landscape" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -275,7 +279,25 @@ fun ReaderScreen(
                     Text(stringResource(R.string.reader_comick_find_source))
                 }
             }
-            pages.isEmpty() -> Text(stringResource(R.string.reader_chapter_load_failed), color = Color.White)
+            pages.isEmpty() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.reader_chapter_load_failed), color = Color.White)
+                // Akce podle typu chyby (Vyřešit ověření Cloudflare, nová adresa zdroje...).
+                val chapterAction by viewModel.chapterErrorAction.collectAsStateWithLifecycle()
+                val action = chapterAction
+                if (action != null && action !is com.haise.jiyu.util.ErrorAction.OpenSourceWeb) {
+                    Button(onClick = { viewModel.performChapterErrorAction() }, modifier = Modifier.padding(top = 16.dp)) {
+                        Text(
+                            when (action) {
+                                is com.haise.jiyu.util.ErrorAction.SolveCloudflare ->
+                                    stringResource(R.string.error_action_solve_cloudflare)
+                                is com.haise.jiyu.util.ErrorAction.UseNewDomain ->
+                                    stringResource(R.string.error_action_use_new_domain, action.host)
+                                else -> ""
+                            },
+                        )
+                    }
+                }
+            }
             else -> ReaderContent(
                 pages = pages,
                 initialPage = initialPage,
@@ -483,7 +505,17 @@ private data class BubbleEditState(
     val currentText: String,
     val offsetXDp: Float,
     val offsetYDp: Float,
-)
+) {
+    companion object {
+        val Saver: Saver<BubbleEditState?, Any> = listSaver(
+            save = { state -> if (state == null) emptyList() else listOf(state.pageIndex, state.originalText, state.currentText, state.offsetXDp, state.offsetYDp) },
+            restore = { list ->
+                if (list.isEmpty()) null
+                else BubbleEditState(list[0] as Int, list[1] as String, list[2] as String, list[3] as Float, list[4] as Float)
+            },
+        )
+    }
+}
 
 @Composable
 private fun BubbleEditDialog(

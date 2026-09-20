@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.mangacloud
 
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import android.annotation.SuppressLint
@@ -98,9 +99,13 @@ class WebViewMangaCloudSession(
     private val sessionTtlMs = TimeUnit.MINUTES.toMillis(20)
     private val failureCooldown = FailureCooldown(TimeUnit.MINUTES.toMillis(2))
 
-    init {
-        loadPersistedSession()
-    }
+    // Líně při prvním getCookie() (na vlákně zdroje), ne v init - ten běží při konstrukci singletonu,
+    // případně na main vlákně při startu Hilt, a runBlocking nad DataStore by ho blokoval.
+    private val persistedSessionLoaded: Unit by lazy { loadPersistedSession() }
+
+    // Souběžná volání getCookie() sdílejí JEDEN WebView bootstrap (až 30 s) - druhé volání počká na
+    // zámek a pak už najde cookie v cache, místo aby spouštělo další WebView.
+    private val bootstrapLock = Any()
 
     // Session prezila jen v pameti - kazdy studeny start appky tak vynutil novy
     // 24-30s WebView bootstrap, i kdyz predchozi cookie by na serveru jeste
@@ -118,7 +123,7 @@ class WebViewMangaCloudSession(
                 cachedCookie.set(cookie)
                 cachedExpiresAt.set(expiresAt)
             }
-        } catch (_: Exception) { /* poskozeny/prazdny zaznam - zacneme bez cache */ }
+        } catch (e: Exception) { e.rethrowIfControl(); /* poskozeny/prazdny zaznam - zacneme bez cache */ }
     }
 
     private fun persistSessionAsync(cookie: String, expiresAt: Long) {
@@ -126,26 +131,31 @@ class WebViewMangaCloudSession(
             try {
                 val json = JSONObject().put("cookie", cookie).put("expiresAt", expiresAt).toString()
                 dataStore.edit { it[SettingsKeys.MANGACLOUD_SESSION_CACHE] = json }
-            } catch (_: Exception) { /* perzistence je jen optimalizace, nesmi shodit request */ }
+            } catch (e: Exception) { e.rethrowIfControl(); /* perzistence je jen optimalizace, nesmi shodit request */ }
         }
     }
 
     override fun getCookie(): String? {
-        if (cachedCookie.get() != null && System.currentTimeMillis() < cachedExpiresAt.get()) {
-            return cachedCookie.get()
+        persistedSessionLoaded
+        cachedValidCookie()?.let { return it }
+        synchronized(bootstrapLock) {
+            cachedValidCookie()?.let { return it }
+            if (failureCooldown.isActive()) return null
+            val cookie = bootstrapViaWebView()
+            if (cookie == null) {
+                failureCooldown.recordFailure()
+                return null
+            }
+            val expiresAt = System.currentTimeMillis() + sessionTtlMs
+            cachedCookie.set(cookie)
+            cachedExpiresAt.set(expiresAt)
+            persistSessionAsync(cookie, expiresAt)
+            return cookie
         }
-        if (failureCooldown.isActive()) return null
-        val cookie = bootstrapViaWebView()
-        if (cookie == null) {
-            failureCooldown.recordFailure()
-            return null
-        }
-        val expiresAt = System.currentTimeMillis() + sessionTtlMs
-        cachedCookie.set(cookie)
-        cachedExpiresAt.set(expiresAt)
-        persistSessionAsync(cookie, expiresAt)
-        return cookie
     }
+
+    private fun cachedValidCookie(): String? =
+        cachedCookie.get()?.takeIf { System.currentTimeMillis() < cachedExpiresAt.get() }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun bootstrapViaWebView(): String? {
@@ -212,6 +222,7 @@ class MangaCloudSource @Inject constructor(
 
     override val id = "mangacloud"
     override val name = "MangaCloud"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = "https://mangacloud.org"
 
     private val apiBase = "https://api.mangacloud.org"
@@ -262,7 +273,7 @@ class MangaCloudSource @Inject constructor(
                 val arr = json.optJSONArray("data") ?: JSONArray()
                 (0 until arr.length()).mapNotNull { mangaFromJson(arr.getJSONObject(it)) }
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -271,7 +282,7 @@ class MangaCloudSource @Inject constructor(
             val json = JSONObject(apiPost("/search", body))
             val arr = json.optJSONArray("data") ?: JSONArray()
             (0 until arr.length()).mapNotNull { mangaFromJson(arr.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -290,7 +301,7 @@ class MangaCloudSource @Inject constructor(
                 genres = genres,
                 status = json.optString("status").ifBlank { null },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -312,12 +323,12 @@ class MangaCloudSource @Inject constructor(
                     dateUpload = parseIso(c.optString("created_date")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIso(text: String?): Long = try {
         java.time.Instant.parse(text).toEpochMilli()
-    } catch (_: Exception) {
+    } catch (e: Exception) { e.rethrowIfControl();
         System.currentTimeMillis()
     }
 
@@ -334,6 +345,6 @@ class MangaCloudSource @Inject constructor(
                 val url = "$cdnBase/$mangaId/$chapterId/$imgId.$format"
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

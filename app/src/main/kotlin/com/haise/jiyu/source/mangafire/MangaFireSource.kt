@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.mangafire
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -37,6 +39,7 @@ class MangaFireSource @Inject constructor(
 
     override val id = "mangafire"
     override val name = "MangaFire"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
 
     private val base = "https://mangafire.to"
@@ -68,7 +71,7 @@ class MangaFireSource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
@@ -77,7 +80,7 @@ class MangaFireSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -107,7 +110,7 @@ class MangaFireSource @Inject constructor(
                 appendGenreFilter(filter)
             }
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -119,7 +122,7 @@ class MangaFireSource @Inject constructor(
                 appendGenreFilter(filter)
             }
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** hid je kratky kod na zacatku URL slugu, napr. "/title/3x369-dragon-fragment" -> "3x369". */
@@ -145,7 +148,7 @@ class MangaFireSource @Inject constructor(
                 genres = genres,
                 author = author,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -169,7 +172,7 @@ class MangaFireSource @Inject constructor(
                     dateUpload = c.optLong("createdAt") * 1000L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -180,6 +183,6 @@ class MangaFireSource @Inject constructor(
                 val url = pages.getJSONObject(i).optString("url")
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

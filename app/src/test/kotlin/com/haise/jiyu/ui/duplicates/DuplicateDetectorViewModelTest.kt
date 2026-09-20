@@ -45,7 +45,7 @@ class DuplicateDetectorViewModelTest {
     fun `scan turns off isLoading even when the repository throws`() = runTest {
         coEvery { repository.getAllLibraryManga() } throws IOException("db poškozena")
 
-        val vm = DuplicateDetectorViewModel(repository)
+        val vm = DuplicateDetectorViewModel(repository, io.mockk.mockk(relaxed = true))
         advanceUntilIdle()
 
         assertFalse(

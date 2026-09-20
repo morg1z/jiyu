@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.valirscans
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -54,7 +57,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -79,7 +82,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
     private fun itemToSManga(o: JSONObject): SManga? {
         val urlSlug = o.optString("urlSlug").ifBlank { o.optString("slug") }.ifBlank { return null }
         val type = o.optString("type").ifBlank { null }
-        val cover = o.optString("coverImage").ifBlank { null }?.let { if (it.startsWith("http")) it else "$base$it" }
+        val cover = o.optString("coverImage").ifBlank { null }?.let { resolveSourceUrl(base, it) }
         return SManga(
             sourceId = id,
             url = "$base/series/${typeSegment(type)}/$urlSlug",
@@ -114,7 +117,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -123,19 +126,19 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
         // rizeny) poradek - overeno zive, obe hodnoty vraceji odlisne prvni polozky.
         val sortParam = if (filter.sortBy == "latest") "" else "&sort=popular"
         val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
-        try { parseListing(get("$base/api/series?page=$page$sortParam$genreParam")) } catch (_: Exception) { emptyList() }
+        try { parseListing(get("$base/api/series?page=$page$sortParam$genreParam")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
         if (query.isBlank()) {
             if (genreParam.isEmpty()) return@withContext getPopular(page, filter)
-            return@withContext try { parseListing(get("$base/api/series?page=$page$genreParam")) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseListing(get("$base/api/series?page=$page$genreParam")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseListing(get("$base/api/series?q=$q&page=$page$genreParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun extractLdJsonBlocks(html: String): List<String> {
@@ -170,7 +173,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
                 author = authorName,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // Pole kapitol v RSC payloadu ma pevne poradi klicu (id, number, title, coverImage,
@@ -181,7 +184,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
     )
 
     private fun parseIsoDate(text: String): Long =
-        try { Instant.parse(text).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
+        try { Instant.parse(text).toEpochMilli() } catch (e: Exception) { e.rethrowIfControl(); System.currentTimeMillis() }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -200,7 +203,7 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
                     dateUpload = parseIsoDate(m.groupValues[4]),
                 )
             }.toList().distinctBy { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val chapterImageRegex = Regex("""https://media\.valirscans\.org/[^"\\]+\.(?:webp|jpg|jpeg|png|avif)""")
@@ -228,6 +231,6 @@ class ValirScansSource @Inject constructor(private val client: OkHttpClient) : M
             }
             val text = extractNovelText(html) ?: return@withContext emptyList()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

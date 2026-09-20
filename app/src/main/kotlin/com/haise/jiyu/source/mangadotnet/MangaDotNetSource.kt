@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.mangadotnet
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -29,12 +32,13 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "mangadotnet"
     override val name = "Mangadotnet"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://mangadot.net"
 
     private fun getHtml(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -43,7 +47,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun absCover(photo: String?): String? {
         if (photo.isNullOrBlank()) return null
-        return if (photo.startsWith("http")) photo else "$base$photo"
+        return resolveSourceUrl(base, photo)
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -60,7 +64,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
                     coverUrl = absCover(el.selectFirst("img")?.attr("src")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Vyhledavani bezi pres /api/search?q=..., ktere vraci primo cely
@@ -82,7 +86,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
                     coverUrl = absCover(m.optString("photo")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseStringArray(raw: String?): List<String> {
@@ -90,7 +94,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
         return try {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { arr.getString(it) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Detail mangy je take pres API - /api/manga/{id}. authors/artists jsou
@@ -114,7 +118,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
                 genres = genres,
                 status = m.optString("status").ifBlank { null },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // Seznam kapitol je JSON pole primo, ne obalene v objektu:
@@ -142,7 +146,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = parseDate(c.optString("date_added")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseDate(text: String?): Long {
@@ -152,7 +156,7 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
             val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH)
             fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
             fmt.parse(cleaned)?.time ?: System.currentTimeMillis()
-        } catch (_: Exception) { System.currentTimeMillis() }
+        } catch (e: Exception) { e.rethrowIfControl(); System.currentTimeMillis() }
     }
 
     // Stranky kapitoly: /api/uploads/{chapterId}/images -> {images: [{url}, ...]},
@@ -165,9 +169,9 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
             val images = json.optJSONArray("images") ?: JSONArray()
             (0 until images.length()).mapNotNull { i ->
                 val url = images.getJSONObject(i).optString("url").ifBlank { return@mapNotNull null }
-                val full = if (url.startsWith("http")) url else "$base$url"
+                val full = resolveSourceUrl(base, url)
                 Page(i, full, full)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

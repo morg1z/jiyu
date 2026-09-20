@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.rinkocomics
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -59,6 +62,7 @@ import javax.inject.Singleton
 class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "rinkocomics"
     override val name = "Rinko Comics"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://rinkocomics.com"
 
@@ -66,7 +70,7 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -80,7 +84,7 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
                     ?: return@mapNotNull null
                 FilterTag(id = slug, label = label)
             }.distinctBy { it.id }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun catalogUrl(page: Int, query: String, genres: List<String>): String {
@@ -107,25 +111,18 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             parseList(get(catalogUrl(page, "", filter.genres)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             parseList(get(catalogUrl(page, query, filter.genres)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun statValue(doc: Document, label: String): String? =
         doc.select("span").firstOrNull { it.text().trim().equals(label, ignoreCase = true) }
             ?.nextElementSibling()?.text()?.trim()?.ifBlank { null }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manga" -> "MANGA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANHWA"
-    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
@@ -138,10 +135,10 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
                 description = doc.selectFirst("div.comic-synopsis")?.text()?.trim()?.ifBlank { null },
                 genres = genres.ifEmpty { manga.genres },
                 status = statValue(doc, "Status")?.lowercase(),
-                contentType = normalizeContentType(typeText),
+                contentType = normalizeContentType(typeText, default = "MANHWA"),
                 alternateTitles = doc.select("span.alt-title").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun chapterFromElement(el: org.jsoup.nodes.Element, mangaUrl: String): SChapter? {
@@ -166,7 +163,7 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
             .add("offset", offset.toString())
             .build()
         val req = Request.Builder().url("$base/wp-admin/admin-ajax.php")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(body)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow("$base/wp-admin/admin-ajax.php") }
@@ -195,7 +192,7 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
                 }
             }
             chapters.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -205,6 +202,6 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
                 val src = img.attr("data-src").trim().ifBlank { return@mapIndexedNotNull null }
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

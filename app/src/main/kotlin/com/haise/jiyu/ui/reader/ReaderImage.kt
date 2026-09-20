@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.reader
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -135,6 +136,19 @@ fun RetryableAsyncImage(
     // AsyncImage nenahlasi Success/Error.
     var isLoading by remember(url) { mutableStateOf(true) }
 
+    // Jeden automatický opakovaný pokus po první chybě - časté selhání je jen přechodné (výpadek spojení,
+    // přetížený CDN při souběžném stahování víc velkých stránek). Trvalá chyba se po druhém neúspěchu ukáže
+    // jako dřív s tlačítkem "Zkusit znovu"; automaticky se tak opakuje nejvýše jednou.
+    var autoRetried by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(isError) {
+        if (isError && !autoRetried) {
+            autoRetried = true
+            kotlinx.coroutines.delay(1_500L)
+            isError = false
+            retryTrigger++
+        }
+    }
+
     Box(modifier = modifier) {
         val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
             buildPageImageRequest(context, url, referer, cropBorders, disableCrossfade)
@@ -161,7 +175,8 @@ fun RetryableAsyncImage(
                 ReaderPageLoadingIndicator()
             }
         }
-        if (isError) {
+        // Během automatického opakování (viz výše) se chyba neukazuje, ať stránka neblikne s tlačítkem.
+        if (isError && autoRetried && retryTrigger > 0) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 Column(
                     modifier = Modifier.padding(16.dp),

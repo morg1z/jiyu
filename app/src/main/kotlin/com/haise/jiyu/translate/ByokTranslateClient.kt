@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.util.executeCancellable
 import com.haise.jiyu.di.LlmHttpClient
 import com.haise.jiyu.security.SecureCredentialStore
 import com.haise.jiyu.settings.SettingsRepository
@@ -125,7 +126,7 @@ class ByokTranslateClient @Inject constructor(
         }
     }
 
-    private fun complete(baseUrl: String, apiKey: String, model: String, prompt: String): String? {
+    private suspend fun complete(baseUrl: String, apiKey: String, model: String, prompt: String): String? {
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", 0.3)
@@ -197,7 +198,7 @@ class ByokTranslateClient @Inject constructor(
         completeRaw(baseUrl, apiKey, body)
     }
 
-    private fun completeRaw(baseUrl: String, apiKey: String, requestBodyJson: String): String? {
+    private suspend fun completeRaw(baseUrl: String, apiKey: String, requestBodyJson: String): String? {
         val request = Request.Builder()
             .url("$baseUrl/chat/completions")
             .header("Authorization", "Bearer $apiKey")
@@ -206,9 +207,9 @@ class ByokTranslateClient @Inject constructor(
             .build()
 
         return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val responseText = response.body?.string() ?: return null
+            client.newCall(request).executeCancellable { response ->
+                if (!response.isSuccessful) return@executeCancellable null
+                val responseText = response.body?.string() ?: return@executeCancellable null
                 val json = JSONObject(responseText)
                 json.optJSONArray("choices")
                     ?.optJSONObject(0)
@@ -216,6 +217,8 @@ class ByokTranslateClient @Inject constructor(
                     ?.optString("content")
                     ?.takeIf { it.isNotBlank() }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.report("translate:byok:complete")
             null

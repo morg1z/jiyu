@@ -1,5 +1,11 @@
 package com.haise.jiyu.source.mangafreak
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -23,26 +29,49 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
     override val id   = "mangafreak"
     override val name = "MangaFreak"
     override val homepageUrl get() = base
-    private val base  = "https://mangafreak.net"
+    // mangafreak.net dnes jen přesměrovává (301) na tuhle doménu; cesty i značkování jsou od té doby jiné.
+    private val base  = "https://ww3.mangafreak.me"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
-    private fun parseList(html: String): List<SManga> =
-        Jsoup.parse(html, base).select(".manga_poster, .manga-item, .film-poster").mapNotNull { el ->
-            val link  = el.selectFirst("a") ?: return@mapNotNull null
-            val href  = link.attr("href").let { if (it.startsWith("http")) it.removePrefix(base) else it }
-            val title = (el.selectFirst("p, .manga-name, span.manga-name")?.text()?.trim()
-                ?: link.attr("title").trim()).ifBlank { return@mapNotNull null }
-            val cover = el.selectFirst("img")?.let { img ->
-                img.attr("data-src").ifBlank { img.attr("src") }
-            }?.takeIf { it.startsWith("http") }
-            SManga(sourceId = id, url = href, title = title, coverUrl = cover)
+    /** "/manga_images/{slug malými}.jpg" je plnohodnotný obal (mini_images ve výpisech mají jen 55-100 px). */
+    private fun coverForPath(path: String): String =
+        "https://images.mangafreak.me/manga_images/${path.substringAfterLast('/').lowercase()}.jpg"
+
+    private fun mangaPath(href: String): String = if (href.startsWith(base)) toSourcePath(base, href) else href
+
+    /** "/Mangalist/All/{page}" - abecední seznam všeho (web nemá řazení podle popularity). */
+    internal fun parseMangaList(html: String): List<SManga> =
+        Jsoup.parse(html, base).select("div.list_item").mapNotNull { item ->
+            val link = item.selectFirst(".list_item_info h3 a[href^=/Manga/]") ?: return@mapNotNull null
+            val path = mangaPath(link.attr("href"))
+            val title = link.text().trim().ifBlank { return@mapNotNull null }
+            SManga(sourceId = id, url = path, title = title, coverUrl = coverForPath(path))
+        }
+
+    /** "/Latest_Releases/{page}". */
+    internal fun parseLatestList(html: String): List<SManga> =
+        Jsoup.parse(html, base).select("div.latest_releases_item").mapNotNull { item ->
+            val link = item.selectFirst(".latest_releases_info a[href^=/Manga/]") ?: return@mapNotNull null
+            val path = mangaPath(link.attr("href"))
+            val title = link.text().trim().ifBlank { return@mapNotNull null }
+            SManga(sourceId = id, url = path, title = title, coverUrl = coverForPath(path))
+        }
+
+    /** "/Find/{dotaz}?page=N" - výsledky hledání. */
+    internal fun parseSearchList(html: String): List<SManga> =
+        Jsoup.parse(html, base).select("div.manga_search_item").mapNotNull { item ->
+            val link = item.selectFirst("h3 a[href^=/Manga/]") ?: return@mapNotNull null
+            val path = mangaPath(link.attr("href"))
+            val title = link.text().trim().ifBlank { return@mapNotNull null }
+            val cover = item.selectFirst("img")?.attr("src")?.trim()?.ifBlank { null } ?: coverForPath(path)
+            SManga(sourceId = id, url = path, title = title, coverUrl = cover)
         }
 
     // Genre archiv ("/Genre/{slug}/{page}") ma jinou strukturu karty ("div.ranking_item")
@@ -74,7 +103,7 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -82,12 +111,12 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseGenreList(get("$base/Genre/${filter.genres.first()}/$page"))
             }
-            // "latest" ma vlastni cestu (overeno zive), strankovani je v ceste, ne query
-            // stringu ("/Latest_Releases/2", ne "?page=2" jako u popular-manga).
-            val url = if (filter.sortBy == "latest") "$base/Latest_Releases${if (page > 1) "/$page" else ""}"
-                      else "$base/popular-manga${if (page > 1) "?page=$page" else ""}"
-            parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+            if (filter.sortBy == "latest") {
+                parseLatestList(get("$base/Latest_Releases${if (page > 1) "/$page" else ""}"))
+            } else {
+                parseMangaList(get("$base/Mangalist/All/$page"))
+            }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -95,54 +124,76 @@ class MangaFreakSource @Inject constructor(private val client: OkHttpClient) : M
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseGenreList(get("$base/Genre/${filter.genres.first()}/$page"))
             }
-            val q   = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/search/$q"))
-        } catch (_: Exception) { emptyList() }
+            // Web hledá přes "/Find/{dotaz malými písmeny}"; mezera v CESTĚ je %20 (URLEncoder dává "+",
+            // které by se v cestě četlo jako doslovné plus). Stránkuje se query parametrem ?page=N.
+            val q = URLEncoder.encode(query.trim().lowercase(), "UTF-8").replace("+", "%20")
+            parseSearchList(get("$base/Find/$q?page=$page"))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
-            manga.copy(
-                title       = doc.selectFirst(".manga_right h1, h1.title, h1")?.text()?.trim() ?: manga.title,
-                coverUrl    = doc.selectFirst(".manga_right img, .cover img")?.attr("src")
-                    ?.takeIf { it.startsWith("http") } ?: manga.coverUrl,
-                description = doc.selectFirst(".manga_summary, .description, p.summary")?.text()?.trim(),
-                genres      = doc.select(".manga_genres a, .genres a, .tag a")
-                    .map { it.text().trim() }.filter { it.isNotBlank() },
-                author      = doc.selectFirst(".manga_info span:contains(Author) + a, .author a")?.text()?.trim(),
-                status      = doc.selectFirst(".manga_info span:contains(Status) + span, .status")?.text()?.trim(),
-            )
-        } catch (_: Exception) { manga }
+            parseDetails(Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base), manga)
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
+    }
+
+    internal fun parseDetails(doc: org.jsoup.nodes.Document, manga: SManga): SManga {
+        val info = doc.select(".manga_series_data > div")
+        fun field(label: String): String? = info.firstOrNull { it.ownText().trim().startsWith(label, ignoreCase = true) }
+            ?.ownText()?.substringAfter(':')?.trim()?.ifBlank { null }
+        val statusLine = info.firstOrNull { it.ownText().contains("series", ignoreCase = true) }?.ownText().orEmpty()
+        return manga.copy(
+            title       = doc.selectFirst(".manga_series_data h1")?.text()?.trim()?.ifBlank { null } ?: manga.title,
+            coverUrl    = doc.selectFirst(".manga_series_image img")?.attr("src")?.trim()?.ifBlank { null } ?: manga.coverUrl,
+            description = doc.selectFirst(".manga_series_description p")?.text()?.trim()?.ifBlank { null },
+            genres      = doc.select(".series_sub_genre_list a").map { it.text().trim() }.filter { it.isNotBlank() },
+            author      = field("Written By"),
+            artist      = field("Illustrated By"),
+            status      = when {
+                statusLine.contains("ON-GOING", ignoreCase = true) -> "ongoing"
+                statusLine.contains("COMPLETE", ignoreCase = true) -> "completed"
+                else -> null
+            },
+        )
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
-            doc.select(".chapter_list li a, .manga_episodes li a, ul.chapter-list li a").mapIndexed { i, a ->
-                val href = a.attr("href").let { if (it.startsWith("http")) it.removePrefix(base) else it }
-                val name = a.text().trim().ifBlank { "Chapter ${i + 1}" }
-                SChapter(
-                    sourceId      = id,
-                    mangaUrl      = manga.url,
-                    url           = href,
-                    name          = name,
-                    chapterNumber = Regex("""[Cc]hapter[\s\-_]*([\d.]+)""").find(name)
-                        ?.groupValues?.get(1)?.toFloatOrNull() ?: (i + 1).toFloat(),
-                    dateUpload    = 0L,
-                )
-            }
-        } catch (_: Exception) { emptyList() }
+            parseChapters(Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base), manga)
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
+
+    internal fun parseChapters(doc: org.jsoup.nodes.Document, manga: SManga): List<SChapter> {
+        val rows = doc.select(".manga_series_list tr:has(a.chapter-link)")
+        return rows.mapIndexedNotNull { i, row ->
+            val a = row.selectFirst("a.chapter-link") ?: return@mapIndexedNotNull null
+            val href = mangaPath(a.attr("href")).ifBlank { return@mapIndexedNotNull null }
+            val name = a.text().trim().ifBlank { "Chapter ${i + 1}" }
+            SChapter(
+                sourceId      = id,
+                mangaUrl      = manga.url,
+                url           = href,
+                name          = name,
+                // Číslo z názvu ("Chapter 12 - ..."); tabulka je vzestupně (nejstarší první), takže
+                // pořadí řádku je jen krajní záloha.
+                chapterNumber = parseChapterNumber(name) ?: (i + 1).toFloat(),
+                dateUpload    = parseDate(row.select("td").getOrNull(1)?.text()),
+            )
+        }
+    }
+
+    /** Web uvádí datum jako "2009/07/06". */
+    private fun parseDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"), base)
-            doc.select(".chapter_container img, .reading-content img, .chapter_images img").mapIndexedNotNull { i, img ->
-                val url = img.attr("data-src").ifBlank { img.attr("src") }
-                    .takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
-                Page(i, url, url)
-            }
-        } catch (_: Exception) { emptyList() }
+            parsePages(Jsoup.parse(get(resolveSourceUrl(base, chapter.url)), base))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
+
+    internal fun parsePages(doc: org.jsoup.nodes.Document): List<Page> =
+        doc.select("img#gohere, .mySlides img").mapNotNull { img ->
+            img.absUrl("src").ifBlank { null } ?: img.attr("data-src").let { absoluteMediaUrl(base, it) }
+        }.distinct().mapIndexed { i, url -> Page(i, url, url) }
 }

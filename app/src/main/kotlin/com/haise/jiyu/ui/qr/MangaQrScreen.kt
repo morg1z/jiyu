@@ -161,7 +161,8 @@ private fun generateQrBitmap(content: String, size: Int): Bitmap? {
 
 private fun shareQr(context: android.content.Context, bitmap: Bitmap, title: String) {
     try {
-        val file = File(context.cacheDir, "qr_share.png")
+        val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
+        val file = File(sharedDir, "qr_share.png")
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {

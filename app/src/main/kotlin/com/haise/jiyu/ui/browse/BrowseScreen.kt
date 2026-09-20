@@ -156,12 +156,19 @@ fun BrowseScreen(
                         // Stejne odsazeni jako HistoryScreen/HistoryEntryRow hlavicka (20/16.dp) -
                         // drivejsich 4/12.dp delalo nadpis viditelne jinak vysoko nez na
                         // ostatnich obrazovkach (nahlaseno uzivatelem).
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                        // Hlavička sahá díky bleedHorizontal přes celou šířku; stejných 12 dp vlevo i vpravo jako
+                        // filtry a karty pod ní, takže vyhledávací pole je vystředěné (nadpis má 8 dp navíc, ať
+                        // sedí s nadpisy ostatních záložek).
+                        .padding(horizontal = 12.dp, vertical = 16.dp),
                 ) {
-                    Text(
-                        text = stringResource(R.string.browse_title),
-                        style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
-                    )
+                    // 48dp řádek se středěným titulkem - stejná výška nadpisu jako Historie/Aktualizace/Seznam.
+                    Box(modifier = Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            text = stringResource(R.string.browse_title),
+                            style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
 
                     // Přepínač režimu hledání - viz komentář u [searchBySourceName].
                     Row(
@@ -221,44 +228,17 @@ fun BrowseScreen(
                 }
             }
 
-            // ── Typový filtr - kompaktní řádek chipů ─────────────────────────────
+            // ── Filtry (typ obsahu + jazyk) - jedna kompaktní řada místo dvou řad chipů ─────────
             item(span = { GridItemSpan(maxLineSpan) }) {
-                val contentTypes = listOf(
-                    "ALL" to stringResource(R.string.common_all),
-                    BrowseViewModel.MANGA_GROUP to stringResource(R.string.browse_filter_manga),
-                    "NOVEL" to stringResource(R.string.browse_filter_novels),
-                    "COMIC" to stringResource(R.string.browse_filter_comics),
+                val availableLanguages by viewModel.availableLanguages.collectAsStateWithLifecycle()
+                BrowseFilterBar(
+                    contentTypeFilter = contentTypeFilter,
+                    languageFilter = languageFilter,
+                    availableLanguages = availableLanguages,
+                    onContentTypeChange = viewModel::setContentTypeFilter,
+                    onLanguageChange = viewModel::setLanguageFilter,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
                 )
-                LazyRow(
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    items(contentTypes) { (type, label) ->
-                        FilterChip(label = label, selected = contentTypeFilter == type) { viewModel.setContentTypeFilter(type) }
-                    }
-                }
-            }
-
-            // ── Jazykový filtr - kompaktní řádek chipů ───────────────────────────
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                val languages = listOf(
-                    "ALL" to stringResource(R.string.browse_lang_all),
-                    "en"  to "EN",
-                    "fr"  to "FR",
-                    "es"  to "ES",
-                    "pt"  to "PT",
-                    "ja"  to "RAW",
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    items(languages) { (code, label) ->
-                        FilterChip(label = label, selected = languageFilter == code) { viewModel.setLanguageFilter(code) }
-                    }
-                }
             }
 
             // ── Oblíbené zdroje - horizontální karusel zvýrazněných karet ────────
@@ -333,7 +313,9 @@ private fun Modifier.bleedHorizontal(inset: Dp): Modifier = layout { measurable,
             maxWidth = constraints.maxWidth + insetPx * 2,
         )
     )
-    layout(placeable.width, placeable.height) {
+    // Rozměr položky zůstává ŠÍŘKA BUŇKY (ne rozšířená šířka potomka): širší výsledek mřížka vystředila, takže se
+    // hlavička posunula o další [inset] doleva a vpravo zůstal odkrytý pruh jiné barvy.
+    layout(constraints.maxWidth, placeable.height) {
         placeable.place(-insetPx, 0)
     }
 }
@@ -403,7 +385,7 @@ private fun contentTypeLabel(contentType: String): String = when (contentType) {
 }
 
 /** Vlaječka podle BCP-47 kódu jazyka zdroje; neznámý kód -> 🌐 + kód velkými písmeny. */
-private fun languageFlag(code: String): String = when (code.lowercase()) {
+internal fun languageFlag(code: String): String = when (code.lowercase()) {
     "en" -> "🇺🇸"
     "ja" -> "🇯🇵"
     "ko" -> "🇰🇷"
@@ -419,6 +401,21 @@ private fun languageFlag(code: String): String = when (code.lowercase()) {
     "ru" -> "🇷🇺"
     "pl" -> "🇵🇱"
     "cs" -> "🇨🇿"
+    "th" -> "🇹🇭"
+    "vi" -> "🇻🇳"
+    "uk" -> "🇺🇦"
+    "hi" -> "🇮🇳"
+    "nl" -> "🇳🇱"
+    "ro" -> "🇷🇴"
+    "hu" -> "🇭🇺"
+    "bg" -> "🇧🇬"
+    "he" -> "🇮🇱"
+    "fa" -> "🇮🇷"
+    "ms" -> "🇲🇾"
+    "fil", "tl" -> "🇵🇭"
+    "el" -> "🇬🇷"
+    "sv" -> "🇸🇪"
+    "sk" -> "🇸🇰"
     else -> "🌐"
 }
 

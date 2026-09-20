@@ -58,7 +58,7 @@ internal fun SettingsSubScreenHeader(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (applyStatusBarPadding) Modifier.statusBarsPadding() else Modifier)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 16.dp),
     ) {
         IconButton(onClick = onBack) {
             Icon(TablerIcons.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = TextSecondary)

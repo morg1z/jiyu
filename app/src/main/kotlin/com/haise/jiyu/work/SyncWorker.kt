@@ -50,12 +50,8 @@ class SyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = try {
-        syncRepository.pushToCloud()
-        // Drive tenhle worker dela jen push - druhe zarizeni se tak samo od sebe nikdy
-        // nedorovnalo, dokud uzivatel rucne nezmackl "Sync now" (AccountViewModel.syncNow(),
-        // ktery uz push+pull dela oba). pullFromCloud() uz ma spravne vyresene LWW
-        // (viz SyncRepository.mergeWithRemote) - stejne poradi jako syncNow().
-        syncRepository.pullFromCloud()
+        // pull -> push (viz SyncRepository.sync), stejne poradi jako AccountViewModel.syncNow().
+        syncRepository.sync()
         Result.success()
     } catch (e: Exception) {
         if (runAttemptCount < 3) Result.retry() else Result.failure()

@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.kaliscan
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -37,7 +42,7 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun getHtml(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -51,8 +56,8 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
             val title = link.text().trim().ifBlank { link.attr("title").trim() }
                 .ifBlank { return@mapNotNull null }
             val cover = item.selectFirst(".thumb img")?.let {
-                it.attr("data-src").ifBlank { it.attr("src") }
-            }?.takeIf { it.startsWith("http") }
+                it.lazySrc().orEmpty()
+            }?.let { absoluteMediaUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
     }
@@ -77,7 +82,7 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Genre archiv nema vlastni sort parametr (overeno zive) a kombinace vice tagu
@@ -94,7 +99,7 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
             // ne jen jina projekce stejnych dat.
             val path = if (filter.sortBy == "latest") "latest" else "popular"
             parseBookList(getHtml("$base/$path?page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -104,12 +109,12 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseBookList(getHtml("$base/search?keyword=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(getHtml("$base${manga.url}"))
+            val doc = Jsoup.parse(getHtml(resolveSourceUrl(base, manga.url)))
             var author: String? = null
             var status: String? = null
             var genres: List<String> = emptyList()
@@ -131,16 +136,16 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
                 status = status,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(getHtml("$base${manga.url}"))
+            val doc = Jsoup.parse(getHtml(resolveSourceUrl(base, manga.url)))
             doc.select("ul#chapter-list li a").mapIndexed { i, a ->
                 chapterFromRow(a, manga.url, i)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun chapterFromRow(a: Element, mangaUrl: String, index: Int): SChapter {
@@ -160,35 +165,20 @@ class KaliScanSource @Inject constructor(private val client: OkHttpClient) : Man
         )
     }
 
-    private fun parseRelativeDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        val m = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
-            ?: return System.currentTimeMillis()
-        val value = m.groupValues[1].toLongOrNull() ?: 1L
-        val deltaMs = when (m.groupValues[2].lowercase()) {
-            "second" -> value * 1_000L
-            "minute" -> value * 60_000L
-            "hour"   -> value * 3_600_000L
-            "day"    -> value * 86_400_000L
-            "week"   -> value * 7 * 86_400_000L
-            "month"  -> value * 30 * 86_400_000L
-            "year"   -> value * 365 * 86_400_000L
-            else     -> 0L
-        }
-        return System.currentTimeMillis() - deltaMs
-    }
+    private fun parseRelativeDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     // Kompletni, uz podepsany seznam obrazku je vlozen primo v HTML jako
     // `var chapImages = "url1,url2,...";` - JS na strance ho jen pouziva
     // pro lazy-load pri scrollovani, takze zadny dalsi request neni potreba.
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = getHtml("$base${chapter.url}")
+            val html = getHtml(resolveSourceUrl(base, chapter.url))
             val raw = Regex("""var\s+chapImages\s*=\s*"([^"]+)"""").find(html)
                 ?.groupValues?.get(1) ?: return@withContext emptyList()
             raw.split(",").filter { it.isNotBlank() }.mapIndexed { i, url ->
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

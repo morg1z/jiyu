@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.comic
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -30,9 +35,14 @@ import javax.inject.Singleton
  * stránek se navíc nedají odvodit ze statické URL - čtečka je tahá přes AJAX POST na
  * interní API endpoint (viz getPageList), který vrací seznam URL podle id kapitoly.
  *
- * Web je za Cloudflare (ověřeno živě - `Cf-Mitigated: challenge` v response headers) -
- * spoléhá se na sdílený CloudflareInterceptor v OkHttpClientu (AppModule.kt), stejně jako
- * ostatní chráněné zdroje. Živě na zařízení zatím neověřeno.
+ * Web je za Cloudflare, ale navíc má na úrovni originu VLASTNÍ JS+PoW anti-bot bránu
+ * (ověřeno živě) - appce specificky (ne prohlížeči) servíruje STEJNOU výzvu, jakou by
+ * dostal skutečný prohlížeč, jen schovanou pod nevinně vyhlížející 404 misto 403, aby
+ * odradila automatizovane opakovane pokusy. `CloudflareInterceptor` proto detekci bloku
+ * nerozhoduje jen podle 403/503 (viz `isCloudflareBlocked`), a úspěch WebView řešení
+ * nekontroluje jen podle cookie `cf_clearance` (ten tenhle vlastní gate nemusí vubec
+ * nastavit) - staci, ze se WebView po dokonceni navigace realne vrati na puvodni cilovou
+ * URL.
  */
 @Singleton
 class BatCaveSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -46,7 +56,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun get(url: String): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
@@ -56,45 +66,135 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun postJson(url: String, json: JSONObject): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("X-Requested-With", "XMLHttpRequest")
             .post(json.toString().toRequestBody("application/json".toMediaType()))
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
-    private fun parseListing(doc: Document): List<SManga> =
-        doc.select("#dle-content > .readed, #content-load > .latest").mapNotNull { el ->
+    // Protokol-relativni URL ("//cdn...") by se jinak slepila s `base` misto spravneho
+    // "https:" - stejna oprava jako ComicSiteSource.absoluteUrl(). Obalky karet (viz
+    // parseListing) davaji cesty k obrazkum VZDY relativni ("/uploads/..."), bez tohohle
+    // by appka poslala Coilu neplatnou URL bez schematu/hostitele a obalka by se nenacetla
+    // (nahlaseny bug - "obrázky se nenačítají").
+    private fun absoluteUrl(raw: String): String = when {
+        raw.startsWith("http", ignoreCase = true) -> raw
+        raw.startsWith("//") -> "https:$raw"
+        else -> "$base$raw"
+    }
+
+    // Web pouziva DVA ruzne layouty karet podle stranky: "/comix/" (obecny vypis i
+    // vysledky hledani) ma `.readed`/`.latest` karty s oddelenym title odkazem, zatimco
+    // "/watched/" ("Popular now", viz getPopular) ma jednodussi `.poster` karty, kde je
+    // href primo na obalujicim <a>, ne na vnorenem title odkazu (nahlaseny bug - appka na
+    // "/watched/" pri puvodnim selektoru nikdy nic nenasla, Popularni a Nejnovejsi tak
+    // vzdy vracely stejny seznam z "/comix/").
+    private fun parseListing(doc: Document): List<SManga> {
+        val readedCards = doc.select("#dle-content > .readed, #content-load > .latest").mapNotNull { el ->
             val link = el.selectFirst(".readed__title > a, .latest__title > a") ?: return@mapNotNull null
             val href = link.attr("href").ifBlank { return@mapNotNull null }
             val img = el.selectFirst("img")
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = link.text().trim(),
-                coverUrl = img?.attr("data-src")?.ifBlank { img.attr("src") },
+                coverUrl = img?.attr("data-src")?.ifBlank { img.attr("src") }?.ifBlank { null }?.let(::absoluteUrl),
                 contentType = "COMIC",
             )
         }
+        if (readedCards.isNotEmpty()) return readedCards
 
-    // Bez dotazu = obecný "browse" výpis (/comix/), stejná stránková struktura jako výsledky
-    // hledání - proto sdílené parseListing pro obě.
+        return doc.select("#dle-content > .poster").mapNotNull { el ->
+            val href = el.attr("href").ifBlank { return@mapNotNull null }
+            val title = el.selectFirst(".poster__title")?.text()?.trim().takeUnless { it.isNullOrBlank() } ?: return@mapNotNull null
+            val img = el.selectFirst("img")
+            SManga(
+                sourceId = id,
+                url = toSourcePath(base, href),
+                title = title,
+                coverUrl = img?.attr("data-src")?.ifBlank { img.attr("src") }?.ifBlank { null }?.let(::absoluteUrl),
+                contentType = "COMIC",
+            )
+        }
+    }
+
+    // Web nema vlastni "/genres/" index stranku (overeno zive - 404), seznam je proto
+    // natvrdo opsany z postrannich odkazu na homepage (overeno zive). `id` je presne ten
+    // uz URL-enkodovany tvar cesty, jak ho web sam pouziva ("%20" pro mezeru, "%26" pro
+    // "&") - staci ho dosadit primo do URL bez dalsiho enkodovani.
+    private val genres = listOf(
+        FilterTag(id = "graphic%20novels", label = "Graphic Novels"),
+        FilterTag(id = "action", label = "Action"),
+        FilterTag(id = "horror", label = "Horror"),
+        FilterTag(id = "superhero", label = "Superhero"),
+        FilterTag(id = "supernatural", label = "Supernatural"),
+        FilterTag(id = "fantasy", label = "Fantasy"),
+        FilterTag(id = "romance", label = "Romance"),
+        FilterTag(id = "movies%20%26%20tv", label = "Movies & TV"),
+        FilterTag(id = "historical", label = "Historical"),
+        FilterTag(id = "pulp", label = "Pulp"),
+        FilterTag(id = "zombies", label = "Zombies"),
+        FilterTag(id = "adventure", label = "Adventure"),
+        FilterTag(id = "sci-fi", label = "Sci-Fi"),
+        FilterTag(id = "western", label = "Western"),
+        FilterTag(id = "vampires", label = "Vampires"),
+        FilterTag(id = "robots", label = "Robots"),
+        FilterTag(id = "war", label = "War"),
+        FilterTag(id = "crime", label = "Crime"),
+        FilterTag(id = "video%20games", label = "Video Games"),
+        FilterTag(id = "mythology", label = "Mythology"),
+        FilterTag(id = "mystery", label = "Mystery"),
+        FilterTag(id = "military", label = "Military"),
+        FilterTag(id = "comedy", label = "Comedy"),
+        FilterTag(id = "drama", label = "Drama"),
+        FilterTag(id = "martial%20arts", label = "Martial Arts"),
+        FilterTag(id = "suspense", label = "Suspense"),
+    )
+
+    override val supportsTagFilter: Boolean get() = true
+
+    override suspend fun getAvailableTags(): List<FilterTag> = genres
+
+    // Stejna karetni struktura (.readed) a strankovani jako "/comix/" (overeno zive:
+    // "/genres/horror/page/2/" vraci jine tituly nez strana 1).
+    private fun genreUrl(slug: String, page: Int) =
+        if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
+
+    // "/watched/" ("Popular now" v navigaci webu) je oddelena stranka od obecneho "/comix/"
+    // vypisu - ma VLASTNI (mensi, kurátorsky vybrany) seznam bez dalsiho strankovani
+    // (/watched/page/2/ i /watched/?page=2 obe overene vraci 404 - viz komentar u parseListing),
+    // proto se `page > 1` rovnou vraci prazdny seznam misto zbytecneho requestu, co stejne
+    // nikdy nic nenajde. "/comix/" naopak strankovani ma a je razeny od nejnovejsiho - proto
+    // ho appka pouziva i pro "Nejnovejsi" (filter.sortBy == "latest").
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Vybrany zanr ma prednost pred razenim - archiv zanru nema vlastni "nejnovejsi"
+            // vs "popularni" rozliseni, jen jednu (chronologickou) strankovanou sadu.
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
+            if (filter.sortBy != "latest") {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseListing(Jsoup.parse(get("$base/watched/")))
+            }
             val url = if (page > 1) "$base/comix/page/$page/" else "$base/comix/"
             parseListing(Jsoup.parse(get(url)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
+            }
             val encoded = URLEncoder.encode(query.trim(), "UTF-8")
             val url = buildString {
                 append(base).append("/search/").append(encoded)
                 if (page > 1) append("/page/").append(page).append("/")
             }
             parseListing(Jsoup.parse(get(url)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Textový obsah `<li>` v postranním seznamu detailu (Publisher/Writer/Artist/...), bez odkazu samotného. */
@@ -103,7 +203,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val publisher = doc.pageListValue("Publisher")
             val description = buildString {
                 if (publisher != null) append(publisher)
@@ -113,7 +213,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
             val releaseType = doc.selectFirst(".page__list > li:has(> div:contains(Release type))")?.ownText()?.trim()
             manga.copy(
                 title = doc.selectFirst("header.page__header h1")?.text()?.trim() ?: manga.title,
-                coverUrl = doc.selectFirst("div.page__poster img")?.attr("src") ?: manga.coverUrl,
+                coverUrl = doc.selectFirst("div.page__poster img")?.attr("src")?.ifBlank { null }?.let(::absoluteUrl) ?: manga.coverUrl,
                 description = description.ifBlank { null },
                 author = doc.pageListValue("Writer"),
                 artist = doc.pageListValue("Artist"),
@@ -124,7 +224,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
                     else -> null
                 },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // Seznam kapitol neni v HTML, ale v JSON bloku vlozenem primo do stranky - viz dokumentace
@@ -136,7 +236,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
             // trida je @Singleton, takze soubezne getChapterList() z ruznych mang by sdilenou
             // instanci mohly poskodit/hodit vyjimku (nahlaseny bug).
             val chapterDateFormat = SimpleDateFormat("d.M.yyyy", Locale.US)
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val script = doc.select("script").map { it.data() }
                 .firstOrNull { it.contains("window.__DATA__") } ?: return@withContext emptyList()
             val json = script.substringAfter("window.__DATA__ = ").substringBeforeLast(";").trim()
@@ -157,7 +257,7 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
                     dateUpload = chapterDateFormat.parse(chap.optString("date"))?.time ?: 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -179,16 +279,8 @@ class BatCaveSource @Inject constructor(private val client: OkHttpClient) : Mang
             val response = postJson("$base/engine/ajax/controller.php?mod=api&action=reader/getChapterData", body)
             val images = JSONObject(response).optJSONObject("data")?.optJSONArray("images") ?: return@withContext emptyList()
             (0 until images.length()).map { i ->
-                val raw = images.getString(i).trim()
-                // Protokol-relativni URL ("//cdn...") by se jinak slepila s `base` misto
-                // spravneho "https:" - stejna oprava jako ComicSiteSource.absoluteUrl().
-                val url = when {
-                    raw.startsWith("http", ignoreCase = true) -> raw
-                    raw.startsWith("//") -> "https:$raw"
-                    else -> "$base$raw"
-                }
-                Page(index = i, url = url)
+                Page(index = i, url = absoluteUrl(images.getString(i).trim()))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

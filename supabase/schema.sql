@@ -1,103 +1,112 @@
--- Jiyu Cloud Schema
--- Spusť v: Supabase Dashboard → SQL Editor
-
--- ── profiles ────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS profiles (
-  id           UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username     TEXT UNIQUE,
-  display_name TEXT,
-  avatar_url   TEXT,
-  public_library BOOLEAN DEFAULT FALSE,
-  created_at   TIMESTAMPTZ DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Auto-vytvoření profilu při registraci
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO profiles (id, display_name, avatar_url)
-  VALUES (
-    NEW.id,
-    NEW.raw_user_meta_data->>'full_name',
-    NEW.raw_user_meta_data->>'avatar_url'
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+-- Jiyū Cloud Schema - AKTUÁLNÍ STAV živého projektu (Supabase "jiyu"), stav k 2026-09-20 po migraci
+-- 20260920134343_harden_rls_indexes_grants.
+--
+-- Tenhle soubor je souhrn stavu, ne postup: nové změny se dělají jako migrace ve složce supabase/migrations
+-- (a aplikují se na projekt), tenhle přehled se pak aktualizuje. Dřív se v něm popisovala tabulka `profiles` a
+-- trigger `handle_new_user`, které v živé databázi vůbec neexistují, a chyběly tabulky, které existují -
+-- při obnově projektu z něj by vznikla jiná databáze.
+--
+-- Skutečně používané appkou: manga_sync, chapter_sync (synchronizace knihovny) a translate_usage (denní strop
+-- překladové proxy). library_backups, public_manga_lists a user_settings_sync appka zatím nepoužívá (prázdné).
 
 -- ── manga_sync ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS manga_sync (
-  id          TEXT NOT NULL,
-  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  source_id   TEXT NOT NULL,
-  url         TEXT NOT NULL,
-  title       TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS public.manga_sync (
+  id          TEXT    NOT NULL,
+  user_id     UUID    NOT NULL REFERENCES auth.users(id),
+  source_id   TEXT    NOT NULL,
+  url         TEXT    NOT NULL,
+  title       TEXT    NOT NULL,
   cover_url   TEXT,
-  in_library  BOOLEAN NOT NULL DEFAULT TRUE,
-  last_read_chapter_id TEXT,
-  last_read_at BIGINT DEFAULT 0,
-  updated_at  BIGINT NOT NULL,
+  in_library  BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at  BIGINT  NOT NULL,
   PRIMARY KEY (id, user_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_manga_sync_user ON manga_sync(user_id);
-
-ALTER TABLE manga_sync ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can manage own manga_sync" ON manga_sync
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_manga_sync_user_updated ON public.manga_sync (user_id, updated_at);
+ALTER TABLE public.manga_sync ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own manga_sync" ON public.manga_sync
+  FOR ALL TO authenticated
+  USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
 -- ── chapter_sync ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS chapter_sync (
-  id              TEXT NOT NULL,
-  user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  manga_id        TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS public.chapter_sync (
+  id              TEXT    NOT NULL,
+  user_id         UUID    NOT NULL REFERENCES auth.users(id),
+  manga_id        TEXT    NOT NULL,
   read            BOOLEAN NOT NULL DEFAULT FALSE,
   last_page_read  INTEGER NOT NULL DEFAULT 0,
-  updated_at      BIGINT NOT NULL,
+  updated_at      BIGINT  NOT NULL,
   PRIMARY KEY (id, user_id)
 );
+CREATE INDEX IF NOT EXISTS idx_chapter_sync_user_updated ON public.chapter_sync (user_id, updated_at);
+ALTER TABLE public.chapter_sync ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own chapter_sync" ON public.chapter_sync
+  FOR ALL TO authenticated
+  USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
-CREATE INDEX IF NOT EXISTS idx_chapter_sync_user ON chapter_sync(user_id);
-CREATE INDEX IF NOT EXISTS idx_chapter_sync_manga ON chapter_sync(manga_id);
+-- ── user_settings_sync (zatím nepoužito) ─────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_settings_sync (
+  user_id       UUID   PRIMARY KEY REFERENCES auth.users(id),
+  settings_json JSONB  NOT NULL DEFAULT '{}'::jsonb,
+  updated_at    BIGINT NOT NULL DEFAULT 0
+);
+ALTER TABLE public.user_settings_sync ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own settings" ON public.user_settings_sync
+  FOR ALL TO authenticated
+  USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
-ALTER TABLE chapter_sync ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users can manage own chapter_sync" ON chapter_sync
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+-- ── library_backups (zatím nepoužito; user_id je TEXT bez cizího klíče) ───────
+CREATE TABLE IF NOT EXISTS public.library_backups (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     TEXT        NOT NULL,
+  backup_data JSONB       NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE public.library_backups ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage own backups" ON public.library_backups
+  FOR ALL TO authenticated
+  USING (user_id = (select auth.uid())::text) WITH CHECK (user_id = (select auth.uid())::text);
+
+-- ── public_manga_lists (zatím nepoužito; user_id je TEXT bez cizího klíče) ────
+CREATE TABLE IF NOT EXISTS public.public_manga_lists (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     TEXT        NOT NULL,
+  manga_id    TEXT        NOT NULL,
+  manga_title TEXT        NOT NULL,
+  manga_cover TEXT,
+  is_public   BOOLEAN     DEFAULT FALSE,
+  created_at  TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (user_id, manga_id)
+);
+ALTER TABLE public.public_manga_lists ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public or own lists are readable" ON public.public_manga_lists
+  FOR SELECT TO anon, authenticated
+  USING (is_public = true OR user_id = (select auth.uid())::text);
+CREATE POLICY "Users insert own entries" ON public.public_manga_lists
+  FOR INSERT TO authenticated WITH CHECK (user_id = (select auth.uid())::text);
+CREATE POLICY "Users update own entries" ON public.public_manga_lists
+  FOR UPDATE TO authenticated
+  USING (user_id = (select auth.uid())::text) WITH CHECK (user_id = (select auth.uid())::text);
+CREATE POLICY "Users delete own entries" ON public.public_manga_lists
+  FOR DELETE TO authenticated USING (user_id = (select auth.uid())::text);
 
 -- ── translate_usage ──────────────────────────────────────────────────────────
--- Denní strop pro překladovou proxy (viz supabase/functions/translate-proxy/index.ts).
--- Tahle tabulka i funkce níž dlouho existovaly JEN v živém projektu a chyběly ve
--- verzování - kdyby se projekt obnovoval, překlad by se tiše rozbil na chybějící RPC.
---
--- POZOR: strop je ZÁMĚRNĚ globální (jedna řádka na den za celý projekt), ne per-uživatel.
--- Appka je osobní a proxy běží s verify_jwt=false, takže tu není koho identifikovat.
--- Důsledek: kdokoli, kdo z APK vytáhne URL + anon key, může strop vyčerpat. Pokud by
--- appku někdy používal někdo další, tohle je první místo, které je potřeba předělat
--- (přidat identifikátor volajícího do klíče a do PRIMARY KEY).
-CREATE TABLE IF NOT EXISTS translate_usage (
+-- Denní strop pro překladovou proxy (supabase/functions/translate-proxy/index.ts).
+-- STROP JE ZÁMĚRNĚ GLOBÁLNÍ (jedna řádka na den za celý projekt), ne per-uživatel: appka je osobní a proxy běží
+-- s verify_jwt=false. Kdokoli, kdo z APK vytáhne URL + anon key, může strop vyčerpat; kdyby appku používal někdo
+-- další, je tohle první místo k předělání (identifikátor volajícího do klíče).
+-- K tabulce smí jen service role (edge funkce): klientským rolím jsou odebrána práva a politika "No client access"
+-- je navíc výslovně zakazuje.
+CREATE TABLE IF NOT EXISTS public.translate_usage (
   day           DATE PRIMARY KEY,
   request_count INTEGER NOT NULL DEFAULT 0,
   char_count    BIGINT  NOT NULL DEFAULT 0
 );
+ALTER TABLE public.translate_usage ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "No client access" ON public.translate_usage
+  FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
 
--- RLS zapnuté ZÁMĚRNĚ bez jediné policy: k tabulce se dostane pouze service role
--- (edge funkce), nikdy klient s anon klíčem. Prázdný seznam policies tady tedy není
--- opomenutí - je to ta nejpřísnější varianta.
-ALTER TABLE translate_usage ENABLE ROW LEVEL SECURITY;
-
--- Atomicky započítá jeden požadavek a vrátí, jestli se ještě vejde do denního stropu.
--- Limity chodí jako parametry (ne konstanty v SQL), aby se daly měnit v jednom místě -
--- v index.ts, kde se o nich rozhoduje.
+-- Atomicky započítá jeden požadavek a vrátí, jestli se ještě vejde do denního stropu. Limity chodí jako parametry
+-- (rozhoduje se o nich v index.ts).
 CREATE OR REPLACE FUNCTION public.increment_translate_usage(
   p_chars                INTEGER,
   p_daily_char_limit     BIGINT,
@@ -123,21 +132,9 @@ begin
 end;
 $function$;
 
--- Vrátí do denního ZNAKOVÉHO stropu znaky za pokus, při kterém upstream vůbec nic
--- nevygeneroval (HTTP chyba nebo rate limit) - viz refundQuota v index.ts.
---
--- POČET POŽADAVKŮ SE ZÁMĚRNĚ NEVRACÍ. Ta hodnota není měřítko práce, ale pojistka proti
--- rozjeté smyčce, a rozjetá smyčka se skládá právě z NEÚSPĚŠNÝCH pokusů. Kdyby se
--- request_count vracel, provider, který odpovídá pořád 429, by šlo volat donekonečna a
--- na denní strop by se nikdy nenarazilo - tedy přesně to, před čím má strop chránit.
---
--- Znaky se naopak vracejí, protože znakový limit má odhadovat SKUTEČNĚ přeložený objem;
--- fallback řetězec appky (Gemini -> Groq -> OpenRouter -> ...) si jinak za jednu dávku
--- ukrojí znaky tolikrát, kolikrát selhal, i když se nakonec přeložila jen jednou.
---
--- `greatest(0, ...)` je pojistka pro případ, kdy pokus začne před půlnocí a vrátí se až po
--- ní: refund pak trefí ŘÁDKU NOVÉHO DNE, kde ty znaky nikdy připsané nebyly. Rozdíl je
--- zanedbatelný, ale počítadlo nesmí spadnout pod nulu.
+-- Vrátí do denního ZNAKOVÉHO stropu znaky za pokus, při kterém upstream nic nevygeneroval (viz refundQuota v
+-- index.ts). Počet požadavků se ZÁMĚRNĚ nevrací: je to pojistka proti rozjeté smyčce a ta se skládá z neúspěšných
+-- pokusů. `greatest(0, ...)` hlídá pokus, který začne před půlnocí a vrátí se po ní.
 CREATE OR REPLACE FUNCTION public.refund_translate_usage(p_chars INTEGER)
 RETURNS VOID
 LANGUAGE plpgsql
@@ -150,3 +147,16 @@ begin
    where day = current_date;
 end;
 $function$;
+
+REVOKE EXECUTE ON FUNCTION public.increment_translate_usage(INTEGER, BIGINT, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.refund_translate_usage(INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_translate_usage(INTEGER, BIGINT, INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION public.refund_translate_usage(INTEGER) TO service_role;
+
+-- ── Oprávnění tabulek (viz migrace 20260920134343) ───────────────────────────
+-- anon: jen SELECT na public_manga_lists (RLS pouští jen veřejné řádky). authenticated: SELECT/INSERT/UPDATE/DELETE
+-- (řádky omezuje RLS), bez TRUNCATE/TRIGGER/REFERENCES. translate_usage: jen service role.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+GRANT SELECT ON public.public_manga_lists TO anon;
+REVOKE TRUNCATE, TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM authenticated;
+REVOKE ALL ON public.translate_usage FROM anon, authenticated;

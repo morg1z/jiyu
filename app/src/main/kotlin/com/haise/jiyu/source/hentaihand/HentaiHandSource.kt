@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.hentaihand
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -35,6 +37,7 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
 
     override val id = "hentaihand"
     override val name = "HentaiHand"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -43,7 +46,7 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
     private fun fetchJson(url: String): JSONObject {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Accept", "application/json")
             .build()
         return JSONObject(client.newCall(request).execute().use { it.bodyOrThrow(url) })
@@ -93,28 +96,28 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
             return@withContext try { parseList(fetchJson("$base/api/comics?categories[]=${filter.genres.first()}&page=$page")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try { parseList(fetchJson("$base/api/comics?page=$page")) }
-        catch (_: Exception) { emptyList() }
+        catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
             return@withContext try { parseList(fetchJson("$base/api/comics?categories[]=${filter.genres.first()}&page=$page")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseList(fetchJson("$base/api/comics?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -132,7 +135,7 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
                 } ?: emptyList()
             }
             manga.copy(title = title, description = description, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -156,6 +159,6 @@ class HentaiHandSource @Inject constructor(private val client: OkHttpClient) : M
                 val url = images.optJSONObject(i)?.optString("source_url")?.ifBlank { null } ?: return@mapNotNull null
                 Page(index = i, url = url, imageUrl = url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

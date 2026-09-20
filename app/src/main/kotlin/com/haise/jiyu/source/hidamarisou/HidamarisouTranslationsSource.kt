@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.hidamarisou
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -33,13 +35,14 @@ import javax.inject.Singleton
 class HidamarisouTranslationsSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "hidamarisou"
     override val name = "Hidamarisou Translations"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://hidamarisoutranslations.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -68,14 +71,14 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
         try {
             if (page > 1) return@withContext emptyList()
             fetchCategories()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (page > 1) return@withContext emptyList()
             fetchCategories().filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = manga
@@ -87,7 +90,7 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
             while (true) {
                 val json = try {
                     JSONArray(get("${manga.url}&per_page=100&page=$page&_fields=id,date,link,title"))
-                } catch (_: Exception) { break }
+                } catch (e: Exception) { e.rethrowIfControl(); break }
                 if (json.length() == 0) break
                 for (i in 0 until json.length()) {
                     val o = json.optJSONObject(i) ?: continue
@@ -109,14 +112,14 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
             // WP REST vraci od nejnovejsiho - appka chce od nejstarsiho pro spravne
             // cislovani kapitol, proto se seznam otoci a precisluje.
             chapters.reversed().mapIndexed { idx, c -> c.copy(chapterNumber = (idx + 1).toFloat()) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(iso: String): Long = try {
         java.time.LocalDateTime.parse(iso)
             .atZone(java.time.ZoneOffset.UTC)
             .toInstant().toEpochMilli()
-    } catch (_: Exception) { System.currentTimeMillis() }
+    } catch (e: Exception) { e.rethrowIfControl(); System.currentTimeMillis() }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
@@ -124,6 +127,6 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
             val html = json.optJSONObject("content")?.optString("rendered").orEmpty()
             val text = Jsoup.parse(html).text().trim()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

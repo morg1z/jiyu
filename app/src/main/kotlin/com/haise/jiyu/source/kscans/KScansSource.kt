@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.kscans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -57,7 +59,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
             parseNovelList(get("$base/popular")).flatMap { it.genres }
                 .distinct()
                 .map { FilterTag(id = it, label = it) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         if (tags.isNotEmpty()) cachedTags = tags
         tags
     }
@@ -68,7 +70,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -76,7 +78,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
     private fun postSearch(query: String): String {
         val form = FormBody.Builder().add("q", query).build()
         val req = Request.Builder().url("$base/search")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(form)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow("$base/search") }
@@ -105,7 +107,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
             // widgetu, ktery uz je oznacen jako "LATEST UPDATES" primo v HTML komentari webu).
             val url = if (filter.sortBy == "latest") base else "$base/popular"
             applyGenreFilter(parseNovelList(get(url)), filter)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -113,7 +115,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
         if (page > 1) return@withContext emptyList()
         try {
             applyGenreFilter(parseNovelList(postSearch(query)), filter)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -132,7 +134,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
                 status = status,
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -144,7 +146,7 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
                 val name = a.selectFirst("span.cl-text")?.text()?.trim()?.ifBlank { null } ?: "Chapter $num"
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Element.text() ignoruje <br> (nevklada zalomeni), takze odstavce oddelene jen
@@ -171,6 +173,6 @@ class KScansSource @Inject constructor(private val client: OkHttpClient) : Manga
             contentEl.select("p.chapter-title").remove()
             val text = htmlToText(contentEl)
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

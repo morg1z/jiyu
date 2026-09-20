@@ -31,12 +31,7 @@
     <string name="onb_done_title">Tout est prêt!</string>
     <string name="onb_done_subtitle">Jiyu est configuré.\nVous pouvez commencer à lire.</string>
     <string name="onb_btn_next">Suivant</string>
-    <string name="onb_btn_skip">Passer</string>
     <string name="onb_btn_start">Commencer à lire</string>
-    <string name="onb_step_language">Langue</string>
-    <string name="onb_step_reading">Lecture</string>
-    <string name="onb_step_storage">Stockage</string>
-    <string name="onb_step_done">Terminé</string>
 
     <string name="action_start_reading">Commencer à lire</string>
     <string name="action_continue_reading">Continuer la lecture</string>
@@ -71,18 +66,14 @@
     <string name="detail_title_copied">Titre copié</string>
     <string name="common_clear">Effacer</string>
     <string name="common_search">Rechercher</string>
-    <string name="common_search_placeholder">Rechercher…</string>
     <string name="common_yes">Oui</string>
     <string name="common_no">Non</string>
     <string name="common_confirm">Confirmer</string>
-    <string name="common_edit">Modifier</string>
     <string name="common_download">Télécharger</string>
     <string name="download_notification_done_title">Téléchargement terminé</string>
     <string name="download_notification_done_text">Le chapitre est prêt pour la lecture hors ligne</string>
     <string name="common_share">Partager</string>
     <string name="common_retry">Réessayer</string>
-    <string name="common_loading">Chargement…</string>
-    <string name="common_none">Aucun</string>
     <string name="common_all">Tous</string>
 
     <!-- Paramètres : écran principal -->
@@ -304,7 +295,6 @@
     <string name="settings_backup_settings_export_success">Paramètres exportés</string>
 
     <!-- Paramètres : Lecture -->
-    <string name="settings_reading_duplicates_button">Détecteur de doublons</string>
 
     <!-- Paramètres : À propos -->
     <string name="settings_about_title">À propos</string>
@@ -315,7 +305,6 @@
     <string name="settings_about_up_to_date">Vous avez la dernière version</string>
     <string name="settings_about_check_updates">Vérifier les mises à jour</string>
     <string name="settings_about_grant_install_permission">Veuillez autoriser les installations depuis Jiyu et réessayer le téléchargement</string>
-    <string name="settings_about_download_started">Téléchargement démarré - consultez la barre de notifications</string>
 
     <!-- Paramètres : Catalogue de sources -->
     <string name="settings_source_catalog_add_source_fab">Ajouter une source</string>
@@ -563,7 +552,6 @@
     <string name="detail_info_score">Score : %1$s</string>
     <string name="detail_info_link_mal">Associer à MyAnimeList</string>
     <string name="detail_info_mal_no_client_id">Définissez MAL_CLIENT_ID dans local.properties pour activer la recherche (myanimelist.net/apiconfig)</string>
-    <string name="detail_info_mal_no_client_id_full">MAL_CLIENT_ID n\'est pas défini. Enregistrez l\'appli sur myanimelist.net/apiconfig et ajoutez le CLIENT ID à local.properties.</string>
     <string name="detail_info_sync_from_mal">Récupérer le statut depuis MAL</string>
     <string name="detail_info_anilist_login_hint">Connectez-vous à AniList dans Compte pour l\'associer.</string>
     <string name="detail_info_anilist_id">ID AniList : %1$s</string>
@@ -626,11 +614,9 @@
     <string name="mylist_title">Ma liste</string>
     <string name="mylist_switch_to_list">Passer en liste</string>
     <string name="mylist_switch_to_grid">Passer en grille</string>
-    <string name="mylist_sort">Trier</string>
     <string name="mylist_open_cbz">Ouvrir un CBZ/ZIP</string>
     <string name="mylist_mark_library_read">Marquer la bibliothèque comme lue</string>
     <string name="mylist_manage_categories">Gérer les catégories</string>
-    <string name="mylist_add_category">Ajouter une catégorie</string>
     <string name="mylist_content_manhwa">Manhwa</string>
     <string name="mylist_content_manhua">Manhua</string>
     <string name="mylist_add_to_category">Ajouter à une catégorie</string>
@@ -722,6 +708,8 @@
     <string name="reader_glossary_protect_off_description">Le terme peut être fléchi - appuyer pour protéger son orthographe exacte</string>
     <string name="reader_share_link">Partager le lien</string>
     <string name="reader_save_to_gallery">Enregistrer dans la galerie</string>
+    <string name="reader_save_success">Page enregistrée dans la galerie</string>
+    <string name="reader_save_failed">Impossible d\'enregistrer la page</string>
     <string name="reader_page_content_desc">Page %1$d</string>
     <string name="reader_page_curl_progress">Page %1$d sur %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Échec du chargement de la page</string>
@@ -756,8 +744,6 @@
     <string name="source_browse_latest">Récents</string>
     <string name="source_browse_load_failed">Échec du chargement</string>
     <string name="source_browse_no_results">Aucun résultat</string>
-    <string name="source_browse_cover_desc">Couverture : %1$s</string>
-    <string name="source_browse_add_to_library">+ Ajouter à la bibliothèque</string>
     <string name="source_browse_dup_title">Vous avez peut-être déjà ce manga</string>
     <string name="source_browse_dup_desc">« %1$s » porte le même titre qu\'un manga déjà dans votre bibliothèque depuis une autre source. Les sources diffèrent en nombre de chapitres traduits et en qualité de traduction :</string>
     <string name="source_browse_checking">vérification…</string>
@@ -819,6 +805,10 @@
     <string name="account_error_login_generic">Erreur de connexion</string>
     <string name="account_error_no_google_account">Aucun compte Google n\'a été trouvé sur ce téléphone, ou l\'appli n\'y a pas accès. Vérifie dans les réglages du téléphone que tu es connecté à un compte Google, ou connecte-toi par e-mail.</string>
     <string name="account_sync_done">Synchronisation terminée</string>
+    <string name="account_owner_conflict_title">La bibliothèque appartient à un autre compte</string>
+    <string name="account_owner_conflict_message">La bibliothèque locale de ce téléphone a été synchronisée avec un autre compte. Vous pouvez l\'envoyer vers le compte connecté, ou la supprimer (y compris les chapitres téléchargés et la progression de lecture) et télécharger la bibliothèque depuis le cloud.</string>
+    <string name="account_owner_conflict_keep_local">Envoyer vers ce compte</string>
+    <string name="account_owner_conflict_use_cloud">Supprimer et télécharger depuis le cloud</string>
 
     <!-- Communauté -->
 
@@ -958,7 +948,6 @@
     <string name="library_stats_read_today">Lu aujourd\'hui</string>
     <string name="library_minutes_short">min</string>
     <string name="library_percent_read">%1$d %% lu</string>
-    <string name="library_filter">Filtrer</string>
 
     <string name="mylist_content_novel">Roman</string>
     <string name="mylist_content_comic">BD</string>
@@ -1041,6 +1030,11 @@
         <item quantity="one">Tous les chapitres de %1$d manga de votre bibliothèque seront marqués comme lus. Cette action ne peut pas être annulée en masse.</item>
         <item quantity="other">Tous les chapitres des %1$d manga de votre bibliothèque seront marqués comme lus. Cette action ne peut pas être annulée en masse.</item>
         <item quantity="many">Tous les chapitres des %1$d manga de votre bibliothèque seront marqués comme lus. Cette action ne peut pas être annulée en masse.</item>
+    </plurals>
+    <plurals name="mylist_bulk_remove_title">
+        <item quantity="one">Retirer %1$d titre de votre bibliothèque ?</item>
+        <item quantity="other">Retirer %1$d titres de votre bibliothèque ?</item>
+        <item quantity="many">Retirer %1$d titres de votre bibliothèque ?</item>
     </plurals>
     <plurals name="mylist_title_count">
         <item quantity="one">%1$d titre</item>
@@ -1127,7 +1121,6 @@
     <string name="detail_translate_next_n_title">Combien de chapitres ?</string>
     <string name="translate_worker_notification_title">Traduction – %1$s</string>
     <string name="translate_worker_notification_chapter">%1$s</string>
-    <string name="detail_translate_enqueued">Ajouté à la file de traduction</string>
 
     <string name="widget_shelf_title">Jiyu – Étagère</string>
     <string name="widget_shelf_description">Bibliothèque ou catégorie choisie sous forme de grille de couvertures</string>
@@ -1147,4 +1140,53 @@
     <string name="reader_home_desc">Accueil (Bibliothèque)</string>
     <string name="browse_source_adult_badge">18+</string>
     <string name="comick_browse_search_history">RECHERCHES RÉCENTES</string>
+    <string name="notification_channel_chapters_name">Nouveaux chapitres</string>
+    <string name="notification_channel_chapters_desc">Alertes de nouveaux chapitres dans votre bibliothèque</string>
+    <string name="notification_channel_downloads_name">Téléchargements de chapitres</string>
+    <string name="notification_channel_downloads_desc">Progression des téléchargements de chapitres</string>
+    <string name="download_notification_title">Téléchargement du chapitre</string>
+    <string name="download_notification_progress">%1$d / %2$d pages</string>
+    <string name="download_notification_failed_title">Échec du téléchargement</string>
+    <string name="download_notification_failed_text">%1$s : %2$s</string>
+    <string name="download_chapter_fallback_name">Chapitre</string>
+    <string name="download_error_unknown">erreur inconnue</string>
+    <string name="download_error_disk_full">Espace de stockage insuffisant</string>
+    <string name="backup_error_open_output">Impossible d\'ouvrir le fichier de sortie</string>
+    <string name="backup_error_open_input">Impossible d\'ouvrir le fichier de sauvegarde</string>
+    <string name="relative_time_now">maintenant</string>
+    <string name="relative_time_minutes">il y a %1$d min</string>
+    <string name="relative_time_hours">il y a %1$d h</string>
+    <string name="relative_time_days">il y a %1$d j</string>
+    <string name="download_error_no_pages">La source n\'a renvoyé aucune page</string>
+    <string name="settings_sources_mirror_section_title">Domaines de remplacement des sources</string>
+    <string name="settings_sources_mirror_description">Quand un site change d\'adresse, saisis le nouveau domaine et la source l\'utilisera sans mise à jour de l\'appli. Concerne toutes les adresses de cette source (y compris celles déjà enregistrées).</string>
+    <string name="settings_sources_mirror_add_button">Définir un domaine de remplacement</string>
+    <string name="settings_sources_mirror_dialog_title">Domaine de remplacement</string>
+    <string name="settings_sources_mirror_field_source">Rechercher une source</string>
+    <string name="settings_sources_mirror_field_host">Nouveau domaine (ex. nouveau-site.com), vide = supprimer</string>
+    <string name="settings_sources_mirror_invalid">Saisis un domaine valide sans chemin</string>
+    <string name="error_action_solve_cloudflare">Résoudre la vérification</string>
+    <string name="error_action_use_new_domain">Utiliser la nouvelle adresse (%1$s)</string>
+    <string name="error_action_open_web">Ouvrir le site de la source</string>
+    <string name="source_web_title">Site de la source</string>
+    <string name="source_web_done">Terminé</string>
+    <string name="settings_image_proxy_section_title">Mode économie d\'images</string>
+    <string name="settings_image_proxy_title">Télécharger les images via un service d\'économie</string>
+    <string name="settings_image_proxy_desc">Les images sont réduites (WebP) par le service public wsrv.nl avant le téléchargement : beaucoup moins de données avec un signal faible. Le service voit les adresses des images chargées. La traduction et les téléchargements de chapitres utilisent toujours les originaux. Désactivé par défaut.</string>
+    <string name="settings_proxy_section_title">Serveur proxy</string>
+    <string name="settings_proxy_description">Proxy HTTP/SOCKS facultatif pour les réseaux où les sites des sources ne sont pas joignables directement. S\'applique aux téléchargements des sources et des images. Le mot de passe est stocké chiffré ; l\'authentification ne fonctionne qu\'avec un proxy HTTP.</string>
+    <string name="settings_proxy_host">Adresse du proxy (ex. proxy.example.com)</string>
+    <string name="settings_proxy_port">Port</string>
+    <string name="settings_proxy_user">Utilisateur (facultatif)</string>
+    <string name="settings_proxy_password">Mot de passe (facultatif)</string>
+    <string name="settings_proxy_invalid">Saisis une adresse et un port valides (1-65535)</string>
+    <string name="settings_proxy_disable">Désactiver le proxy</string>
+    <string name="browse_filter_type_label">Type : %1$s</string>
+    <string name="browse_filter_language_label">Langue : %1$s</string>
+    <string name="browse_filter_type_title">Type de contenu</string>
+    <string name="browse_filter_language_title">Langue</string>
+    <string name="browse_filter_language_search">Rechercher une langue…</string>
+    <string name="browse_filter_language_all">Toutes les langues</string>
+    <string name="browse_filters_clear_all">Tout effacer</string>
+    <string name="browse_filter_remove">Retirer le filtre</string>
 </resources>

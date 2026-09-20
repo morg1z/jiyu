@@ -9,6 +9,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -75,30 +76,49 @@ class KitsuRepository @Inject constructor(
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * Požadavek s Bearer tokenem: při 401 jednou obnoví token přes [KitsuAuthManager.refresh] a zopakuje
+     * ho (audit nález JIYU-ARCH-1 - refresh token se dřív ukládal, ale nikdy nepoužil). `null` = bez
+     * přihlášení nebo obnova selhala.
+     */
+    private suspend fun <T> authed(build: (token: String) -> Request, handle: (Response) -> T?): T? {
+        val token = authManager.getToken() ?: return null
+        val first = httpClient.newCall(build(token)).execute()
+        if (first.code != 401) return first.use(handle)
+        first.close()
+        if (!authManager.refresh(staleToken = token)) return null
+        val fresh = authManager.getToken() ?: return null
+        return httpClient.newCall(build(fresh)).execute().use(handle)
+    }
+
     suspend fun getLibraryEntryId(kitsuMangaId: String): String? = withContext(Dispatchers.IO) {
         val userId = authManager.getUserId() ?: return@withContext null
-        val token  = authManager.getToken()  ?: return@withContext null
         try {
             val url = "https://kitsu.app/api/edge/library-entries?filter[userId]=$userId&filter[mediaType]=manga&filter[mediaId]=$kitsuMangaId&fields[libraryEntries]=id"
-            val req = Request.Builder().url(url)
-                .header("Accept", "application/vnd.api+json")
-                .header("Authorization", "Bearer $token")
-                .build()
-            val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
+            val body = authed(
+                build = { token ->
+                    Request.Builder().url(url)
+                        .header("Accept", "application/vnd.api+json")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                },
+            ) { resp -> if (!resp.isSuccessful) null else resp.body?.string() } ?: return@withContext null
             val arr = JSONObject(body).optJSONArray("data")
             if (arr != null && arr.length() > 0) arr.getJSONObject(0).getString("id") else null
         } catch (_: Exception) { null }
     }
 
     suspend fun fetchUserId(): String? = withContext(Dispatchers.IO) {
-        val token = authManager.getToken() ?: return@withContext null
         try {
-            val req = Request.Builder()
-                .url("https://kitsu.app/api/edge/users?filter[self]=true&fields[users]=id")
-                .header("Accept", "application/vnd.api+json")
-                .header("Authorization", "Bearer $token")
-                .build()
-            val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
+            val body = authed(
+                build = { token ->
+                    Request.Builder()
+                        .url("https://kitsu.app/api/edge/users?filter[self]=true&fields[users]=id")
+                        .header("Accept", "application/vnd.api+json")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                },
+            ) { resp -> if (!resp.isSuccessful) null else resp.body?.string() } ?: return@withContext null
             val arr = JSONObject(body).optJSONArray("data")
             arr?.getJSONObject(0)?.getString("id")
         } catch (_: Exception) { null }
@@ -109,7 +129,7 @@ class KitsuRepository @Inject constructor(
      * Pokud entry ještě neexistuje, vytvoří ji. Jinak ji aktualizuje.
      */
     suspend fun updateProgress(kitsuMangaId: String, chaptersRead: Int) = withContext(Dispatchers.IO) {
-        val token = authManager.getToken() ?: return@withContext
+        if (authManager.getToken() == null) return@withContext
         try {
             val existingId = getLibraryEntryId(kitsuMangaId)
             val jsonType = "application/vnd.api+json".toMediaType()
@@ -128,13 +148,16 @@ class KitsuRepository @Inject constructor(
                         })
                     })
                 }.toString()
-                Request.Builder()
-                    .url("https://kitsu.app/api/edge/library-entries")
-                    .header("Accept", "application/vnd.api+json")
-                    .header("Authorization", "Bearer $token")
-                    .post(body.toRequestBody(jsonType))
-                    .build()
-                    .let { httpClient.newCall(it).execute().close() }
+                authed(
+                    build = { token ->
+                        Request.Builder()
+                            .url("https://kitsu.app/api/edge/library-entries")
+                            .header("Accept", "application/vnd.api+json")
+                            .header("Authorization", "Bearer $token")
+                            .post(body.toRequestBody(jsonType))
+                            .build()
+                    },
+                ) { it.isSuccessful }
             } else {
                 val body = JSONObject().apply {
                     put("data", JSONObject().apply {
@@ -146,13 +169,16 @@ class KitsuRepository @Inject constructor(
                         })
                     })
                 }.toString()
-                Request.Builder()
-                    .url("https://kitsu.app/api/edge/library-entries/$existingId")
-                    .header("Accept", "application/vnd.api+json")
-                    .header("Authorization", "Bearer $token")
-                    .patch(body.toRequestBody(jsonType))
-                    .build()
-                    .let { httpClient.newCall(it).execute().close() }
+                authed(
+                    build = { token ->
+                        Request.Builder()
+                            .url("https://kitsu.app/api/edge/library-entries/$existingId")
+                            .header("Accept", "application/vnd.api+json")
+                            .header("Authorization", "Bearer $token")
+                            .patch(body.toRequestBody(jsonType))
+                            .build()
+                    },
+                ) { it.isSuccessful }
             }
         } catch (e: Exception) {
             e.report("tracking:kitsu:updateProgress")
@@ -162,14 +188,16 @@ class KitsuRepository @Inject constructor(
     /** Stáhne uživatelův status/skóre uložený přímo na Kitsu (pro obousměrnou synchronizaci). */
     suspend fun getMyLibraryEntry(kitsuMangaId: String): KitsuUserEntry? = withContext(Dispatchers.IO) {
         val userId = authManager.getUserId() ?: return@withContext null
-        val token  = authManager.getToken()  ?: return@withContext null
         try {
             val url = "https://kitsu.app/api/edge/library-entries?filter[userId]=$userId&filter[mediaType]=manga&filter[mediaId]=$kitsuMangaId&fields[libraryEntries]=status,ratingTwenty,progress"
-            val req = Request.Builder().url(url)
-                .header("Accept", "application/vnd.api+json")
-                .header("Authorization", "Bearer $token")
-                .build()
-            val body = httpClient.newCall(req).execute().use { it.body?.string() } ?: return@withContext null
+            val body = authed(
+                build = { token ->
+                    Request.Builder().url(url)
+                        .header("Accept", "application/vnd.api+json")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                },
+            ) { resp -> if (!resp.isSuccessful) null else resp.body?.string() } ?: return@withContext null
             parseKitsuLibraryEntry(body)
         } catch (_: Exception) { null }
     }

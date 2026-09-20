@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.weloma
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -37,7 +41,7 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -60,7 +64,7 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
         try {
             val doc = Jsoup.parse(get("$base/manga-list.html?listType=pagination&page=$page&sort=$sort&sort_type=DESC"))
             doc.select("div.thumb-item-flow").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -68,22 +72,22 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/manga-list.html?name=$q&page=$page"))
             doc.select("div.thumb-item-flow").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val author = doc.selectFirst("a.btn-info[href^=/l/]")?.text()?.trim()
             val genres = doc.select("a.btn-danger[href^=/l/]").map { it.text().trim() }.filter { it.isNotBlank() }
             val status = doc.selectFirst("a.btn-success[href^=/manga-]")?.text()?.trim()
             manga.copy(author = author?.takeIf { it.isNotBlank() }, genres = genres, status = status)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             // Web mezitim zmenil obal z <div class="list-chapters"> na
             // <ul class="list-chapters at-series"> (overeno zive) - selektor
             // vazany na konkretni tag "div" pak nenasel nic, "zadne kapitoly"
@@ -91,23 +95,23 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
             doc.select(".list-chapters a[href^=/c/]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val name = a.attr("title").ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
-                val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                val num = parseChapterNumber(name) ?: 0f
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img.chapter-img[data-img]").mapIndexedNotNull { i, img ->
                 val encoded = img.attr("data-img").ifBlank { return@mapIndexedNotNull null }
                 val url = try {
                     String(java.util.Base64.getDecoder().decode(encoded))
-                } catch (_: Exception) { return@mapIndexedNotNull null }
+                } catch (e: Exception) { e.rethrowIfControl(); return@mapIndexedNotNull null }
                 if (!url.startsWith("http")) return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

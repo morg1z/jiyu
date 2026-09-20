@@ -32,12 +32,7 @@
     <string name="onb_done_title">All set!</string>
     <string name="onb_done_subtitle">Jiyu is configured.\nYou can start reading.</string>
     <string name="onb_btn_next">Next</string>
-    <string name="onb_btn_skip">Skip</string>
     <string name="onb_btn_start">Start reading</string>
-    <string name="onb_step_language">Language</string>
-    <string name="onb_step_reading">Reading</string>
-    <string name="onb_step_storage">Storage</string>
-    <string name="onb_step_done">Done</string>
 
     <!-- Quick actions (MangaDetail) -->
     <string name="action_start_reading">Start reading</string>
@@ -74,18 +69,14 @@
     <string name="detail_title_copied">Title copied</string>
     <string name="common_clear">Clear</string>
     <string name="common_search">Search</string>
-    <string name="common_search_placeholder">Search…</string>
     <string name="common_yes">Yes</string>
     <string name="common_no">No</string>
     <string name="common_confirm">Confirm</string>
-    <string name="common_edit">Edit</string>
     <string name="common_download">Download</string>
     <string name="download_notification_done_title">Download complete</string>
     <string name="download_notification_done_text">Chapter is ready for offline reading</string>
     <string name="common_share">Share</string>
     <string name="common_retry">Retry</string>
-    <string name="common_loading">Loading…</string>
-    <string name="common_none">None</string>
     <string name="common_all">All</string>
 
     <!-- Settings: main screen -->
@@ -307,7 +298,6 @@
     <string name="settings_backup_settings_export_success">Settings exported</string>
 
     <!-- Settings: Reading -->
-    <string name="settings_reading_duplicates_button">Duplicate detector</string>
 
     <!-- Settings: About -->
     <string name="settings_about_title">About</string>
@@ -318,7 +308,6 @@
     <string name="settings_about_up_to_date">You\'re on the latest version</string>
     <string name="settings_about_check_updates">Check for updates</string>
     <string name="settings_about_grant_install_permission">Please allow installs from Jiyu and try downloading again</string>
-    <string name="settings_about_download_started">Download started - check the notification bar</string>
 
     <!-- Settings: Source catalog -->
     <string name="settings_source_catalog_add_source_fab">Add source</string>
@@ -566,7 +555,6 @@
     <string name="detail_info_score">Score: %1$s</string>
     <string name="detail_info_link_mal">Link with MyAnimeList</string>
     <string name="detail_info_mal_no_client_id">Set MAL_CLIENT_ID in local.properties to enable search (myanimelist.net/apiconfig)</string>
-    <string name="detail_info_mal_no_client_id_full">MAL_CLIENT_ID is not set. Register the app at myanimelist.net/apiconfig and add the CLIENT ID to local.properties.</string>
     <string name="detail_info_sync_from_mal">Pull status from MAL</string>
     <string name="detail_info_anilist_login_hint">Sign in to AniList in Account to link.</string>
     <string name="detail_info_anilist_id">AniList ID: %1$s</string>
@@ -629,11 +617,9 @@
     <string name="mylist_title">My list</string>
     <string name="mylist_switch_to_list">Switch to list</string>
     <string name="mylist_switch_to_grid">Switch to grid</string>
-    <string name="mylist_sort">Sort</string>
     <string name="mylist_open_cbz">Open CBZ/ZIP</string>
     <string name="mylist_mark_library_read">Mark library as read</string>
     <string name="mylist_manage_categories">Manage categories</string>
-    <string name="mylist_add_category">Add category</string>
     <string name="mylist_content_manhwa">Manhwa</string>
     <string name="mylist_content_manhua">Manhua</string>
     <string name="mylist_add_to_category">Add to category</string>
@@ -725,6 +711,8 @@
     <string name="reader_glossary_protect_off_description">Term may be inflected - tap to protect its exact wording</string>
     <string name="reader_share_link">Share link</string>
     <string name="reader_save_to_gallery">Save to gallery</string>
+    <string name="reader_save_success">Page saved to gallery</string>
+    <string name="reader_save_failed">Could not save the page</string>
     <string name="reader_page_content_desc">Page %1$d</string>
     <string name="reader_page_curl_progress">Page %1$d of %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Page failed to load</string>
@@ -759,8 +747,6 @@
     <string name="source_browse_latest">Latest</string>
     <string name="source_browse_load_failed">Loading failed</string>
     <string name="source_browse_no_results">No results</string>
-    <string name="source_browse_cover_desc">Cover: %1$s</string>
-    <string name="source_browse_add_to_library">+ Add to library</string>
     <string name="source_browse_dup_title">You might already have this manga</string>
     <string name="source_browse_dup_desc">\"%1$s\" has the same title as one already in your library from another source. Sources differ in translated chapter count and translation quality:</string>
     <string name="source_browse_checking">checking…</string>
@@ -822,6 +808,10 @@
     <string name="account_error_login_generic">Sign-in error</string>
     <string name="account_error_no_google_account">No Google account was found on this phone, or the app isn\'t authorized for it. Check that you\'re signed into a Google account in your phone\'s settings, or sign in with email instead.</string>
     <string name="account_sync_done">Sync complete</string>
+    <string name="account_owner_conflict_title">Library belongs to another account</string>
+    <string name="account_owner_conflict_message">The local library on this phone was synced with a different account. You can upload it under the account you just signed in to, or delete it (including downloaded chapters and reading progress) and download the library from the cloud.</string>
+    <string name="account_owner_conflict_keep_local">Upload to this account</string>
+    <string name="account_owner_conflict_use_cloud">Delete and download from cloud</string>
 
     <!-- Community -->
 
@@ -961,7 +951,6 @@
     <string name="library_stats_read_today">Read today</string>
     <string name="library_minutes_short">min</string>
     <string name="library_percent_read">%1$d %% read</string>
-    <string name="library_filter">Filter</string>
 
     <string name="mylist_content_novel">Novel</string>
     <string name="mylist_content_comic">Comic</string>
@@ -1032,6 +1021,10 @@
     <plurals name="mylist_mark_all_read_body">
         <item quantity="one">All chapters of %1$d manga in your library will be marked as read. This action can\'t be bulk-undone.</item>
         <item quantity="other">All chapters of all %1$d manga in your library will be marked as read. This action can\'t be bulk-undone.</item>
+    </plurals>
+    <plurals name="mylist_bulk_remove_title">
+        <item quantity="one">Remove %1$d title from your library?</item>
+        <item quantity="other">Remove %1$d titles from your library?</item>
     </plurals>
     <plurals name="mylist_title_count">
         <item quantity="one">%1$d title</item>
@@ -1107,7 +1100,6 @@
     <string name="detail_translate_next_n_title">How many chapters?</string>
     <string name="translate_worker_notification_title">Translating – %1$s</string>
     <string name="translate_worker_notification_chapter">%1$s</string>
-    <string name="detail_translate_enqueued">Queued for background translation</string>
 
     <string name="widget_shelf_title">Jiyu – Shelf</string>
     <string name="widget_shelf_description">Library or a chosen category as a grid of covers</string>
@@ -1127,4 +1119,53 @@
     <string name="reader_home_desc">Home (Library)</string>
     <string name="browse_source_adult_badge">18+</string>
     <string name="comick_browse_search_history">RECENTLY SEARCHED</string>
+    <string name="notification_channel_chapters_name">New chapters</string>
+    <string name="notification_channel_chapters_desc">Notifications about new chapters in your library</string>
+    <string name="notification_channel_downloads_name">Chapter downloads</string>
+    <string name="notification_channel_downloads_desc">Chapter download progress</string>
+    <string name="download_notification_title">Downloading chapter</string>
+    <string name="download_notification_progress">%1$d / %2$d pages</string>
+    <string name="download_notification_failed_title">Download failed</string>
+    <string name="download_notification_failed_text">%1$s: %2$s</string>
+    <string name="download_chapter_fallback_name">Chapter</string>
+    <string name="download_error_unknown">unknown error</string>
+    <string name="download_error_disk_full">Not enough free storage space</string>
+    <string name="backup_error_open_output">Cannot open the output file</string>
+    <string name="backup_error_open_input">Cannot open the backup file</string>
+    <string name="relative_time_now">now</string>
+    <string name="relative_time_minutes">%1$d min ago</string>
+    <string name="relative_time_hours">%1$d h ago</string>
+    <string name="relative_time_days">%1$d d ago</string>
+    <string name="download_error_no_pages">The source returned no pages</string>
+    <string name="settings_sources_mirror_section_title">Source domain overrides</string>
+    <string name="settings_sources_mirror_description">When a website changes its address, enter the new domain and the source will use it without an app update. Applies to all addresses of that source (including saved ones).</string>
+    <string name="settings_sources_mirror_add_button">Set a replacement domain</string>
+    <string name="settings_sources_mirror_dialog_title">Replacement domain</string>
+    <string name="settings_sources_mirror_field_source">Search sources</string>
+    <string name="settings_sources_mirror_field_host">New domain (e.g. new-site.com), empty = remove</string>
+    <string name="settings_sources_mirror_invalid">Enter a valid domain without a path</string>
+    <string name="error_action_solve_cloudflare">Solve verification</string>
+    <string name="error_action_use_new_domain">Use the new address (%1$s)</string>
+    <string name="error_action_open_web">Open the source website</string>
+    <string name="source_web_title">Source website</string>
+    <string name="source_web_done">Done</string>
+    <string name="settings_image_proxy_section_title">Image saving mode</string>
+    <string name="settings_image_proxy_title">Download images through a saving service</string>
+    <string name="settings_image_proxy_desc">Images are shrunk (WebP) by the public wsrv.nl service before download - far less data on a weak signal. The service sees the addresses of the images you load. Translation and chapter downloads always use the originals. Off by default.</string>
+    <string name="settings_proxy_section_title">Proxy server</string>
+    <string name="settings_proxy_description">Optional HTTP/SOCKS proxy for networks where source websites are not reachable directly. Applies to source and image downloads. The password is stored encrypted; login works for HTTP proxies only.</string>
+    <string name="settings_proxy_host">Proxy address (e.g. proxy.example.com)</string>
+    <string name="settings_proxy_port">Port</string>
+    <string name="settings_proxy_user">Username (optional)</string>
+    <string name="settings_proxy_password">Password (optional)</string>
+    <string name="settings_proxy_invalid">Enter a valid address and port (1-65535)</string>
+    <string name="settings_proxy_disable">Turn proxy off</string>
+    <string name="browse_filter_type_label">Type: %1$s</string>
+    <string name="browse_filter_language_label">Language: %1$s</string>
+    <string name="browse_filter_type_title">Content type</string>
+    <string name="browse_filter_language_title">Language</string>
+    <string name="browse_filter_language_search">Search language…</string>
+    <string name="browse_filter_language_all">All languages</string>
+    <string name="browse_filters_clear_all">Clear all</string>
+    <string name="browse_filter_remove">Remove filter</string>
 </resources>

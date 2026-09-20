@@ -7,6 +7,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Configuration
+import kotlinx.coroutines.flow.first
+import com.haise.jiyu.work.ChapterUpdateScheduler
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
@@ -58,6 +60,15 @@ class JiyuApp : Application(), Configuration.Provider {
     /** Obnovení periodické cloud synchronizace při startu - viz [resumeBackgroundSyncIfSignedIn]. */
     @Inject lateinit var authRepository: com.haise.jiyu.auth.AuthRepository
 
+    /** Volitelná proxy - uložené hodnoty se přenášejí do [com.haise.jiyu.source.interceptor.NetworkProxyConfig]. */
+    @Inject lateinit var proxyRepository: com.haise.jiyu.source.interceptor.ProxyRepository
+
+    /** Příznak úsporného režimu obrázků - aktualizuje se z nastavení (viz [onCreate]). */
+    @Inject lateinit var imageProxyConfig: com.haise.jiyu.source.interceptor.ImageProxyConfig
+
+    /** Paměťová cache výsledků ze zdrojů - při tlaku na paměť se uvolňuje (viz [onTrimMemory]). */
+    @Inject lateinit var sourceContentCache: com.haise.jiyu.data.repository.SourceContentCache
+
     /**
      * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
      *
@@ -68,6 +79,19 @@ class JiyuApp : Application(), Configuration.Provider {
      * "Method addObserver must be called on the main thread" pár minut po startu čtení.
      */
     @Inject lateinit var supabaseClient: SupabaseClient
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (!::sourceContentCache.isInitialized) return
+        when {
+            // 15 = RUNNING_CRITICAL, >= 60 = MODERATE/COMPLETE: paměť je kritická, cache pryč.
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE -> sourceContentCache.clear()
+            // 10 = RUNNING_LOW, 40 = BACKGROUND: nech jen nejnovější položky.
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> sourceContentCache.trim(1)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +115,19 @@ class JiyuApp : Application(), Configuration.Provider {
                 .components { add(MangaPlusImageFetcher.Factory(imageHttpClient)) }
                 .build()
         )
+
+        proxyRepository.bind(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()))
+
+        // Úsporný režim obrázků: interceptor čte jen volatile příznak, nastavení ho sem přenáší.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()).launch {
+            settings.imageProxyEnabled.collect { imageProxyConfig.enabled = it }
+        }
+
+        // User-Agent skutečného WebView (viz CloudflareUserAgent) se zjistí předem na hlavním vlákně, ať ho interceptor
+        // na vlákně sítě rovnou najde v paměti.
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching { com.haise.jiyu.source.interceptor.CloudflareUserAgent.value(this) }
+        }
 
         createNotificationChannel()
         scheduleChapterUpdates()
@@ -133,13 +170,13 @@ class JiyuApp : Application(), Configuration.Provider {
     private fun createNotificationChannel() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Nové kapitoly", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Upozornění na nové kapitoly v knihovně"
+            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_chapters_name), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = getString(R.string.notification_channel_chapters_desc)
             }
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_DOWNLOADS, "Stahování kapitol", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Průběh stahování kapitol"
+            NotificationChannel(CHANNEL_DOWNLOADS, getString(R.string.notification_channel_downloads_name), NotificationManager.IMPORTANCE_LOW).apply {
+                description = getString(R.string.notification_channel_downloads_desc)
             }
         )
     }
@@ -190,19 +227,11 @@ class JiyuApp : Application(), Configuration.Provider {
     }
 
     private fun scheduleChapterUpdates() {
-        val request = PeriodicWorkRequestBuilder<ChapterUpdateWorker>(12, TimeUnit.HOURS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
-            .build()
-
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "chapter_update",
-            ExistingPeriodicWorkPolicy.KEEP,
-            request,
-        )
+        // KEEP: už naplánovaná práce (s intervalem z nastavení) se nemění; uložený interval se použije
+        // jen tam, kde plán chybí (čerstvá instalace, smazaná WorkManager DB) - dřív tam byla natvrdo 12 h.
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            val hours = runCatching { settings.updateIntervalHours.first() }.getOrDefault(ChapterUpdateScheduler.DEFAULT_INTERVAL_HOURS)
+            ChapterUpdateScheduler.schedule(this@JiyuApp, hours.coerceAtLeast(1L))
+        }
     }
 }

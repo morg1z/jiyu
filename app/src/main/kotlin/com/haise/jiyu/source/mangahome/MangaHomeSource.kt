@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.mangahome
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -50,14 +53,14 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
                     ?: return@mapNotNull null
                 FilterTag(id = slug, label = label)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         if (tags.isNotEmpty()) cachedTags = tags
         tags
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -77,12 +80,12 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
         // musime prehodit na /search s ingenres (viz getAvailableTags) - overeno zive.
         if (filter.genres.isNotEmpty()) {
             val genres = filter.genres.joinToString(",")
-            return@withContext try { parseList(get("$base/search?name=&ingenres=$genres&exgenres=&page=$page")) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get("$base/search?name=&ingenres=$genres&exgenres=&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // "/latest/N.html" ma stejnou kartu (a.post-cover) jako "/directory/N.html",
         // jen jiny zdroj razeni - overeno zive, vraci odlisne tituly.
         val path = if (filter.sortBy == "latest") "/latest/$page.html" else "/directory/$page.html"
-        try { parseList(get("$base$path")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base$path")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -90,12 +93,12 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
             val q = URLEncoder.encode(query, "UTF-8")
             val genreParam = if (filter.genres.isNotEmpty()) "&ingenres=${filter.genres.joinToString(",")}&exgenres=" else ""
             parseList(get("$base/search?name=$q&page=$page$genreParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val statusText = doc.selectFirst("p:contains(Status:)")?.ownText()?.trim()
             manga.copy(
                 title = doc.selectFirst("h1")?.text()?.trim() ?: manga.title,
@@ -108,14 +111,16 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
                     else -> statusText
                 },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
-    private val dateFormat = java.text.SimpleDateFormat("MMM dd,yyyy", java.util.Locale.ENGLISH)
-
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
+        // Lokalni instance na kazde volani, ne sdilene pole - SimpleDateFormat.parse() neni
+        // thread-safe a getChapterList muze bezet soubezne z vice korutin na te same instanci
+        // zdroje (audit nalez).
+        val dateFormat = java.text.SimpleDateFormat("MMM dd,yyyy", java.util.Locale.ENGLISH)
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val items = doc.select("ul.detail-chlist li")
             items.mapIndexedNotNull { i, li ->
                 val a = li.selectFirst("a[href^=${manga.url}/c]") ?: return@mapIndexedNotNull null
@@ -124,21 +129,21 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val num = Regex("""(\d+(?:\.\d+)?)""").find(href.substringAfterLast("/c"))?.value?.toFloatOrNull()
                     ?: (items.size - i).toFloat()
                 val dateText = li.selectFirst("span.time")?.text()?.trim()
-                val date = try { dateText?.let { dateFormat.parse(it)?.time } ?: 0L } catch (_: Exception) { 0L }
+                val date = try { dateText?.let { dateFormat.parse(it)?.time } ?: 0L } catch (e: Exception) { e.rethrowIfControl(); 0L }
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = text.ifBlank { "Chapter $num" },
                     chapterNumber = num, dateUpload = date)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img.image[src]").mapIndexedNotNull { i, img ->
                 val src = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 val url = if (src.startsWith("//")) "https:$src" else src
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

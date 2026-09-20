@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.silentquill
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -30,11 +34,14 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
     override val id = "kdtscans"
     override val name = "KDT Scans"
     override val homepageUrl get() = base
+    override val isBroken: Boolean get() = true
+    override val brokenReason: String get() =
+        "silentquill.net přešel z MangaThemesia na Next.js (žádné .bsx/eplister v HTML) - parser je třeba přepsat"
     private val base = "https://www.silentquill.net"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -47,8 +54,8 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
             val title = link.attr("title").ifBlank { el.selectFirst(".tt")?.text().orEmpty() }
                 .trim().ifBlank { return@mapNotNull null }
             val cover = el.selectFirst("img")?.let {
-                it.attr("src").ifBlank { it.attr("data-src") }
-            }?.takeIf { it.startsWith("http") }
+                it.lazySrc().orEmpty()
+            }?.let { absoluteMediaUrl(base, it) }
             SManga(sourceId = id, url = link.attr("href"), title = title, coverUrl = cover, contentType = "MANGA")
         }
     }
@@ -72,7 +79,7 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun archiveUrl(page: Int, order: String, genreId: String?): String {
@@ -82,7 +89,7 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val order = if (filter.sortBy == "latest") "update" else "popular"
-        try { parseList(get(archiveUrl(page, order, filter.genres.firstOrNull()))) } catch (_: Exception) { emptyList() }
+        try { parseList(get(archiveUrl(page, order, filter.genres.firstOrNull()))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -93,7 +100,7 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -103,7 +110,7 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 title = doc.selectFirst("h1")?.text()?.trim() ?: manga.title,
                 genres = doc.select("a[href*=/genres/]").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -117,7 +124,7 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
                     ?: (i + 1).toFloat()
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -130,6 +137,6 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 .filter { it.isNotBlank() }
                 .mapIndexed { i, url -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

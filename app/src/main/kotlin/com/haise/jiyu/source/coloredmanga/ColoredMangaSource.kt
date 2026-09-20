@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.coloredmanga
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -44,12 +46,13 @@ import javax.inject.Singleton
 class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "coloredmanga"
     override val name = "Colored Manga"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://colorizedmangas.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -94,7 +97,7 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        try { parseCatalog(get(base)) } catch (_: Exception) { emptyList() }
+        try { parseCatalog(get(base)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -102,7 +105,7 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
         if (page > 1) return@withContext emptyList()
         try {
             parseCatalog(get(base)).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Detail (zanry/popis) je jen v RSC payloadu jako `{\"@type\":\"ComicSeries\",...}` -
@@ -149,7 +152,7 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
                 genres = genres,
                 author = series.optJSONObject("author")?.optString("name")?.ifBlank { null } ?: manga.author,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -168,7 +171,7 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
                     dateUpload = 0L,
                 )
             }.distinctBy { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -178,6 +181,6 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
             val regex = Regex("""https://cdn\.jsdelivr\.net/gh/[^"\\]+/pages/$chapterNum/\d+\.(?:webp|jpg|jpeg|png)""")
             regex.findAll(html).map { it.value }.distinct().sorted()
                 .mapIndexed { i, url -> Page(i, url, url) }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

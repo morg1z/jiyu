@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.manga18club
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -36,6 +40,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "manga18club"
     override val name = "Manga18.club"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     override val isAdult = true
     override val contentType = "MANHWA"
@@ -44,7 +49,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -83,7 +88,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int) =
@@ -97,7 +102,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
                 return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page)), base))
             }
             parseListing(Jsoup.parse(get("$base/latest-release/$page"), base))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -120,7 +125,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
                     contentType = contentType,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Detail mangy ────────────────────────────────────────────────────────
@@ -144,7 +149,7 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
                 title = title, coverUrl = cover, description = description,
                 status = status, author = author, artist = artist, genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // ─── Kapitoly ────────────────────────────────────────────────────────────
@@ -156,23 +161,19 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
                 val link = item.selectFirst("a.chapter_num") ?: return@mapNotNull null
                 val url = link.absUrl("href").ifBlank { return@mapNotNull null }
                 val name = link.text().trim().ifBlank { return@mapNotNull null }
-                val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                val num = parseChapterNumber(name) ?: 0f
                 val dateText = item.select("p.chapter_info").firstOrNull()?.text()?.trim()
                 SChapter(
                     sourceId = id, mangaUrl = manga.url, url = url, name = name,
                     chapterNumber = num, dateUpload = parseDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Datum kapitoly je ve formatu "07-08-2026" (DD-MM-YYYY). */
-    private fun parseDate(text: String?): Long {
-        if (text.isNullOrBlank()) return 0L
-        return try {
-            SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
-    }
+    private fun parseDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     // ─── Stránky kapitoly ────────────────────────────────────────────────────
 
@@ -188,10 +189,10 @@ class Manga18ClubSource @Inject constructor(private val client: OkHttpClient) : 
                 .mapIndexedNotNull { i, b64 ->
                     val decoded = try {
                         String(Base64.getDecoder().decode(b64))
-                    } catch (_: Exception) { null }
-                    decoded?.takeIf { it.startsWith("http") }?.let { Page(i, it, it) }
+                    } catch (e: Exception) { e.rethrowIfControl(); null }
+                    decoded?.let { absoluteMediaUrl(base, it) }?.let { Page(i, it, it) }
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

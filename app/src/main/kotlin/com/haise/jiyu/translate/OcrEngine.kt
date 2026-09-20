@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
@@ -154,7 +155,7 @@ private fun logWallCheck(aText: String, bText: String, wallHits: Int, totalSampl
  * nizka hodnota skutecne odpovida spatnemu cteni na realnych strankach.
  */
 private fun logOcrConfidence(language: String, confidence: Float, text: String) {
-    Log.d("OcrConfidence", "lang=$language conf=%.3f text=\"%s\"".format(confidence, text.take(40)))
+    if (BuildConfig.DEBUG) Log.d("OcrConfidence", "lang=$language conf=%.3f text=\"%s\"".format(confidence, text.take(40)))
 }
 
 /**

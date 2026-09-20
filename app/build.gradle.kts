@@ -168,7 +168,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
-    implementation("org.json:json:20240303")
+    // Na zařízení org.json dodává Android sám; do JVM unit testů (android.jar tam jsou jen stuby) ho přidáváme zvlášť.
+    testImplementation("org.json:json:20240303")
 
     // Vlastní ikonová sada (Tabler Icons) - náhrada za generické Material ikony
     implementation("br.com.devsrsouza.compose.icons:tabler-icons:1.1.1")
@@ -199,7 +200,7 @@ dependencies {
 
     // ONNX Runtime — spouští natrénované YOLOv8 modely (detekce/segmentace bublin, viz
     // BubbleBoxDetector/BubbleMaskSegmenter) přímo na zařízení, žádné API/server.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
 
     // Supabase — cloud sync + auth. POZOR: komentář "2.0.3 je poslední verze s Kotlin 1.9.x"
     // byl zastaralý - projekt je dávno na Kotlinu 2.2.21 (viz root build.gradle.kts), takže
@@ -281,4 +282,9 @@ dependencies {
 // kontaminace odstrani, za cenu o neco delsiho behu cele sady (vic startu JVM).
 tasks.withType<Test>().configureEach {
     forkEvery = 1
+    // Živý test zdrojů (LiveSourceSmokeTest) chodí proti skutečným webům, proto ho běžná sada přeskočí;
+    // zapíná ho `-Djiyu.live=true` (viz .github/workflows/live-sources.yml). Bez předání do testovací JVM by ho
+    // Gradle nikdy nezapnul.
+    systemProperty("jiyu.live", System.getProperty("jiyu.live") ?: "false")
+    systemProperty("jiyu.live.filter", System.getProperty("jiyu.live.filter") ?: "")
 }

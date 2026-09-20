@@ -47,5 +47,20 @@ class GlossaryRepository @Inject constructor(
         )
     }
 
+    /**
+     * Ruční přidání pojmu z UI. Na rozdíl od [upsert] (ten používá i automatické učení) hlídá limity délky/počtu
+     * slov - ručně vložený pojem jde přímo do promptu a bez limitu by tam šlo dostat cokoli. `false` = odmítnuto.
+     */
+    suspend fun addManual(mangaId: String, sourceTerm: String, targetTerm: String, targetLanguage: String, protectExact: Boolean = false): Boolean {
+        val source = sourceTerm.trim()
+        val target = targetTerm.trim()
+        if (source.isBlank() || target.isBlank()) return false
+        if (!isWithinGlossaryTermLimits(source, target)) return false
+        upsert(mangaId, source, target, targetLanguage, protectExact)
+        return true
+    }
+
+    suspend fun setProtectExact(entry: GlossaryEntity, protectExact: Boolean) = dao.upsert(entry.copy(protectExact = protectExact))
+
     suspend fun delete(entry: GlossaryEntity) = dao.delete(entry)
 }

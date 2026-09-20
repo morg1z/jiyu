@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.util.report
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
@@ -449,7 +450,6 @@ fun MangaGroupContent(
 @Composable
 fun SharePageBottomSheet(pageUrl: String, referer: String? = null, onDismiss: () -> Unit) {
     val saveContext = androidx.compose.ui.platform.LocalContext.current
-    val saveScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -470,7 +470,10 @@ fun SharePageBottomSheet(pageUrl: String, referer: String? = null, onDismiss: ()
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
-                    saveScope.launch { saveBitmapToGallery(saveContext, pageUrl, referer) }
+                    // Scope sheetu by se zrušil hned po onDismiss() (kompozice zmizí) a uložení by
+                    // se přerušilo - proto scope nezávislý na kompozici.
+                    val appContext = saveContext.applicationContext
+                    pageSaveScope.launch { savePageToGalleryWithFeedback(appContext, pageUrl, referer) }
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -485,7 +488,31 @@ fun SharePageBottomSheet(pageUrl: String, referer: String? = null, onDismiss: ()
     }
 }
 
-internal suspend fun saveBitmapToGallery(context: android.content.Context, url: String, referer: String? = null) {
+private val pageSaveScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+private suspend fun savePageToGalleryWithFeedback(context: android.content.Context, url: String, referer: String?) {
+    val saved = try {
+        saveBitmapToGallery(context, url, referer)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        e.report("reader:savePageToGallery")
+        false
+    }
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+        android.widget.Toast.makeText(
+            context,
+            if (saved) R.string.reader_save_success else R.string.reader_save_failed,
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+}
+
+/** `true` = uloženo. Blokující práce (decode, komprese, MediaStore) běží na IO. */
+internal suspend fun saveBitmapToGallery(context: android.content.Context, url: String, referer: String? = null): Boolean =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { saveBitmapToGalleryImpl(context, url, referer) }
+
+private suspend fun saveBitmapToGalleryImpl(context: android.content.Context, url: String, referer: String?): Boolean {
     val bitmap: android.graphics.Bitmap? = if (url.startsWith("/") || url.startsWith("file://")) {
         val path = url.removePrefix("file://")
         android.graphics.BitmapFactory.decodeFile(path)
@@ -499,7 +526,7 @@ internal suspend fun saveBitmapToGallery(context: android.content.Context, url: 
             (it as? android.graphics.drawable.BitmapDrawable)?.bitmap
         }
     }
-    bitmap ?: return
+    bitmap ?: return false
     val filename = "jiyu_${System.currentTimeMillis()}.jpg"
     val values = android.content.ContentValues().apply {
         put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, filename)
@@ -509,11 +536,12 @@ internal suspend fun saveBitmapToGallery(context: android.content.Context, url: 
         put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
     }
     val resolver = context.contentResolver
-    val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+    val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
     resolver.openOutputStream(uri)?.use { out ->
         bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
     }
     val updateValues = android.content.ContentValues()
     updateValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
     resolver.update(uri, updateValues, null, null)
+    return true
 }

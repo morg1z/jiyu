@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.mangaplus
 
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
@@ -155,7 +156,7 @@ class MangaPlusSource @Inject constructor(
                     .map { it.toSManga() }
                     .filter { it.url.isNotEmpty() }
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> {
@@ -181,7 +182,7 @@ class MangaPlusSource @Inject constructor(
                 .distinctBy { it.long(2) }
                 .sortedByDescending { it.long(6) ?: 0L }
                 .mapNotNull { it.toSChapter(manga.url) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {

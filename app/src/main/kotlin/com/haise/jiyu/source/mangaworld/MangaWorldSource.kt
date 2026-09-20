@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.mangaworld
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -44,7 +47,7 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
         return Jsoup.parse(html)
@@ -55,7 +58,7 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
             val link = el.selectFirst("a.manga-title") ?: return@mapNotNull null
             val title = link.attr("title").trim().ifBlank { link.text().trim() }.ifBlank { return@mapNotNull null }
             val href = link.attr("href").ifBlank { return@mapNotNull null }
-            val cover = el.selectFirst("a.thumb img")?.attr("src")?.takeIf { it.startsWith("http") }
+            val cover = el.selectFirst("a.thumb img")?.attr("src")?.let { absoluteMediaUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
 
@@ -63,22 +66,22 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
         if (filter.genres.isNotEmpty()) {
             return@withContext try {
                 parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         val sort = if (filter.sortBy == "latest") "newest" else "most_read"
-        try { parseList(get("$base/archive?sort=$sort&page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/archive?sort=$sort&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
             return@withContext try {
                 parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/archive?keyword=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Filtrování podle žánru ──────────────────────────────────────────────
@@ -104,7 +107,7 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -112,13 +115,13 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
             val doc = get(manga.url)
             manga.copy(
                 title = doc.selectFirst("h1.name")?.text()?.trim() ?: manga.title,
-                coverUrl = doc.selectFirst("div.thumb img")?.attr("src")?.takeIf { it.startsWith("http") } ?: manga.coverUrl,
+                coverUrl = doc.selectFirst("div.thumb img")?.attr("src")?.let { absoluteMediaUrl(base, it) } ?: manga.coverUrl,
                 description = doc.selectFirst("meta[name=description]")?.attr("content")?.trim()?.takeIf { it.isNotBlank() },
                 status = doc.selectFirst("a[href*=\"archive?status=\"]")?.text()?.trim(),
                 author = doc.selectFirst("a[href*=\"archive?author=\"]")?.text()?.trim(),
                 genres = doc.select("a[href*=\"archive?genre=\"]").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -138,14 +141,14 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
                     dateUpload = parseItalianDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseItalianDate(text: String?): Long {
         if (text.isNullOrBlank()) return 0L
         return try {
             java.text.SimpleDateFormat("dd MMMM yyyy", java.util.Locale.ITALIAN).parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
+        } catch (e: Exception) { e.rethrowIfControl(); 0L }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -161,6 +164,6 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
                 val url = "$dir/$n.$ext"
                 Page(n - 1, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

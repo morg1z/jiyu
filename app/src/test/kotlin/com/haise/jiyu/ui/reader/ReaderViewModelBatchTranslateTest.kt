@@ -1,5 +1,8 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.translate.GlossaryRepository
+import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
+import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import com.haise.jiyu.anilist.AniListRepository
@@ -105,14 +108,17 @@ class ReaderViewModelBatchTranslateTest {
         repository = repository,
         translateRepository = translateRepository,
         settings = settings,
-        historyDao = mockk<ReadHistoryDao>(relaxed = true),
-        aniListRepository = mockk<AniListRepository>(relaxed = true),
-        malRepository = mockk<MalRepository>(relaxed = true),
-        kitsuRepository = mockk<KitsuRepository>(relaxed = true),
-        muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
-        glossaryDao = mockk<GlossaryDao>(relaxed = true),
+        historyRepository = mockk<HistoryRepository>(relaxed = true),
+        trackerSyncCoordinator = TrackerSyncCoordinator(
+            aniListRepository = mockk<AniListRepository>(relaxed = true),
+            malRepository = mockk<MalRepository>(relaxed = true),
+            kitsuRepository = mockk<KitsuRepository>(relaxed = true),
+            muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
+        ),
+        glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
+        errorActionHandler = mockk(relaxed = true),
     )
 
     /** Nasimuluje průběh translateChapter - pro každou dvojici (index, bloky) zavolá callback. */

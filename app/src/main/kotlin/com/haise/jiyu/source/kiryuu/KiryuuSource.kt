@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.kiryuu
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -65,7 +67,7 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun archiveUrl(page: Int, genre: String?, searchTerm: String?): String {
@@ -76,7 +78,7 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -95,7 +97,7 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val genre = filter.genres.firstOrNull()
         if (genre != null) {
-            return@withContext try { parseList(get(archiveUrl(page, genre, null))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get(archiveUrl(page, genre, null))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             // Overeno zive: "/latest/" ma jine (skutecne cerstvejsi) poradi titulu nez
@@ -107,7 +109,7 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
                 "$base/latest/"
             } else if (page <= 1) "$base/manga/" else "$base/manga/page/$page/"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -116,14 +118,14 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
             return@withContext try {
                 val q = if (query.isBlank()) null else URLEncoder.encode(query, "UTF-8")
                 parseList(get(archiveUrl(page, genre, q)))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/manga/?search_term=$q" else "$base/manga/page/$page/?search_term=$q"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun ldJsonHasType(o: JSONObject, type: String): Boolean = when (val t = o.opt("@type")) {
@@ -174,7 +176,7 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
                 author = series.optJSONObject("author")?.optString("name")?.ifBlank { null } ?: manga.author,
                 status = normalizeStatus(series.optString("creativeWorkStatus").ifBlank { null }) ?: manga.status,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -194,13 +196,11 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
                     dateUpload = parseIsoDate(dateText),
                 )
             }.distinctBy { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseIsoDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        return try { OffsetDateTime.parse(text).toInstant().toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
-    }
+    private fun parseIsoDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     private val pageImageRegex = Regex("""https://yuucdn\.com/[^"'\s]+/(\d+)\.(?:jpg|jpeg|png|webp)""")
 
@@ -213,6 +213,6 @@ class KiryuuSource @Inject constructor(private val client: OkHttpClient) : Manga
                 .sortedBy { it.second }
                 .mapIndexed { i, (url, _) -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

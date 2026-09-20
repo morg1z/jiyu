@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.ehentai
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -45,7 +47,7 @@ class EHentaiSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -91,7 +93,7 @@ class EHentaiSource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Vraci "f_cats=N" pro vybrany filter, nebo null kdyz zadny tag neni vybran. */
@@ -111,7 +113,7 @@ class EHentaiSource @Inject constructor(
         } else {
             "$base/?page=${page - 1}" + if (cats != null) "&$cats" else ""
         }
-        try { parseListing(get(url)) } catch (_: Exception) { emptyList() }
+        try { parseListing(get(url)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -121,7 +123,7 @@ class EHentaiSource @Inject constructor(
             val cats = catsFilterValue(filter)
             val url = "$base/?f_search=$q&page=${page - 1}" + if (cats != null) "&$cats" else ""
             parseListing(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -159,7 +161,7 @@ class EHentaiSource @Inject constructor(
                 artist = artist,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -196,7 +198,7 @@ class EHentaiSource @Inject constructor(
                     val rest = (1 until pageCount).map { p ->
                         async {
                             try { parseReaderLinks(Jsoup.parse(get("${chapter.url}?p=$p"), chapter.url)) }
-                            catch (_: Exception) { emptyList() }
+                            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
                         }
                     }.map { it.await() }
                     parseReaderLinks(firstDoc) + rest.flatten()
@@ -204,13 +206,13 @@ class EHentaiSource @Inject constructor(
             }
 
             allLinks.mapIndexed { i, url -> Page(i, url) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(page.url), page.url)
             doc.selectFirst("img#img")?.attr("src")?.takeIf { it.isNotBlank() } ?: page.url
-        } catch (_: Exception) { page.url }
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 }

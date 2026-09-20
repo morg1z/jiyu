@@ -1,5 +1,6 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
@@ -50,11 +51,17 @@ class TranslateChapterWorker @AssistedInject constructor(
     private val settings: SettingsRepository,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
-        val chapterId = inputData.getString(KEY_CHAPTER_ID) ?: return Result.failure()
+    // Na pozadí se nikdy neukazuje interaktivní výzva Cloudflare (viz InteractiveChallengePolicy).
+    override suspend fun doWork(): Result = InteractiveChallengePolicy.suppressed { runTranslation() }
 
-        val chapter = repository.getChapter(chapterId) ?: return Result.failure()
-        val manga = repository.getManga(chapter.mangaId) ?: return Result.failure()
+    private suspend fun runTranslation(): Result {
+        // Kapitoly jedné dávky tvoří ŘETĚZ (viz TranslateQueue): Result.failure() jedné by označilo
+        // za neúspěšné i všechny následující, které se pak vůbec nespustí. Trvalé selhání téhle
+        // kapitoly proto končí Result.success() (chyba se nahlásí přes report), řetěz běží dál.
+        val chapterId = inputData.getString(KEY_CHAPTER_ID) ?: return Result.success()
+
+        val chapter = repository.getChapter(chapterId) ?: return Result.success()
+        val manga = repository.getManga(chapter.mangaId) ?: return Result.success()
 
         val targetLanguage = settings.targetLanguage.first()
         val sourceLanguage = settings.sourceLanguage.first()
@@ -89,7 +96,7 @@ class TranslateChapterWorker @AssistedInject constructor(
             val pages = rawPages.mapNotNull { page ->
                 page.imageUrl?.takeIf { it.isNotBlank() } ?: page.url.takeIf { it.isNotBlank() }
             }
-            if (pages.isEmpty()) return Result.failure()
+            if (pages.isEmpty()) return Result.success()
 
             var done = 0
             translateRepository.translateChapter(
@@ -121,7 +128,7 @@ class TranslateChapterWorker @AssistedInject constructor(
             // Strop 3 pokusů jako u SyncWorker/AutoBackupWorker/ChapterUpdateWorker - bez něj by
             // TRVALÁ chyba (rozbitý parser jen na téhle kapitole, permanentně smazaná stránka u
             // zdroje) zkoušela pořád dokola na neurčito, místo aby se jednou ohlásila jako selhání.
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+            if (runAttemptCount < 3) Result.retry() else Result.success()
         }
     }
 

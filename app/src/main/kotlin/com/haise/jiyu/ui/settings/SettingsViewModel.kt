@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.settings
 
+import com.haise.jiyu.source.madara.CustomSourceTester
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -34,11 +35,11 @@ import com.haise.jiyu.update.UpdateChecker
 import com.haise.jiyu.update.UpdateDownloadState
 import com.haise.jiyu.update.UpdateInfo
 import com.haise.jiyu.source.madara.MadaraSelectors
-import com.haise.jiyu.source.madara.MadaraSource
 import com.haise.jiyu.source.catalog.CatalogSource
 import com.haise.jiyu.source.catalog.SourceCatalogManager
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.util.toFriendlyMessage
+import com.haise.jiyu.work.ChapterUpdateScheduler
 import com.haise.jiyu.work.ChapterUpdateWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -52,7 +53,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -80,12 +80,11 @@ sealed interface BackupUiState {
 class SettingsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
-    private val translatedPageDao: TranslatedPageDao,
-    private val translatedNovelDao: TranslatedNovelDao,
+    private val translateRepository: com.haise.jiyu.translate.TranslateRepository,
     private val repository: MangaRepository,
     private val backupManager: BackupManager,
     private val settingsBackupManager: SettingsBackupManager,
-    private val okHttpClient: OkHttpClient,
+    private val customSourceTester: CustomSourceTester,
     private val catalogManager: SourceCatalogManager,
     private val sourceManager: SourceManager,
     private val tachiyomiBackupImporter: TachiyomiBackupImporter,
@@ -98,6 +97,7 @@ class SettingsViewModel @Inject constructor(
     private val muRepository: MangaUpdatesRepository,
     private val customFontRepository: com.haise.jiyu.translate.CustomFontRepository,
     private val byokTranslateClient: com.haise.jiyu.translate.ByokTranslateClient,
+    private val proxyRepository: com.haise.jiyu.source.interceptor.ProxyRepository,
 ) : ViewModel() {
 
     val targetLanguage: StateFlow<String> = settings.targetLanguage
@@ -261,22 +261,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setUpdateInterval(hours: Long) = viewModelScope.launch {
         settings.setUpdateIntervalHours(hours)
-        val request = PeriodicWorkRequestBuilder<ChapterUpdateWorker>(hours, TimeUnit.HOURS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
-            .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            "chapter_update",
-            ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
-            request,
-        )
+        ChapterUpdateScheduler.schedule(context, hours, ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE)
     }
 
     fun clearTranslationCache() = viewModelScope.launch {
-        translatedPageDao.deleteAll()
-        // Tlacitko drive novely vynechavalo, takze "smazat cache prekladu" je ve skutecnosti
-        // nesmazalo a zabrane misto neubylo.
-        translatedNovelDao.deleteAll()
+        translateRepository.clearCache()
         _cacheCount.value = 0
     }
 
@@ -352,7 +341,7 @@ class SettingsViewModel @Inject constructor(
     private fun refreshCacheCount() = viewModelScope.launch {
         // Novely se do cisla dlouho nepocitaly, takze "ulozene preklady" ukazovaly min,
         // nez kolik toho appka opravdu drzela. Proto uz popisek nemluvi o strankach.
-        _cacheCount.value = translatedPageDao.count() + translatedNovelDao.count()
+        _cacheCount.value = translateRepository.cacheEntryCount()
     }
 
     fun addCustomSource(
@@ -399,10 +388,9 @@ class SettingsViewModel @Inject constructor(
                 chapterList = chapterListSelector?.ifBlank { null } ?: defaults.chapterList,
                 pageImage = pageImageSelector?.ifBlank { null } ?: defaults.pageImage,
             )
-            val testSource = MadaraSource(id = "test", name = "Test", baseUrl = baseUrl, client = okHttpClient, selectors = selectors)
-            val results = testSource.getPopular(1)
-            _sourceTestState.value = if (results.isNotEmpty()) {
-                SourceTestState.Success(results.size)
+            val count = customSourceTester.countPopular(baseUrl, selectors)
+            _sourceTestState.value = if (count > 0) {
+                SourceTestState.Success(count)
             } else {
                 SourceTestState.Failure(context.getString(R.string.settings_source_catalog_test_no_items))
             }
@@ -480,6 +468,22 @@ class SettingsViewModel @Inject constructor(
     // ── Adult zdroje (hromadný přepínač) ──────────────────────────────────────
     // Výchozí hodnota false, ne true - jinak by přepínač po startu na okamžik ukázal "zapnuto",
     // než dorazí skutečná hodnota z DataStore, a u zdrojů pro dospělé je to špatný směr chyby.
+    /** Uložená proxy bez hesla, `null` = vypnuto - viz [com.haise.jiyu.ui.settings.NetworkProxySection]. */
+    val proxy: StateFlow<com.haise.jiyu.settings.StoredProxy?> = proxyRepository.stored
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** `false` = neplatný vstup (adresa/port), nic se neuložilo. */
+    suspend fun saveProxy(type: com.haise.jiyu.source.interceptor.ProxyType, host: String, port: String, user: String, password: String): Boolean =
+        proxyRepository.save(type, host, port, user, password)
+
+    fun clearProxy() = viewModelScope.launch { proxyRepository.clear() }
+
+    /** Úsporný režim obrázků (proxy wsrv.nl), výchozí vypnuto - viz [com.haise.jiyu.ui.settings.ImageProxySection]. */
+    val imageProxyEnabled: StateFlow<Boolean> = settings.imageProxyEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setImageProxyEnabled(enabled: Boolean) = viewModelScope.launch { settings.setImageProxyEnabled(enabled) }
+
     val showAdultSources: StateFlow<Boolean> = settings.showAdultSources
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -504,6 +508,35 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setCrashReporting(enabled: Boolean) = viewModelScope.launch { settings.setCrashReporting(enabled) }
+
+    /** Řádek přehledu "zrcadel": zdroj, jeho původní host a případný uživatelem zadaný náhradní host. */
+    data class SourceDomainRow(val id: String, val name: String, val originalHost: String?, val override: String?)
+
+    /** Všechny zdroje (i skryté adult) s jejich doménou - pro nastavení náhradních domén. */
+    val sourceDomainRows: StateFlow<List<SourceDomainRow>> =
+        combine(sourceManager.observeAll(), settings.sourceDomainOverrides) { sources, overrides ->
+            sources.map { s ->
+                SourceDomainRow(
+                    id = s.id,
+                    name = s.name,
+                    originalHost = s.homepageUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() },
+                    override = overrides[s.id],
+                )
+            }.sortedBy { it.name.lowercase() }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Uloží náhradní doménu zdroje ([input] prázdný = zrušit). Vrací `false`, pokud vstup není platná doména -
+     * volající pak ukáže chybu a nic se neuloží.
+     */
+    suspend fun setSourceDomain(sourceId: String, input: String): Boolean {
+        if (input.isBlank()) { settings.setSourceDomainOverride(sourceId, null); return true }
+        val host = com.haise.jiyu.source.interceptor.DomainOverrides.normalizeInput(input) ?: return false
+        settings.setSourceDomainOverride(sourceId, host)
+        return true
+    }
+
+    fun clearSourceDomain(sourceId: String) = viewModelScope.launch { settings.setSourceDomainOverride(sourceId, null) }
 
     /** ID všech aktuálně aktivních zdrojů (vestavěných i vlastních Madara) - detekce duplicit z katalogu. */
     private val activeSourceIds: StateFlow<Set<String>> = sourceManager.observeAll()

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.comicskingdom
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -43,7 +45,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -67,7 +69,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
             // ze vraci jine porati nez count), "popular" = nejvic dennich stripu (count).
             val orderby = if (filter.sortBy == "latest") "id" else "count"
             parseFeatures(get("$api/ck_feature_taxonomy?per_page=24&page=$page&orderby=$orderby&order=desc"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -77,7 +79,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseFeatures(get("$api/ck_feature_taxonomy?search=$q&per_page=24&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Filtrování podle žánru (ck_genre taxonomie) ──────────────────────────
@@ -100,7 +102,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
             }.sortedBy { it.label }
             cachedGenres = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /**
@@ -143,7 +145,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
                 status = "Ongoing",
                 contentType = "COMIC",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // WP REST vraci max. 100 polozek na stranku - u dlouho bezicich pasku
@@ -178,7 +180,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
                     dateUpload = parseDate(post.optString("date")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseDate(text: String?): Long {
@@ -186,7 +188,7 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
         return try {
             val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ENGLISH)
             fmt.parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
+        } catch (e: Exception) { e.rethrowIfControl(); 0L }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -194,6 +196,6 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
             val post = JSONObject(get("$api/ck_comic/${chapter.url}?_fields=assets"))
             val url = assetUrl(post) ?: return@withContext emptyList()
             listOf(Page(0, url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

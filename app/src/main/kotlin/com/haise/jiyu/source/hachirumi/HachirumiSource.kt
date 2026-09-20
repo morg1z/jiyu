@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.hachirumi
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -29,12 +32,13 @@ import javax.inject.Singleton
 class HachirumiSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "hachirumi"
     override val name = "Hachirumi"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://hachirumi.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -46,19 +50,19 @@ class HachirumiSource @Inject constructor(private val client: OkHttpClient) : Ma
             val href = titleLink.attr("href")
             val title = titleLink.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val coverSrc = card.selectFirst("img.card-img-top")?.attr("data-src")
-            val cover = coverSrc?.let { if (it.startsWith("http")) it else "$base$it" }
+            val cover = coverSrc?.let { resolveSourceUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        try { parseList(get(base)) } catch (_: Exception) { emptyList() }
+        try { parseList(get(base)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        try { parseList(get(base)).filter { it.title.contains(query, ignoreCase = true) } } catch (_: Exception) { emptyList() }
+        try { parseList(get(base)).filter { it.title.contains(query, ignoreCase = true) } } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun slugOf(mangaUrl: String) = mangaUrl.removePrefix("/read/manga/").trim('/')
@@ -70,12 +74,12 @@ class HachirumiSource @Inject constructor(private val client: OkHttpClient) : Ma
             val author = json.optString("author").ifBlank { null }
             manga.copy(
                 title = json.optString("title").ifBlank { manga.title },
-                coverUrl = json.optString("cover").ifBlank { null }?.let { if (it.startsWith("http")) it else "$base$it" } ?: manga.coverUrl,
+                coverUrl = json.optString("cover").ifBlank { null }?.let { resolveSourceUrl(base, it) } ?: manga.coverUrl,
                 description = json.optString("description").ifBlank { null }?.let { Jsoup.parse(it).text() },
                 author = author ?: artist,
                 artist = artist,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -98,7 +102,7 @@ class HachirumiSource @Inject constructor(private val client: OkHttpClient) : Ma
                     dateUpload = releaseDate * 1000,
                 )
             }.sortedByDescending { it.chapterNumber }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -116,6 +120,6 @@ class HachirumiSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val url = "$base/media/manga/$slug/chapters/$folder/$groupId/$fn"
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

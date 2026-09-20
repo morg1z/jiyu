@@ -97,3 +97,10 @@
 # (Jsoup/Ktor). Za běhu se nepoužívá, slf4j si absenci backendu ošetří sám, ale R8 na ni
 # jinak spadne jako na chybějící třídu.
 -dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Release build neloguje ladící/verbose výpisy (často obsahují text stránek z OCR/překladu).
+# Jen d/v - w/e zůstávají pro diagnostiku skutečných chyb.
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}

@@ -5,10 +5,13 @@
 package com.haise.jiyu.security
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import java.security.KeyStore
 import javax.inject.Singleton
 
 /**
@@ -35,19 +38,40 @@ import javax.inject.Singleton
 class SecureCredentialStore @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val prefs: SharedPreferences = try {
+        createPrefs(context)
+    } catch (e: Exception) {
+        // Klíč v Keystore přestal odpovídat souboru (obnova appky na jiné zařízení, změna
+        // zámku obrazovky, poškozený Keystore). Šifrovaná data jsou nečitelná navždy -
+        // smazat soubor i klíč a začít načisto (uživatel se znovu přihlásí k trackerům)
+        // je lepší než pád appky při každém startu.
+        Log.w("SecureCredentialStore", "encrypted prefs unreadable, recreating", e)
+        context.deleteSharedPreferences(FILE_NAME)
+        runCatching {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+        }
+        createPrefs(context)
+    }
 
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "secure_credentials",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    private fun createPrefs(context: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            FILE_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
 
-    fun get(key: String): String? = prefs.getString(key, null)
+    fun get(key: String): String? = try {
+        prefs.getString(key, null)
+    } catch (e: java.security.GeneralSecurityException) {
+        null
+    }
 
     fun set(key: String, value: String) {
         prefs.edit().putString(key, value).apply()
@@ -57,5 +81,9 @@ class SecureCredentialStore @Inject constructor(
         val editor = prefs.edit()
         keys.forEach { editor.remove(it) }
         editor.apply()
+    }
+
+    private companion object {
+        const val FILE_NAME = "secure_credentials"
     }
 }

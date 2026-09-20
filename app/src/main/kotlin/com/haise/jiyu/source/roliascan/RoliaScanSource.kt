@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.roliascan
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -80,12 +83,12 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -103,17 +106,10 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
             .put("genreMatchMode", "any")
         val body = json.toString().toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url("$base/wp-json/manga/v1/load")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(body)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow("$base/wp-json/manga/v1/load") }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
     }
 
     private fun parseListJson(json: String): List<SManga> {
@@ -138,7 +134,7 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
             val sort = if (filter.sortBy == "latest") "post_desc" else "popular_desc"
             val genre = filter.genres.firstOrNull()
             parseListJson(loadApi(page, "", genre, sort))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -146,7 +142,7 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
             val genre = filter.genres.firstOrNull()
             val sort = if (filter.sortBy == "latest") "post_desc" else "popular_desc"
             parseListJson(loadApi(page, query.trim(), genre, sort))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -165,7 +161,7 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
                 status = ld?.optString("status")?.ifBlank { null } ?: manga.status,
                 contentType = normalizeContentType(ld?.optString("genre") ?: manga.contentType),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun mangaId(doc: Document): String? = doc.selectFirst("body")?.attr("data-manga-id")?.ifBlank { null }
@@ -211,7 +207,7 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
                 if (!json.optBoolean("has_more")) break
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private val chapterIdRegex = Regex("""-(\d+)/?$""")
@@ -226,6 +222,6 @@ class RoliaScanSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val url = images.optString(i)?.takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

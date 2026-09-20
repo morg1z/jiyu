@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.novelfull
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -29,7 +32,7 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
@@ -56,7 +59,7 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseGenreList(doc: Document): List<SManga> =
@@ -67,7 +70,7 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
                 url = link.attr("href"),
                 title = link.text().trim(),
                 coverUrl = row.selectFirst("img.cover")?.attr("src")?.let {
-                    if (it.startsWith("http")) it else "$base$it"
+                    resolveSourceUrl(base, it)
                 },
                 contentType = "NOVEL",
             )
@@ -75,7 +78,7 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             // overeno zive: /latest-release-novel vraci jine poradi nez /most-popular
@@ -88,17 +91,17 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
                     url = link.attr("href"),
                     title = link.text().trim(),
                     coverUrl = row.selectFirst("img.cover")?.attr("src")?.let {
-                        if (it.startsWith("http")) it else "$base$it"
+                        resolveSourceUrl(base, it)
                     },
                     contentType = "NOVEL",
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseGenreList(Jsoup.parse(get("$base/genre/${filter.genres.first()}?page=$page"))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
@@ -110,28 +113,28 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
                     url = link.attr("href"),
                     title = link.text().trim(),
                     coverUrl = row.selectFirst("img.cover")?.attr("src")?.let {
-                        if (it.startsWith("http")) it else "$base$it"
+                        resolveSourceUrl(base, it)
                     },
                     contentType = "NOVEL",
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst("h3.title")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst(".book img")?.attr("src")?.let {
-                    if (it.startsWith("http")) it else "$base$it"
+                    resolveSourceUrl(base, it)
                 } ?: manga.coverUrl,
                 description = doc.selectFirst(".desc-text")?.text(),
                 author = doc.selectFirst(".info a[href*='author']")?.text(),
                 genres = doc.select(".info a[href*='genre']").map { it.text() },
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -156,16 +159,16 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
                 page++
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("#chapter-content script, #chapter-content .ads-holder").remove()
             val text = doc.selectFirst("#chapter-content")?.text()?.trim() ?: ""
             if (text.isBlank()) emptyList()
             else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

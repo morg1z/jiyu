@@ -100,6 +100,37 @@ interface MangaSource {
      * Výchozí false = appka u tohohle zdroje sekci tagů ve Filtrech vůbec nezobrazí. */
     val supportsTagFilter: Boolean get() = false
 
+    /**
+     * Umí zdroj vrátit "Populární" a "Nejnovější" v RŮZNÉM pořadí (viz [MangaFilter.sortBy])? `false` = obě
+     * záložky by ukazovaly totéž, appka proto přepínač u zdroje vůbec nezobrazí. Zdroj, který řazení
+     * doplní, tuhle vlastnost odstraní (výchozí je `true`).
+     */
+    val supportsSortOrder: Boolean get() = true
+
+    /**
+     * Zdroj je zjevně rozbitý (web změnil strukturu/zanikl a parser nefunguje) - `SourceManager` ho nenabízí
+     * v Procházet a hledání, ale zůstává dostupný přes `getById`, aby už přidané tituly v knihovně dál šly
+     * otevřít. Živý test (`LiveSourceSmokeTest`) ukazuje, který zdroj to má být; důvod je v [brokenReason].
+     */
+    val isBroken: Boolean get() = false
+
+    /**
+     * Zahrnout zdroj do globálního hledání a do hledání zdroje pro ComicK? Rozšířený katalog (stovky webů na
+     * sdílených šablonách) to vypíná - každý dotaz by jinak zatížil všechny weby najednou. Takové zdroje jsou
+     * dál v Procházet a hledají se v nich jednotlivě.
+     */
+    val includeInGlobalSearch: Boolean get() = true
+
+    /** Krátké vysvětlení pro vývojáře, proč je [isBroken] `true` (co se na webu změnilo). */
+    val brokenReason: String? get() = null
+
+    /**
+     * Klíče řazení ([MangaFilter.sortBy]: `popular`, `latest`, `title`, `rating`), které zdroj skutečně rozlišuje -
+     * UI nabídne jen tyhle volby a přepínač Populární/Nejnovější skryje, pokud na výběr není. Výchozí se odvozuje
+     * z [supportsSortOrder]; zdroj s bohatším řazením (např. abecedně) ji přepíše.
+     */
+    val availableSorts: Set<String> get() = if (supportsSortOrder) setOf("popular", "latest") else setOf("popular")
+
     /** Seznam tagů/žánrů, které zdroj nabízí pro filtrování - buď natvrdo (ověřeno
      * živě proti webu), nebo dotažený přímo z webu (např. z jeho vyhledávacího
      * formuláře či vlastního API). Volá se až při otevření sekce tagů ve Filtrech,

@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.dynasty
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -25,13 +30,14 @@ class DynastySource @Inject constructor(
 
     override val id = "dynasty"
     override val name = "Dynasty Scans"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
 
     private val base = "https://dynasty-scans.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -59,7 +65,7 @@ class DynastySource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /**
@@ -81,7 +87,7 @@ class DynastySource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val json = JSONObject(get("$base/series.json?page=$page"))
@@ -103,12 +109,12 @@ class DynastySource @Inject constructor(
                 }
             }
             items
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseTagArchive(filter.genres.first(), page) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
@@ -122,15 +128,15 @@ class DynastySource @Inject constructor(
                 val cover = el.selectFirst("img")?.attr("src")?.let { if (it.startsWith("//")) "https:$it" else it }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val title = doc.selectFirst("h2.tag-title b")?.text()?.trim() ?: manga.title
             val cover = doc.selectFirst(".thumbnail img, .cover img")?.let {
-                val src = it.attr("src").ifBlank { it.attr("data-src") }
+                val src = it.lazySrc().orEmpty()
                 if (src.startsWith("//")) "https:$src"
                 else if (src.startsWith("/")) "$base$src"
                 else src
@@ -138,19 +144,19 @@ class DynastySource @Inject constructor(
             val desc = doc.selectFirst(".description")?.text()?.trim()
             val genres = doc.select(".tags a[href*='/tags/']").map { it.text().trim() }.filter { it.isNotBlank() }
             manga.copy(title = title, coverUrl = cover, description = desc, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             // Web vypisuje kapitoly od nejnovejsi - cislo se puvodne pocitalo primo z
             // DOM poradi (i+1) a AZ POTOM se seznam otocil (.reversed()), coz obratilo
             // jen poradi ZOBRAZENI, ne uz priradena cisla (nejnovejsi kapitola dostala
             // cislo 1). Radici prepinac Nejnovejsi/Nejstarsi v MangaDetailViewModel radi
             // podle chapterNumber, takze s takhle obracenymi cisly vypadalo rozbite.
             doc.select(".chapter-list dd a[href*='/chapters/']").reversed().mapIndexed { i, el ->
-                val href = el.attr("href").removePrefix(base)
+                val href = toSourcePath(base, el.attr("href"))
                 val name = el.text().trim().ifBlank { "Chapter ${i + 1}" }
                 SChapter(
                     sourceId = id,
@@ -161,12 +167,12 @@ class DynastySource @Inject constructor(
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${chapter.url}")
+            val html = get(resolveSourceUrl(base, chapter.url))
             val match = Regex("""var\s+pages\s*=\s*(\[.*?]);""", RegexOption.DOT_MATCHES_ALL).find(html)
             val json = match?.groupValues?.get(1) ?: return@withContext emptyList()
             val arr = runCatching { org.json.JSONArray(json) }.getOrNull() ?: return@withContext emptyList()
@@ -177,6 +183,6 @@ class DynastySource @Inject constructor(
                     ?: return@mapNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.evascans
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +11,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -64,7 +68,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(page: Int, genreId: String): String =
@@ -72,7 +76,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -84,7 +88,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
             val title = titleLink.text().trim().ifBlank { return@mapNotNull null }
             val href = titleLink.attr("href").ifBlank { return@mapNotNull null }
             val cover = card.selectFirst("img")?.let { img ->
-                img.attr("src").ifBlank { img.attr("data-src") }
+                img.lazySrc().orEmpty()
             }?.trim()?.ifBlank { null }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
@@ -102,7 +106,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 if (page <= 1) "$base/series/$orderby" else "$base/series/page/$page/$orderby"
             }
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -115,7 +119,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             }
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Dvojice "Label" / "Hodnota" v `div.stat-v-box` (Rating, Type, Status, Views). */
@@ -123,13 +127,6 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
         doc.select("div.stat-v-box").firstOrNull {
             it.selectFirst("span.stat-v-label")?.text()?.trim().equals(label, ignoreCase = true)
         }?.selectFirst("span.stat-v-value")?.text()?.trim()?.ifBlank { null }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
-    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
@@ -146,7 +143,7 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 status = statValue(doc, "Status")?.lowercase(),
                 contentType = normalizeContentType(statValue(doc, "Type")),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -162,42 +159,19 @@ class EvaScansSource @Inject constructor(private val client: OkHttpClient) : Man
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name,
                     chapterNumber = num, dateUpload = parseRelativeOrAbsoluteDate(dateText))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseRelativeOrAbsoluteDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        val relativeMatch = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
-        if (relativeMatch != null) {
-            val value = relativeMatch.groupValues[1].toLongOrNull() ?: 1L
-            val unit = relativeMatch.groupValues[2].lowercase()
-            val deltaMs = when (unit) {
-                "second" -> value * 1_000L
-                "minute" -> value * 60_000L
-                "hour"   -> value * 3_600_000L
-                "day"    -> value * 86_400_000L
-                "week"   -> value * 7 * 86_400_000L
-                "month"  -> value * 30 * 86_400_000L
-                "year"   -> value * 365 * 86_400_000L
-                else     -> 0L
-            }
-            return System.currentTimeMillis() - deltaMs
-        }
-        return try {
-            java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time
-                ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseRelativeOrAbsoluteDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(chapter.url))
             doc.select("img.legendary-page").mapIndexedNotNull { i, img ->
-                val src = img.attr("src").ifBlank { img.attr("data-src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

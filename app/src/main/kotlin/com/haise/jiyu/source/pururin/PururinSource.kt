@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.pururin
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,7 +42,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -64,7 +67,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
             val sort = if (filter.sortBy == "latest") "newest" else "most-popular"
             try {
                 parseGalleryList(fetchDocument("$base/browse?sort=$sort&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -73,7 +76,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/search?q=$q&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga =
@@ -95,7 +98,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
                     }
                 }
                 manga.copy(title = title, coverUrl = cover, artist = artist, genres = genres)
-            } catch (_: Exception) { manga }
+            } catch (e: Exception) { e.rethrowIfControl(); manga }
         }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -117,12 +120,12 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val doc = fetchDocument(chapter.url)
             doc.select("div.gallery-preview img").mapIndexedNotNull { i, img ->
-                val src = img.attr("src").ifBlank { img.attr("data-src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 val match = thumbRegex.find(src) ?: return@mapIndexedNotNull null
                 val (dir, num, ext) = match.destructured
                 val full = "$dir$num.$ext"
                 Page(index = i, url = full, imageUrl = full)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

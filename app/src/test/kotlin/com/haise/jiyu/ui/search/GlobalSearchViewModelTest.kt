@@ -55,6 +55,8 @@ class GlobalSearchViewModelTest {
     private fun source(id: String): MangaSource = mockk(relaxed = true) {
         every { this@mockk.id } returns id
         every { name } returns id.uppercase()
+        // Relaxed mock by jinak vrátil false a zdroj by z globálního hledání vypadl.
+        every { includeInGlobalSearch } returns true
     }
 
     private fun manga(src: String, i: Int) =
@@ -62,6 +64,44 @@ class GlobalSearchViewModelTest {
 
     private fun viewModel(savedStateHandle: SavedStateHandle = SavedStateHandle()) =
         GlobalSearchViewModel(savedStateHandle, sourceManager, repository, settings)
+
+    @Test
+    fun `a source behind Cloudflare is verified in the background after the others and then filled in`() = runTest(dispatcher) {
+        coEvery { sourceManager.getAll() } returns listOf(source("plain"), source("cf"))
+        coEvery { repository.search("plain", any(), any(), any()) } returns listOf(manga("plain", 1))
+        // Bez povolení řešení (fáze 1) selže, po tichém ověření (fáze 2) odpoví.
+        coEvery { repository.search("cf", any(), any(), any()) } answers {
+            if (com.haise.jiyu.source.interceptor.InteractiveChallengePolicy.isNoSolve) {
+                throw com.haise.jiyu.util.CloudflareProtectedException("cf.test", "https://cf.test/")
+            }
+            listOf(manga("cf", 1))
+        }
+
+        val vm = viewModel()
+        vm.search("naruto")
+        advanceUntilIdle()
+
+        val byId = vm.results.value.associateBy { it.source.id }
+        assertEquals(1, byId.getValue("plain").results.size)
+        assertFalse(byId.getValue("cf").loading)
+        assertEquals("cf-1", byId.getValue("cf").results.single().title)
+        assertEquals(null, byId.getValue("cf").error)
+    }
+
+    @Test
+    fun `a Cloudflare source that stays blocked ends as an error, not as endless loading`() = runTest(dispatcher) {
+        coEvery { sourceManager.getAll() } returns listOf(source("cf"))
+        coEvery { repository.search(any(), any(), any(), any()) } throws
+            com.haise.jiyu.util.CloudflareProtectedException("cf.test", "https://cf.test/")
+
+        val vm = viewModel()
+        vm.search("naruto")
+        advanceUntilIdle()
+
+        val r = vm.results.value.single()
+        assertFalse(r.loading)
+        assertNotNull(r.error)
+    }
 
     @Test
     fun `a blank query is ignored instead of hammering every source`() = runTest(dispatcher) {

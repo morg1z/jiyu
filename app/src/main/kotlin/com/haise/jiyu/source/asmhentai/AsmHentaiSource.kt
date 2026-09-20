@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.asmhentai
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -41,7 +44,7 @@ class AsmHentaiSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -80,16 +83,22 @@ class AsmHentaiSource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // "Nejnovější" = úvodní stránka (nejnovější galerie). "Populární" = parametr `sort=popular`, který web
+    // umí u archivů (tag, jazyk) - u úvodní stránky ho ignoruje (ověřeno živě), proto se bez tagu bere
+    // archiv anglických galerií "/language/english/". Dřív obě záložky vracely totéž.
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            val popular = filter.sortBy != "latest"
+            val sort = if (popular) "&sort=popular" else ""
             if (filter.genres.isNotEmpty()) {
-                return@withContext parseListing(get("$base/tag/${filter.genres.first()}/?page=$page"))
+                return@withContext parseListing(get("$base/tag/${filter.genres.first()}/?page=$page$sort"))
             }
-            parseListing(get("$base/?page=$page"))
-        } catch (_: Exception) { emptyList() }
+            if (popular) parseListing(get("$base/language/english/?page=$page$sort"))
+            else parseListing(get("$base/?page=$page"))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -100,7 +109,7 @@ class AsmHentaiSource @Inject constructor(
             if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseListing(get("$base/search/?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun tagSection(doc: Document, label: String): List<String> {
@@ -114,7 +123,7 @@ class AsmHentaiSource @Inject constructor(
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base)
             val title = doc.selectFirst("div.info h1")?.text()?.trim()?.takeIf { it.isNotBlank() } ?: manga.title
             val cover = doc.selectFirst("div.cover img")?.attr("data-src")?.trim()?.takeIf { it.isNotBlank() }
                 ?.let { if (it.startsWith("//")) "https:$it" else it } ?: manga.coverUrl
@@ -141,14 +150,14 @@ class AsmHentaiSource @Inject constructor(
                 artist = artist,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun galleryId(mangaUrl: String) = mangaUrl.trim('/').substringAfterLast('/')
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base)
             val gid = galleryId(manga.url)
             val dir = doc.selectFirst("input#load_dir")?.attr("value")?.trim()?.takeIf { it.isNotBlank() }
                 ?: Regex("""images\.asmhentai\.com/(\d+)/""").find(doc.html())?.groupValues?.get(1)
@@ -167,7 +176,7 @@ class AsmHentaiSource @Inject constructor(
                     dateUpload = 0L,
                 )
             )
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -180,6 +189,6 @@ class AsmHentaiSource @Inject constructor(
                 val url = "$imgBase/$dir/$gid/$n.jpg"
                 Page(n - 1, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

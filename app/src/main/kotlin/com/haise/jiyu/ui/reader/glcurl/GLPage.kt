@@ -71,6 +71,23 @@ open class GLPage {
         needsTextureUpdate = true
     }
 
+    /** Uvolní GL texturu stránky. Smí se volat JEN z GL vlákna (potřebuje platný kontext). */
+    fun releaseTexture(gl: GL10) {
+        if (textures[0] != 0) {
+            gl.glDeleteTextures(1, textures, 0)
+            textures[0] = 0
+        }
+    }
+
+    /**
+     * Po ztrátě/znovuvytvoření EGL kontextu (viz onSurfaceCreated v rendereru) jsou stará id textur
+     * neplatná - mazat je nelze, jen je zapomenout a při dalším draw() nahrát bitmapu znovu.
+     */
+    fun onContextLost() {
+        textures[0] = 0
+        if (bitmap != null) needsTextureUpdate = true
+    }
+
     open fun calculateVerticesCoords() {
         hWRatio = bitmapRatio
         hWCorrection = (hWRatio - 1f) / 2f
@@ -100,6 +117,8 @@ open class GLPage {
         }
     }
 
+    private var drawVertexBuffer: FloatBuffer? = null
+
     fun draw(gl: GL10) {
         if (needsTextureUpdate) {
             needsTextureUpdate = false
@@ -107,7 +126,12 @@ open class GLPage {
         }
         calculateVerticesCoords()
 
-        val buf = ByteBuffer.allocateDirect(vertices.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        // Buffer se alokuje jednou a jen se přeplňuje - dřív se každý snímek (60 fps × 3 stránky)
+        // alokoval nový direct buffer.
+        val buf = drawVertexBuffer?.takeIf { it.capacity() == vertices.size }
+            ?: ByteBuffer.allocateDirect(vertices.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                .also { drawVertexBuffer = it }
+        buf.clear()
         buf.put(vertices)
         buf.position(0)
         vertexBuffer = buf
@@ -142,6 +166,10 @@ open class GLPage {
             }
             bitmapRatio = safeBmp.height.toFloat() / safeBmp.width.toFloat()
 
+            // Predchozi texturu je treba uvolnit - kazde otoceni stranky sem prijde znovu a
+            // glGenTextures bez glDeleteTextures nechavalo na GPU osiralou texturu (~11 MB u plne
+            // stranky) na kazdy prekresleny obrazek az do zniceni EGL kontextu (audit nalez JIYU-NET-4).
+            releaseTexture(gl)
             gl.glGenTextures(1, textures, 0)
             gl.glBindTexture(GL10.GL_TEXTURE_2D, textures[0])
 
@@ -151,6 +179,8 @@ open class GLPage {
             gl.glTexParameterf(GL10.GL_TEXTURE_2D, GL10.GL_TEXTURE_WRAP_T, GL10.GL_REPEAT.toFloat())
 
             GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, safeBmp, 0)
+            // Kopie z HARDWARE bitmapy uz po nahrani na GPU nikdo nepotrebuje.
+            if (safeBmp !== bmp) safeBmp.recycle()
         } catch (e: Exception) {
             // GL vlakno (GLThread) nema zadny globalni handler jako hlavni vlakno - nezachycena
             // vyjimka tady (napr. IllegalStateException z bmp.copy() na uz recyklovane bitmape,

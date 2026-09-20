@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.ranobes
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -31,13 +34,14 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override val id = "ranobes"
     override val name = "Ranobes"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://ranobes.net"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -74,7 +78,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(genre: String, page: Int): String {
@@ -89,7 +93,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
             }
             val url = if (page <= 1) "$base/novels/" else "$base/novels/page/$page/"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Vlastni interni vyhledavani na webu odkazuje na Yandex site-search,
@@ -102,7 +106,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/$q/"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -124,7 +128,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
                 description = description,
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -146,7 +150,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
                     val link = c.optString("link")
                     if (link.isBlank()) continue
                     val title = c.optString("title").ifBlank { "Chapter" }
-                    val num = Regex("""[\d.]+""").find(title)?.value?.toFloatOrNull() ?: 0f
+                    val num = parseChapterNumber(title) ?: 0f
                     chapters.add(
                         SChapter(
                             sourceId = id,
@@ -161,7 +165,7 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
                 page++
             } while (page <= totalPages)
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // window.__DATA__ = {...} muze mit dalsi klice (count_all, cstart, ...)
@@ -200,13 +204,13 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     private fun parseDate(text: String?): Long = try {
         java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ENGLISH).parse(text.orEmpty())?.time ?: 0L
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(chapter.url))
             val text = doc.selectFirst("#arrticle")?.text()?.trim().orEmpty()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.yaoimangaonline
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,6 +41,7 @@ class YaoiMangaOnlineSource @Inject constructor(
 
     override val id = "yaoimangaonline"
     override val name = "Yaoi Manga Online"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
     private val base = "https://yaoimangaonline.com"
@@ -49,7 +52,7 @@ class YaoiMangaOnlineSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -108,7 +111,7 @@ class YaoiMangaOnlineSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             fetchPostList("$apiBase?per_page=20&page=$page&_embed=wp:featuredmedia,wp:term")
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -116,7 +119,7 @@ class YaoiMangaOnlineSource @Inject constructor(
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             fetchPostList("$apiBase?search=$q&per_page=20&page=$page&_embed=wp:featuredmedia,wp:term")
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -139,12 +142,12 @@ class YaoiMangaOnlineSource @Inject constructor(
                 genres = genres,
                 contentType = contentType,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun dateOf(post: JSONObject): Long = try {
         java.time.Instant.parse(post.optString("modified_gmt") + "Z").toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -164,7 +167,7 @@ class YaoiMangaOnlineSource @Inject constructor(
                     dateUpload = date,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -183,6 +186,6 @@ class YaoiMangaOnlineSource @Inject constructor(
                 .distinct()
                 .mapIndexed { i, url -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -25,6 +25,13 @@ interface ReadHistoryDao {
     @Query("DELETE FROM read_history WHERE mangaId = :mangaId")
     suspend fun deleteForManga(mangaId: String)
 
+    /** Protějšek [com.haise.jiyu.data.db.ManualTranslationDao.relinkChapter] - `chapterId` je
+     * tady navíc primární klíč, ale SQLite dovolí UPDATE i na PK sloupec. Bez tohohle by po
+     * relinku (viz MangaRepository.recoverMangaLink) historie čtení ukazovala na neexistující
+     * staré id kapitoly. */
+    @Query("UPDATE read_history SET chapterId = :newChapterId WHERE chapterId = :oldChapterId")
+    suspend fun relinkChapter(oldChapterId: String, newChapterId: String)
+
     @Query("DELETE FROM read_history")
     suspend fun deleteAll()
 
@@ -37,9 +44,6 @@ interface ReadHistoryDao {
         GROUP BY day ORDER BY day ASC
     """)
     suspend fun getDailyReadCounts(sinceMs: Long): List<DayCount>
-
-    @Query("SELECT COUNT(DISTINCT chapterId) FROM read_history WHERE readAt >= :sinceMs")
-    suspend fun countSince(sinceMs: Long): Int
 
     @Query("SELECT * FROM read_history ORDER BY readAt DESC")
     suspend fun getAll(): List<ReadHistoryEntity>

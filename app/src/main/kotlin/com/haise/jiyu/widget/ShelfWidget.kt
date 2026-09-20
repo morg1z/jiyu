@@ -147,7 +147,7 @@ private fun CenteredMessage(text: String, color: ColorProvider) {
 
 @androidx.compose.runtime.Composable
 private fun ShelfCoverItem(item: ShelfItem) {
-    val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse("jiyu://manga?mangaId=${item.id}"))
+    val openIntent = Intent(Intent.ACTION_VIEW, Uri.parse("jiyu://manga?mangaId=${Uri.encode(item.id)}"))
     Box(
         modifier = GlanceModifier
             .fillMaxWidth()

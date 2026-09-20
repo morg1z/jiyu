@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.hentaipaw
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -37,6 +39,7 @@ class HentaiPawSource @Inject constructor(
 
     override val id = "hentaipaw"
     override val name = "HentaiPaw"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -45,7 +48,7 @@ class HentaiPawSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -64,7 +67,7 @@ class HentaiPawSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try { parseGalleryList(fetchDocument("$base/?page=$page")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -73,7 +76,7 @@ class HentaiPawSource @Inject constructor(
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/articles/search?keyword=$q&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     private fun tagLinks(doc: Document, path: String): List<String> =
@@ -86,7 +89,7 @@ class HentaiPawSource @Inject constructor(
             val artist = tagLinks(doc, "artists").firstOrNull()
             val genres = tagLinks(doc, "tags")
             manga.copy(title = title, artist = artist, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -118,6 +121,6 @@ class HentaiPawSource @Inject constructor(
                 .sortedBy { it.second }
                 .mapIndexed { i, (url, _) -> Page(index = i, url = url, imageUrl = url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

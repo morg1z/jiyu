@@ -22,4 +22,20 @@ interface TranslatedPageDao {
 
     @Query("DELETE FROM translated_page WHERE createdAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
+
+    /** Protějšek [com.haise.jiyu.data.db.ManualTranslationDao.relinkChapter] - `id` je tvaru
+     * "$chapterId::$pageIndex::$sourceLanguage::$targetLanguage::v$PIPELINE_VERSION"
+     * (viz [com.haise.jiyu.data.db.entity.TranslatedPageEntity]), žádný samostatný chapterId
+     * sloupec neexistuje, takže se přemapuje `substr`-ovým odříznutím staré předpony. Bez
+     * tohohle by po relinku (viz MangaRepository.recoverMangaLink) cache přeložených stránek
+     * ukazovala na neexistující staré id kapitoly.
+     * Porovnání přes `substr(...) = ...` místo `LIKE` schválně - chapterId je "$sourceId::$url"
+     * (viz MangaRepository.chapterId) a URL běžně obsahuje `%`/`_`, což by LIKE vyhodnotil jako
+     * wildcard místo doslovného znaku a match by byl špatný. */
+    @Query("""
+        UPDATE translated_page
+        SET id = :newChapterId || substr(id, length(:oldChapterId) + 1)
+        WHERE substr(id, 1, length(:oldChapterId) + 2) = :oldChapterId || '::'
+    """)
+    suspend fun relinkChapter(oldChapterId: String, newChapterId: String)
 }

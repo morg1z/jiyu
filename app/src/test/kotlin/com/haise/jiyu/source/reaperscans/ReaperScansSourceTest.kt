@@ -92,4 +92,31 @@ class ReaperScansSourceTest {
         val failingSource = ReaperScansSource(redirectingClient(server))
         assertTrue(failingSource.getPopular(1).isEmpty())
     }
+    @Test
+    fun `search passes the requested page to the API`() = runTest {
+        val paths = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths += request.path.orEmpty()
+                return MockResponse().setBody(seriesListJson)
+            }
+        }
+
+        source.search("solo leveling", 3)
+
+        assertEquals(listOf("/series?page=3&title=solo+leveling"), paths)
+    }
+
+    @Test
+    fun `a bare JSON array and a missing cover are both handled`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setBody("""[{"series_slug": "no-cover", "title": "No Cover"}]""")
+        }
+
+        val result = source.getPopular(1)
+
+        assertEquals("No Cover", result.single().title)
+        assertEquals(null, result.single().coverUrl)
+    }
 }

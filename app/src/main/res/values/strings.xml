@@ -38,12 +38,7 @@
     <string name="onb_done_title">Vše je připraveno!</string>
     <string name="onb_done_subtitle">Jiyu je nakonfigurováno.\nMůžeš začít číst.</string>
     <string name="onb_btn_next">Další</string>
-    <string name="onb_btn_skip">Přeskočit</string>
     <string name="onb_btn_start">Začít číst</string>
-    <string name="onb_step_language">Jazyk</string>
-    <string name="onb_step_reading">Čtení</string>
-    <string name="onb_step_storage">Úložiště</string>
-    <string name="onb_step_done">Hotovo</string>
 
     <!-- Quick actions (MangaDetail) -->
     <string name="action_start_reading">Začít číst</string>
@@ -81,18 +76,14 @@
     <string name="detail_title_copied">Název zkopírován</string>
     <string name="common_clear">Vymazat</string>
     <string name="common_search">Hledat</string>
-    <string name="common_search_placeholder">Hledat…</string>
     <string name="common_yes">Ano</string>
     <string name="common_no">Ne</string>
     <string name="common_confirm">Potvrdit</string>
-    <string name="common_edit">Upravit</string>
     <string name="common_download">Stáhnout</string>
     <string name="download_notification_done_title">Stahování dokončeno</string>
     <string name="download_notification_done_text">Kapitola je připravena pro offline čtení</string>
     <string name="common_share">Sdílet</string>
     <string name="common_retry">Zkusit znovu</string>
-    <string name="common_loading">Načítání…</string>
-    <string name="common_none">Žádné</string>
     <string name="common_all">Vše</string>
 
     <!-- Settings: hlavní obrazovka -->
@@ -335,7 +326,6 @@
     <string name="settings_backup_settings_export_success">Nastavení exportováno</string>
 
     <!-- Settings: Čtení -->
-    <string name="settings_reading_duplicates_button">Duplikát detektor</string>
 
     <!-- Settings: O aplikaci -->
     <string name="settings_about_title">O aplikaci</string>
@@ -346,7 +336,6 @@
     <string name="settings_about_up_to_date">Máš nejnovější verzi</string>
     <string name="settings_about_check_updates">Zkontrolovat aktualizace</string>
     <string name="settings_about_grant_install_permission">Povol prosím instalaci z Jiyu a zkus stažení znovu</string>
-    <string name="settings_about_download_started">Stahování zahájeno - sleduj lištu oznámení</string>
     <string name="settings_about_downloading">Stahuji aktualizaci…</string>
     <string name="settings_about_download_failed">Stažení se nezdařilo</string>
     <string name="settings_about_download_failed_space">Stažení se nezdařilo - na zařízení není dost místa</string>
@@ -601,7 +590,6 @@
     <string name="detail_info_score">Skóre: %1$s</string>
     <string name="detail_info_link_mal">Propojit s MyAnimeList</string>
     <string name="detail_info_mal_no_client_id">Pro vyhledávání nastav MAL_CLIENT_ID v local.properties (myanimelist.net/apiconfig)</string>
-    <string name="detail_info_mal_no_client_id_full">MAL_CLIENT_ID není nastaven. Zaregistruj appku na myanimelist.net/apiconfig a vlož CLIENT ID do local.properties.</string>
     <string name="detail_info_sync_from_mal">Stáhnout status z MAL</string>
     <string name="detail_info_anilist_login_hint">Přihlas se k AniListu v Účtu pro párování.</string>
     <string name="detail_info_anilist_id">AniList ID: %1$s</string>
@@ -659,7 +647,6 @@
     <string name="library_stats_read_today">Dnes čteno</string>
     <string name="library_minutes_short">min</string>
     <string name="library_percent_read">%1$d %% přečteno</string>
-    <string name="library_filter">Filtrovat</string>
     <string name="library_refresh_error">Nepodařilo se aktualizovat: %1$s%2$s</string>
     <string name="library_refresh_error_and_more"> a další</string>
 
@@ -670,11 +657,9 @@
     <string name="mylist_title">Můj seznam</string>
     <string name="mylist_switch_to_list">Přepnout na seznam</string>
     <string name="mylist_switch_to_grid">Přepnout na mřížku</string>
-    <string name="mylist_sort">Řadit</string>
     <string name="mylist_open_cbz">Otevřít CBZ/ZIP</string>
     <string name="mylist_mark_library_read">Označit knihovnu jako přečtenou</string>
     <string name="mylist_manage_categories">Spravovat kategorie</string>
-    <string name="mylist_add_category">Přidat kategorii</string>
     <string name="mylist_content_manhwa">Manhwa</string>
     <string name="mylist_content_manhua">Manhua</string>
     <string name="mylist_content_novel">Novel</string>
@@ -780,6 +765,8 @@
     <string name="reader_glossary_protect_off_description">Pojem se může skloňovat - klepnutím ochrání přesné znění</string>
     <string name="reader_share_link">Sdílet odkaz</string>
     <string name="reader_save_to_gallery">Uložit do galerie</string>
+    <string name="reader_save_success">Stránka uložena do galerie</string>
+    <string name="reader_save_failed">Stránku se nepodařilo uložit</string>
     <string name="reader_page_content_desc">Stránka %1$d</string>
     <string name="reader_page_curl_progress">Stránka %1$d z %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Stránka se nenačetla</string>
@@ -834,8 +821,6 @@
     <string name="source_browse_latest">Nejnovější</string>
     <string name="source_browse_load_failed">Načtení selhalo</string>
     <string name="source_browse_no_results">Žádné výsledky</string>
-    <string name="source_browse_cover_desc">Obálka: %1$s</string>
-    <string name="source_browse_add_to_library">+ Přidat do knihovny</string>
     <string name="source_browse_dup_title">Možná už tuhle mangu máš</string>
     <string name="source_browse_dup_desc">\"%1$s\" má stejný název jako titul, co už máš v knihovně z jiného zdroje. Zdroje se liší v počtu přeložených kapitol i kvalitě překladu:</string>
     <string name="source_browse_checking">zjišťuji…</string>
@@ -904,6 +889,10 @@
     <string name="account_error_login_generic">Chyba přihlášení</string>
     <string name="account_error_no_google_account">Na telefonu nebyl nalezen žádný Google účet, nebo k němu appka nemá povolení. Zkontroluj v nastavení telefonu, že jsi přihlášený/á k Google účtu, nebo se přihlas přes e-mail.</string>
     <string name="account_sync_done">Synchronizace dokončena</string>
+    <string name="account_owner_conflict_title">Knihovna patří jinému účtu</string>
+    <string name="account_owner_conflict_message">Lokální knihovna v tomto telefonu byla synchronizována s jiným účtem. Můžeš ji nahrát pod právě přihlášený účet, nebo ji smazat (včetně stažených kapitol a postupu čtení) a stáhnout knihovnu z cloudu.</string>
+    <string name="account_owner_conflict_keep_local">Nahrát pod tento účet</string>
+    <string name="account_owner_conflict_use_cloud">Smazat a stáhnout z cloudu</string>
 
     <!-- Komunita -->
 
@@ -1055,6 +1044,12 @@
         <item quantity="one">Všechny kapitoly u 1 mangy v knihovně budou označeny jako přečtené. Tuto akci nelze hromadně vrátit.</item>
         <item quantity="other">Všechny kapitoly u všech %1$d mang v knihovně budou označeny jako přečtené. Tuto akci nelze hromadně vrátit.</item>
     </plurals>
+    <plurals name="mylist_bulk_remove_title">
+        <item quantity="one">Odebrat %1$d titul z knihovny?</item>
+        <item quantity="few">Odebrat %1$d tituly z knihovny?</item>
+        <item quantity="many">Odebrat %1$d titulu z knihovny?</item>
+        <item quantity="other">Odebrat %1$d titulů z knihovny?</item>
+    </plurals>
     <plurals name="mylist_title_count">
         <item quantity="one">%1$d titul</item>
         <item quantity="few">%1$d tituly</item>
@@ -1140,5 +1135,53 @@
     <string name="detail_translate_next_n_title">Kolik kapitol přeložit?</string>
     <string name="translate_worker_notification_title">Překlad – %1$s</string>
     <string name="translate_worker_notification_chapter">%1$s</string>
-    <string name="detail_translate_enqueued">Zařazeno k překladu na pozadí</string>
+    <string name="notification_channel_chapters_name">Nové kapitoly</string>
+    <string name="notification_channel_chapters_desc">Upozornění na nové kapitoly v knihovně</string>
+    <string name="notification_channel_downloads_name">Stahování kapitol</string>
+    <string name="notification_channel_downloads_desc">Průběh stahování kapitol</string>
+    <string name="download_notification_title">Stahování kapitoly</string>
+    <string name="download_notification_progress">%1$d / %2$d stránek</string>
+    <string name="download_notification_failed_title">Stahování selhalo</string>
+    <string name="download_notification_failed_text">%1$s: %2$s</string>
+    <string name="download_chapter_fallback_name">Kapitola</string>
+    <string name="download_error_unknown">neznámá chyba</string>
+    <string name="download_error_disk_full">Nedostatek volného místa v úložišti</string>
+    <string name="backup_error_open_output">Nelze otevřít výstupní soubor</string>
+    <string name="backup_error_open_input">Nelze otevřít soubor zálohy</string>
+    <string name="relative_time_now">teď</string>
+    <string name="relative_time_minutes">před %1$d min</string>
+    <string name="relative_time_hours">před %1$d h</string>
+    <string name="relative_time_days">před %1$d d</string>
+    <string name="download_error_no_pages">Zdroj nevrátil žádné stránky</string>
+    <string name="settings_sources_mirror_section_title">Náhradní domény zdrojů</string>
+    <string name="settings_sources_mirror_description">Když web změní adresu, zadej novou doménu a zdroj ji použije bez aktualizace appky. Týká se všech adres tohoto zdroje (i už uložených).</string>
+    <string name="settings_sources_mirror_add_button">Nastavit náhradní doménu</string>
+    <string name="settings_sources_mirror_dialog_title">Náhradní doména</string>
+    <string name="settings_sources_mirror_field_source">Hledat zdroj</string>
+    <string name="settings_sources_mirror_field_host">Nová doména (např. novy-web.com), prázdné = zrušit</string>
+    <string name="settings_sources_mirror_invalid">Zadej platnou doménu bez cesty</string>
+    <string name="error_action_solve_cloudflare">Vyřešit ověření</string>
+    <string name="error_action_use_new_domain">Použít novou adresu (%1$s)</string>
+    <string name="error_action_open_web">Otevřít web zdroje</string>
+    <string name="source_web_title">Web zdroje</string>
+    <string name="source_web_done">Hotovo</string>
+    <string name="settings_image_proxy_section_title">Úsporný režim obrázků</string>
+    <string name="settings_image_proxy_title">Stahovat obrázky přes úspornou službu</string>
+    <string name="settings_image_proxy_desc">Obrázky se před stažením zmenší (WebP) přes veřejnou službu wsrv.nl - výrazně méně dat na slabém signálu. Služba uvidí adresy stahovaných obrázků. Překlad a stahování kapitol vždy používají originály. Vypnuto ve výchozím stavu.</string>
+    <string name="settings_proxy_section_title">Proxy server</string>
+    <string name="settings_proxy_description">Volitelná HTTP/SOCKS proxy pro sítě, kde weby zdrojů nejdou přímo. Platí pro stahování ze zdrojů i obrázků. Heslo se ukládá šifrovaně; přihlášení funguje jen u HTTP proxy.</string>
+    <string name="settings_proxy_host">Adresa proxy (např. proxy.example.com)</string>
+    <string name="settings_proxy_port">Port</string>
+    <string name="settings_proxy_user">Uživatel (nepovinné)</string>
+    <string name="settings_proxy_password">Heslo (nepovinné)</string>
+    <string name="settings_proxy_invalid">Zadej platnou adresu a port (1-65535)</string>
+    <string name="settings_proxy_disable">Vypnout proxy</string>
+    <string name="browse_filter_type_label">Typ: %1$s</string>
+    <string name="browse_filter_language_label">Jazyk: %1$s</string>
+    <string name="browse_filter_type_title">Typ obsahu</string>
+    <string name="browse_filter_language_title">Jazyk</string>
+    <string name="browse_filter_language_search">Hledat jazyk…</string>
+    <string name="browse_filter_language_all">Všechny jazyky</string>
+    <string name="browse_filters_clear_all">Vymazat vše</string>
+    <string name="browse_filter_remove">Odebrat filtr</string>
 </resources>

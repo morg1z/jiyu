@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.mangak
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -38,7 +41,7 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -79,7 +82,7 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -95,7 +98,7 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
                               else "$base/ranking?page=$page" to "initialItems"
             val items = pageProps(get(url)).optJSONArray(key) ?: return@withContext emptyList()
             (0 until items.length()).map { itemToSManga(items.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -105,12 +108,12 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
             val q = URLEncoder.encode(query, "UTF-8")
             val items = pageProps(get("$base/search?q=$q&page=$page")).optJSONArray("ssrItems") ?: return@withContext emptyList()
             (0 until items.length()).map { itemToSManga(items.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val m = pageProps(get("$base${manga.url}")).optJSONObject("initialManga") ?: return@withContext manga
+            val m = pageProps(get(resolveSourceUrl(base, manga.url))).optJSONObject("initialManga") ?: return@withContext manga
             val genres = m.optJSONArray("genres")?.let { arr ->
                 (0 until arr.length()).map { arr.getJSONObject(it).optString("name") }.filter { it.isNotBlank() }
             } ?: emptyList()
@@ -124,12 +127,12 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
                 genres = genres,
                 author = author,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = pageProps(get("$base${manga.url}")).optJSONObject("initialManga")?.optJSONArray("chapters")
+            val chapters = pageProps(get(resolveSourceUrl(base, manga.url))).optJSONObject("initialManga")?.optJSONArray("chapters")
                 ?: return@withContext emptyList()
             (0 until chapters.length()).map { i ->
                 val c = chapters.getJSONObject(i)
@@ -139,22 +142,22 @@ class MangaKSource @Inject constructor(private val client: OkHttpClient) : Manga
                 SChapter(sourceId = id, mangaUrl = manga.url, url = c.optString("url"),
                     name = chapName.ifBlank { "Chapter $num" }, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val images = pageProps(get("$base${chapter.url}")).optJSONObject("initialChapter")?.optJSONArray("images")
+            val images = pageProps(get(resolveSourceUrl(base, chapter.url))).optJSONObject("initialChapter")?.optJSONArray("images")
                 ?: return@withContext emptyList()
             (0 until images.length()).map { i -> val u = images.getString(i); Page(i, u, u) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
         withContext(Dispatchers.IO) {
             try {
-                val ic = pageProps(get("$base${chapter.url}")).optJSONObject("initialChapter") ?: return@withContext emptyList()
+                val ic = pageProps(get(resolveSourceUrl(base, chapter.url))).optJSONObject("initialChapter") ?: return@withContext emptyList()
                 com.haise.jiyu.source.comments.parseMangaReaderJsonComments(ic)
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 }

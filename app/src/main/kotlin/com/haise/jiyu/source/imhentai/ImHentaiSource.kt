@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.imhentai
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -63,7 +68,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -81,7 +86,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
             // polozky na te strance.
             ?: thumb.selectFirst("div.caption a")?.text()?.trim()?.ifBlank { null }
             ?: return null
-        val cover = a.selectFirst("img")?.let { img -> img.attr("data-src").ifBlank { img.attr("src") } }
+        val cover = a.selectFirst("img")?.let { img -> img.lazySrc().orEmpty() }
             ?.trim()?.ifBlank { null }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
@@ -103,7 +108,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
                 if (page <= 1) "$base/popular/" else "$base/popular/?page=$page"
             }
             parseList(fetchDoc(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // "/search/" bere kategorie jen jako explicitni sadu 0/1 pro VSECH sest
@@ -120,7 +125,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             val catParam = filter.genres.firstOrNull()?.let(::categoryQuery) ?: ""
             parseList(fetchDoc("$base/search/?key=$q&page=$page$catParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Kazda <li> v ul.galleries_info ma label ve span.tags_text ("Tags:", "Artists:", ...)
@@ -131,7 +136,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = fetchDoc("$base${manga.url}")
+            val doc = fetchDoc(resolveSourceUrl(base, manga.url))
             val title = doc.selectFirst("h1")?.text()?.trim()?.ifBlank { null } ?: manga.title
             val artists = parseInfoGroup(doc, "Artists:")
             val tags = parseInfoGroup(doc, "Tags:")
@@ -146,7 +151,7 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
                 description = pagesText,
                 status = categories.firstOrNull(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -164,20 +169,20 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = fetchDoc("$base${chapter.url}")
+            val doc = fetchDoc(resolveSourceUrl(base, chapter.url))
             val galleryId = chapter.url.trim('/').substringAfterLast('/')
             val count = doc.select("div.gthumb").size.takeIf { it > 0 }
                 ?: doc.selectFirst("li.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
                 ?: return@withContext emptyList()
             (1..count).map { n -> Page(index = n - 1, url = "$base/view/$galleryId/$n/") }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
         try {
             val doc = fetchDoc(page.url)
-            doc.selectFirst("img#gimg")?.let { img -> img.attr("data-src").ifBlank { img.attr("src") } }
-                ?.trim()?.takeIf { it.startsWith("http") } ?: page.url
-        } catch (_: Exception) { page.url }
+            doc.selectFirst("img#gimg")?.let { img -> img.lazySrc().orEmpty() }
+                ?.trim()?.let { absoluteMediaUrl(base, it) } ?: page.url
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 }

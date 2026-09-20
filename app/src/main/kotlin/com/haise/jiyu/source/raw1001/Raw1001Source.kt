@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.raw1001
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -31,7 +35,7 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -53,7 +57,7 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
                 // Bug fix - cover URL je na webu relativni cesta ("/uploads/..."), ne
                 // absolutni URL - "startsWith(http)" test vsechno vyfiltroval, coverUrl
                 // vzdy vyslo null (nahlaseno jako "covery se nenacitaji").
-                val rawCover = img.attr("data-src").ifBlank { img.attr("src") }.trim()
+                val rawCover = img.lazySrc().orEmpty().trim()
                 val cover = when {
                     rawCover.startsWith("http") -> rawCover
                     rawCover.startsWith("/") -> "$base$rawCover"
@@ -61,7 +65,7 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
                 }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = emptyList()
@@ -70,7 +74,7 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val doc = Jsoup.parse(get(manga.url))
             manga.copy(genres = doc.select("a[href*=/genres/]").map { it.text().trim() }.filter { it.isNotBlank() })
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -86,7 +90,7 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
                     SChapter(sourceId = id, mangaUrl = manga.url, url = chapterId, name = chapterSlug, chapterNumber = num, dateUpload = 0L)
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -96,9 +100,9 @@ class Raw1001Source @Inject constructor(private val client: OkHttpClient) : Mang
             val fragmentHtml = json.optString("html")
             val doc = Jsoup.parse(fragmentHtml)
             doc.select("a.readImg").mapIndexedNotNull { i, a ->
-                val url = a.attr("href").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = a.attr("href").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

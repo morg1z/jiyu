@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.hdoujin
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -28,6 +31,7 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override val id = "hdoujin"
     override val name = "hDoujin"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -36,7 +40,7 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -55,7 +59,7 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try { parseGalleryList(fetchDocument("$base/?page=$page")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -64,7 +68,7 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/?q=$q&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -74,7 +78,7 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
             val artist = doc.select("a.tag-badge[data-tax=artist]").firstOrNull()?.text()?.trim()?.ifBlank { null }
             val genres = doc.select("a.tag-badge[data-tax=tag]").mapNotNull { it.text().trim().ifBlank { null } }
             manga.copy(title = title, artist = artist, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -94,9 +98,9 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val doc = fetchDocument(chapter.url)
             doc.select(".reader-image-wrapper img").mapIndexedNotNull { i, img ->
-                val src = img.attr("src").ifBlank { img.attr("data-src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 Page(index = i, url = src, imageUrl = src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

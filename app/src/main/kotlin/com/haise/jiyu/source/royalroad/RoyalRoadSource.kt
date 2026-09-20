@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.royalroad
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -30,7 +34,7 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -41,11 +45,11 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
         return doc.select(".fiction-list-item").mapNotNull { el ->
             val link = el.selectFirst(".fiction-title a, h2 a, h3 a") ?: return@mapNotNull null
             val href = link.attr("href").let {
-                if (it.startsWith("http")) it else "$base$it"
+                resolveSourceUrl(base, it)
             }
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = link.text().trim(),
                 coverUrl = el.selectFirst("img")?.let { img ->
                     img.attr("src").takeIf { s -> s.isNotBlank() }
@@ -74,7 +78,7 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -85,7 +89,7 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             val path = if (filter.sortBy == "latest") "latest-updates" else "best-rated"
             parseList(get("$base/fictions/$path?page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -96,12 +100,12 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/fictions/search?title=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base)
             manga.copy(
                 title = doc.selectFirst("h1.font-white, .fiction-name")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst(".thumbnail img, .fiction-image img")?.attr("src")
@@ -116,24 +120,24 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
                          else null,
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base)
             val df = SimpleDateFormat("MM/dd/yyyy", Locale.US)
             doc.select("table#chapters tbody tr, #chapters-list tbody tr").mapIndexedNotNull { i, row ->
                 val link = row.selectFirst("td a[href*='/chapter/']") ?: return@mapIndexedNotNull null
                 val href = link.attr("href").let {
-                    if (it.startsWith("http")) it.removePrefix(base) else it
+                    toSourcePath(base, it)
                 }
                 val name = link.text().trim().ifBlank { "Chapter ${i + 1}" }
                 val dateStr = row.selectFirst("td[data-content], time")
                     ?.attr("data-content")?.takeIf { it.isNotBlank() }
                     ?: row.selectFirst("time")?.attr("datetime")?.substringBefore("T")
                 val date = dateStr?.let {
-                    try { df.parse(it)?.time } catch (_: Exception) { null }
+                    try { df.parse(it)?.time } catch (e: Exception) { e.rethrowIfControl(); null }
                 } ?: 0L
                 SChapter(
                     sourceId = id,
@@ -144,18 +148,18 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
                     dateUpload = date,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)), base)
             val content = doc.selectFirst(".chapter-inner .chapter-content, .chapter-content .inner-chapter, .chapter-page")
                 ?: return@withContext emptyList()
             content.select("script, style, .ads-holder, .portlet-body .hidden").remove()
             val text = content.text().trim()
             if (text.isBlank()) emptyList()
             else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

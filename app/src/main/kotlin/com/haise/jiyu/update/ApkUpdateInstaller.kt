@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.net.toUri
 import com.haise.jiyu.settings.SettingsRepository
+import com.haise.jiyu.util.report
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,27 +77,40 @@ class ApkUpdateInstaller @Inject constructor(
         _downloadState.value = UpdateDownloadState.Downloading(0)
         _overlayVisible.value = true
         downloadJob = scope.launch {
-            val downloadId = enqueueDownload(context, apkUrl, version)
-            settings.setPendingUpdateDownloadId(downloadId)
-            observeProgress(context, downloadId).collect { state ->
-                when (state) {
-                    is UpdateDownloadState.ReadyToInstall -> {
-                        if (verifyIntegrity(context, expectedSha256)) {
+            // Celý blok je záměrně v try/catch: `scope` běží na Dispatchers.Main bez
+            // vlastního CoroutineExceptionHandler, takže cokoli neočekávané tady (např.
+            // verifyIntegrity narazí na soubor smazaný/přesunutý mezitím jinou appkou -
+            // nahlášený pád appky přímo během updatu, reprodukovatelný jen při přechodu
+            // ze starší verze, ne na čerstvé instalaci) by jinak spadlo jako neošetřená
+            // výjimka na hlavním vlákně a shodilo celou appku, místo aby update prostě
+            // skončil jako Failed a šel zopakovat.
+            try {
+                val downloadId = enqueueDownload(context, apkUrl, version)
+                settings.setPendingUpdateDownloadId(downloadId)
+                observeProgress(context, downloadId).collect { state ->
+                    when (state) {
+                        is UpdateDownloadState.ReadyToInstall -> {
+                            if (verifyIntegrity(context, expectedSha256)) {
+                                settings.setPendingUpdateDownloadId(null)
+                                _downloadState.value = state
+                                installDownloaded(context, downloadId)
+                            } else {
+                                deleteDownloadedApk(context)
+                                settings.setPendingUpdateDownloadId(null)
+                                _downloadState.value = UpdateDownloadState.Failed(reason = REASON_INTEGRITY_CHECK_FAILED)
+                            }
+                        }
+                        is UpdateDownloadState.Failed -> {
                             settings.setPendingUpdateDownloadId(null)
                             _downloadState.value = state
-                            installDownloaded(context, downloadId)
-                        } else {
-                            deleteDownloadedApk(context)
-                            settings.setPendingUpdateDownloadId(null)
-                            _downloadState.value = UpdateDownloadState.Failed(reason = REASON_INTEGRITY_CHECK_FAILED)
                         }
+                        else -> _downloadState.value = state
                     }
-                    is UpdateDownloadState.Failed -> {
-                        settings.setPendingUpdateDownloadId(null)
-                        _downloadState.value = state
-                    }
-                    else -> _downloadState.value = state
                 }
+            } catch (e: Exception) {
+                e.report("update:startDownload")
+                settings.setPendingUpdateDownloadId(null)
+                _downloadState.value = UpdateDownloadState.Failed(reason = null)
             }
         }
     }

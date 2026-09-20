@@ -1,5 +1,8 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.translate.GlossaryRepository
+import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
+import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -33,7 +36,11 @@ import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,6 +55,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
 import com.haise.jiyu.util.report
+import com.haise.jiyu.util.toErrorAction
 
 data class TranslationProgress(val done: Int, val total: Int)
 
@@ -70,17 +78,29 @@ class ReaderViewModel @Inject constructor(
     private val repository: MangaRepository,
     private val translateRepository: TranslateRepository,
     private val settings: SettingsRepository,
-    private val historyDao: ReadHistoryDao,
-    private val aniListRepository: AniListRepository,
-    private val malRepository: MalRepository,
-    private val kitsuRepository: KitsuRepository,
-    private val muRepository: MangaUpdatesRepository,
-    private val glossaryDao: GlossaryDao,
+    private val historyRepository: HistoryRepository,
+    private val trackerSyncCoordinator: TrackerSyncCoordinator,
+    private val glossaryRepository: GlossaryRepository,
     private val sleepTimerManager: SleepTimerManager,
     private val networkMonitor: com.haise.jiyu.util.NetworkMonitor,
+    private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
+
+    /** Akce k selhání načtení kapitoly (Vyřešit ověření, nová adresa) - viz [com.haise.jiyu.util.ErrorAction]. */
+    private val _chapterErrorAction = MutableStateFlow<com.haise.jiyu.util.ErrorAction?>(null)
+    val chapterErrorAction: StateFlow<com.haise.jiyu.util.ErrorAction?> = _chapterErrorAction.asStateFlow()
+
+    /** Provede nabízenou akci a při úspěchu načte kapitolu znovu. */
+    fun performChapterErrorAction() {
+        val action = _chapterErrorAction.value ?: return
+        viewModelScope.launch {
+            val retry = errorActionHandler.perform(action)
+            _chapterErrorAction.value = null
+            if (retry) launchLoadChapter(currentChapter?.id ?: chapterEntityId)
+        }
+    }
     private val startIncognito: Boolean = savedStateHandle["incognito"] ?: false
     private var currentChapter: ChapterEntity? = null
     private var currentManga: MangaEntity? = null
@@ -267,8 +287,20 @@ class ReaderViewModel @Inject constructor(
     fun setReaderOrientation(orientation: String) { viewModelScope.launch { settings.setReaderOrientation(orientation) } }
 
     // ── Přednačítání další kapitoly ──────────────────────────────────────────
-    private val nextChapterCache = mutableMapOf<String, List<String>>()
+    // ConcurrentHashMap - pise se z IO (preloadNextChapter, appendNextWebtoonSegment) a cte/maze z Main
+    // (loadChapter); obycejna mapa dovolovala ConcurrentModificationException (audit nalez JIYU-UI-5).
+    private val nextChapterCache = ConcurrentHashMap<String, List<String>>()
     private var preloadJob: Job? = null
+    private var spreadDetectJob: Job? = null
+
+    // Jediné probíhající načtení kapitoly - rychlé přepínání (další/předchozí, skok) by jinak
+    // nechalo běžet víc loadChapter najednou, které si mezi suspend body přepisují stejné StateFlow.
+    private var loadJob: Job? = null
+
+    private fun launchLoadChapter(id: String) {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadChapter(id) }
+    }
     private var novelPreloadJob: Job? = null
     private var mangaTranslatePreloadJob: Job? = null
 
@@ -402,7 +434,7 @@ class ReaderViewModel @Inject constructor(
     ) { mangaId, lang -> mangaId to lang }
         .flatMapLatest { (mangaId, lang) ->
             if (mangaId == null) flowOf(emptyList())
-            else glossaryDao.observeForManga(mangaId).map { list -> list.filter { it.targetLanguage == lang } }
+            else glossaryRepository.observeForManga(mangaId).map { list -> list.filter { it.targetLanguage == lang } }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -412,26 +444,15 @@ class ReaderViewModel @Inject constructor(
         val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
         if (source.isBlank() || target.isBlank()) return
         val lang = _targetLanguage.value
-        viewModelScope.launch {
-            glossaryDao.upsert(
-                GlossaryEntity(
-                    id = "$mangaId::${source.lowercase()}::$lang",
-                    mangaId = mangaId,
-                    sourceTerm = source,
-                    targetTerm = target,
-                    targetLanguage = lang,
-                    protectExact = protectExact,
-                )
-            )
-        }
+        viewModelScope.launch { glossaryRepository.addManual(mangaId, source, target, lang, protectExact) }
     }
 
     /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
     fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
-        viewModelScope.launch { glossaryDao.upsert(entry.copy(protectExact = !entry.protectExact)) }
+        viewModelScope.launch { glossaryRepository.setProtectExact(entry, !entry.protectExact) }
     }
 
-    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
+    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryRepository.delete(entry) }
 
     fun toggleNovelTranslate() {
         if (_novelTranslateMode.value) {
@@ -481,6 +502,8 @@ class ReaderViewModel @Inject constructor(
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
                 _translationError.value = context.getString(R.string.reader_error_rate_limited)
                 _novelTranslateMode.value = false
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 _translationError.value = context.getString(R.string.reader_error_translation_failed)
                 _novelTranslateMode.value = false
@@ -522,6 +545,8 @@ class ReaderViewModel @Inject constructor(
                 }
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
                 _translationError.value = context.getString(R.string.reader_error_rate_limited)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 _translationError.value = context.getString(R.string.reader_error_translation_failed)
             } finally {
@@ -757,9 +782,36 @@ class ReaderViewModel @Inject constructor(
     private var batchJob: Job? = null
     private var lastPageChangeMs = 0L
 
+    // Deklarace MUSI byt pred `init` (viz nize) - jinak by je init blok videl jako null.
+    private val pageProgressEvents = Channel<PageProgressEvent>(Channel.UNLIMITED)
+
+    /** Kapitoly, u kterych uz tato relace dosla na posledni stranku - trackery a auto-delete jen jednou. */
+    private val markedReadChapterIds = mutableSetOf<String>()
+
+    /**
+     * Kapitoly dočtené v téhle relaci, jejichž smazání (autoDeleteDelayDays == 0) čeká na OPUŠTĚNÍ
+     * čtečky nebo přepnutí kapitoly. Dřív se soubory mazaly hned po dosažení poslední stránky, tedy
+     * zatímco je uživatel pořád viděl (file:// stránky) - rotace nebo krok zpět pak ukázaly prázdno
+     * (audit nalez JIYU-UI-4). Sahá na ně jen hlavní vlákno (konzument událostí + loadChapter + onCleared).
+     */
+    private val chaptersPendingAutoDelete = mutableSetOf<String>()
+
     init {
         scheduleControlsAutoHide()
-        viewModelScope.launch { loadChapter(chapterEntityId) }
+        // Jediny konzument udalosti o postupu cteni - viz onPageChanged. Chyba jedne udalosti
+        // nesmi zastavit zpracovani dalsich (ani shodit appku).
+        viewModelScope.launch {
+            for (event in pageProgressEvents) {
+                try {
+                    processPageProgress(event)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    e.report("reader:pageProgress")
+                }
+            }
+        }
+        launchLoadChapter(chapterEntityId)
         viewModelScope.launch {
             _sourceLanguage.value = settings.sourceLanguage.first()
             _targetLanguage.value = settings.targetLanguage.first()
@@ -784,6 +836,7 @@ class ReaderViewModel @Inject constructor(
 
     private suspend fun loadChapter(id: String) {
         _loading.value = true
+        _chapterErrorAction.value = null
         _pages.value = emptyList()
         prefetchedPageIndices.clear()
         _translatedPages.value = emptyMap()
@@ -838,6 +891,12 @@ class ReaderViewModel @Inject constructor(
         _mangaTitle.value = mangaForDir?.title ?: ""
         _mangaDirectionOverride.value = mangaForDir?.readerDirectionOverride
 
+        // Rozbehla detekce dvoustran z PREDCHOZI kapitoly nesmi po prepnuti zapsat do noveho stavu.
+        spreadDetectJob?.cancel()
+        // Predchozi docetene kapitoly cekajici na smazani (auto-delete 0 dni) se ted, po opusteni,
+        // smazou - jen ne ta, kterou prave otevirame.
+        chaptersPendingAutoDelete.remove(chapter.id)
+        flushPendingAutoDelete()
         if (chapter.sourceId == "comick") {
             // ComicK je zatim jen metadatovy katalog - nikdy nedokaze poskytnout stranky kapitoly.
             // Blokujeme na urovni ctecky (nejen v detailu titulu), aby se nezobrazoval prazdny/chybovy stav.
@@ -848,12 +907,14 @@ class ReaderViewModel @Inject constructor(
             _comickUnavailable.value = true
         } else if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
             _comickUnavailable.value = false
-            val pageUrls = ChapterStorage.listPageUrls(context, chapter.localPath)
+            val pageUrls = withContext(kotlinx.coroutines.Dispatchers.IO) { ChapterStorage.listPageUrls(context, chapter.localPath) }
             _pages.value = pageUrls
             _isOfflineChapter.value = true
-            // Detect landscape pages for smart spread grouping
-            viewModelScope.launch {
+            // Detect landscape pages for smart spread grouping - mimo Main (BitmapFactory + u SAF
+            // ContentResolver blokuje kazdou stranku), audit nalez JIYU-UI-2.
+            spreadDetectJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 val spread = pageUrls.mapIndexedNotNull { idx, url ->
+                    ensureActive()
                     val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     try {
                         if (url.startsWith("content://")) {
@@ -890,8 +951,11 @@ class ReaderViewModel @Inject constructor(
                         kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) {
                             repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         e.report("reader:loadChapter:getChapterPages")
+                        _chapterErrorAction.value = e.toErrorAction()
                         null
                     }
                     _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
@@ -937,7 +1001,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun jumpToChapter(chapterId: String) {
-        viewModelScope.launch { loadChapter(chapterId) }
+        launchLoadChapter(chapterId)
     }
 
     fun navigateNext() {
@@ -949,7 +1013,7 @@ class ReaderViewModel @Inject constructor(
         } else {
             idx - 1
         }
-        viewModelScope.launch { loadChapter(allChapters[target].id) }
+        launchLoadChapter(allChapters[target].id)
     }
 
     fun navigatePrev() {
@@ -961,7 +1025,7 @@ class ReaderViewModel @Inject constructor(
         } else {
             idx + 1
         }
-        viewModelScope.launch { loadChapter(allChapters[target].id) }
+        launchLoadChapter(allChapters[target].id)
     }
 
     // ── Čtení ────────────────────────────────────────────────────────────────
@@ -999,7 +1063,7 @@ class ReaderViewModel @Inject constructor(
         // Sirsi okno na zpoplatnenem/mobilnim pripojeni - na pomale/vysoke-latenci lince
         // ctenar frontu 4 predstazenych stranek pri normalnim tempu cteni dojede a pak
         // ceka stranku po strance; na WiFi 4 staci s rezervou.
-        val count = if (networkMonitor.isUnmetered) PREFETCH_WINDOW else PREFETCH_WINDOW_METERED
+        val count = prefetchWindowFor(networkMonitor.isUnmetered, com.haise.jiyu.util.DeviceResourcePolicy.isSavingResources(context))
         val indices = computePrefetchIndices(fromIndex, pages.size, prefetchedPageIndices, count)
         if (indices.isEmpty()) return
         val referer = _pageReferer.value
@@ -1013,8 +1077,10 @@ class ReaderViewModel @Inject constructor(
             // spocita jiny cache klic (transformace jsou jeho soucasti) a predstazeni je
             // k nicemu: stranka se pri zobrazeni stahne/dekoduje znovu (nahlaseno v auditu).
             val request = buildPageImageRequest(context, url, referer, cropBorders.value)
-            imageLoader.enqueue(request)
+            prefetchDisposables += imageLoader.enqueue(request)
         }
+        // Dokončené požadavky nedržíme (jinak by seznam za dlouhé čtení rostl).
+        prefetchDisposables.removeAll { it.isDisposed }
     }
 
     /**
@@ -1170,6 +1236,8 @@ class ReaderViewModel @Inject constructor(
                     targetLanguage = targetLanguage,
                     sourceLanguage = sourceLanguage,
                 ) { _, _ -> } // jen zápis do cache, žádný viditelný UI stav pro tuhle kapitolu
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.report("reader:preloadNextChapterTranslation")
             }
@@ -1188,30 +1256,59 @@ class ReaderViewModel @Inject constructor(
         val deltaMs = if (lastPageChangeMs > 0) minOf(now - lastPageChangeMs, 3 * 60_000L) else 0L
         lastPageChangeMs = now
 
-        viewModelScope.launch {
-            val pageCount = _pages.value.size
-            val isRead = index >= pageCount - 1
-            val chapter = currentChapter ?: return@launch
-            val chapterId = chapter.id
-            val incognito = _incognitoMode.value
+        val chapter = currentChapter ?: return
+        // Udalosti se zpracovavaji POSTUPNE jednim konzumentem (viz init) - drive kazde otoceni
+        // stranky spustilo vlastni coroutine a jejich poradi nebylo zaruceno, takze starsi index
+        // mohl dobehnout posledni a vratit postup zpet (audit nalez JIYU-UI-3).
+        pageProgressEvents.trySend(
+            PageProgressEvent(
+                index = index,
+                pageCount = _pages.value.size,
+                chapter = chapter,
+                manga = currentManga,
+                incognito = _incognitoMode.value,
+                now = now,
+                deltaMs = deltaMs,
+            ),
+        )
+    }
 
-            // Inkognito nezapisuje NIC. Dřív vynechávalo jen historii a trackery, ale postup
-            // čtení, "naposledy čteno", čas i počet stránek se ukládaly dál - kapitola se tedy
-            // po anonymním přečtení tvářila jako přečtená a čas naskočil do Statistik.
-            // Název "Číst anonymně" tím sliboval víc, než dělal.
-            if (!incognito) {
-                repository.updateReadProgress(chapterId, read = isRead, lastPageRead = index, lastReadAt = now)
-                repository.updateLastReadChapter(chapter.mangaId, chapterId)
-                if (deltaMs > 0) {
-                    settings.addReadingTime(deltaMs)
-                    repository.addMangaReadingTime(chapter.mangaId, deltaMs)
-                }
-                settings.addPagesRead(1)
+    private class PageProgressEvent(
+        val index: Int,
+        val pageCount: Int,
+        val chapter: ChapterEntity,
+        val manga: MangaEntity?,
+        val incognito: Boolean,
+        val now: Long,
+        val deltaMs: Long,
+    )
+
+    private suspend fun processPageProgress(event: PageProgressEvent) {
+        val chapter = event.chapter
+        val chapterId = chapter.id
+        val manga = event.manga
+        val incognito = event.incognito
+        val reachedEnd = event.index >= event.pageCount - 1
+
+        // Inkognito nezapisuje NIC. Dřív vynechávalo jen historii a trackery, ale postup
+        // čtení, "naposledy čteno", čas i počet stránek se ukládaly dál - kapitola se tedy
+        // po anonymním přečtení tvářila jako přečtená a čas naskočil do Statistik.
+        // Název "Číst anonymně" tím sliboval víc, než dělal.
+        var firstTimeRead = false
+        if (!incognito) {
+            firstTimeRead = reachedEnd && markedReadChapterIds.add(chapterId)
+            // `read` se v ramci relace nikdy nesnizuje: dřív krok zpět z posledni stranky zapsal
+            // read = false a dočtená kapitola se tvářila jako nepřečtená.
+            val read = reachedEnd || chapterId in markedReadChapterIds || chapter.read
+            repository.updateReadProgress(chapterId, read = read, lastPageRead = event.index, lastReadAt = event.now)
+            repository.updateLastReadChapter(chapter.mangaId, chapterId)
+            if (event.deltaMs > 0) {
+                settings.addReadingTime(event.deltaMs)
+                repository.addMangaReadingTime(chapter.mangaId, event.deltaMs)
             }
-
-            val manga = currentManga
-            if (!incognito && manga != null) {
-                historyDao.record(
+            settings.addPagesRead(1)
+            if (manga != null) {
+                historyRepository.record(
                     ReadHistoryEntity(
                         chapterId = chapterId,
                         mangaId = chapter.mangaId,
@@ -1222,38 +1319,15 @@ class ReaderViewModel @Inject constructor(
                     )
                 )
             }
-            if (isRead) {
-                // Taky pod inkognitem: kapitola se neoznačila přečtenou, takže by automatické
-                // mazání sahalo na stažené soubory kvůli něčemu, co se "nestalo".
-                if (!incognito) maybeAutoDelete()
-                if (!incognito && manga != null) {
-                    viewModelScope.launch {
-                        try { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } catch (e: Exception) { e.report("reader:anilist:updateProgress") }
-                    }
-                    manga.malId?.let { malId ->
-                        viewModelScope.launch {
-                            try {
-                                malRepository.updateMangaStatus(
-                                    malId = malId,
-                                    status = "reading",
-                                    numChaptersRead = chapter.chapterNumber.toInt(),
-                                )
-                            } catch (e: Exception) {
-                                e.report("reader:mal:updateMangaStatus")
-                            }
-                        }
-                    }
-                    manga.kitsuId?.let { kitsuId ->
-                        viewModelScope.launch {
-                            try { kitsuRepository.updateProgress(kitsuId, chapter.chapterNumber.toInt()) } catch (e: Exception) { e.report("reader:kitsu:updateProgress") }
-                        }
-                    }
-                    manga.mangaUpdatesId?.let { seriesId ->
-                        viewModelScope.launch {
-                            try { muRepository.updateProgress(seriesId, chapter.chapterNumber.toInt()) } catch (e: Exception) { e.report("reader:mangaupdates:updateProgress") }
-                        }
-                    }
-                }
+        }
+
+        // Jen poprve za relaci (a nikdy pod inkognitem: kapitola se neoznacila prectenou, takze by
+        // automaticke mazani sahalo na stazene soubory kvuli necemu, co se "nestalo"). Dřív se pri
+        // kazdem navratu na posledni stranku znovu volaly vsechny ctyri trackery.
+        if (firstTimeRead) {
+            registerAutoDelete(chapter)
+            if (manga != null) {
+                viewModelScope.launch { trackerSyncCoordinator.syncReadProgress(manga, chapter) }
             }
         }
     }
@@ -1322,6 +1396,12 @@ class ReaderViewModel @Inject constructor(
                 preloadNextChapterMangaTranslation()
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
                 _translationError.value = context.getString(R.string.reader_error_rate_limited)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Bez tohohle výjimka utekla z viewModelScope.launch a shodila appku.
+                e.report("reader:translateChapter")
+                _translationError.value = context.getString(R.string.reader_error_translation_failed)
             } finally {
                 _translationProgress.value = null
             }
@@ -1366,6 +1446,10 @@ class ReaderViewModel @Inject constructor(
                 // Dalsi pokusy by stejne selhaly na stejnem limitu - nema smysl
                 // prohanet zbytek davky, jen ukazat srozumitelnou hlasku.
                 _translationError.value = context.getString(R.string.reader_error_rate_limited)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("reader:translateAllPages")
             } finally {
                 _batchProgress.value = null
                 _batchTranslating.value = false
@@ -1412,27 +1496,35 @@ class ReaderViewModel @Inject constructor(
 
     // ── Feature C: Smart offline deletion ───────────────────────────────────
 
-    private fun deleteChapterFiles(chapter: ChapterEntity) {
-        chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
-        viewModelScope.launch { repository.resetDownloadForChapter(chapter.id) }
+    private suspend fun registerAutoDelete(chapter: ChapterEntity) {
+        if (!settings.autoDeleteRead.first()) return
+        val delayDays = settings.autoDeleteDelayDays.first()
+        if (delayDays > 0) {
+            // Plánuj přes WorkManager — viewModelScope se zruší při opuštění čtečky
+            AutoDeleteWorker.schedule(context, chapter.id, delayDays.toLong())
+        } else {
+            chaptersPendingAutoDelete += chapter.id
+        }
     }
 
-    fun maybeAutoDelete() {
-        viewModelScope.launch {
-            val enabled = settings.autoDeleteRead.first()
-            if (!enabled) return@launch
-            val chapter = currentChapter ?: return@launch
-            // chapter.read je stale in-memory entita; spolehni se na volajícího (onPageChanged isRead)
-            val delayDays = settings.autoDeleteDelayDays.first()
-            if (delayDays > 0) {
-                // Plánuj přes WorkManager — viewModelScope se zruší při opuštění čtečky
-                AutoDeleteWorker.schedule(context, chapter.id, delayDays.toLong())
-            } else {
-                val fresh = repository.getChapter(chapter.id) ?: return@launch
-                if (fresh.read && fresh.downloadStatus == DownloadStatus.DOWNLOADED) {
-                    deleteChapterFiles(fresh)
-                }
-            }
-        }
+    /** Okamžité smazání čekajících kapitol přes WorkManager (přežije zrušení viewModelScope); worker znovu ověří `read && DOWNLOADED`. */
+    private fun flushPendingAutoDelete() {
+        if (chaptersPendingAutoDelete.isEmpty()) return
+        chaptersPendingAutoDelete.forEach { AutoDeleteWorker.schedule(context, it, 0L) }
+        chaptersPendingAutoDelete.clear()
+    }
+
+    // Rozběhnuté přednačítací požadavky - po odchodu ze čtečky se ruší, aby dál nedržely sloty hostitele
+    // a nezdržovaly obálky/loga ve výpisu zdroje (Coil je jinak dotáhne i bez čtečky).
+    private val prefetchDisposables = java.util.Collections.synchronizedList(mutableListOf<coil.request.Disposable>())
+
+    override fun onCleared() {
+        synchronized(prefetchDisposables) { prefetchDisposables.forEach { it.dispose() } }
+        prefetchDisposables.clear()
+        // Čtečka skončila (ne rotace - ta ViewModel nečistí): odpočet už nemá koho ukončit.
+        sleepTimerManager.cancel()
+        flushPendingAutoDelete()
+        pageProgressEvents.close()
+        super.onCleared()
     }
 }

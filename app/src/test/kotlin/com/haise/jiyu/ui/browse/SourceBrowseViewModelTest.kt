@@ -67,13 +67,81 @@ class SourceBrowseViewModelTest {
 
     private fun fullPage() = (1..20).map { manga(it) }
 
-    private fun viewModel() = SourceBrowseViewModel(
+    private fun viewModel(
+        handler: com.haise.jiyu.source.ErrorActionHandler = mockk(relaxed = true),
+    ) = SourceBrowseViewModel(
         savedStateHandle = SavedStateHandle(mapOf("sourceId" to "src")),
         repository = repository,
         sourceManager = sourceManager,
         networkMonitor = networkMonitor,
         appContext = context,
+        errorActionHandler = handler,
     )
+
+    @Test
+    fun `a cloudflare error exposes the solve action and performing it retries the load`() = runTest(dispatcher) {
+        val handler = mockk<com.haise.jiyu.source.ErrorActionHandler>()
+        coEvery { handler.perform(any()) } returns true
+        coEvery { repository.getPopular("src", 1, any()) } throws
+            com.haise.jiyu.util.CloudflareProtectedException("site.test", "https://site.test/manga/")
+
+        val vm = viewModel(handler)
+        advanceUntilIdle()
+        assertEquals(com.haise.jiyu.util.ErrorAction.SolveCloudflare("https://site.test/manga/"), vm.errorAction.value)
+
+        // Po ručním vyřešení web odpoví normálně.
+        coEvery { repository.getPopular("src", 1, any()) } returns listOf(manga(1))
+        vm.performErrorAction()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { handler.perform(com.haise.jiyu.util.ErrorAction.SolveCloudflare("https://site.test/manga/")) }
+        assertEquals(1, vm.results.value.size)
+        assertEquals(null, vm.errorAction.value)
+        assertEquals(null, vm.error.value)
+    }
+
+    @Test
+    fun `a moved source is retried after the new address is applied, or suggested`() = runTest(dispatcher) {
+        val handler = mockk<com.haise.jiyu.source.ErrorActionHandler>()
+        coEvery { handler.resolveConnectionError("src", any()) } returnsMany listOf(
+            com.haise.jiyu.source.MirrorResolution.Applied("new.example"),
+        )
+        // První pokus spadne na spojení, po použití nové adresy projde.
+        coEvery { repository.getPopular("src", 1, any()) } throws java.net.UnknownHostException("old") andThen listOf(manga(1))
+        val vm = viewModel(handler)
+        advanceUntilIdle()
+        assertEquals(1, vm.results.value.size)
+        assertEquals(null, vm.error.value)
+        coVerify(exactly = 2) { repository.getPopular("src", 1, any()) }
+
+        // Jiná značka domény: jen návrh.
+        val suggest = com.haise.jiyu.util.ErrorAction.UseNewDomain("src", "elsewhere.org")
+        val handler2 = mockk<com.haise.jiyu.source.ErrorActionHandler>()
+        coEvery { handler2.resolveConnectionError("src", any()) } returns com.haise.jiyu.source.MirrorResolution.Suggested(suggest)
+        coEvery { repository.getPopular("src", 1, any()) } throws java.net.UnknownHostException("old")
+        val vm2 = viewModel(handler2)
+        advanceUntilIdle()
+        assertEquals(suggest, vm2.errorAction.value)
+    }
+
+    @Test
+    fun `an unsuccessful action does not retry and plain errors have no action`() = runTest(dispatcher) {
+        val handler = mockk<com.haise.jiyu.source.ErrorActionHandler>()
+        coEvery { handler.perform(any()) } returns false
+        coEvery { handler.resolveConnectionError(any(), any()) } returns com.haise.jiyu.source.MirrorResolution.None
+        coEvery { repository.getPopular("src", 1, any()) } throws
+            com.haise.jiyu.util.CloudflareProtectedException("site.test", "https://site.test/manga/")
+        val vm = viewModel(handler)
+        advanceUntilIdle()
+        vm.performErrorAction()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getPopular("src", 1, any()) }
+
+        coEvery { repository.getPopular("src", 1, any()) } throws java.io.IOException("net")
+        val plain = viewModel(handler)
+        advanceUntilIdle()
+        assertEquals(null, plain.errorAction.value)
+    }
 
     @Test
     fun `a full first page means there may be more to load`() = runTest(dispatcher) {
@@ -158,6 +226,24 @@ class SourceBrowseViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { repository.getPopular("src", 2, any()) }
+        coVerify(exactly = 0) { repository.getPopular("src", 3, any()) }
+    }
+
+    @Test
+    fun `loadMore stops when the site repeats a page it already returned`() = runTest(dispatcher) {
+        // Web za koncem seznamu vrací znovu stránku 1 - bez téhle pojistky by hasMore zůstal true navždy.
+        coEvery { repository.getPopular("src", any(), any()) } returns listOf(manga(1), manga(2))
+
+        val vm = viewModel()
+        advanceUntilIdle()
+        assertTrue(vm.hasMore.value)
+        vm.loadMore()
+        advanceUntilIdle()
+        assertFalse("stránka nepřidala nic nového -> konec", vm.hasMore.value)
+        assertEquals(2, vm.results.value.size)
+        vm.loadMore()
+        advanceUntilIdle()
+
         coVerify(exactly = 0) { repository.getPopular("src", 3, any()) }
     }
 

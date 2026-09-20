@@ -16,8 +16,11 @@ fun Throwable.toFriendlyMessage(): String = when (this) {
     } else {
         "Příliš mnoho požadavků - zkus to znovu za chvíli"
     }
+    is NoNetworkException      -> "Bez připojení k internetu"
     is UnknownHostException    -> "Server nedostupný nebo špatná adresa zdroje"
     is SocketTimeoutException  -> "Vypršel časový limit připojení"
+    is CloudflareBlockedException   -> "Web zablokoval přístup z tohoto zařízení (ochrana proti robotům)"
+    is CloudflareProtectedException -> "Web je chráněný Cloudflare - ověření se nepodařilo, zkus „Vyřešit ověření“"
     is IOException             -> "Chyba sítě - zkontroluj připojení k internetu"
     else -> message?.takeIf { it.isNotBlank() } ?: "Neočekávaná chyba (${this::class.simpleName})"
 }

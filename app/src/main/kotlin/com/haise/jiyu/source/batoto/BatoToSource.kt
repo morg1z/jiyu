@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.batoto
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -22,6 +24,7 @@ class BatoToSource @Inject constructor(
 
     override val id = "batoto"
     override val name = "Bato.to"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = "https://bato.to"
 
     private val api = "https://bato.to/apo/"
@@ -30,7 +33,7 @@ class BatoToSource @Inject constructor(
         val body = JSONObject().put("query", query).toString()
             .toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url(api).post(body)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Content-Type", "application/json")
             .build()
         return JSONObject(client.newCall(req).execute().use { it.body?.string() ?: "{}" })
@@ -49,7 +52,7 @@ class BatoToSource @Inject constructor(
             val data = gql("""{ getComics(select: {sort: "update", page: $page}) { comics { id name urlPath urlCoverOri } } }""")
             val arr = data.optJSONObject("getComics")?.optJSONArray("comics") ?: return@withContext emptyList()
             (0 until arr.length()).map { comicToSManga(arr.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -59,7 +62,7 @@ class BatoToSource @Inject constructor(
             val data = gql("""{ searchComics(select: {word: "$escaped", sort: "update", page: $page}) { comics { id name urlPath urlCoverOri } } }""")
             val arr = data.optJSONObject("searchComics")?.optJSONArray("comics") ?: return@withContext emptyList()
             (0 until arr.length()).map { comicToSManga(arr.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -80,7 +83,7 @@ class BatoToSource @Inject constructor(
                 genres = genres,
                 author = author,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -101,7 +104,7 @@ class BatoToSource @Inject constructor(
                     volume = ch.optString("volNum").takeIf { it.isNotBlank() },
                 )
             }.reversed()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -113,6 +116,6 @@ class BatoToSource @Inject constructor(
                 val url = images.getString(i)
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.eahentai
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -68,13 +70,13 @@ class EAHentaiSource @Inject constructor(
                     doc.select("a[href*=\"/search?type=gallery\"]").mapNotNull { a ->
                         val href = a.attr("href")
                         val raw = Regex("""[?&]q=([^&]+)""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
-                        val name = try { URLDecoder.decode(raw, "UTF-8") } catch (_: Exception) { null }
+                        val name = try { URLDecoder.decode(raw, "UTF-8") } catch (e: Exception) { e.rethrowIfControl(); null }
                             ?.trim()?.ifBlank { null } ?: return@mapNotNull null
                         FilterTag(id = name, label = name)
                     }
-                } catch (_: Exception) { emptyList() }
+                } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }.distinctBy { it.id }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         if (tags.isNotEmpty()) cachedTags = tags
         tags
     }
@@ -82,7 +84,7 @@ class EAHentaiSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -92,7 +94,7 @@ class EAHentaiSource @Inject constructor(
     private fun coverFromSrcset(img: Element?): String? {
         val srcset = img?.attr("srcset")?.ifBlank { null } ?: return null
         val encoded = Regex("""url=([^&\s]+)""").find(srcset)?.groupValues?.get(1) ?: return null
-        return try { URLDecoder.decode(encoded, "UTF-8") } catch (_: Exception) { null }
+        return try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     private fun parseGalleryList(doc: Document): List<SManga> =
@@ -109,7 +111,7 @@ class EAHentaiSource @Inject constructor(
                 return@withContext try {
                     val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
                     parseGalleryList(fetchDocument("$base/search?type=gallery&q=$tag&p=$page"))
-                } catch (_: Exception) { emptyList() }
+                } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }
             if (page > 1) return@withContext emptyList()
             // "/latest" je samostatna, chronologicky serazena stranka - overeno zive
@@ -118,7 +120,7 @@ class EAHentaiSource @Inject constructor(
             // dostupne - web nema zadny "?sort="/"?order=" parametr ani odkaz v navigaci).
             val url = if (filter.sortBy == "latest") "$base/latest" else base
             try { parseGalleryList(fetchDocument(url)) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -132,7 +134,7 @@ class EAHentaiSource @Inject constructor(
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/search?q=$q"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     /** Sekce jako "Artist"/"Tags" jsou label <span> následovaný sourozeneckým <div> s odkazy. */
@@ -151,7 +153,7 @@ class EAHentaiSource @Inject constructor(
             val descSpan = doc.select("span").firstOrNull { it.ownText().trim() == "Description" }
             val description = descSpan?.nextElementSibling()?.selectFirst("p")?.text()?.trim()?.ifBlank { null }
             manga.copy(title = title, artist = artist, genres = genres, description = description)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -181,6 +183,6 @@ class EAHentaiSource @Inject constructor(
                     Page(index = i, url = url, imageUrl = url)
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

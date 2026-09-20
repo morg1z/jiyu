@@ -55,7 +55,11 @@ fun CustomCssScreen(
     viewModel: CustomCssViewModel = hiltViewModel(),
 ) {
     val savedCss by viewModel.customCss.collectAsStateWithLifecycle()
-    var draft by rememberSaveable(savedCss) { mutableStateOf(savedCss) }
+    // null = uživatel zatím nic nepsal, zobrazuje se uložená hodnota (i ta, která dorazí z
+    // DataStore až po prvním vykreslení). Klíč `savedCss` u rememberSaveable dřív rozepsaný
+    // text zahodil pokaždé, když flow znovu emitoval.
+    var edited by rememberSaveable { mutableStateOf<String?>(null) }
+    val draft = edited ?: savedCss
 
     Box(
         modifier = Modifier
@@ -85,7 +89,7 @@ fun CustomCssScreen(
 
             TextField(
                 value = draft,
-                onValueChange = { draft = it },
+                onValueChange = { edited = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -115,7 +119,7 @@ fun CustomCssScreen(
 
             Row {
                 OutlinedButton(
-                    onClick = { draft = "" },
+                    onClick = { edited = "" },
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(stringResource(R.string.settings_css_reset), color = TextSecondary)

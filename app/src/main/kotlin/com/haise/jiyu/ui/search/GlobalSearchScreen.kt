@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +90,15 @@ fun GlobalSearchScreen(
     val query   by viewModel.query.collectAsStateWithLifecycle()
     val savedSearches by viewModel.savedSearches.collectAsStateWithLifecycle()
     val pendingDuplicateAdd by viewModel.pendingDuplicateAdd.collectAsStateWithLifecycle()
+    val addError by viewModel.addError.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { viewModel.addedEvents.collect { id -> onOpenManga(id) } }
+    LaunchedEffect(addError) {
+        addError?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearAddError()
+        }
+    }
     var inputText by remember { mutableStateOf(initialQuery) }
     val focusManager = LocalFocusManager.current
 
@@ -240,7 +250,7 @@ fun GlobalSearchScreen(
                                 items(sourceResult.results) { manga ->
                                     MiniMangaCard(
                                         manga = manga,
-                                        onClick = { viewModel.addToLibrary(manga) { id -> onOpenManga(id) } },
+                                        onClick = { viewModel.addToLibrary(manga) },
                                     )
                                 }
                             }

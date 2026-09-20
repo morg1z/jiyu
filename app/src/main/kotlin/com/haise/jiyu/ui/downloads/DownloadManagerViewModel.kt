@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,28 +53,37 @@ class DownloadManagerViewModel @Inject constructor(
         repository.observeNonEmptyDownloads(),
         repository.observeLibrary(),
     ) { chapters, allManga ->
+        val libraryById = allManga.associateBy { it.id }
         chapters.groupBy { it.mangaId }
             .mapNotNull { (mangaId, chs) ->
-                val manga = allManga.find { it.id == mangaId } ?: return@mapNotNull null
+                // Stažené kapitoly titulu, který už není v knihovně, se dřív z přehledu ztratily
+                // (a zabíraly místo bez možnosti smazání) - dohledá se řádek mimo knihovnu.
+                val manga = libraryById[mangaId] ?: repository.getManga(mangaId) ?: return@mapNotNull null
                 DownloadGroup(manga, chs.sortedByDescending { it.chapterNumber })
             }
             .sortedBy { it.manga.title }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun deleteChapter(chapter: ChapterEntity) {
-        viewModelScope.launch {
-            chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
-            repository.resetDownloadForChapter(chapter.id)
+    /**
+     * Nejdřív DB, potom soubory (na IO): když spadne zápis do DB, kapitola zůstane stažená i s
+     * daty; opačné pořadí by nechalo "staženou" kapitolu bez souborů. Smazání souborů (u SAF IPC)
+     * navíc nesmí běžet na Main.
+     */
+    private suspend fun resetAndDeleteFiles(chapters: List<ChapterEntity>) {
+        chapters.forEach { repository.resetDownloadForChapter(it.id) }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            chapters.forEach { chapter ->
+                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
+            }
         }
     }
 
+    fun deleteChapter(chapter: ChapterEntity) {
+        viewModelScope.launch { resetAndDeleteFiles(listOf(chapter)) }
+    }
+
     fun deleteManga(chapters: List<ChapterEntity>) {
-        viewModelScope.launch {
-            chapters.forEach { chapter ->
-                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
-                repository.resetDownloadForChapter(chapter.id)
-            }
-        }
+        viewModelScope.launch { resetAndDeleteFiles(chapters) }
     }
 
     fun cancelChapter(chapter: ChapterEntity) {
@@ -127,15 +137,13 @@ class DownloadManagerViewModel @Inject constructor(
                 chapter.localPath?.let { path -> ChapterStorage.sizeBytes(context, path) } ?: 0L
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+    }.flowOn(kotlinx.coroutines.Dispatchers.IO) // rekurzivni pruchod adresari (u SAF IPC) nesmi bezet na Main - audit nalez JIYU-UI-1
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     fun deleteReadChapters() {
         viewModelScope.launch {
             val allChapters = downloadGroups.value.flatMap { it.chapters }
-            allChapters.filter { it.read && it.downloadStatus == DownloadStatus.DOWNLOADED }.forEach { chapter ->
-                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
-                repository.resetDownloadForChapter(chapter.id)
-            }
+            resetAndDeleteFiles(allChapters.filter { it.read && it.downloadStatus == DownloadStatus.DOWNLOADED })
         }
     }
 }

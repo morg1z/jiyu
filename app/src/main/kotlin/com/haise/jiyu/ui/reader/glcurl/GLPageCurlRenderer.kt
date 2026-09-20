@@ -51,6 +51,16 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onSurfaceCreated(gl: GL10, config: EGLConfig?) {
+        // Novy EGL kontext (prvni vytvoreni i navrat po onPause/onResume): stara id textur jsou
+        // neplatna, takze se zapomenou a bitmapy se nahraji znovu - bez tohohle by po ztrate
+        // kontextu zustaly stranky prazdne, protoze last* uz ukazuji na stejne bitmapy a nic by
+        // se znovu nenahralo. (Textury pri zniceni view uvolni samotny zanikajici kontext.)
+        frontPage.onContextLost()
+        leftPage.onContextLost()
+        rightPage.onContextLost()
+        lastCurrent = null
+        lastPrev = null
+        lastNext = null
         gl.glEnable(GL10.GL_TEXTURE_2D)
         gl.glShadeModel(GL10.GL_SMOOTH)
         gl.glClearColor(0f, 0f, 0f, 0f)

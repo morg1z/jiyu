@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.hentai3
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -42,7 +45,7 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -53,7 +56,7 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
         doc.select("a.cover[href]").mapNotNull { a ->
             val url = a.absUrl("href").ifBlank { return@mapNotNull null }
             val title = a.selectFirst("div.title")?.text()?.trim().orEmpty().ifBlank { return@mapNotNull null }
-            val cover = a.selectFirst("img")?.let { img -> img.attr("data-src").ifBlank { img.attr("src") } }
+            val cover = a.selectFirst("img")?.let { img -> img.lazySrc().orEmpty() }
                 ?.trim()?.ifBlank { null }
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
         }
@@ -65,7 +68,7 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val sort = if (filter.sortBy == "popular") "?sort=popular&page=$page" else "?page=$page"
             parseGalleryList(fetchDocument("$base/language/english$sort"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -73,14 +76,14 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseGalleryList(fetchDocument("$base/search?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
             val doc = fetchDocument(manga.url)
             val title = doc.selectFirst("h1")?.text()?.trim()?.ifBlank { null } ?: manga.title
-            val cover = doc.selectFirst("a.cover img")?.let { img -> img.attr("data-src").ifBlank { img.attr("src") } }
+            val cover = doc.selectFirst("a.cover img")?.let { img -> img.lazySrc().orEmpty() }
                 ?.trim()?.ifBlank { null } ?: manga.coverUrl
 
             var artist: String? = null
@@ -94,7 +97,7 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
                 }
             }
             manga.copy(title = title, coverUrl = cover, artist = artist, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -116,12 +119,12 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val doc = fetchDocument(chapter.url)
             doc.select("div.single-thumb img").mapIndexedNotNull { i, img ->
-                val src = img.attr("data-src").ifBlank { img.attr("src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 val match = thumbRegex.find(src) ?: return@mapIndexedNotNull null
                 val (dir, num, ext) = match.destructured
                 val full = "$dir$num.$ext"
                 Page(index = i, url = full, imageUrl = full)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

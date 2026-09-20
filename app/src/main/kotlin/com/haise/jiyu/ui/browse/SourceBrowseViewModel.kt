@@ -12,6 +12,7 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.util.NetworkMonitor
 import com.haise.jiyu.util.report
+import com.haise.jiyu.util.toErrorAction
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -32,6 +33,7 @@ class SourceBrowseViewModel @Inject constructor(
     private val sourceManager: SourceManager,
     private val networkMonitor: NetworkMonitor,
     @param:ApplicationContext private val appContext: Context,
+    private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
 ) : ViewModel() {
 
     private val sourceId: String = checkNotNull(savedStateHandle["sourceId"])
@@ -50,6 +52,34 @@ class SourceBrowseViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** Akce nabídnutá u chyby (Vyřešit ověření, nová adresa, ...) - viz [com.haise.jiyu.util.ErrorAction]. */
+    private val _errorAction = MutableStateFlow<com.haise.jiyu.util.ErrorAction?>(null)
+    val errorAction: StateFlow<com.haise.jiyu.util.ErrorAction?> = _errorAction.asStateFlow()
+
+    // Po selhání spojení se jednou zjistí, jestli se web zdroje nepřestěhoval (viz ErrorActionHandler): stejná značka
+    // domény se použije rovnou a načtení se zopakuje, jiná se jen nabídne tlačítkem.
+    private var mirrorChecked = false
+
+    private suspend fun resolveMirror(e: Exception) {
+        if (_errorAction.value != null || mirrorChecked) return
+        mirrorChecked = true
+        when (val r = errorActionHandler.resolveConnectionError(sourceId, e)) {
+            is com.haise.jiyu.source.MirrorResolution.Applied -> retry()
+            is com.haise.jiyu.source.MirrorResolution.Suggested -> _errorAction.value = r.action
+            com.haise.jiyu.source.MirrorResolution.None -> Unit
+        }
+    }
+
+    /** Provede nabízenou akci a při úspěchu zopakuje načtení. Navigační akce (přihlášení) řeší UI samo. */
+    fun performErrorAction() {
+        val action = _errorAction.value ?: return
+        viewModelScope.launch {
+            _loading.value = true
+            val retry = try { errorActionHandler.perform(action) } finally { _loading.value = false }
+            if (retry) retry()
+        }
+    }
 
     private val _hasMore = MutableStateFlow(false)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
@@ -100,8 +130,11 @@ class SourceBrowseViewModel @Inject constructor(
                     // sourceId+url dvojice skoncila v seznamu dvakrat, coz LazyVerticalGrid
                     // (key = sourceId+url v SourceBrowseScreen) shodilo s "Key already used"
                     // (nahlaseny pad appky).
-                    _results.value = (_results.value + page).distinctBy { it.sourceId + it.url }
-                    _hasMore.value = true
+                    val merged = (_results.value + page).distinctBy { it.sourceId + it.url }
+                    // Web, který za koncem seznamu vrací znovu stránku 1 (nebo pořád tu samou), by jinak
+                    // držel "hasMore" navždy a nekonečný scroll by dokola stahoval samé duplicity.
+                    _hasMore.value = merged.size > _results.value.size
+                    _results.value = merged
                 }
             } catch (e: Exception) {
                 // Načtení stránky selhalo - vracíme čítač, ať retry zkusí tu samou. Bez
@@ -189,12 +222,15 @@ class SourceBrowseViewModel @Inject constructor(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
+            _errorAction.value = null
             try {
                 val page = repository.getPopular(sourceId, 1, filter)
                 _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
+                _errorAction.value = e.toErrorAction()
+                resolveMirror(e)
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {
@@ -225,12 +261,15 @@ class SourceBrowseViewModel @Inject constructor(
             delay(350)
             _loading.value = true
             _error.value = null
+            _errorAction.value = null
             try {
                 val page = repository.search(sourceId, query, 1, filter)
                 _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
+                _errorAction.value = e.toErrorAction()
+                resolveMirror(e)
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {

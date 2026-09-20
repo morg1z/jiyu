@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.demonicscans
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import android.content.Context
@@ -56,7 +59,7 @@ class DemonicScansSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -77,7 +80,7 @@ class DemonicScansSource @Inject constructor(
         formBuilder.add("orderby", if (sortBy == "latest") "ID DESC" else "VIEWS DESC")
         formBuilder.add("submit", "Search")
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(formBuilder.build())
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -105,7 +108,7 @@ class DemonicScansSource @Inject constructor(
                 val label = li.text().replace(' ', ' ').trim().ifBlank { return@mapNotNull null }
                 FilterTag(id = value, label = label)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         if (tags.isNotEmpty()) cachedTags = tags
         tags
     }
@@ -131,13 +134,13 @@ class DemonicScansSource @Inject constructor(
      */
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val path = if (filter.sortBy == "latest") "lastupdates.php" else "translationlist.php"
             val query = if (page > 1) "?list=$page" else ""
             parseCards(get("$base/$path$query"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -145,7 +148,7 @@ class DemonicScansSource @Inject constructor(
         // se stejne jako vzorovy MadaraSource ("Vzor B") a prepneme na zanrovy archiv
         // misto textoveho hledani (web samotny kombinaci nazev+zanr nenabizi).
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // /search.php nemá stránkování (je to živý autocomplete endpoint) - druhá a
         // další stránka by jen zopakovala stejný výsledek, radši ukončit scrollování.
@@ -162,12 +165,12 @@ class DemonicScansSource @Inject constructor(
                 val cover = a.selectFirst("img")?.attr("src")
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = contentType)
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val genres = doc.select(".genres-list li").map { it.text().trim() }.filter { it.isNotBlank() }
 
             var author: String? = null
@@ -192,12 +195,12 @@ class DemonicScansSource @Inject constructor(
                 author = author,
                 status = normalizedStatus,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("#chapters-list a.chplinks").mapNotNull { a ->
                 val href = a.attr("href")
                 val num = Regex("""chapter=(\d+(?:\.\d+)?)""").find(href)?.groupValues?.get(1)?.toFloatOrNull()
@@ -213,12 +216,12 @@ class DemonicScansSource @Inject constructor(
                     dateUpload = parseDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val rawUrls = doc.select("img.imgholder").mapNotNull { img ->
                 val src = img.attr("src")
                 // Bug fix - puvodne se povolovaly jen obrazky z "demoniclibs.com" (allowlist
@@ -233,7 +236,7 @@ class DemonicScansSource @Inject constructor(
             }
             rawUrls.flatMapIndexed { pageIndex, url -> sliceIfNeeded(chapter, pageIndex, url) }
                 .mapIndexed { i, p -> p.copy(index = i) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /**
@@ -258,10 +261,10 @@ class DemonicScansSource @Inject constructor(
 
         val bytes = try {
             val req = Request.Builder().url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
                 .build()
             client.newCall(req).execute().use { it.body?.bytes() }
-        } catch (_: Exception) { null } ?: return listOf(original)
+        } catch (e: Exception) { e.rethrowIfControl(); null } ?: return listOf(original)
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -273,7 +276,7 @@ class DemonicScansSource @Inject constructor(
         @Suppress("DEPRECATION")
         val decoder = try {
             BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
-        } catch (_: Exception) { null } ?: return listOf(original)
+        } catch (e: Exception) { e.rethrowIfControl(); null } ?: return listOf(original)
 
         return try {
             cacheDir.mkdirs()
@@ -285,7 +288,7 @@ class DemonicScansSource @Inject constructor(
                 bitmap.recycle()
                 Page(index = 0, url = file.absolutePath, imageUrl = "file://${file.absolutePath}")
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) { e.rethrowIfControl();
             listOf(original)
         } finally {
             decoder.recycle()
@@ -297,7 +300,7 @@ class DemonicScansSource @Inject constructor(
 
     private fun parseDate(text: String): Long = try {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(text)?.time ?: 0L
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     companion object {
         /** Bezpečný strop - běžný minimální GL_MAX_TEXTURE_SIZE napříč zařízeními je 4096. */

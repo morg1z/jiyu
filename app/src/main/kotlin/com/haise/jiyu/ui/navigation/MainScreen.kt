@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Modifier
@@ -32,7 +33,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.haise.jiyu.R
 import com.haise.jiyu.ui.theme.Cyan
@@ -76,7 +76,7 @@ fun MainScreen(
     // Ktera zalozka je "aktivni" - na rozdil od currentRoute prezije rozkliknuti
     // dal (napr. na detail titulu z Prochazet), protoze graf je plochy a detail
     // neni soucasti hierarchie zadne zalozky. Meni se jen klepnutim na zalozku.
-    var activeTabRoute by remember { mutableStateOf(startDestination) }
+    var activeTabRoute by rememberSaveable { mutableStateOf(startDestination) }
     // Kdy jsme naposledy z ktere zalozky odesli - viz GRACE_PERIOD_MS nize.
     val tabLeftAt = remember { mutableMapOf<String, Long>() }
 
@@ -127,7 +127,7 @@ fun MainScreen(
                                 val withinGracePeriod = leftAt != null && System.currentTimeMillis() - leftAt < GRACE_PERIOD_MS
                                 activeTabRoute = tab.route
                                 navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
+                                    popUpTo(Routes.LIBRARY) {
                                         inclusive = false
                                         saveState = true
                                     }

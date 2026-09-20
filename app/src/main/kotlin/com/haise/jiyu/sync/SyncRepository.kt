@@ -2,9 +2,13 @@ package com.haise.jiyu.sync
 
 import com.haise.jiyu.auth.AuthRepository
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
@@ -21,8 +25,98 @@ internal fun ChapterEntity.mergeWithRemote(remote: ChapterSyncDto): ChapterEntit
         copy(read = remote.read, lastPageRead = remote.lastPageRead, lastReadAt = remote.updatedAt)
     } else null
 
+/**
+ * Velikost stránky při stahování z cloudu. Supabase (PostgREST) vrací na jeden dotaz nejvýš 1000 řádků, takže dotaz
+ * bez stránkování by u větší knihovny tiše vrátil jen prvních 1000 (např. kapitoly).
+ */
+internal const val SYNC_PAGE_SIZE = 1000
+
+/** Kolik řádků se posílá v jednom `upsert` - velké dávky by byly pomalé a mohly by narazit na limit požadavku. */
+internal const val SYNC_PUSH_CHUNK = 500
+
+/**
+ * Stáhne všechny řádky po stránkách. [fetch] dostane rozsah `from..to` (včetně) a vrátí řádky té stránky; končí se, až
+ * stránka není plná. Čistá funkce mimo [SyncRepository], aby šla otestovat bez síťové vrstvy.
+ */
+internal suspend fun <T> fetchAllPages(pageSize: Int = SYNC_PAGE_SIZE, fetch: suspend (from: Long, to: Long) -> List<T>): List<T> {
+    val all = ArrayList<T>()
+    var from = 0L
+    while (true) {
+        val page = fetch(from, from + pageSize - 1)
+        all += page
+        if (page.size < pageSize) return all
+        from += pageSize
+    }
+}
+
+/**
+ * Které kapitoly poslat do cloudu: ty, které se na tomhle zařízení změnily od posledního úspěšného odeslání
+ * ([lastPushAt]). Malá rezerva kryje nepřesnost hodin; nadbytečné odeslání je neškodné (upsert stejné hodnoty).
+ * `lastPushAt == 0` = první odeslání, posílá se všechno.
+ */
+internal fun chaptersToPush(chapters: List<ChapterEntity>, lastPushAt: Long): List<ChapterEntity> =
+    if (lastPushAt <= 0L) chapters else chapters.filter { it.lastReadAt >= lastPushAt - PUSH_CLOCK_SLACK_MS }
+
+private const val PUSH_CLOCK_SLACK_MS = 60_000L
+
 /** Odebrání z knihovny na JINÉM zařízení - viz komentář u volajícího místa v [SyncRepository.pullFromCloud]. */
 internal fun MangaSyncDto?.removedFromLibraryRemotely(): Boolean = this?.inLibrary == false
+
+/** Výsledek [decideOwnership]. */
+internal enum class OwnershipDecision { PROCEED, ADOPT, CONFLICT }
+
+/** Výsledek [SyncRepository.sync] - `OWNER_CONFLICT` = nic se neodeslalo ani nestáhlo, čeká se na rozhodnutí uživatele. */
+enum class SyncOutcome { SYNCED, OWNER_CONFLICT }
+
+/**
+ * Komu patří lokální knihovna? Odhlášení knihovnu nemaže, takže po přihlášení JINÉHO účtu by ji push
+ * nahrál pod ten účet (cizí data v cizím cloudu). Vlastník se proto pamatuje:
+ * - vlastník sedí s přihlášeným účtem -> `PROCEED`;
+ * - vlastník neznámý (starší verze appky) nebo lokální knihovna je prázdná -> `ADOPT` (zapíše se
+ *   aktuální účet; u neznámého vlastníka je nejpravděpodobnější, že data patří účtu, který je přihlášený);
+ * - jiný vlastník a neprázdná knihovna -> `CONFLICT`, uživatel musí rozhodnout.
+ */
+internal fun decideOwnership(ownerId: String?, currentUserId: String, libraryEmpty: Boolean): OwnershipDecision = when {
+    ownerId == currentUserId -> OwnershipDecision.PROCEED
+    ownerId == null || libraryEmpty -> OwnershipDecision.ADOPT
+    else -> OwnershipDecision.CONFLICT
+}
+
+/**
+ * Má se titul, který je lokálně v knihovně, kvůli vzdálenému "náhrobku" lokálně odebrat? Jen když
+ * odebrání na cloudu je NOVĚJŠÍ než lokální přidání (`addedAt`) a titul není mezi lokálně čekajícími
+ * na odeslání (tam by šlo o starý stav, který dnešní push stejně přepíše).
+ */
+internal fun shouldRemoveLocally(local: MangaEntity, remote: MangaSyncDto?, pendingRemovedIds: Set<String>): Boolean =
+    remote != null && remote.removedFromLibraryRemotely() && local.id !in pendingRemovedIds && remote.updatedAt >= local.addedAt
+
+/**
+ * Řádky pro `manga_sync`: tituly v knihovně s `in_library=true` a lokálně odebrané tituly (jejichž
+ * odebrání cloud ještě nezná) s `in_library=false` - "náhrobky". Bez nich cloud neví o odebrání a pull
+ * odebraný titul při dalším syncu vrátí (audit nalez JIYU-SEC-1). Vytaženo jako čistá funkce kvůli testům.
+ */
+internal fun buildMangaSyncDtos(
+    userId: String,
+    libraryManga: List<MangaEntity>,
+    removedManga: List<MangaEntity>,
+    now: Long,
+): List<MangaSyncDto> {
+    val libraryIds = libraryManga.map { it.id }.toSet()
+    val library = libraryManga.map { it.toSyncDto(userId, inLibrary = true, now = now) }
+    val tombstones = removedManga.filter { it.id !in libraryIds }.map { it.toSyncDto(userId, inLibrary = false, now = now) }
+    return library + tombstones
+}
+
+private fun MangaEntity.toSyncDto(userId: String, inLibrary: Boolean, now: Long) = MangaSyncDto(
+    id = id,
+    userId = userId,
+    sourceId = sourceId,
+    url = url,
+    title = title,
+    coverUrl = coverUrl,
+    inLibrary = inLibrary,
+    updatedAt = now,
+)
 
 @Serializable
 data class MangaSyncDto(
@@ -51,30 +145,70 @@ class SyncRepository @Inject constructor(
     private val supabase: SupabaseClient,
     private val authRepository: AuthRepository,
     private val mangaRepository: MangaRepository,
+    private val settings: SettingsRepository,
 ) {
+
+    /**
+     * Pořadí pull → push (dřív push → pull): push vždy přepíše cloudový řádek stavem TOHOTO zařízení
+     * (`in_library=true` u všeho, co tu je), takže by "náhrobek" z jiného zařízení přepsal dřív, než by
+     * ho pull stihl přečíst, a odebrání se nikdy nešířilo. Pull-first ho nejdřív aplikuje lokálně.
+     */
+    suspend fun sync(): SyncOutcome {
+        val userId = authRepository.currentUserId() ?: return SyncOutcome.SYNCED
+        val decision = decideOwnership(
+            ownerId = settings.localDataOwnerId.first(),
+            currentUserId = userId,
+            libraryEmpty = mangaRepository.getAllLibraryManga().isEmpty(),
+        )
+        if (decision == OwnershipDecision.CONFLICT) return SyncOutcome.OWNER_CONFLICT
+        if (decision == OwnershipDecision.ADOPT) {
+            settings.setLocalDataOwnerId(userId)
+            settings.setSyncLastChapterPushAt(0L)
+        }
+        pullFromCloud()
+        pushToCloud()
+        return SyncOutcome.SYNCED
+    }
+
+    /** Uživatel potvrdil, že lokální knihovna patří přihlášenému účtu - nahraje se pod něj. */
+    suspend fun syncClaimingLocalData(): SyncOutcome {
+        val userId = authRepository.currentUserId() ?: return SyncOutcome.SYNCED
+        settings.setLocalDataOwnerId(userId)
+        settings.setSyncLastChapterPushAt(0L)
+        return sync()
+    }
+
+    /**
+     * Uživatel chce cloud přihlášeného účtu místo lokální knihovny: lokální tituly se odeberou
+     * (včetně stažených kapitol) a čekající "náhrobky" se zahodí, aby se neodeslaly pod nový účet.
+     */
+    suspend fun syncDiscardingLocalData(): SyncOutcome {
+        val userId = authRepository.currentUserId() ?: return SyncOutcome.SYNCED
+        mangaRepository.getAllLibraryManga().forEach { mangaRepository.removeFromLibrary(it.id) }
+        settings.clearPendingRemovedMangaIds(settings.pendingRemovedMangaIds.first())
+        settings.setLocalDataOwnerId(userId)
+        settings.setSyncLastChapterPushAt(0L)
+        return sync()
+    }
 
     suspend fun pushToCloud() {
         val userId = authRepository.currentUserId() ?: return
         val now = System.currentTimeMillis()
 
         val libraryManga = mangaRepository.getAllLibraryManga()
-        val mangaDtos = libraryManga.map { m ->
-            MangaSyncDto(
-                id = m.id,
-                userId = userId,
-                sourceId = m.sourceId,
-                url = m.url,
-                title = m.title,
-                coverUrl = m.coverUrl,
-                inLibrary = m.inLibrary,
-                updatedAt = now,
-            )
-        }
+        val libraryIds = libraryManga.map { it.id }.toSet()
+        // Titul, který byl mezitím znovu přidán, se z čekajících odebrání jen vyhodí (odešle se jako
+        // in_library=true); titul, který už v DB není vůbec, nemá co posílat.
+        val pending = settings.pendingRemovedMangaIds.first()
+        val removedManga = (pending - libraryIds).mapNotNull { mangaRepository.getManga(it) }
+        val mangaDtos = buildMangaSyncDtos(userId, libraryManga, removedManga, now)
         if (mangaDtos.isNotEmpty()) {
             supabase.from("manga_sync").upsert(mangaDtos)
         }
+        if (pending.isNotEmpty()) settings.clearPendingRemovedMangaIds(pending)
 
-        val chapters = mangaRepository.getAllLibraryChapters()
+        val lastPushAt = settings.syncLastChapterPushAt.first()
+        val chapters = chaptersToPush(mangaRepository.getAllLibraryChapters(), lastPushAt)
         val chapterDtos = chapters.map { c ->
             ChapterSyncDto(
                 id = c.id,
@@ -92,53 +226,70 @@ class SyncRepository @Inject constructor(
                 updatedAt = c.lastReadAt,
             )
         }
-        if (chapterDtos.isNotEmpty()) {
-            supabase.from("chapter_sync").upsert(chapterDtos)
-        }
+        chapterDtos.chunked(SYNC_PUSH_CHUNK).forEach { chunk -> supabase.from("chapter_sync").upsert(chunk) }
+        // Až po úspěšném odeslání všech dávek - při chybě se příště pošle znovu od původního času.
+        settings.setSyncLastChapterPushAt(now)
     }
 
     suspend fun pullFromCloud() {
         val userId = authRepository.currentUserId() ?: return
 
         // Obnov mangu ze zálohy — bez toho na novém zařízení nikdy nezmizí prázdná knihovna
-        val remoteManga = supabase.from("manga_sync")
-            .select { filter { eq("user_id", userId) } }
-            .decodeList<MangaSyncDto>()
+        val remoteManga = fetchAllPages { from, to ->
+            supabase.from("manga_sync")
+                .select { filter { eq("user_id", userId) }; order("id", Order.ASCENDING); range(from, to) }
+                .decodeList<MangaSyncDto>()
+        }
 
         val libraryManga = mangaRepository.getAllLibraryManga()
         val localIds = libraryManga.map { it.id }.toSet()
 
         // Odebrání z knihovny na JINÉM zařízení se dřív nikdy nepropagovalo zpátky - pull
-        // uměl jen vkládat nové tituly, ne rušit staré. syncNow() (jediné volající místo)
-        // vždy nejdřív pushToCloud() a až pak tohle, takže remote v tuhle chvíli už odráží
-        // aktuální lokální knihovnu TOHOTO zařízení - pokud přesto říká inLibrary=false u
-        // titulu, co tu pořád je, odebral ho prokazatelně jiný přístroj.
+        // uměl jen vkládat nové tituly, ne rušit staré. sync() volá tohle PŘED pushem, takže
+        // "náhrobek" (in_library=false) z jiného zařízení tu ještě není přepsaný stavem tohohle
+        // zařízení; odebere se jen pokud je novější než lokální přidání (viz shouldRemoveLocally).
+        val pendingRemoved = settings.pendingRemovedMangaIds.first()
         val remoteMangaById = remoteManga.associateBy { it.id }
         libraryManga.forEach { local ->
-            if (remoteMangaById[local.id].removedFromLibraryRemotely()) {
+            if (shouldRemoveLocally(local, remoteMangaById[local.id], pendingRemoved)) {
                 mangaRepository.removeFromLibrary(local.id)
             }
         }
 
-        val toInsertManga = remoteManga
-            .filter { it.inLibrary && it.id !in localIds }
-            .map { dto ->
-                com.haise.jiyu.data.db.entity.MangaEntity(
-                    id = dto.id,
-                    sourceId = dto.sourceId,
-                    url = dto.url,
-                    title = dto.title,
-                    coverUrl = dto.coverUrl,
-                    description = null,
-                    status = null,
-                    inLibrary = true,
-                )
+        // Vzdálený titul v knihovně, který lokálně v knihovně není: pokud tu řádek existuje (dřív
+        // prohlížený nebo odebraný), jen se přepne inLibrary a zachová se všechna lokální metadata
+        // (dřív full-row @Upsert stripnutou entitou přepsal popis, žánry, malId, hodnocení...);
+        // úplně nový řádek se vloží. Titul, který uživatel právě lokálně odebral a cloud o tom ještě
+        // neví, se nevrací.
+        remoteManga
+            .filter { it.inLibrary && it.id !in localIds && it.id !in pendingRemoved }
+            .forEach { dto ->
+                if (mangaRepository.getManga(dto.id) != null) {
+                    mangaRepository.addExistingToLibrary(dto.id)
+                } else {
+                    mangaRepository.upsertAllManga(
+                        listOf(
+                            MangaEntity(
+                                id = dto.id,
+                                sourceId = dto.sourceId,
+                                url = dto.url,
+                                title = dto.title,
+                                coverUrl = dto.coverUrl,
+                                description = null,
+                                status = null,
+                                inLibrary = true,
+                                addedAt = System.currentTimeMillis(),
+                            ),
+                        ),
+                    )
+                }
             }
-        if (toInsertManga.isNotEmpty()) mangaRepository.upsertAllManga(toInsertManga)
 
-        val remoteChapters = supabase.from("chapter_sync")
-            .select { filter { eq("user_id", userId) } }
-            .decodeList<ChapterSyncDto>()
+        val remoteChapters = fetchAllPages { from, to ->
+            supabase.from("chapter_sync")
+                .select { filter { eq("user_id", userId) }; order("id", Order.ASCENDING); range(from, to) }
+                .decodeList<ChapterSyncDto>()
+        }
 
         val localChapters = mangaRepository.getAllLibraryChapters()
         val localMap = localChapters.associateBy { it.id }

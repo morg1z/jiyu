@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.history
 
+import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -27,7 +28,7 @@ data class HistoryGroup(
 
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
-    private val historyDao: ReadHistoryDao,
+    private val historyRepository: HistoryRepository,
     @param:ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -36,7 +37,7 @@ class HistoryViewModel @Inject constructor(
     fun setSearchQuery(query: String) { _searchQuery.value = query }
 
     val groups: StateFlow<List<HistoryGroup>> = combine(
-        historyDao.observeRecent(),
+        historyRepository.observeRecent(),
         _searchQuery,
     ) { entries, query ->
         val filtered = if (query.isBlank()) entries
@@ -48,11 +49,11 @@ class HistoryViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun deleteEntry(entry: ReadHistoryEntity) {
-        viewModelScope.launch { historyDao.delete(entry.chapterId) }
+        viewModelScope.launch { historyRepository.delete(entry.chapterId) }
     }
 
     fun clearAll() {
-        viewModelScope.launch { historyDao.deleteAll() }
+        viewModelScope.launch { historyRepository.deleteAll() }
     }
 
     private fun groupByDate(entries: List<ReadHistoryEntity>): List<HistoryGroup> {

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.mangadenizi
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -54,6 +56,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "mangadenizi"
     override val name = "MangaDenizi (TR)"
+    override val supportsSortOrder: Boolean get() = false
     override val language = "tr"
     override val homepageUrl get() = base
     private val base = "https://mangadenizi.net"
@@ -61,7 +64,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun getJson(url: String): JSONObject {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "application/json")
             .build()
         val body = client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -134,7 +137,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
             cachedTags?.let { return@withContext it }
             fetchFullCatalog()
             cachedTags ?: emptyList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -149,14 +152,14 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
             val root = getJson("$base/api/v1/web/manga?page=$page")
             val data = root.getJSONObject("data").getJSONObject("manga").getJSONArray("data")
             (0 until data.length()).map { itemToManga(data.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
             getPopular(1, filter).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -178,7 +181,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
                 genres = genres,
                 contentType = contentTypeOf(item),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -200,7 +203,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = parseDate(ch.optString("published_at")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun formatChapterNumber(number: Double): String =
@@ -210,7 +213,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }.parse(text)?.time ?: 0L
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
@@ -227,6 +230,6 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
                 } else imageUrl
                 Page(i, finalUrl, finalUrl)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

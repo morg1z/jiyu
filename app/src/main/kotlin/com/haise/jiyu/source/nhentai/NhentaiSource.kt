@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.nhentai
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -69,7 +71,7 @@ class NhentaiSource @Inject constructor(
             val tags = fetchTagType("category") + fetchTagType("language")
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun sortParam(sortBy: String) = if (sortBy == "latest") "date" else "popular"
@@ -77,7 +79,7 @@ class NhentaiSource @Inject constructor(
     private fun fetch(url: String): JSONObject {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", "https://nhentai.net")
             .header("Accept", "application/json")
             .build()
@@ -113,7 +115,7 @@ class NhentaiSource @Inject constructor(
             return@withContext try {
                 val q = URLEncoder.encode(genre, "UTF-8")
                 parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // "/galleries/popular" NENÍ stránkovaný výpis - podle OpenAPI schématu appky
         // (/api/v2/openapi.json) je to "Get today's popular galleries" bez jakéhokoli
@@ -122,7 +124,7 @@ class NhentaiSource @Inject constructor(
         // v OpenAPI parametry page + per_page a živě vrací 25 různých položek na
         // stránku, proto se browse teď opírá o ten.
         try { parseList(fetch("$apiBase/galleries?page=$page")) }
-        catch (_: Exception) { emptyList() }
+        catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -132,13 +134,13 @@ class NhentaiSource @Inject constructor(
                 val combined = if (query.isNotBlank()) "${query.trim()} $genre" else genre
                 val q = URLEncoder.encode(combined, "UTF-8")
                 parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseList(fetch("$apiBase/search?query=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -169,7 +171,7 @@ class NhentaiSource @Inject constructor(
             }.trim()
 
             manga.copy(title = title, coverUrl = cover, description = desc, author = artist, genres = genres.take(15))
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -195,6 +197,6 @@ class NhentaiSource @Inject constructor(
                 val url = "$imgBase/$path"
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

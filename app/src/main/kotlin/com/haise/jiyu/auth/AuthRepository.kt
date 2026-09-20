@@ -42,8 +42,6 @@ class AuthRepository @Inject constructor(private val supabase: SupabaseClient) {
 
     val currentUser: Flow<JiyuUser?> = supabase.auth.sessionStatus.map { it.toJiyuUser() }
 
-    fun isSignedIn(): Boolean = supabase.auth.currentSessionOrNull() != null
-
     fun currentUserId(): String? = supabase.auth.currentSessionOrNull()?.user?.id
 
     suspend fun signInWithGoogle(idToken: String, nonce: String) {

@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.novelcool
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -40,7 +43,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -58,7 +61,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
             // stazenim novelcool.com/category/popular.html).
             val img = el.selectFirst("div.book-pic img")
             val cover = img?.attr("lazy_url")?.ifBlank { null }
-                ?: img?.attr("src")?.takeIf { it.startsWith("http") }
+                ?: img?.attr("src")?.let { absoluteMediaUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
     }
@@ -86,7 +89,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String) = "$base/category/$slug.html"
@@ -97,7 +100,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
             val url = filter.genres.firstOrNull()?.let { genreUrl(it) }
                 ?: "$base/category/${if (filter.sortBy == "latest") "latest" else "popular"}.html"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -108,7 +111,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/?keywords=$q"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -124,7 +127,7 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
                 genres = genres,
                 status = doc.selectFirst("div.bk-status div.bk-status-item a")?.text()?.trim(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -145,12 +148,12 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
                     dateUpload = parseDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseDate(text: String?): Long = try {
         java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.ENGLISH).parse(text.orEmpty())?.time ?: 0L
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
@@ -169,6 +172,6 @@ class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : Ma
                 .filter { it.tagName() == "p" }
                 .joinToString("\n\n") { it.text().trim() }
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

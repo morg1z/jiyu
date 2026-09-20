@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.wuxiabox
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -34,7 +38,7 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -46,8 +50,8 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
             val href = link.attr("href").ifBlank { return@mapNotNull null }
             val title = el.selectFirst("h4.novel-title")?.text()?.trim() ?: return@mapNotNull null
             val cover = el.selectFirst("img")?.let {
-                it.attr("data-src").ifBlank { it.attr("src") }
-            }?.let { if (it.startsWith("http")) it else "$base$it" }
+                it.lazySrc().orEmpty()
+            }?.let { resolveSourceUrl(base, it) }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
         }
     }
@@ -79,7 +83,7 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -87,7 +91,7 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
         // poradi nez "all-onclick" (razeno dle poctu prokliku), stejny vzor strankovani.
         val sort = if (filter.sortBy == "latest") "newstime" else "onclick"
         val genre = filter.genres.firstOrNull() ?: "all"
-        try { parseList(get("$base/list/$genre/all-$sort-${page - 1}.html")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/list/$genre/all-$sort-${page - 1}.html")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Vyhledavani jde pres POST na EmpireCMS endpoint, ktery presmeruje
@@ -107,12 +111,12 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
             val request = Request.Builder().url("$base/e/search/index.php").post(body).build()
             val html = client.newCall(request).execute().use { it.bodyOrThrow("$base/e/search/index.php") }
             parseList(html)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val status = doc.select("div.header-stats span").firstOrNull {
                 it.selectFirst("small")?.text()?.trim().equals("Status", ignoreCase = true)
             }?.selectFirst("strong")?.text()?.trim()
@@ -125,7 +129,7 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
                 status = status,
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -159,32 +163,17 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
                 page++
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseRelativeDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        val m = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
-            ?: return System.currentTimeMillis()
-        val value = m.groupValues[1].toLongOrNull() ?: 1L
-        val deltaMs = when (m.groupValues[2].lowercase()) {
-            "second" -> value * 1_000L
-            "minute" -> value * 60_000L
-            "hour"   -> value * 3_600_000L
-            "day"    -> value * 86_400_000L
-            "week"   -> value * 7 * 86_400_000L
-            "month"  -> value * 30 * 86_400_000L
-            "year"   -> value * 365 * 86_400_000L
-            else     -> 0L
-        }
-        return System.currentTimeMillis() - deltaMs
-    }
+    private fun parseRelativeDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val text = doc.select("div.chapter-content p").joinToString("\n\n") { it.text().trim() }
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

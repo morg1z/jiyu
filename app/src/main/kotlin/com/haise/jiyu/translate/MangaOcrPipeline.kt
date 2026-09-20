@@ -139,13 +139,16 @@ class MangaOcrPipeline @Inject constructor(
                 }
             }
 
-            val (decodedIds, avgTokenConfidence) = OnnxTensor.createTensor(
+            // Cross K/V se po decoder_init už nemění - tenzory se vytvoří JEDNOU a použijí ve všech
+            // krocích (dřív se v každém kroku znovu vytvářely a kopírovaly ~1,6 MB). Zavírají se ve
+            // finally, aby při zrušení/výjimce neunikla nativní paměť.
+            var crossKTensorShared: OnnxTensor? = null
+            var crossVTensorShared: OnnxTensor? = null
+            val (decodedIds, avgTokenConfidence) = try { OnnxTensor.createTensor(
                 env, FloatBuffer.wrap(hiddenBuffer), longArrayOf(1, ENCODER_SEQ_LEN.toLong(), HIDDEN_SIZE.toLong()),
             ).use { hiddenTensor ->
                 val selfKCache = FloatArray(SELF_CACHE_SIZE)
                 val selfVCache = FloatArray(SELF_CACHE_SIZE)
-                var crossKCache: FloatArray? = null
-                var crossVCache: FloatArray? = null
                 var probSum = 0.0
                 var stepCount = 0
 
@@ -176,8 +179,11 @@ class MangaOcrPipeline @Inject constructor(
                                 crossKTensor.floatBuffer.run { rewind(); get(ck) }
                                 val cv = FloatArray(CROSS_CACHE_SIZE)
                                 crossVTensor.floatBuffer.run { rewind(); get(cv) }
-                                crossKCache = ck
-                                crossVCache = cv
+                                val crossCacheShape = longArrayOf(NUM_LAYERS.toLong(), 1, NUM_HEADS.toLong(), CROSS_SEQ_LEN.toLong(), HEAD_DIM.toLong())
+                                crossKTensorShared?.close()
+                                crossVTensorShared?.close()
+                                crossKTensorShared = OnnxTensor.createTensor(env, FloatBuffer.wrap(ck), crossCacheShape)
+                                crossVTensorShared = OnnxTensor.createTensor(env, FloatBuffer.wrap(cv), crossCacheShape)
                                 logitsTensor.floatBuffer.rewind()
                                 val (bestId, prob) = argmaxWithProb(logitsTensor.floatBuffer)
                                 probSum += prob
@@ -188,19 +194,16 @@ class MangaOcrPipeline @Inject constructor(
                             idsTensor.close()
                         }
                     } else {
-                        val ck = crossKCache
-                        val cv = crossVCache
-                        if (ck == null || cv == null || pos >= MAX_CACHE_LEN) {
+                        val ckTensor = crossKTensorShared
+                        val cvTensor = crossVTensorShared
+                        if (ckTensor == null || cvTensor == null || pos >= MAX_CACHE_LEN) {
                             return@greedyDecode tokenizer.eosId
                         }
                         val idsTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(soFar.last().toLong())), longArrayOf(1, 1))
                         val posTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(pos.toLong())), longArrayOf(1, 1))
                         val selfCacheShape = longArrayOf(NUM_LAYERS.toLong(), 1, NUM_HEADS.toLong(), MAX_CACHE_LEN.toLong(), HEAD_DIM.toLong())
-                        val crossCacheShape = longArrayOf(NUM_LAYERS.toLong(), 1, NUM_HEADS.toLong(), CROSS_SEQ_LEN.toLong(), HEAD_DIM.toLong())
                         val skTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(selfKCache), selfCacheShape)
                         val svTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(selfVCache), selfCacheShape)
-                        val ckTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(ck), crossCacheShape)
-                        val cvTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(cv), crossCacheShape)
                         try {
                             decoderStepSession.run(
                                 mapOf(
@@ -233,12 +236,13 @@ class MangaOcrPipeline @Inject constructor(
                             posTensor.close()
                             skTensor.close()
                             svTensor.close()
-                            ckTensor.close()
-                            cvTensor.close()
                         }
                     }
                 }
                 ids to (if (stepCount > 0) (probSum / stepCount).toFloat() else 0f)
+            } } finally {
+                crossKTensorShared?.close()
+                crossVTensorShared?.close()
             }
 
             // Nízká průměrná pravděpodobnost vybraných tokenů = model si nebyl jistý (typicky

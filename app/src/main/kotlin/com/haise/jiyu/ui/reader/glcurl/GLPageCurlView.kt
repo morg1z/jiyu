@@ -11,7 +11,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 /**
  * Compose obal nad [GLPageCurlRenderer] - port `karacken.curl` OpenGL efektu (viz
@@ -68,8 +71,20 @@ fun GLPageCurlView(
         glView?.requestRender()
     }
 
-    DisposableEffect(Unit) {
+    // GLSurfaceView se musí pozastavit i při odchodu appky do pozadí (ne jen při odchodu z
+    // obrazovky), jinak renderovací vlákno běží dál; po návratu se zase probudí.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> glView?.onResume()
+                Lifecycle.Event.ON_PAUSE -> glView?.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             glView?.onPause()
         }
     }

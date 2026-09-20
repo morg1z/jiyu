@@ -65,7 +65,7 @@ class AsmHentaiSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty().substringBefore("?")
                 return when {
-                    path == "/" -> MockResponse().setBody(listingHtml)
+                    path == "/" || path == "/language/english/" || path.startsWith("/tag/") -> MockResponse().setBody(listingHtml)
                     path == "/g/669519/" -> MockResponse().setBody(detailHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -78,6 +78,37 @@ class AsmHentaiSourceTest {
     @After
     fun tearDown() {
         server.shutdown()
+    }
+
+    private fun recordPaths(): MutableList<String> {
+        val paths = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths += request.path.orEmpty()
+                return MockResponse().setBody(listingHtml)
+            }
+        }
+        return paths
+    }
+
+    @Test
+    fun `popular uses the language archive with sort=popular, latest uses the front page`() = runTest {
+        val paths = recordPaths()
+
+        source.getPopular(2, com.haise.jiyu.source.MangaFilter(sortBy = "popular"))
+        source.getPopular(2, com.haise.jiyu.source.MangaFilter(sortBy = "latest"))
+
+        assertEquals(listOf("/language/english/?page=2&sort=popular", "/?page=2"), paths)
+    }
+
+    @Test
+    fun `a tag filter keeps the tag and adds the sort`() = runTest {
+        val paths = recordPaths()
+
+        source.getPopular(1, com.haise.jiyu.source.MangaFilter(sortBy = "popular", genres = listOf("big-breasts")))
+        source.getPopular(1, com.haise.jiyu.source.MangaFilter(sortBy = "latest", genres = listOf("big-breasts")))
+
+        assertEquals(listOf("/tag/big-breasts/?page=1&sort=popular", "/tag/big-breasts/?page=1"), paths)
     }
 
     @Test

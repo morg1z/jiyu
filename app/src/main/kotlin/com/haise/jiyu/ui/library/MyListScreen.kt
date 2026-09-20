@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -124,6 +125,7 @@ import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.VioletLight
 import com.haise.jiyu.ui.theme.glassBorder
 import com.haise.jiyu.ui.theme.screenGradient
+import com.haise.jiyu.ui.theme.titleGradient
 
 /**
  * "Vykrvácí" přes horizontální contentPadding rodičovské LazyVerticalGrid/LazyColumn -
@@ -205,6 +207,8 @@ fun MyListScreen(
     var showCategoryAssignDialog  by remember { mutableStateOf(false) }
     var showBulkCategoryDialog    by remember { mutableStateOf(false) }
     var showMarkAllReadDialog     by remember { mutableStateOf(false) }
+    var pendingRemoval            by remember { mutableStateOf<MangaEntity?>(null) }
+    var showBulkRemoveDialog      by remember { mutableStateOf(false) }
     var showFilterSheet           by remember { mutableStateOf(false) }
     var searchExpanded            by remember { mutableStateOf(false) }
 
@@ -278,8 +282,18 @@ fun MyListScreen(
             } else {
                 // Title row
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(text = stringResource(R.string.mylist_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    // offset 8 dp: střed nadpisu ve stejné výšce jako u Historie/Aktualizace/Procházet (ty mají
+                    // nadpis vystředěný v 48dp řádku, tady je nad podnadpisem).
+                    Column(modifier = Modifier.weight(1f).padding(start = 8.dp).offset(y = 8.dp)) {
+                        // Stejny styl jako HistoryScreen/UpdatesScreen/BrowseScreen titulek
+                        // (titleGradient, 24.sp, letterSpacing 2.sp) - drivejsi 26.sp/plna
+                        // barva bez gradientu delalo nadpis viditelne jinak velky/jinak
+                        // vypadajici nez na ostatnich obrazovkach (nahlaseno uzivatelem).
+                        Text(
+                            text = stringResource(R.string.mylist_title),
+                            style = TextStyle(brush = titleGradient, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp),
+                            maxLines = 1,
+                        )
                         Text(text = pluralStringResource(R.plurals.mylist_title_count, library.size, library.size), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
                     }
                     IconButton(onClick = { searchExpanded = !searchExpanded }) {
@@ -406,41 +420,35 @@ fun MyListScreen(
                     .background(NightBlue)
                     .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
                     .clickable { showFilterSheet = true }
-                    .padding(horizontal = 14.dp),
+                    .padding(start = 14.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(TablerIcons.Filter, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.mylist_filter_and_sort), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Row(
-                    // 48dp výška (a11y minimum dotykové plochy) - ikony uvnitř zůstávají
-                    // 15dp, jen kapsle je vyšší.
-                    modifier = Modifier
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.05f)),
-                ) {
+                Spacer(Modifier.width(10.dp))
+                // Kompaktní sekundární přepínač Seznam/Mřížka: dvě samostatná zaoblená políčka 38 dp s mezerou 6 dp
+                // (celkem 82 dp), uvnitř 48dp pruhu filtru s odstupem od okrajů. Pořadí Mřížka, Seznam jako v referenčním návrhu. Aktivní je fialové, neaktivní jemně tmavé.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (!gridMode) GlowViolet else Color.Transparent)
-                            .clickable { if (gridMode) viewModel.toggleGridMode() }
-                            .padding(horizontal = 8.dp),
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (gridMode) GlowViolet else Color.White.copy(alpha = 0.05f))
+                            .clickable { if (!gridMode) viewModel.toggleGridMode() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(TablerIcons.List, contentDescription = stringResource(R.string.mylist_switch_to_list), tint = if (!gridMode) Color.White else TextSecondary, modifier = Modifier.size(15.dp))
+                        Icon(TablerIcons.LayoutGrid, contentDescription = stringResource(R.string.mylist_switch_to_grid), tint = if (gridMode) Color.White else TextSecondary, modifier = Modifier.size(20.dp))
                     }
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (gridMode) GlowViolet else Color.Transparent)
-                            .clickable { if (!gridMode) viewModel.toggleGridMode() }
-                            .padding(horizontal = 8.dp),
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (!gridMode) GlowViolet else Color.White.copy(alpha = 0.05f))
+                            .clickable { if (gridMode) viewModel.toggleGridMode() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(TablerIcons.LayoutGrid, contentDescription = stringResource(R.string.mylist_switch_to_grid), tint = if (gridMode) Color.White else TextSecondary, modifier = Modifier.size(15.dp))
+                        Icon(TablerIcons.List, contentDescription = stringResource(R.string.mylist_switch_to_list), tint = if (!gridMode) Color.White else TextSecondary, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -513,7 +521,7 @@ fun MyListScreen(
                                     }
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.mylist_remove_from_library), color = MaterialTheme.colorScheme.error) },
-                                        onClick = { viewModel.removeFromLibrary(manga.id); dropdownExpanded = false },
+                                        onClick = { pendingRemoval = manga; dropdownExpanded = false },
                                     )
                                 }
                             }
@@ -565,7 +573,7 @@ fun MyListScreen(
                                     }
                                     DropdownMenuItem(
                                         text = { Text(stringResource(R.string.mylist_remove_from_library), color = MaterialTheme.colorScheme.error) },
-                                        onClick = { viewModel.removeFromLibrary(manga.id); dropdownExpanded = false },
+                                        onClick = { pendingRemoval = manga; dropdownExpanded = false },
                                     )
                                 }
                             }
@@ -605,7 +613,7 @@ fun MyListScreen(
                 onDownload = { viewModel.bulkDownload() },
                 onMarkRead = { viewModel.bulkMarkRead() },
                 onAddToCategory = { showBulkCategoryDialog = true },
-                onDelete = { viewModel.bulkRemoveFromLibrary() },
+                onDelete = { showBulkRemoveDialog = true },
             )
         }
     }
@@ -643,6 +651,27 @@ fun MyListScreen(
             categories = categories,
             onPickCategory = { viewModel.bulkAddToCategory(it) },
             onDismiss = { showBulkCategoryDialog = false },
+        )
+    }
+    pendingRemoval?.let { manga ->
+        RemoveFromLibraryDialog(
+            mangaTitle = manga.title,
+            onConfirm = { viewModel.removeFromLibrary(manga.id) },
+            onDismiss = { pendingRemoval = null },
+        )
+    }
+    if (showBulkRemoveDialog) {
+        AlertDialog(
+            onDismissRequest = { showBulkRemoveDialog = false },
+            containerColor = Color(0xFF111B35),
+            title = { Text(pluralStringResource(R.plurals.mylist_bulk_remove_title, selectedIds.size, selectedIds.size), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.library_remove_confirm_body), color = Color(0xFFB0BEC5)) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.bulkRemoveFromLibrary(); showBulkRemoveDialog = false }) {
+                    Text(stringResource(R.string.mylist_remove_from_library), color = Danger)
+                }
+            },
+            dismissButton = { TextButton(onClick = { showBulkRemoveDialog = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
         )
     }
     if (showMarkAllReadDialog) {

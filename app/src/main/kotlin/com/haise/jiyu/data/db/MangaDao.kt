@@ -39,9 +39,6 @@ interface MangaDao {
     @Upsert
     suspend fun upsertAll(manga: List<MangaEntity>)
 
-    @Query("UPDATE manga SET lastReadAt = :time WHERE id = :mangaId")
-    suspend fun updateLastReadAt(mangaId: String, time: Long)
-
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND lastReadAt > 0 ORDER BY lastReadAt DESC LIMIT 20")
     fun observeRecentlyRead(): Flow<List<MangaEntity>>
 
@@ -73,9 +70,6 @@ interface MangaDao {
     @Query("UPDATE manga SET readerDirectionOverride = :direction WHERE id = :mangaId")
     suspend fun setReaderDirection(mangaId: String, direction: String?)
 
-    @Query("UPDATE manga SET author = :author, artist = :artist, genres = :genres, year = :year WHERE id = :mangaId")
-    suspend fun updateMetadata(mangaId: String, author: String?, artist: String?, genres: String, year: Int?)
-
     @Query("SELECT genres FROM manga WHERE inLibrary = 1 AND genres != ''")
     suspend fun getAllLibraryGenres(): List<String>
 
@@ -93,15 +87,8 @@ interface MangaDao {
     @Query("UPDATE manga SET excludeFromUpdates = :exclude WHERE id = :id")
     suspend fun setExcludeFromUpdates(id: String, exclude: Boolean)
 
-    @Query("UPDATE manga SET contentType = :contentType WHERE id = :id")
-    suspend fun setContentType(id: String, contentType: String)
-
-    @Query("SELECT * FROM manga WHERE url = :url LIMIT 1")
-    suspend fun getMangaByUrl(url: String): MangaEntity?
-
-    /** Stejné jako [getMangaByUrl], jen navíc filtrované na konkrétní zdroj - `url` samo o
-     * sobě není napříč zdroji unikátní (relativní cesty typu "/manga/1" se opakují), takže
-     * bez `sourceId` může kolidovat s mangou z úplně jiného zdroje (viz TachiyomiBackupImporter). */
+    /** `url` samo o sobě není napříč zdroji unikátní (relativní cesty typu "/manga/1" se
+     * opakují), proto se vždy hledá spolu se `sourceId` (viz TachiyomiBackupImporter). */
     @Query("SELECT * FROM manga WHERE sourceId = :sourceId AND url = :url LIMIT 1")
     suspend fun getMangaBySourceAndUrl(sourceId: String, url: String): MangaEntity?
 
@@ -133,6 +120,16 @@ interface MangaDao {
     @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
     suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
 
+    /** Protějšek [ManualTranslationDao.relinkChapter] pro `manga.lastReadChapterId` - bez tohohle by
+     * po [ChapterDao.relink] ukazoval na neexistující (staré) id kapitoly a "Pokračovat čtení" by
+     * na widgetu/domovské obrazovce přestalo fungovat pro relinkovanou kapitolu. */
+    @Query("UPDATE manga SET lastReadChapterId = :newChapterId WHERE lastReadChapterId = :oldChapterId")
+    suspend fun relinkLastReadChapter(oldChapterId: String, newChapterId: String)
+
+    /** Cílený zápis po opravě odkazu (viz MangaRepository.recoverMangaLink) - mění jen url/title/cover, nic dalšího. */
+    @Query("UPDATE manga SET url = :url, title = :title, coverUrl = COALESCE(:coverUrl, coverUrl) WHERE id = :id")
+    suspend fun relinkManga(id: String, url: String, title: String, coverUrl: String?)
+
     // Doplnek ChapterDao.resetProgressForManga - manga radek se pri odebrani z knihovny
     // take nemaze, takze "Pokracovat X" a cas cteni by jinak po znovu-pridani ukazovaly
     // stary stav z doby pred odebranim.
@@ -157,7 +154,8 @@ interface MangaDao {
     // ── Úklid jen prohlížené mangy - viz [deleteBrowsedManga] ──────────────────────────
     /**
      * ID mangy, kterou lze bezpečně smazat: není v knihovně, není oblíbená, nikdy se nečetla,
-     * není v žádné kategorii, nemá staženou kapitolu a nevlastní kapitolu, na kterou aktuálně
+     * není v žádné kategorii, nemá staženou ani právě stahovanou (QUEUED/DOWNLOADING) kapitolu
+     * a nevlastní kapitolu, na kterou aktuálně
      * ukazuje nějaký fallbackChapterId (viz SourceResolverViewModel.resolveCompleteChapter -
      * preview-manga vytvořená přes openPreview při kontrole alternativních zdrojů má přesně
      * profil "jen prohlížené", ale je to naučená, trvale zapsaná náhrada za kapitolu s málo
@@ -176,7 +174,10 @@ interface MangaDao {
           AND lastReadAt = 0
           AND id NOT IN (SELECT DISTINCT mangaId FROM read_history)
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_category)
-          AND id NOT IN (SELECT DISTINCT mangaId FROM chapter WHERE localPath IS NOT NULL)
+          AND id NOT IN (
+              SELECT DISTINCT mangaId FROM chapter
+              WHERE localPath IS NOT NULL OR downloadStatus IN ('QUEUED', 'DOWNLOADING')
+          )
           AND id NOT IN (
               SELECT DISTINCT mangaId FROM chapter
               WHERE id IN (SELECT fallbackChapterId FROM chapter WHERE fallbackChapterId IS NOT NULL)
@@ -187,11 +188,16 @@ interface MangaDao {
 
     @Transaction
     suspend fun deleteChildrenOfManga(ids: List<String>) {
-        // manual_translation nema vlastni mangaId sloupec, jen chapterId - MUSI bezet PRED
-        // deleteChaptersOfManga, jinak uz poddotaz proti tabulce chapter nic nenajde (viz audit
-        // nalez "glossary_entry/manual_translation nikdy nemazane, sirotci po smazani mangy").
+        // manual_translation/translated_page/translated_novel nemaji vlastni mangaId sloupec,
+        // jen chapterId (translated_* dokonce jen jako predponu composite id) - VSECHNY MUSI
+        // bezet PRED deleteChaptersOfManga, jinak uz poddotaz/JOIN proti tabulce chapter nic
+        // nenajde (viz audit nalez "read_history/translated_* nikdy nemazane, sirotci po
+        // smazani mangy" - puvodne to platilo uz jen pro manual_translation/glossary_entry).
         deleteManualTranslationsOfManga(ids)
+        deleteTranslatedPagesOfManga(ids)
+        deleteTranslatedNovelsOfManga(ids)
         deleteGlossaryOfManga(ids)
+        deleteReadHistoryOfManga(ids)
         deleteChaptersOfManga(ids)
         deleteNotesOfManga(ids)
         deleteTagsOfManga(ids)
@@ -202,6 +208,34 @@ interface MangaDao {
         WHERE chapterId IN (SELECT id FROM chapter WHERE mangaId IN (:ids))
     """)
     suspend fun deleteManualTranslationsOfManga(ids: List<String>)
+
+    // translated_page/translated_novel nemaji chapterId sloupec, jen "$chapterId::..." jako
+    // predponu primarniho klice id (viz TranslatedPageEntity/TranslatedNovelEntity) - proto
+    // join pres chapter.id misto primeho IN poddotazu. Porovnani pres substr(...) = ..., ne
+    // LIKE - chapterId je "$sourceId::$url" a URL bezne obsahuje '%'/'_', coz by LIKE vzalo
+    // jako wildcard misto doslovneho znaku (viz TranslatedPageDao.relinkChapter).
+    @Query("""
+        DELETE FROM translated_page
+        WHERE id IN (
+            SELECT tp.id FROM translated_page tp
+            INNER JOIN chapter c ON substr(tp.id, 1, length(c.id) + 2) = c.id || '::'
+            WHERE c.mangaId IN (:ids)
+        )
+    """)
+    suspend fun deleteTranslatedPagesOfManga(ids: List<String>)
+
+    @Query("""
+        DELETE FROM translated_novel
+        WHERE id IN (
+            SELECT tn.id FROM translated_novel tn
+            INNER JOIN chapter c ON substr(tn.id, 1, length(c.id) + 2) = c.id || '::'
+            WHERE c.mangaId IN (:ids)
+        )
+    """)
+    suspend fun deleteTranslatedNovelsOfManga(ids: List<String>)
+
+    @Query("DELETE FROM read_history WHERE mangaId IN (:ids)")
+    suspend fun deleteReadHistoryOfManga(ids: List<String>)
 
     @Query("DELETE FROM glossary_entry WHERE mangaId IN (:ids)")
     suspend fun deleteGlossaryOfManga(ids: List<String>)

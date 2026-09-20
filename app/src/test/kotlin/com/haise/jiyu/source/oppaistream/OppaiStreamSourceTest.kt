@@ -73,6 +73,22 @@ class OppaiStreamSourceTest {
     }
 
     @Test
+    fun `popular is ordered by views and latest by recently uploaded chapters`() = runTest {
+        val orders = mutableListOf<String?>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                orders += request.requestUrl?.queryParameter("order")
+                return MockResponse().setBody(listHtml)
+            }
+        }
+
+        source.getPopular(3, MangaFilter(sortBy = "popular"))
+        source.getPopular(1, MangaFilter(sortBy = "latest"))
+
+        assertEquals(listOf("views", "uploaded"), orders)
+    }
+
+    @Test
     fun `getPopular parses card listing from load-more php`() = runTest {
         val result = source.getPopular(1, MangaFilter())
         assertEquals(1, result.size)

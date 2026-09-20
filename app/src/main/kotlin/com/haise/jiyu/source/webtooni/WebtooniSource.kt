@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.webtooni
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -42,7 +45,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -79,7 +82,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
@@ -93,7 +96,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                 // (overeno zive - odlisna prvni polozka) - pro "Nejnovejsi" tab.
                 val path = if (filter.sortBy == "latest") "/en/new" else "/en/ranking"
                 parseCardList(parseDocument("$base$path"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -119,7 +122,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                         description = description, author = author, genres = genres, contentType = "MANHWA",
                     )
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga =
@@ -138,7 +141,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                     author = author,
                     genres = genres.ifEmpty { manga.genres },
                 )
-            } catch (_: Exception) { manga }
+            } catch (e: Exception) { e.rethrowIfControl(); manga }
         }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> =
@@ -152,7 +155,7 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                     val url = a.absUrl("href").ifBlank { return@mapNotNull null }
                     val name = a.select("p").firstOrNull { it.text().trim().startsWith("Episode") }
                         ?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
-                    val chapterNumber = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                    val chapterNumber = parseChapterNumber(name) ?: 0f
                     val dateText = a.selectFirst("p.episodeDate")?.text()?.trim()
 
                     SChapter(
@@ -164,18 +167,11 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                         dateUpload = parseDate(dateText),
                     )
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
-    private fun parseDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        return try {
-            // "Sep 10, 2024"
-            SimpleDateFormat("MMM d, yyyy", Locale.ENGLISH).parse(text)?.time ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> =
         withContext(Dispatchers.IO) {
@@ -185,6 +181,6 @@ class WebtooniSource @Inject constructor(private val client: OkHttpClient) : Man
                     val src = img.attr("src").trim().ifBlank { return@mapIndexedNotNull null }
                     Page(index = i, url = src, imageUrl = src)
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 }

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.comizy
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -40,7 +42,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -48,7 +50,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
     private fun nextData(html: String): JSONObject? {
         val json = Regex("""<script id="__NEXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
             .find(html)?.groupValues?.get(1) ?: return null
-        return try { JSONObject(json) } catch (_: Exception) { null }
+        return try { JSONObject(json) } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     private fun pageProps(root: JSONObject): JSONObject =
@@ -73,7 +75,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
             val props = pageProps(nextData(get("$base/$path?page=$page")) ?: return@withContext emptyList())
             val items = props.getJSONArray("items")
             (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -85,7 +87,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
             val props = pageProps(nextData(get("$base/search?q=$q&page=$page")) ?: return@withContext emptyList())
             val items = props.getJSONArray("ssrItems")
             (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Filtrování podle žánru ────────────────────────────────────────────────
@@ -110,7 +112,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
             }.sortedBy { it.label }
             cachedGenres = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /**
@@ -141,7 +143,7 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
                 genres = genres,
                 contentType = "MANHWA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -160,19 +162,19 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
                     dateUpload = parseIsoDate(c.optString("updatedAt")),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(text: String): Long = try {
         Instant.parse(text).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val props = pageProps(nextData(get(chapter.url)) ?: return@withContext emptyList())
             val images = props.getJSONObject("initialChapter").getJSONArray("images")
             (0 until images.length()).map { i -> Page(i, images.getString(i), images.getString(i)) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
@@ -181,6 +183,6 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
                 val ic = pageProps(nextData(get(chapter.url)) ?: return@withContext emptyList())
                     .getJSONObject("initialChapter")
                 com.haise.jiyu.source.comments.parseMangaReaderJsonComments(ic)
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 }

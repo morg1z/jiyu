@@ -45,14 +45,30 @@ internal object CloudflareChallengeBridge {
     private val _pending = MutableStateFlow<PendingChallenge?>(null)
     val pending = _pending.asStateFlow()
 
+    /**
+     * Je právě na obrazovce (ve stavu STARTED) něco, co výzvy zobrazuje? Když ano, řešení rovnou přebírá dialog s
+     * připojeným WebView; když ne (appka na pozadí), zkouší se jen tichý pokus a nečeká se zbytečně na okno,
+     * které nikdo nevidí.
+     */
+    val hasUi: Boolean get() = _pending.subscriptionCount.value > 0
+
     /** Vola se z pozadoveho vlakna interceptoru. Blokuje volajici vlakno - VLASTNIM latchem. */
-    fun awaitUserSolve(url: String, host: String, timeoutSeconds: Long): String? {
+    fun awaitUserSolve(
+        url: String,
+        host: String,
+        timeoutSeconds: Long,
+        isCancelled: () -> Boolean = { false },
+    ): String? {
         val challenge = PendingChallenge(url, host)
         val state = HostState()
         hostStates[challenge.id] = state
         queue.add(challenge)
         advanceQueue()
-        state.latch.await(timeoutSeconds, TimeUnit.SECONDS)
+        // Čeká po kouscích, aby šlo přestat, jakmile je volání zrušené (viz CloudflareInterceptor).
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds)
+        while (System.nanoTime() < deadline && !state.latch.await(250, TimeUnit.MILLISECONDS)) {
+            if (isCancelled()) break
+        }
         hostStates.remove(challenge.id)
         queue.remove(challenge)
         advanceQueue()

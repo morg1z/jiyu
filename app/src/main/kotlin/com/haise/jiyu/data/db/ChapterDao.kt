@@ -48,7 +48,14 @@ interface ChapterDao {
     @Query("UPDATE chapter SET downloadStatus = :status, localPath = :localPath, pageCount = :pageCount WHERE id = :id")
     suspend fun markDownloaded(id: String, status: DownloadStatus, localPath: String, pageCount: Int)
 
-    @Query("UPDATE chapter SET read = :read, lastPageRead = :lastPageRead, lastReadAt = :lastReadAt WHERE id = :id")
+    /** Ruční označení přečtené/nepřečtené (detail mangy) předává `lastReadAt = 0` a `lastPageRead = 0` -
+     * tehdy se maže i uložený webtoon offset, aby "nepřečteno" nenechalo starou pozici. Čtečka
+     * vždy posílá skutečný čas, takže čtení první stránky offset nesmaže. */
+    @Query(
+        "UPDATE chapter SET read = :read, lastPageRead = :lastPageRead, lastReadAt = :lastReadAt, " +
+            "lastScrollOffset = CASE WHEN :lastPageRead = 0 AND :lastReadAt = 0 THEN 0 ELSE lastScrollOffset END " +
+            "WHERE id = :id"
+    )
     suspend fun updateProgress(id: String, read: Boolean, lastPageRead: Int, lastReadAt: Long)
 
     @Query("UPDATE chapter SET lastScrollOffset = :offset, lastReadAt = :lastReadAt WHERE id = :id")
@@ -79,6 +86,12 @@ interface ChapterDao {
     """)
     suspend fun setVerifiedPageCount(id: String, count: Int, isFallback: Boolean, fallbackChapterId: String? = null)
 
+    /** Protějšek [com.haise.jiyu.data.db.ManualTranslationDao.relinkChapter] pro jiné kapitoly,
+     * které na relinkovanou kapitolu ukazují jako na svůj fallback (viz [setVerifiedPageCount]) -
+     * bez tohohle by po relinku ukazovaly na neexistující staré id a fallback přestal fungovat. */
+    @Query("UPDATE chapter SET fallbackChapterId = :newChapterId WHERE fallbackChapterId = :oldChapterId")
+    suspend fun relinkFallbackChapterId(oldChapterId: String, newChapterId: String)
+
     // Manga/kapitola id se generuje deterministicky ze zdroje+URL (viz MangaRepository.mangaId/
     // chapterId) a odebrání z knihovny mangu ani kapitoly nemaže (jen inLibrary = false, viz
     // MangaDao.setInLibrary) - bez tohohle resetu by opetovne pridani te same mangy tise
@@ -87,14 +100,19 @@ interface ChapterDao {
     @Query("UPDATE chapter SET read = 0, lastPageRead = 0, lastScrollOffset = 0, lastReadAt = 0 WHERE mangaId = :mangaId")
     suspend fun resetProgressForManga(mangaId: String)
 
+    @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED', localPath = NULL, pageCount = 0 WHERE mangaId = :mangaId AND downloadStatus = 'DOWNLOADED'")
+    suspend fun resetDownloadsForManga(mangaId: String)
+
     @Query("SELECT COUNT(*) FROM chapter WHERE mangaId = :mangaId")
     suspend fun countForManga(mangaId: String): Int
 
+    /** Batched varianta [countForManga] - pro seznam manga id vrátí počty jedním dotazem
+     * místo N+1 (viz [com.haise.jiyu.data.repository.MangaRepository.findLibraryMatchesByTitle]). */
+    @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE mangaId IN (:mangaIds) GROUP BY mangaId")
+    suspend fun countForMangas(mangaIds: List<String>): List<MangaTotalCount>
+
     @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
     suspend fun getAllForManga(mangaId: String): List<ChapterEntity>
-
-    @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
-    suspend fun countRead(): Int
 
     @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
     fun observeReadCount(): Flow<Int>
@@ -109,12 +127,15 @@ interface ChapterDao {
     // COUNT(*) by proto sčítal kapitoly přes všechny skupiny místo unikátních čísel
     // (např. "434" místo skutečných ~156) - group by mangaId+chapterNumber napřed
     // sjednotí duplicity, teprve pak se počítá. Nemá vliv na zdroje s 1:1 kapitolami
-    // (tam je group by no-op).
+    // (tam je group by no-op). Kapitoly s číslem 0 (parser číslo nenašel) se NESLUČUJÍ -
+    // každá je samostatná (klíč = id), jinak by se všechny "bezčíselné" kapitoly titulu
+    // počítaly jako jedna.
     @Query(
         """
         SELECT mangaId, COUNT(*) as count FROM (
-            SELECT mangaId, chapterNumber FROM chapter
-            GROUP BY mangaId, chapterNumber
+            SELECT mangaId, (CASE WHEN chapterNumber > 0 THEN CAST(chapterNumber AS TEXT) ELSE id END) AS chapterKey
+            FROM chapter
+            GROUP BY mangaId, chapterKey
             HAVING SUM(CASE WHEN read = 1 THEN 1 ELSE 0 END) = 0
         )
         GROUP BY mangaId
@@ -125,7 +146,8 @@ interface ChapterDao {
     @Query(
         """
         SELECT mangaId, COUNT(*) as count FROM (
-            SELECT DISTINCT mangaId, chapterNumber FROM chapter
+            SELECT DISTINCT mangaId, (CASE WHEN chapterNumber > 0 THEN CAST(chapterNumber AS TEXT) ELSE id END) AS chapterKey
+            FROM chapter
         )
         GROUP BY mangaId
         """
@@ -189,4 +211,16 @@ interface ChapterDao {
 
     @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED' WHERE downloadStatus IN ('QUEUED', 'DOWNLOADING')")
     suspend fun resetActiveDownloads()
+
+    /** Batched "označit přečtené" podle konkrétních id (na rozdíl od [markAllReadForMangas],
+     * které bere celou mangu) - pro import historie ze zálohy (viz TachiyomiBackupImporter),
+     * kde se dřív volalo [updateProgress] po jednom řádku pro každou nalezenou kapitolu. */
+    @Query("SELECT * FROM chapter WHERE id IN (:chapterIds)")
+    suspend fun getByIds(chapterIds: List<String>): List<ChapterEntity>
+
+    @Query("UPDATE chapter SET read = 0, lastPageRead = 0, lastScrollOffset = 0, lastReadAt = 0 WHERE id IN (:chapterIds)")
+    suspend fun markUnreadByIds(chapterIds: List<String>)
+
+    @Query("UPDATE chapter SET read = 1, lastPageRead = 0 WHERE id IN (:chapterIds)")
+    suspend fun markReadByIds(chapterIds: List<String>)
 }

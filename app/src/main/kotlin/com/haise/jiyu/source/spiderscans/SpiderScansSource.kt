@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.spiderscans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -56,12 +59,12 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -84,7 +87,7 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
             val sort = if (filter.sortBy == "latest") "latest" else "popular"
             val genreParam = if (genre != null) "&genre=${URLEncoder.encode(genre, "UTF-8")}" else ""
             parseList(get("$base/manga/?sort=$sort&page=$page$genreParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -94,20 +97,13 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
             if (query.isBlank()) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/manga/?search=$q&page=$page$genreParam"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun statValue(doc: Document, label: String): String? =
         doc.select("div.detail-meta-item").firstOrNull {
             it.selectFirst("span.detail-meta-label")?.text()?.trim().equals(label, ignoreCase = true)
         }?.selectFirst("span.detail-meta-value")?.text()?.trim()?.ifBlank { null }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
-    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
@@ -121,7 +117,7 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
                 year = statValue(doc, "Released")?.toIntOrNull(),
                 contentType = normalizeContentType(statValue(doc, "Type")),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -138,18 +134,11 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
                     chapterNumber = num, dateUpload = parseChapterDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseChapterDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        return try {
-            java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time
-                ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseChapterDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
@@ -158,6 +147,6 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
                 val src = img.attr("src").trim().ifBlank { return@mapIndexedNotNull null }
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

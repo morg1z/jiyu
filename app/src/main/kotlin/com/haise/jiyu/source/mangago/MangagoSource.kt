@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.mangago
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -61,7 +65,7 @@ class MangagoSource @Inject constructor(
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreArchiveUrl(slug: String, page: Int): String {
@@ -74,7 +78,7 @@ class MangagoSource @Inject constructor(
             val link = li.selectFirst("div.left a[href]") ?: return@mapNotNull null
             SManga(
                 sourceId = id,
-                url = link.attr("href").removePrefix(base),
+                url = toSourcePath(base, link.attr("href")),
                 title = li.selectFirst("span.title a")?.text()?.trim()?.ifBlank { null }
                     ?: link.attr("title").trim().takeIf { it.isNotBlank() }
                     ?: return@mapNotNull null,
@@ -98,7 +102,7 @@ class MangagoSource @Inject constructor(
                     val link = li.selectFirst("div.left a[href*='/read-manga/']") ?: return@mapNotNull null
                     SManga(
                         sourceId = id,
-                        url = link.attr("href").removePrefix(base),
+                        url = toSourcePath(base, link.attr("href")),
                         title = li.selectFirst("span.tit h2 a")?.text()?.trim()?.ifBlank { null }
                             ?: return@mapNotNull null,
                         coverUrl = li.selectFirst("div.left img")?.attr("src"),
@@ -114,14 +118,14 @@ class MangagoSource @Inject constructor(
                 val link = li.selectFirst("div.left a[href]") ?: return@mapNotNull null
                 SManga(
                     sourceId = id,
-                    url = link.attr("href").removePrefix(base),
+                    url = toSourcePath(base, link.attr("href")),
                     title = li.selectFirst("span.title a")?.text()?.trim()?.ifBlank { null }
                         ?: link.attr("title").trim().takeIf { it.isNotBlank() }
                         ?: return@mapNotNull null,
                     coverUrl = li.selectFirst("img")?.attr("data-src")?.takeIf { it.isNotBlank() },
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -141,18 +145,18 @@ class MangagoSource @Inject constructor(
                 val link = li.selectFirst("div.left a[href*='/read-manga/']") ?: return@mapNotNull null
                 SManga(
                     sourceId = id,
-                    url = link.attr("href").removePrefix(base),
+                    url = toSourcePath(base, link.attr("href")),
                     title = li.selectFirst("span.tit h2 a")?.text()?.trim()?.ifBlank { null }
                         ?: return@mapNotNull null,
                     coverUrl = li.selectFirst("div.left img")?.attr("src"),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst(".w-title h1, h1.title")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst(".cover img, .w-cover img")?.attr("src") ?: manga.coverUrl,
@@ -160,12 +164,12 @@ class MangagoSource @Inject constructor(
                 genres = doc.select(".tag-links a, .genre a").map { it.text() },
                 author = doc.selectFirst(".table-ellipsis td:contains(Author) + td")?.text()?.trim(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val links = doc.select("#chapter_table tr td a, .chapter_list li a")
             // Web vypisuje kapitoly od nejnovejsi (DOM poradi), puvodne se ale cislo
             // kapitoly pocitalo primo z tohohle poradi (i+1) a AZ POTOM se cely seznam
@@ -178,18 +182,18 @@ class MangagoSource @Inject constructor(
             links.reversed().mapIndexed { i, a ->
                 SChapter(
                     sourceId = id, mangaUrl = manga.url,
-                    url = a.attr("href").removePrefix(base),
+                    url = toSourcePath(base, a.attr("href")),
                     name = a.text().trim().takeIf { it.isNotBlank() } ?: "Chapter ${i + 1}",
                     chapterNumber = (i + 1).toFloat(),
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${chapter.url}")
+            val html = get(resolveSourceUrl(base, chapter.url))
             val jsMatch = Regex("""var\s+newImglist\s*=\s*\[([^\]]+)\]""").find(html)
                 ?: Regex("""imgsrcs\s*=\s*\[([^\]]+)\]""").find(html)
             if (jsMatch != null) {
@@ -200,9 +204,9 @@ class MangagoSource @Inject constructor(
                 return@withContext urls.mapIndexed { i, url -> Page(i, url, url) }
             }
             Jsoup.parse(html).select(".pic_box img, #comicpic img").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

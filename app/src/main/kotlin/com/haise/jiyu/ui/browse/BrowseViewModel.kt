@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -27,6 +28,15 @@ class BrowseViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _allSources: StateFlow<List<MangaSource>> = sourceManager.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Jazyky, ve kterých je k dispozici aspoň jeden zdroj - nejčastější první, angličtina vždy na začátku. */
+    val availableLanguages: StateFlow<List<String>> = _allSources
+        .map { all ->
+            all.groupingBy { it.language.lowercase() }.eachCount().entries
+                .sortedWith(compareBy({ it.key != "en" }, { -it.value }, { it.key }))
+                .map { it.key }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _contentTypeFilter = MutableStateFlow("ALL")
@@ -47,7 +57,7 @@ class BrowseViewModel @Inject constructor(
     ) { all, type, lang, nameQuery ->
         all.filter { src ->
             matchesContentType(src.contentType, type) &&
-            (lang == "ALL" || src.language == lang) &&
+            (lang == "ALL" || src.language.equals(lang, ignoreCase = true)) &&
             (nameQuery.isBlank() || src.name.contains(nameQuery, ignoreCase = true))
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.doujiva
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -65,7 +67,7 @@ class DoujivaSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -85,14 +87,14 @@ class DoujivaSource @Inject constructor(
             val genre = filter.genres.firstOrNull()
             if (genre != null) {
                 return@withContext try { parseGalleryList(fetchDocument("$base/tag/$genre?page=$page")) }
-                catch (_: Exception) { emptyList() }
+                catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }
             // Bez parametru web řadí od nejnovějšího nahrání - "Populární" tab proto
             // potřebuje explicitní "?sort=popular-all" (ověřeno živě, jinak vrací úplně
             // jinou sadu titulů než skutečně populární výběr).
             val sort = if (filter.sortBy == "popular") "&sort=popular-all" else ""
             try { parseGalleryList(fetchDocument("$base/?page=$page$sort")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -105,7 +107,7 @@ class DoujivaSource @Inject constructor(
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/search?q=$q&page=$page"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -115,7 +117,7 @@ class DoujivaSource @Inject constructor(
             val artist = doc.selectFirst("a[href^=/artist/] span")?.text()?.trim()?.ifBlank { null }
             val genres = doc.select("a[href^=/tag/]").mapNotNull { it.text().trim().ifBlank { null } }
             manga.copy(title = title, artist = artist, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -147,6 +149,6 @@ class DoujivaSource @Inject constructor(
                     Page(index = i, url = full, imageUrl = full)
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -34,6 +34,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +70,15 @@ fun DuplicateDetectorScreen(
 ) {
     val groups   by viewModel.groups.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    var pendingRemovalId by remember { mutableStateOf<String?>(null) }
+
+    pendingRemovalId?.let { id ->
+        com.haise.jiyu.ui.library.RemoveFromLibraryDialog(
+            mangaTitle = groups.flatMap { it.items }.firstOrNull { it.id == id }?.title.orEmpty(),
+            onConfirm = { viewModel.removeFromLibrary(id) },
+            onDismiss = { pendingRemovalId = null },
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -122,7 +134,7 @@ fun DuplicateDetectorScreen(
                     DuplicateGroupCard(
                         group = group,
                         onOpen = { onOpenManga(it) },
-                        onRemove = { viewModel.removeFromLibrary(it) },
+                        onRemove = { pendingRemovalId = it },
                     )
                 }
             }

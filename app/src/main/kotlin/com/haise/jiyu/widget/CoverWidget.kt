@@ -155,7 +155,7 @@ private fun CoverWidgetContent(mangaId: String?, data: CoverWidgetData?, configu
             val openIntent = Intent(
                 Intent.ACTION_VIEW,
                 if (readerChapterId != null) Uri.parse("jiyu://reader?chapterId=${Uri.encode(readerChapterId)}")
-                else Uri.parse("jiyu://manga?mangaId=$mangaId"),
+                else Uri.parse("jiyu://manga?mangaId=${Uri.encode(mangaId)}"),
             )
             if (data.coverBitmap != null) {
                 Image(

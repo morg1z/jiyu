@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.hostednovel
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -28,13 +31,14 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "hostednovel"
     override val name = "HostedNovel"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://hostednovel.com"
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
         return Jsoup.parse(html)
@@ -52,19 +56,19 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
                 // maji rovnou "src" - bez fallbacku vychazel cover null pro KAZDY
                 // titul (overeno zive, 0/50 melo jeste data-src).
                 val img = a.selectFirst("img")
-                val cover = img?.attr("data-src")?.ifBlank { img.attr("src") }?.takeIf { it.startsWith("http") }
+                val cover = img?.attr("data-src")?.ifBlank { img.attr("src") }?.let { absoluteMediaUrl(base, it) }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
             }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/novels?sort=popular&status=any&page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/novels?sort=popular&status=any&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
             parseList(get("$base/novels?sort=name&status=any")).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun ddFor(doc: Document, label: String): String? =
@@ -81,7 +85,7 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
                 status = ddFor(doc, "Status"),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -102,13 +106,13 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = 0L,
                 )
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val text = get(chapter.url).selectFirst("div#chapter-content")?.text()?.trim().orEmpty()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

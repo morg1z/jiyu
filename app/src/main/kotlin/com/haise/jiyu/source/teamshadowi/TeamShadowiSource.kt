@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.teamshadowi
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -7,6 +9,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -54,7 +57,7 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -72,11 +75,28 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
         }.distinctBy { it.url }
     }
 
+    /** Slugy v pořadí, v jakém je web ukazuje na dané stránce (`/popular`, `/latest`) - ty samy karty, jiné řazení. */
+    internal fun slugOrder(html: String): List<String> =
+        Jsoup.parse(html).select("a[href^=/series/]")
+            .map { it.attr("href").removePrefix("/series/").trim('/') }
+            .filter { it.isNotBlank() && !it.contains('/') }
+            .distinct()
+
+    // Katalog má celkem jen 8 titulů (ověřeno i přes sitemap.xml) a "/series" je vrací v pevném pořadí.
+    // "Populární" a "Nejnovější" se liší jen pořadím: web má vlastní stránky "/popular" (všech 8 podle
+    // popularity) a "/latest" (jen nedávno aktualizované) - z nich se bere pořadí, obsah karet (titulek,
+    // obálka) zůstává z "/series". Tituly, které v pořadí nejsou, jdou na konec v původním pořadí.
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (page > 1) return@withContext emptyList()
-            parseList(get("$base/series"))
-        } catch (_: Exception) { emptyList() }
+            val cards = parseList(get("$base/series"))
+            val orderPage = if (filter.sortBy == "latest") "latest" else "popular"
+            val order = try {
+                slugOrder(get("$base/$orderPage"))
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            if (order.isEmpty()) cards
+            else cards.sortedBy { card -> order.indexOf(card.url).let { if (it < 0) Int.MAX_VALUE else it } }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Server-side "?search=" parametr nefunguje (viz komentar u tridy) - hledani
@@ -87,18 +107,11 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
         try {
             val q = query.trim()
             parseList(get("$base/series")).filter { it.title.contains(q, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun fetchSeriesJson(slug: String): JSONObject =
         JSONObject(get("$base/api/series/$slug")).getJSONObject("series")
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manga" -> "MANGA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANHWA"
-    }
 
     private fun JSONArray.toStringList(): List<String> = (0 until length()).mapNotNull { i ->
         optString(i).trim().ifBlank { null }
@@ -114,12 +127,12 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
                 genres = s.optJSONArray("genres")?.toStringList() ?: manga.genres,
                 alternateTitles = s.optJSONArray("alt_titles")?.toStringList() ?: manga.alternateTitles,
                 status = s.optString("status").trim().lowercase().ifBlank { null },
-                contentType = normalizeContentType(s.optString("origination")),
+                contentType = normalizeContentType(s.optString("origination"), default = "MANHWA"),
                 author = s.optJSONArray("authors")?.toStringList()?.joinToString(", ")?.ifBlank { null },
                 artist = s.optJSONArray("artists")?.toStringList()?.joinToString(", ")?.ifBlank { null },
                 rating = if (s.has("average_rating")) s.optDouble("average_rating") else null,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -138,12 +151,12 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
                     chapterNumber = num, dateUpload = parseIsoDate(c.optString("created_at")),
                 )
             }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(iso: String): Long = try {
         java.time.Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
@@ -157,6 +170,6 @@ class TeamShadowiSource @Inject constructor(private val client: OkHttpClient) : 
                 val url = paths.optString(i).trim().ifBlank { return@mapNotNull null }
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

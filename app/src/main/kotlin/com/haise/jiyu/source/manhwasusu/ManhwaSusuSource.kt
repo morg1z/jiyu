@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.manhwasusu
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -44,7 +47,7 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -126,7 +129,7 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
             }
             val doc = Jsoup.parse(get("$base/popular?page=$page"), base)
             slicePage(parseCards(doc), page)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -140,7 +143,7 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
             val q = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
             val doc = Jsoup.parse(get("$base/search/$q?page=$page"), base)
             slicePage(parseCards(doc), page)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Detail mangy ────────────────────────────────────────────────────────
@@ -151,7 +154,7 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
             val ld = doc.select("script[type=application/ld+json]").firstNotNullOfOrNull { el ->
                 try {
                     JSONObject(el.data()).takeIf { it.optString("@type") == "ComicSeries" }
-                } catch (_: Exception) { null }
+                } catch (e: Exception) { e.rethrowIfControl(); null }
             } ?: return@withContext manga
 
             val genres = ld.optJSONArray("genre")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
@@ -169,7 +172,7 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
                 author = authors.filter { it.isNotBlank() }.joinToString(", ").takeIf { it.isNotBlank() },
                 status = status,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // ─── Kapitoly ────────────────────────────────────────────────────────────
@@ -185,14 +188,14 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
                 val name = paragraphs.getOrNull(0)?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
                 if (!name.startsWith("Chapter", ignoreCase = true)) return@mapNotNull null
                 val url = a.absUrl("href").ifBlank { return@mapNotNull null }
-                val num = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                val num = parseChapterNumber(name) ?: 0f
                 val dateText = paragraphs.getOrNull(1)?.text()?.trim()
                 SChapter(
                     sourceId = id, mangaUrl = manga.url, url = url, name = name,
                     chapterNumber = num, dateUpload = parseRelativeDate(dateText),
                 )
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** "3 hour ago", "1 week ago", "2 mth ago", "1 yr ago" apod. */
@@ -229,6 +232,6 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
                 .distinct()
                 .toList()
                 .mapIndexed { i, url -> Page(i, url, url) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

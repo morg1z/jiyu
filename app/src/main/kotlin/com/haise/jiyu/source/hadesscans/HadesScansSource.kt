@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.hadesscans
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +12,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -37,16 +42,9 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
     }
 
     private fun parseList(html: String): List<SManga> {
@@ -80,7 +78,7 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int) =
@@ -95,7 +93,7 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
             }
             val url = if (page <= 1) "$base/manga/" else "$base/manga/page/$page/"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -106,7 +104,7 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -120,7 +118,7 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
                 genres = doc.select("a.cx-genre-chip").map { it.text().trim() }.filter { it.isNotBlank() },
                 contentType = normalizeContentType(type),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -129,7 +127,7 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
             doc.select("a.cx-chapter-item[href]").mapNotNull { row ->
                 val href = row.absUrl("href").ifBlank { return@mapNotNull null }
                 val num = row.attr("data-cx-chapter-title").toFloatOrNull()
-                    ?: Regex("""[\d.]+""").find(row.selectFirst("span.cx-chapter-item__title")?.text().orEmpty())?.value?.toFloatOrNull()
+                    ?: parseChapterNumber(row.selectFirst("span.cx-chapter-item__title")?.text().orEmpty())
                     ?: return@mapNotNull null
                 val name = row.selectFirst("span.cx-chapter-item__title")?.text()?.trim() ?: "Chapter $num"
                 val dateAttr = row.selectFirst("time.cx-chapter-item__date")?.attr("datetime")
@@ -142,17 +140,11 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
                     dateUpload = parseIsoDate(dateAttr),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseIsoDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        return try {
-            java.time.OffsetDateTime.parse(text).toInstant().toEpochMilli()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseIsoDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     // Stranka kapitoly ma prazdny #readerarea (obrazky dodava az JS) - misto renderovani
     // se zavola primo WordPress REST API, ktere vraci hotove HTML s <img> tagy.
@@ -164,9 +156,9 @@ class HadesScansSource @Inject constructor(private val client: OkHttpClient) : M
             if (json.length() == 0) return@withContext emptyList()
             val contentHtml = json.getJSONObject(0).getJSONObject("content").getString("rendered")
             Jsoup.parse(contentHtml).select("img").mapIndexedNotNull { i, img ->
-                val src = img.attr("src").ifBlank { img.attr("data-src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

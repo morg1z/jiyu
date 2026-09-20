@@ -158,7 +158,7 @@ class OnDeviceTranslator {
         return try {
             restoreGlossary(translateOne(translator, text).trim(), entries)
         } catch (e: Exception) {
-            Log.w(TAG, "translate failed for '$text'", e)
+            Log.w(TAG, "translate failed (len=${text.length})", e)
             null
         }
     }

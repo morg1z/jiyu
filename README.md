@@ -29,7 +29,7 @@ you choose how the app should feel:
   This mode covers manga, manhwa and manhua only - no light novels, no
   American comics.
 - **Manual source browsing** - the classic way: browse and pick from all
-  110+ built-in sources one by one, including light novels and American
+  150+ built-in sources one by one, including light novels and American
   comics.
 
 Both modes share the same downloaded library and reading history, so
@@ -61,17 +61,37 @@ Tests: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
   the client only ever calls its own backend) - plus an optional
   bring-your-own OpenAI-compatible endpoint (self-hosted or third-party),
   called directly instead of through the proxy, as a final fallback or a
-  full replacement
+  full replacement. Inside the proxy, Groq falls back to a second free model
+  (Qwen) and Gemini to Flash-Lite when the main model hits its quota, and
+  novel translation is prompted for natural, idiomatic prose in the target
+  language (not word-for-word)
 - Supabase - authentication (Google sign-in through Android's Credential
   Manager, or plain email/password), cloud library sync, community features
 
 ### Features
 
-**Sources** - 110+ `MangaSource` implementations (manga, manhwa, manhua,
+**Sources** - 150+ `MangaSource` implementations (manga, manhwa, manhua,
 American comics, light novels). MangaDex, ComicK and MANGA Plus go through
 official APIs, the rest are scrapers for specific sites or the generic
-Madara template (`source/madara`), where adding a new site is just a base
-URL.
+templates - Madara (`source/madara`), MangaThemesia (`source/mangathemesia`)
+and ZeistManga, i.e. Blogger sites read through their JSON feed
+(`source/zeistmanga`) - where adding a new site is just a base URL and a few
+options. On top of that comes a community catalog of ~90 more sites on those
+templates (`source/community`, see `docs/community-sources.md`), each one
+verified by a live smoke test before it was added. A weekly CI job re-runs
+that test. The browse screen has a compact filter row (content type +
+language) with searchable bottom sheets; the language list only offers
+languages that have at least one source.
+
+**Network resilience** - requests retry once on a flaky connection, fail
+fast when offline, share cookies with the built-in WebView and cache
+responses for a few minutes. Cloudflare and Turnstile checks are solved
+automatically in an invisible WebView (no dialogs, no manual verification;
+global search verifies protected sources one by one in the background). A
+site that moved to a new address is detected (`MirrorProbe`), mirrors can be
+set per source, and there is an optional HTTP/SOCKS proxy and an opt-in image
+proxy. Errors carry an action (retry, open the source's site, use the new
+domain) instead of a bare message.
 
 **Reader** - horizontal and webtoon mode, reads downloaded files or streams
 straight from the URL, never opens a browser. Configurable page zoom (fit
@@ -146,7 +166,14 @@ can be changed later in Settings.
 - `download/` - WorkManager worker for background downloads
 - `translate/` - the whole translation pipeline: OCR → bubble shape
   detection → LLM client → glossary → layout/render overlay
+- `source/interceptor/` - the shared OkHttp chain (retry, offline check,
+  slowdown, cookies, Cloudflare, caches, proxies); `source/community/` - the
+  community catalog built on the templates
 - `sync/`, `anilist/`, `auth/` - cloud sync and tracker integrations
+  (cloud sync pages through the results and pushes only changed chapters)
+- `supabase/` - the translate proxy Edge Function, the current database
+  schema (`schema.sql`) and migrations (RLS, indexes and grants are set up
+  there)
 - `ui/` - Compose screens + ViewModels, one folder per screen (`ui/comickhome`
   and `ui/resolver` cover the aggregated catalog, `ui/account` the cloud
   account)
@@ -184,7 +211,7 @@ jak má appka fungovat:
   potichu nepošle na zdroj, jehož překlad už dávno skončil nebo teprve
   nedávno začal. Tenhle režim pokrývá jen mangu, manhwu a manhuu - bez light
   novel a bez amerických komiksů.
-- **Ruční výběr zdrojů** - klasický způsob: procházíš a vybíráš z 110+
+- **Ruční výběr zdrojů** - klasický způsob: procházíš a vybíráš z 150+
   vestavěných zdrojů jednotlivě, včetně light novel a amerických komiksů.
 
 Oba režimy sdílejí stejnou staženou knihovnu a historii čtení, takže
@@ -216,16 +243,35 @@ Testy: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
   Function jako proxy (appka nikdy nedrží API klíče, klient jen volá vlastní
   backend) - plus volitelný vlastní OpenAI-kompatibilní endpoint (vlastní
   hosting nebo cizí služba), volaný přímo bez proxy, jako poslední záloha
-  nebo úplná náhrada
+  nebo úplná náhrada. Uvnitř proxy má Groq druhý bezplatný model (Qwen) a
+  Gemini Flash-Lite, když hlavní model vyčerpá kvótu, a překlad novel se
+  promptuje na přirozenou, idiomatickou prózu v cílovém jazyce (ne slovo od
+  slova)
 - Supabase - přihlášení (Google přes Android Credential Manager, nebo klasicky
   e-mail a heslo), cloud sync knihovny, komunitní funkce
 
 ### Co umí
 
-**Zdroje** - 110+ implementací `MangaSource` (manga, manhwa, manhua, americké
+**Zdroje** - 150+ implementací `MangaSource` (manga, manhwa, manhua, americké
 komiksy, light novely). MangaDex, ComicK a MANGA Plus běží přes oficiální
-API, zbytek jsou scrapery na konkrétní stránky nebo generická Madara šablona
-(`source/madara`), kam stačí dodat jen base URL nového webu.
+API, zbytek jsou scrapery na konkrétní stránky nebo generické šablony -
+Madara (`source/madara`), MangaThemesia (`source/mangathemesia`) a
+ZeistManga, tedy Blogger weby čtené přes JSON feed (`source/zeistmanga`) -,
+kam stačí dodat jen base URL nového webu a pár voleb. K tomu komunitní katalog
+zhruba 90 dalších webů na těchto šablonách (`source/community`, viz
+`docs/community-sources.md`), každý ověřený živým testem, než se přidal;
+týdenní CI úloha ten test opakuje. Procházení má kompaktní řadu filtrů (typ
+obsahu + jazyk) s vyhledávatelnými výběry; jazyky nabízí jen ty, pro které
+existuje aspoň jeden zdroj.
+
+**Odolnost sítě** - požadavky se při vadném spojení jednou zopakují, offline
+selžou hned, sdílejí cookies s vestavěným WebView a odpovědi se pár minut
+cachují. Ověření Cloudflare a Turnstile se řeší automaticky v neviditelném
+WebView (žádná okna, žádné ruční ověřování; globální hledání ověřuje chráněné
+zdroje po jednom na pozadí). Přestěhovaný web se pozná (`MirrorProbe`),
+zrcadla jdou nastavit u každého zdroje a je tu volitelná HTTP/SOCKS proxy a
+volitelná proxy obrázků. Chyby nesou akci (zkusit znovu, otevřít web zdroje,
+použít novou doménu), ne jen hlášku.
 
 **Čtečka** - horizontální i webtoon mód, čte stažené soubory nebo streamuje
 přímo z URL, nikdy neotevírá browser. Nastavitelné přiblížení stránky (na
@@ -298,7 +344,13 @@ změnit v Nastavení.
 - `download/` - WorkManager worker pro stahování na pozadí
 - `translate/` - celý překladový pipeline: OCR → detekce tvaru bubliny →
   LLM klient → glosář → layout/render overlay
-- `sync/`, `anilist/`, `auth/` - cloud sync a tracker integrace
+- `source/interceptor/` - společný řetěz OkHttp (opakování, kontrola offline,
+  zpomalení, cookies, Cloudflare, cache, proxy); `source/community/` -
+  komunitní katalog postavený na šablonách
+- `sync/`, `anilist/`, `auth/` - cloud sync a tracker integrace (cloud sync
+  stahuje po stránkách a posílá jen změněné kapitoly)
+- `supabase/` - Edge Function překladové proxy, aktuální schéma databáze
+  (`schema.sql`) a migrace (RLS, indexy a oprávnění se nastavují tam)
 - `ui/` - Compose obrazovky + ViewModely, po jedné složce na obrazovku
   (`ui/comickhome` a `ui/resolver` mají na starosti agregovaný katalog,
   `ui/account` cloudový účet)

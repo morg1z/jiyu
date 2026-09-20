@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.freewebnovel
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -29,7 +32,7 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
@@ -44,7 +47,7 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
                 sourceId = id,
                 url = link.attr("href"),
                 title = link.text().trim(),
-                coverUrl = cover?.let { if (it.startsWith("http")) it else "$base$it" },
+                coverUrl = cover?.let { resolveSourceUrl(base, it) },
                 contentType = "NOVEL",
             )
         }
@@ -67,7 +70,7 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             }.distinctBy { it.id }.sortedBy { it.label }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int) =
@@ -85,7 +88,7 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             val sortPath = if (filter.sortBy == "latest") "latest-release" else "most-popular"
             val url = if (page > 1) "$base/sort/$sortPath/$page" else "$base/sort/$sortPath"
             parseListing(Jsoup.parse(get(url)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -95,22 +98,22 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseListing(Jsoup.parse(get("$base/search?searchkey=$q")))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 description = doc.selectFirst("meta[property=og:description]")?.attr("content"),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("ul#idData li a.con").mapIndexed { i, a ->
                 SChapter(
                     sourceId = id,
@@ -121,14 +124,14 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val text = doc.selectFirst("div#article")?.text()?.trim() ?: ""
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

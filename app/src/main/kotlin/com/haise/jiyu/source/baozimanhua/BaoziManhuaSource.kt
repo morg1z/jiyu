@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.baozimanhua
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -27,6 +30,7 @@ import javax.inject.Singleton
 class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "baozimanhua"
     override val name = "Baozi Manhua (Raw)"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "MANHUA"
     override val language = "zh"
     override val homepageUrl get() = base
@@ -34,7 +38,7 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -54,9 +58,9 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
-        try { parseList(get("$base/classify?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/classify?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -64,12 +68,12 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
         // u MadaraSource se pri vybranem zanru textovy dotaz ignoruje a pouzije se rovnou
         // filtrovany archiv (razeni ma prednost pred hledanim).
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // ─── Filtrování podle žánrů ─────────────────────────────────────────────
@@ -105,7 +109,7 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int): String =
@@ -116,7 +120,7 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val statusRaw = meta(doc, "og:novel:status")
             manga.copy(
                 title = meta(doc, "og:novel:book_name") ?: manga.title,
@@ -131,12 +135,12 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
                 },
                 contentType = "MANHUA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val comicId = manga.url.removePrefix("/comic/").trim('/')
             val items = doc.select("a.comics-chapters__item")
             items.mapIndexedNotNull { i, a ->
@@ -153,18 +157,18 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = 0L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${chapter.url}")
+            val html = get(resolveSourceUrl(base, chapter.url))
             Regex("""amp-img id="chapter-img-\d+-\d+"[^>]*src="([^"]+)"""")
                 .findAll(html)
                 .map { it.groupValues[1] }
                 .distinct()
                 .mapIndexed { i, url -> Page(i, url, url) }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

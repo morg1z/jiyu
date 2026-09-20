@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.reader
 
+import com.haise.jiyu.BuildConfig
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.MutableTransitionState
@@ -282,7 +283,7 @@ fun BubbleOverlayLayer(
 private fun logBubbleSkipped(originalText: String, isSfx: Boolean, isUntranslated: Boolean, hasLetters: Boolean) {
     val reason = bubbleSkipReason(isSfx, isUntranslated, hasLetters)
     if (reason != null) {
-        Log.d("BubbleSkip", "reason=$reason original=\"$originalText\"")
+        if (BuildConfig.DEBUG) Log.d("BubbleSkip", "reason=$reason original=\"$originalText\"")
     }
 }
 
@@ -589,7 +590,7 @@ private fun logNativeFontCap(preferredFontSp: Float, roomToGrow: Boolean) {
  * ji zmáčkla) - viz [com.haise.jiyu.translate.layoutTranslationBlocks].
  */
 private fun logTinyBubbleBox(originalText: String, widthDp: Float, minHeightDp: Float, maxHeightDp: Float, hasShape: Boolean) {
-    Log.d("TinyBubbleBox", "w=%.1fdp minH=%.1fdp maxH=%.1fdp shape=%s original=\"%s\"".format(widthDp, minHeightDp, maxHeightDp, hasShape, originalText))
+    if (BuildConfig.DEBUG) Log.d("TinyBubbleBox", "w=%.1fdp minH=%.1fdp maxH=%.1fdp shape=%s original=\"%s\"".format(widthDp, minHeightDp, maxHeightDp, hasShape, originalText))
 }
 
 private fun fontFamilyFor(bubbleType: BubbleType): FontFamily = when (bubbleType) {

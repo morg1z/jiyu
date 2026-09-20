@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.mangadex
 
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.LanguageMap
@@ -66,7 +67,7 @@ class MangaDexSource @Inject constructor(
             }.sortedBy { it.label }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
@@ -268,7 +269,7 @@ class MangaDexSource @Inject constructor(
     }
 
     suspend fun getRelatedManga(mangaId: String): List<SManga> = withContext(Dispatchers.IO) {
-        val relJson = try { get("$apiBase/manga/$mangaId/relation") } catch (_: Exception) { return@withContext emptyList() }
+        val relJson = try { get("$apiBase/manga/$mangaId/relation") } catch (e: Exception) { e.rethrowIfControl(); return@withContext emptyList() }
         val relData = relJson.optJSONArray("data") ?: return@withContext emptyList()
         val ids = (0 until relData.length()).mapNotNull { i ->
             relData.getJSONObject(i)
@@ -282,7 +283,7 @@ class MangaDexSource @Inject constructor(
         }.take(10)
         if (ids.isEmpty()) return@withContext emptyList()
         val idsParam = ids.joinToString("&") { "ids[]=$it" }
-        try { parseMangaList(get("$apiBase/manga?$idsParam&limit=10&includes[]=cover_art")) } catch (_: Exception) { emptyList() }
+        try { parseMangaList(get("$apiBase/manga?$idsParam&limit=10&includes[]=cover_art")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDateToMillis(iso: String): Long {

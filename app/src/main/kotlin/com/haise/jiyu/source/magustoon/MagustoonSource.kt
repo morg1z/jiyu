@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.magustoon
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -36,13 +39,14 @@ import javax.inject.Singleton
 class MagustoonSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "magustoon"
     override val name = "Magustoon"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "MANHWA"
     override val homepageUrl get() = base
     private val base = "https://magustoon.org"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -60,7 +64,7 @@ class MagustoonSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/series?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/series?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Server-side "?q="/"?search=" parametr nefunguje (viz komentar u tridy) - hledani
@@ -71,26 +75,26 @@ class MagustoonSource @Inject constructor(private val client: OkHttpClient) : Ma
         try {
             val q = query.trim()
             (1..3).flatMap { p ->
-                try { parseList(get("$base/series?page=$p")) } catch (_: Exception) { emptyList() }
+                try { parseList(get("$base/series?page=$p")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }.distinctBy { it.url }.filter { it.title.contains(q, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst("[itemprop=name]")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst("[itemprop=image]")?.attr("src")?.trim()?.ifBlank { null } ?: manga.coverUrl,
                 description = doc.selectFirst("[itemprop=description]")?.text()?.trim()?.ifBlank { null },
                 genres = doc.select("[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("a[href^=\"${manga.url}/chapter-\"]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val num = Regex("""chapter-([\d.]+)$""").find(href)?.groupValues?.get(1)?.toFloatOrNull()
@@ -98,16 +102,16 @@ class MagustoonSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val name = a.selectFirst("img[alt]")?.attr("alt")?.trim()?.ifBlank { null } ?: "Chapter $num"
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = 0L)
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img[data-reader-page-image]").mapIndexedNotNull { i, img ->
                 val src = img.attr("src").trim().ifBlank { return@mapIndexedNotNull null }
                 Page(i, src, src)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

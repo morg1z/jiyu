@@ -1,5 +1,11 @@
 package com.haise.jiyu.source.mangaraw4u
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -50,12 +56,12 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -66,7 +72,7 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
             val href = a.attr("href").ifBlank { return@mapNotNull null }
             val title = a.selectFirst(".result-card-title")?.text()?.trim() ?: return@mapNotNull null
             val cover = a.selectFirst(".result-card-image img")?.attr("src")?.trim()?.takeIf { it.isNotBlank() }
-            SManga(sourceId = id, url = href.removePrefix(base), title = title, coverUrl = cover, contentType = "MANGA")
+            SManga(sourceId = id, url = toSourcePath(base, href), title = title, coverUrl = cover, contentType = "MANGA")
         }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -78,7 +84,7 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
             val genreParam = filter.genres.firstOrNull()?.let { "&genre=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
             val doc = Jsoup.parse(get("$base/search?sort=$sort&page=$page$genreParam"))
             parseResultCards(doc)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -93,7 +99,7 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
                 val nameParam = if (query.isNotBlank()) "&filter%5Bname%5D=${URLEncoder.encode(query, "UTF-8")}" else ""
                 val doc = Jsoup.parse(get("$base/search?sort=$sort&genre=${URLEncoder.encode(genre, "UTF-8")}$nameParam"))
                 return@withContext parseResultCards(doc)
-            } catch (_: Exception) { return@withContext emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); return@withContext emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
@@ -108,43 +114,43 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
                     contentType = "MANGA",
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val genres = doc.select(".detail-genres a").map { it.text().trim() }.filter { it.isNotBlank() }
             manga.copy(
                 title = doc.selectFirst("h1.detail-title")?.text()?.trim() ?: manga.title,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.US)
             doc.select("div.detail-chapter-row").mapNotNull { row ->
                 val a = row.selectFirst(".detail-col-chapter a") ?: return@mapNotNull null
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val num = row.attr("data-chapter-number").toFloatOrNull() ?: 0f
                 val dateText = row.selectFirst(".detail-col-updated")?.text()?.trim().orEmpty()
-                val date = try { dateFormat.parse(dateText)?.time ?: 0L } catch (_: Exception) { 0L }
+                val date = try { dateFormat.parse(dateText)?.time ?: 0L } catch (e: Exception) { e.rethrowIfControl(); 0L }
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = a.text().trim(), chapterNumber = num, dateUpload = date)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img").filter { it.attr("alt").contains(" - Page ") }.mapIndexedNotNull { i, img ->
-                val url = img.attr("data-src").ifBlank { img.attr("src") }.takeIf { it.startsWith("http") }
+                val url = img.lazySrc().orEmpty().let { absoluteMediaUrl(base, it) }
                     ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

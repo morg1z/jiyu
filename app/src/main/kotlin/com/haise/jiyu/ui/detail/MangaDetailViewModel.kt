@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.detail
 
+import com.haise.jiyu.translate.GlossaryRepository
+import com.haise.jiyu.data.repository.MangaNotesRepository
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -36,6 +40,7 @@ import com.haise.jiyu.util.ChapterStorage
 import com.haise.jiyu.util.NetworkMonitor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import com.haise.jiyu.util.toErrorAction
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,9 +65,8 @@ class MangaDetailViewModel @Inject constructor(
     private val downloadQueue: DownloadQueue,
     private val translateQueue: com.haise.jiyu.translate.TranslateQueue,
     private val networkMonitor: NetworkMonitor,
-    private val mangaNoteDao: MangaNoteDao,
-    private val mangaTagDao: MangaTagDao,
-    private val glossaryDao: GlossaryDao,
+    private val notesRepository: MangaNotesRepository,
+    private val glossaryRepository: GlossaryRepository,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
     private val aniListRepository: AniListRepository,
     private val malRepository: MalRepository,
@@ -71,6 +75,7 @@ class MangaDetailViewModel @Inject constructor(
     private val muRepository: MangaUpdatesRepository,
     private val sourceManager: SourceManager,
     private val comicKSource: ComicKSource,
+    private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -302,15 +307,15 @@ class MangaDetailViewModel @Inject constructor(
     }
 
     // ── Poznámky (#27) ────────────────────────────────────────────────────────
-    val mangaNote: StateFlow<MangaNoteEntity?> = mangaNoteDao.observeForManga(mangaId)
+    val mangaNote: StateFlow<MangaNoteEntity?> = notesRepository.observeNote(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── Tagy (#26) ────────────────────────────────────────────────────────────
-    val mangaTags: StateFlow<List<MangaTagEntity>> = mangaTagDao.observeForManga(mangaId)
+    val mangaTags: StateFlow<List<MangaTagEntity>> = notesRepository.observeTags(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Slovník AI překladu (konzistentní jména/techniky napříč kapitolami) ────
-    val glossary: StateFlow<List<GlossaryEntity>> = glossaryDao.observeForManga(mangaId)
+    val glossary: StateFlow<List<GlossaryEntity>> = glossaryRepository.observeForManga(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val defaultTargetLanguage: StateFlow<String> = settings.targetLanguage
@@ -323,26 +328,14 @@ class MangaDetailViewModel @Inject constructor(
         // Limit delky/poctu slov - bez nej tenhle primy DAO zapis obchazel jediny filtr v
         // appce (isPlausibleGlossaryTerm se aplikuje jen na modelem navrzene terminy), takze
         // sem slo rucne vlozit cokoli libovolne dlouheho, co pak jde do promptu (nahlaseno v auditu).
-        if (!com.haise.jiyu.translate.isWithinGlossaryTermLimits(source, target)) return
-        viewModelScope.launch {
-            glossaryDao.upsert(
-                GlossaryEntity(
-                    id = "$mangaId::${source.lowercase()}::$targetLanguage",
-                    mangaId = mangaId,
-                    sourceTerm = source,
-                    targetTerm = target,
-                    targetLanguage = targetLanguage,
-                    protectExact = protectExact,
-                )
-            )
-        }
+        viewModelScope.launch { glossaryRepository.addManual(mangaId, source, target, targetLanguage, protectExact) }
     }
 
-    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryDao.delete(entry) }
+    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryRepository.delete(entry) }
 
     /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
     fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
-        viewModelScope.launch { glossaryDao.upsert(entry.copy(protectExact = !entry.protectExact)) }
+        viewModelScope.launch { glossaryRepository.setProtectExact(entry, !entry.protectExact) }
     }
 
     /**
@@ -396,11 +389,22 @@ class MangaDetailViewModel @Inject constructor(
     private val _malSearchLoading = MutableStateFlow(false)
     val malSearchLoading: StateFlow<Boolean> = _malSearchLoading.asStateFlow()
 
+    private var searchMalJob: Job? = null
+
     fun searchMal(query: String) {
-        viewModelScope.launch {
+        searchMalJob?.cancel()
+        searchMalJob = viewModelScope.launch {
             _malSearchLoading.value = true
-            _malSearchResults.value = malRepository.searchManga(query)
-            _malSearchLoading.value = false
+            try {
+                _malSearchResults.value = malRepository.searchManga(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:searchMal")
+            } finally {
+                // Zrušené hledání (nahrazené novějším) vypínač nesmí shodit - běží už další.
+                if (isActive) _malSearchLoading.value = false
+            }
         }
     }
 
@@ -452,11 +456,22 @@ class MangaDetailViewModel @Inject constructor(
     private val _aniListSearchLoading = MutableStateFlow(false)
     val aniListSearchLoading: StateFlow<Boolean> = _aniListSearchLoading.asStateFlow()
 
+    private var searchAniListJob: Job? = null
+
     fun searchAniList(query: String) {
-        viewModelScope.launch {
+        searchAniListJob?.cancel()
+        searchAniListJob = viewModelScope.launch {
             _aniListSearchLoading.value = true
-            _aniListSearchResults.value = aniListRepository.searchManga(query)
-            _aniListSearchLoading.value = false
+            try {
+                _aniListSearchResults.value = aniListRepository.searchManga(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:searchAniList")
+            } finally {
+                // Zrušené hledání (nahrazené novějším) vypínač nesmí shodit - běží už další.
+                if (isActive) _aniListSearchLoading.value = false
+            }
         }
     }
 
@@ -490,11 +505,22 @@ class MangaDetailViewModel @Inject constructor(
     private val _kitsuSearchLoading = MutableStateFlow(false)
     val kitsuSearchLoading: StateFlow<Boolean> = _kitsuSearchLoading.asStateFlow()
 
+    private var searchKitsuJob: Job? = null
+
     fun searchKitsu(query: String) {
-        viewModelScope.launch {
+        searchKitsuJob?.cancel()
+        searchKitsuJob = viewModelScope.launch {
             _kitsuSearchLoading.value = true
-            _kitsuSearchResults.value = kitsuRepository.searchManga(query)
-            _kitsuSearchLoading.value = false
+            try {
+                _kitsuSearchResults.value = kitsuRepository.searchManga(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:searchKitsu")
+            } finally {
+                // Zrušené hledání (nahrazené novějším) vypínač nesmí shodit - běží už další.
+                if (isActive) _kitsuSearchLoading.value = false
+            }
         }
     }
 
@@ -545,11 +571,22 @@ class MangaDetailViewModel @Inject constructor(
     private val _muSearchLoading = MutableStateFlow(false)
     val muSearchLoading: StateFlow<Boolean> = _muSearchLoading.asStateFlow()
 
+    private var searchMuJob: Job? = null
+
     fun searchMu(query: String) {
-        viewModelScope.launch {
+        searchMuJob?.cancel()
+        searchMuJob = viewModelScope.launch {
             _muSearchLoading.value = true
-            _muSearchResults.value = muRepository.searchManga(query)
-            _muSearchLoading.value = false
+            try {
+                _muSearchResults.value = muRepository.searchManga(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:searchMu")
+            } finally {
+                // Zrušené hledání (nahrazené novějším) vypínač nesmí shodit - běží už další.
+                if (isActive) _muSearchLoading.value = false
+            }
         }
     }
 
@@ -597,6 +634,20 @@ class MangaDetailViewModel @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    /** Akce k chybě obnovení (Vyřešit ověření, nová adresa, ...) - viz [com.haise.jiyu.util.ErrorAction]. */
+    private val _errorAction = MutableStateFlow<com.haise.jiyu.util.ErrorAction?>(null)
+    val errorAction: StateFlow<com.haise.jiyu.util.ErrorAction?> = _errorAction.asStateFlow()
+
+    /** Provede nabízenou akci a při úspěchu obnoví kapitoly znovu. */
+    fun performErrorAction() {
+        val action = _errorAction.value ?: return
+        viewModelScope.launch {
+            val retry = errorActionHandler.perform(action)
+            _errorAction.value = null
+            if (retry) refreshChapters()
+        }
+    }
+
     // ── Akce ──────────────────────────────────────────────────────────────────
 
     fun toggleSort() { _sortAscending.value = !_sortAscending.value }
@@ -605,9 +656,7 @@ class MangaDetailViewModel @Inject constructor(
 
     fun markAllRead() {
         viewModelScope.launch {
-            repository.getAllChapters(mangaId).forEach { chapter ->
-                repository.updateReadProgress(chapter.id, read = true, lastPageRead = 0)
-            }
+            repository.markChaptersRead(repository.getAllChapters(mangaId).map { it.id })
         }
     }
 
@@ -620,9 +669,6 @@ class MangaDetailViewModel @Inject constructor(
 
     fun removeFromLibrary() {
         viewModelScope.launch {
-            chapters.value.forEach { chapter ->
-                chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(appContext, path) }
-            }
             repository.removeFromLibrary(mangaId)
         }
     }
@@ -671,19 +717,32 @@ class MangaDetailViewModel @Inject constructor(
             _errorMessage.value = appContext.getString(R.string.detail_error_no_internet)
             return
         }
+        // Souběžný refresh (dvojklik, pull-to-refresh + automatický po obnovení sítě) by spustil dva
+        // běhy nad stejnými daty - druhý se zahodí.
+        if (_isRefreshing.value) return
         viewModelScope.launch {
             _isRefreshing.value = true
             _errorMessage.value = null
+            _errorAction.value = null
             try {
                 val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status, contentType = current.contentType)
                 repository.refreshChapters(mangaId, sManga)
                 repository.refreshMangaDetails(mangaId, sManga)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Bezny refresh selhal - zkusi se jeste najit titul podle nazvu na STEJNEM
                 // zdroji (web mohl prestavet URL, titul porad existuje) drivnez se ukaze
                 // chyba. Cokoliv v recovery selze -> tise se spadne zpet na PUVODNI chybu,
                 // recovery nikdy nezhorsi soucasne chovani (viz MangaRepository.recoverMangaLink).
-                val recovered = try { repository.recoverMangaLink(mangaId) } catch (_: Exception) { false }
+                // Jen při jednoznačném "nenalezeno" (HTTP 404/410) - výpadek sítě, timeout nebo 5xx
+                // znamenají, že web je dočasně nedostupný, ne že titul změnil adresu; hledání podle
+                // názvu by mohlo knihovní záznam přepojit na úplně jiný titul.
+                val recovered = if (isNotFoundError(e)) {
+                    try { repository.recoverMangaLink(mangaId) } catch (e2: kotlinx.coroutines.CancellationException) { throw e2 } catch (_: Exception) { false }
+                } else {
+                    false
+                }
                 if (recovered) {
                     _errorMessage.value = null
                     val fresh = repository.getManga(mangaId)
@@ -693,6 +752,7 @@ class MangaDetailViewModel @Inject constructor(
                     }
                 } else {
                     _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
+                    _errorAction.value = e.toErrorAction()
                 }
             } finally {
                 _isRefreshing.value = false
@@ -700,12 +760,22 @@ class MangaDetailViewModel @Inject constructor(
         }
     }
 
+    /** Označí kapitolu jako QUEUED a zařadí ji; když zařazení selže, vrátí ji zpět (jinak by zůstala viset ve frontě). */
+    private suspend fun queueDownload(chapter: ChapterEntity, mangaUrl: String) {
+        repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
+        try {
+            downloadQueue.enqueue(chapter, mangaUrl)
+        } catch (e: Exception) {
+            repository.setDownloadStatus(chapter.id, DownloadStatus.NOT_DOWNLOADED)
+            throw e
+        }
+    }
+
     fun downloadChapter(chapter: ChapterEntity) {
         if (chapter.sourceId == "comick") return
         val mangaUrl = manga.value?.url ?: return
         viewModelScope.launch {
-            repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
-            downloadQueue.enqueue(chapter, mangaUrl)
+            queueDownload(chapter, mangaUrl)
         }
     }
 
@@ -716,8 +786,7 @@ class MangaDetailViewModel @Inject constructor(
                 .filter { it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR }
                 .filter { it.sourceId != "comick" }
                 .forEach { chapter ->
-                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
-                    downloadQueue.enqueue(chapter, mangaUrl)
+                    queueDownload(chapter, mangaUrl)
                 }
         }
     }
@@ -729,8 +798,7 @@ class MangaDetailViewModel @Inject constructor(
                 .filter { !it.read && (it.downloadStatus == DownloadStatus.NOT_DOWNLOADED || it.downloadStatus == DownloadStatus.ERROR) }
                 .filter { it.sourceId != "comick" }
                 .forEach { chapter ->
-                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
-                    downloadQueue.enqueue(chapter, mangaUrl)
+                    queueDownload(chapter, mangaUrl)
                 }
         }
     }
@@ -766,8 +834,7 @@ class MangaDetailViewModel @Inject constructor(
                 .sortedBy { it.chapterNumber }
                 .take(n)
                 .forEach { chapter ->
-                    repository.setDownloadStatus(chapter.id, DownloadStatus.QUEUED)
-                    downloadQueue.enqueue(chapter, mangaUrl)
+                    queueDownload(chapter, mangaUrl)
                 }
         }
     }
@@ -775,9 +842,11 @@ class MangaDetailViewModel @Inject constructor(
     fun markReadUpTo(chapterId: String) {
         viewModelScope.launch {
             val target = repository.getChapter(chapterId) ?: return@launch
-            repository.getAllChapters(mangaId)
-                .filter { it.chapterNumber <= target.chapterNumber }
-                .forEach { repository.updateReadProgress(it.id, read = true, lastPageRead = 0) }
+            repository.markChaptersRead(
+                repository.getAllChapters(mangaId)
+                    .filter { it.chapterNumber <= target.chapterNumber }
+                    .map { it.id },
+            )
         }
     }
 
@@ -800,26 +869,24 @@ class MangaDetailViewModel @Inject constructor(
 
     // ── Hromadné označení rozsahu ─────────────────────────────────────────────
     fun markAllOlderAsRead(chapter: ChapterEntity) = viewModelScope.launch {
-        repository.getAllChapters(mangaId)
-            .filter { it.chapterNumber <= chapter.chapterNumber }
-            .forEach { repository.updateReadProgress(it.id, read = true, lastPageRead = 0) }
+        repository.markChaptersRead(
+            repository.getAllChapters(mangaId)
+                .filter { it.chapterNumber <= chapter.chapterNumber }
+                .map { it.id },
+        )
     }
 
     fun markAllNewerAsUnread(chapter: ChapterEntity) = viewModelScope.launch {
-        repository.getAllChapters(mangaId)
-            .filter { it.chapterNumber >= chapter.chapterNumber }
-            .forEach { repository.updateReadProgress(it.id, read = false, lastPageRead = 0) }
+        repository.markChaptersUnread(
+            repository.getAllChapters(mangaId)
+                .filter { it.chapterNumber >= chapter.chapterNumber }
+                .map { it.id },
+        )
     }
 
     // ── Poznámky (#27) ────────────────────────────────────────────────────────
     fun saveNote(content: String) {
-        viewModelScope.launch {
-            if (content.isBlank()) {
-                mangaNoteDao.deleteForManga(mangaId)
-            } else {
-                mangaNoteDao.upsert(MangaNoteEntity(mangaId = mangaId, content = content))
-            }
-        }
+        viewModelScope.launch { notesRepository.saveNote(mangaId, content) }
     }
 
     // ── Hodnocení (#41) ───────────────────────────────────────────────────────
@@ -840,10 +907,14 @@ class MangaDetailViewModel @Inject constructor(
     fun addTag(tag: String) {
         val trimmed = tag.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch { mangaTagDao.insert(MangaTagEntity(mangaId = mangaId, tag = trimmed)) }
+        viewModelScope.launch { notesRepository.addTag(mangaId, trimmed) }
     }
 
     fun removeTag(tag: String) {
-        viewModelScope.launch { mangaTagDao.delete(MangaTagEntity(mangaId = mangaId, tag = tag)) }
+        viewModelScope.launch { notesRepository.removeTag(mangaId, tag) }
     }
 }
+
+/** `true` = zdroj odpověděl jednoznačným "nenalezeno" (HTTP 404/410, viz `bodyOrThrow`). */
+internal fun isNotFoundError(e: Throwable): Boolean =
+    e is java.io.IOException && Regex("""HTTP (404|410)\b""").containsMatchIn(e.message.orEmpty())

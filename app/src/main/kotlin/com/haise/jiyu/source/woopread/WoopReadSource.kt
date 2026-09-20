@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.woopread
 
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -41,7 +44,7 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
 
     private fun getRaw(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -49,10 +52,10 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
     private fun get(url: String): Document = Jsoup.parse(getRaw(url))
 
     private fun coverFromSrcSet(img: Element): String? {
-        val srcSet = img.attr("srcset").ifBlank { return img.attr("src").takeIf { it.startsWith("http") } }
+        val srcSet = img.attr("srcset").ifBlank { return img.attr("src").let { absoluteMediaUrl(base, it) } }
         val firstEntry = srcSet.substringBefore(",").trim().substringBefore(" ")
         val encoded = firstEntry.substringAfter("url=", "").substringBefore("&").ifBlank { return null }
-        return try { URLDecoder.decode(encoded, "UTF-8") } catch (_: Exception) { null }
+        return try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     private fun parseList(doc: Document): List<SManga> =
@@ -71,14 +74,14 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
         // vybranou zalozku) - "Popular" overeno zive jako odlisna, spravna hodnota
         // pro "Populární".
         val sortBy = if (filter.sortBy == "latest") "New" else "Popular"
-        try { parseList(get("$base/browse?sortBy=$sortBy&page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/browse?sortBy=$sortBy&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun labelValue(doc: Document, label: String): String? =
@@ -97,7 +100,7 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
                 genres = genresSibling?.select("a")?.map { it.text().trim() }?.filter { it.isNotBlank() } ?: emptyList(),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private val chapterEntryRegex = Regex(
@@ -122,18 +125,18 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
                     dateUpload = parseIsoDate(publishDate),
                 )
             }.distinctBy { it.url }.toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseIsoDate(text: String): Long = try {
         Instant.parse(text).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val text = get(chapter.url).select("div[id^=chapter-] p").joinToString("\n\n") { it.text().trim() }
                 .trim()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

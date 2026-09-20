@@ -79,8 +79,19 @@ class TachiyomiBackupImporter @Inject constructor(
                 // uprostred nesmi nechat mangu bez kapitol nebo naopak (viz audit nalez
                 // "zadna transakce").
                 db.withTransaction {
-                    val manga = MangaEntity(
-                        id = existing?.id ?: "$sourceId::$url",
+                    val now = System.currentTimeMillis()
+                    // Dříve prohlížený (nekniznicní) řádek se slučuje, ne nahrazuje - full-row upsert
+                    // by smazal lastReadAt, lastReadChapterId, malId, hodnocení i metadata. `addedAt`
+                    // je potřeba nastavit, jinak `observeUpdates` (discoveredAt > addedAt) považuje
+                    // každou importovanou kapitolu za novinku.
+                    val manga = existing?.copy(
+                        inLibrary = inLibrary,
+                        addedAt = if (inLibrary && existing.addedAt == 0L) now else existing.addedAt,
+                        coverUrl = coverUrl ?: existing.coverUrl,
+                        author = author ?: existing.author,
+                        description = description ?: existing.description,
+                    ) ?: MangaEntity(
+                        id = "$sourceId::$url",
                         sourceId = sourceId,
                         url = url,
                         title = title,
@@ -89,6 +100,7 @@ class TachiyomiBackupImporter @Inject constructor(
                         description = description,
                         status = null,
                         inLibrary = inLibrary,
+                        addedAt = if (inLibrary) now else 0L,
                         contentType = "MANGA",
                     )
                     repository.upsertManga(manga)
@@ -99,11 +111,14 @@ class TachiyomiBackupImporter @Inject constructor(
                     // ChapterEntity radky, teprve pak se aplikuje read-status.
                     val chaptersArr = entry.optJSONArray("chapters") ?: entry.optJSONArray("backupChapters")
                     val existingChapters = repository.getAllChapters(manga.id).associateBy { it.url }
+                    val backupReadUrls = mutableSetOf<String>()
                     if (chaptersArr != null) {
                         val newChapters = mutableListOf<ChapterEntity>()
                         for (j in 0 until chaptersArr.length()) {
                             val ch = chaptersArr.getJSONObject(j)
                             val chapterUrl = ch.optString("url").takeIf { it.isNotBlank() } ?: continue
+                            // Stav "přečteno" ze zálohy se aplikuje i na kapitoly, které už lokálně jsou.
+                            if (ch.optBoolean("read", false)) backupReadUrls += chapterUrl
                             if (chapterUrl in existingChapters) continue
                             val chapterNumber = ch.optDouble("chapterNumber", ch.optDouble("chapter_number", -1.0))
                                 .let { if (it < 0.0 || it.isNaN()) 0f else it.toFloat() }
@@ -128,14 +143,17 @@ class TachiyomiBackupImporter @Inject constructor(
                     // neuvádí - aplikuje se navíc, přes plný (starý + nově vložený) seznam.
                     val historyArr = entry.optJSONArray("history") ?: entry.optJSONArray("backupHistory")
                     val historyReadUrls = buildSet<String> {
+                        addAll(backupReadUrls)
                         historyArr?.let { arr ->
                             for (j in 0 until arr.length()) add(arr.getJSONObject(j).optString("url"))
                         }
                     }
                     if (historyReadUrls.isNotEmpty()) {
-                        repository.getAllChapters(manga.id)
+                        val idsToMark = repository.getAllChapters(manga.id)
                             .filter { it.url in historyReadUrls && !it.read }
-                            .forEach { repository.updateReadProgress(it.id, read = true, lastPageRead = 0) }
+                            .map { it.id }
+                        // Batched UPDATE misto volani po jedne kapitole (audit nalez).
+                        if (idsToMark.isNotEmpty()) repository.markChaptersRead(idsToMark)
                     }
 
                     imported++

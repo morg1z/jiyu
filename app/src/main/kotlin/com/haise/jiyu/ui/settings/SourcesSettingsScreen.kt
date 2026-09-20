@@ -352,6 +352,15 @@ fun SourcesSettingsScreen(
                     }
                 }
 
+                Spacer(Modifier.height(12.dp))
+                SourceMirrorSection(viewModel)
+
+                Spacer(Modifier.height(12.dp))
+                ImageProxySection(viewModel)
+
+                Spacer(Modifier.height(12.dp))
+                NetworkProxySection(viewModel)
+
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 Spacer(Modifier.height(40.dp + navBottom))
             }

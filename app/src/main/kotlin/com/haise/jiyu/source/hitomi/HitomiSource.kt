@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.hitomi
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -57,7 +59,7 @@ class HitomiSource @Inject constructor(
     private fun get(url: String): String {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", "$baseUrl/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -66,7 +68,7 @@ class HitomiSource @Inject constructor(
     private fun getRange(url: String, start: Long, end: Long): ByteArray {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", "$baseUrl/")
             .header("Range", "bytes=$start-$end")
             .build()
@@ -100,7 +102,7 @@ class HitomiSource @Inject constructor(
     private suspend fun fetchGalleryBlocks(ids: List<Long>): List<SManga> = coroutineScope {
         ids.map { galId ->
             async {
-                try { parseGalleryBlock(get("$ltnUrl/galleryblock/$galId.html")) } catch (_: Exception) { null }
+                try { parseGalleryBlock(get("$ltnUrl/galleryblock/$galId.html")) } catch (e: Exception) { e.rethrowIfControl(); null }
             }
         }.mapNotNull { it.await() }
     }
@@ -116,14 +118,14 @@ class HitomiSource @Inject constructor(
             val end = start + itemsPerPage * 4 - 1
             val ids = decodeNozomiIds(getRange("$ltnUrl/$index", start, end))
             fetchGalleryBlocks(ids)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             getPopular(page, filter).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Cisla galerie je vzdy posledni "-oddeleny" segment nazvu souboru pred priponou. */
@@ -132,7 +134,7 @@ class HitomiSource @Inject constructor(
     private fun galleryInfo(galleryId: String): JSONObject? {
         val js = get("$ltnUrl/galleries/$galleryId.js")
         val jsonStr = js.substringAfter("=").trimEnd(';', '\n', '\r', ' ').trim()
-        return try { JSONObject(jsonStr) } catch (_: Exception) { null }
+        return try { JSONObject(jsonStr) } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -153,7 +155,7 @@ class HitomiSource @Inject constructor(
                 description = description.takeIf { it.isNotBlank() },
                 genres = tags.take(20),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -207,6 +209,6 @@ class HitomiSource @Inject constructor(
                 val url = fullImageUrl(hash, gg)
                 Page(index = i, url = url, imageUrl = url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

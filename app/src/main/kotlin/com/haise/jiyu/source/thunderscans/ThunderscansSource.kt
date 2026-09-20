@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.thunderscans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -41,7 +44,7 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -76,7 +79,7 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun archiveUrl(page: Int, orderby: String, genreId: String?): String {
@@ -93,7 +96,7 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
             }
             val url = archiveUrl(page, orderby, filter.genres.firstOrNull())
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -104,20 +107,13 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Info karty ("Type", "Status", "Author") maji tvar: <div class="imptdt"><h1>Label</h1> <i>Hodnota</i></div>. */
     private fun infoCard(doc: Document, label: String): String? =
         doc.select("div.imptdt").firstOrNull { it.selectFirst("h1")?.text()?.trim().equals(label, ignoreCase = true) }
             ?.selectFirst("i")?.text()?.trim()?.ifBlank { null }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.lowercase()) {
-        "manhwa" -> "MANHWA"
-        "manhua" -> "MANHUA"
-        "novel", "light novel" -> "NOVEL"
-        else -> "MANGA"
-    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
@@ -132,7 +128,7 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
                 status = infoCard(doc, "Status")?.lowercase(),
                 contentType = normalizeContentType(infoCard(doc, "Type")),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -149,41 +145,18 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name,
                     chapterNumber = num, dateUpload = parseRelativeOrAbsoluteDate(dateText))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseRelativeOrAbsoluteDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        val relativeMatch = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
-        if (relativeMatch != null) {
-            val value = relativeMatch.groupValues[1].toLongOrNull() ?: 1L
-            val unit = relativeMatch.groupValues[2].lowercase()
-            val deltaMs = when (unit) {
-                "second" -> value * 1_000L
-                "minute" -> value * 60_000L
-                "hour"   -> value * 3_600_000L
-                "day"    -> value * 86_400_000L
-                "week"   -> value * 7 * 86_400_000L
-                "month"  -> value * 30 * 86_400_000L
-                "year"   -> value * 365 * 86_400_000L
-                else     -> 0L
-            }
-            return System.currentTimeMillis() - deltaMs
-        }
-        return try {
-            java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time
-                ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseRelativeOrAbsoluteDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val html = get(chapter.url)
             // Obrazky nejsou v markupu (#readerarea je prazdne) - dodava je JS blob
             // `ts_reader.run({"sources":[{"images":[...]}], ...});` na strance kapitoly.
-            val json = Regex("""ts_reader\.run\((\{.*?})\);""").find(html)?.groupValues?.get(1)
+            val json = Regex("""ts_reader\.run\((\{.*?\})\);""").find(html)?.groupValues?.get(1)
                 ?: return@withContext emptyList()
             val sources = JSONObject(json).optJSONArray("sources") ?: return@withContext emptyList()
             val images = sources.optJSONObject(0)?.optJSONArray("images") ?: return@withContext emptyList()
@@ -191,13 +164,13 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
                 val url = images.getString(i)
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getChapterComments(chapter: SChapter): List<com.haise.jiyu.source.comments.ChapterComment> =
         withContext(Dispatchers.IO) {
             try {
                 com.haise.jiyu.source.comments.parseWpDiscuzComments(Jsoup.parse(get(chapter.url)))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 }

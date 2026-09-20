@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.hentaifox
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -32,6 +37,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override val id = "hentaifox"
     override val name = "HentaiFox"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -39,7 +45,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -53,7 +59,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
         val title = thumb.selectFirst("div.caption h2.g_title a")?.text()?.trim()
             ?.ifBlank { null } ?: return null
         val cover = thumb.selectFirst("img")?.let { img ->
-            img.attr("data-src").ifBlank { img.attr("src") }
+            img.lazySrc().orEmpty()
         }?.trim()?.ifBlank { null }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
@@ -82,7 +88,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Stranka 1 kategorie je na /category/{slug}/, dalsi stranky ale (na rozdil
@@ -93,23 +99,23 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val url = if (page <= 1) "$base/" else "$base/page/$page/"
             parseList(fetchDoc(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (_: Exception) { emptyList() }
+            return@withContext try { parseList(fetchDoc(categoryUrl(filter.genres.first(), page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseList(fetchDoc("$base/search/?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // a.tag_btn ma uvnitr jeste <span class='t_badge'>pocet</span> - ownText() vezme jen
@@ -119,7 +125,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = fetchDoc("$base${manga.url}")
+            val doc = fetchDoc(resolveSourceUrl(base, manga.url))
             val title = doc.selectFirst("h1")?.text()?.trim()?.ifBlank { null } ?: manga.title
             val artists = parseTagGroup(doc, "artists")
             val tags = parseTagGroup(doc, "tags")
@@ -134,7 +140,7 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
                 description = pages,
                 status = categories.firstOrNull(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -152,22 +158,22 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = fetchDoc("$base${chapter.url}")
+            val doc = fetchDoc(resolveSourceUrl(base, chapter.url))
             val galleryId = chapter.url.trim('/').substringAfterLast('/')
             val count = doc.select("div#append_thumbs div.gallery_thumb").size
                 .takeIf { it > 0 }
                 ?: doc.selectFirst("span.i_text.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
                 ?: return@withContext emptyList()
             (1..count).map { n -> Page(index = n - 1, url = "$base/g/$galleryId/$n/") }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
         try {
             val doc = fetchDoc(page.url)
             doc.selectFirst("img#gimg")?.let { img ->
-                img.attr("data-src").ifBlank { img.attr("src") }
-            }?.trim()?.takeIf { it.startsWith("http") } ?: page.url
-        } catch (_: Exception) { page.url }
+                img.lazySrc().orEmpty()
+            }?.trim()?.let { absoluteMediaUrl(base, it) } ?: page.url
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 }

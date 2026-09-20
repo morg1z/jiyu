@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.simplyhentai
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,6 +41,7 @@ class SimplyHentaiSource @Inject constructor(
 
     override val id = "simplyhentai"
     override val name = "Simply Hentai"
+    override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -47,7 +50,7 @@ class SimplyHentaiSource @Inject constructor(
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -58,7 +61,7 @@ class SimplyHentaiSource @Inject constructor(
         val jsonStart = html.indexOf('>', markerIdx).let { if (it == -1) return null else it + 1 }
         val jsonEnd = html.indexOf("</script>", jsonStart)
         if (jsonEnd == -1) return null
-        return try { JSONObject(html.substring(jsonStart, jsonEnd)) } catch (_: Exception) { null }
+        return try { JSONObject(html.substring(jsonStart, jsonEnd)) } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     private fun mangaFromListItem(item: JSONObject): SManga? {
@@ -79,7 +82,7 @@ class SimplyHentaiSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try { parseListing(fetchHtml("$base/2-mangas/sort-most-viewed?page=$page")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     private fun slugify(text: String): String = text.trim().lowercase()
@@ -95,7 +98,7 @@ class SimplyHentaiSource @Inject constructor(
                 val manga = extractNextData(html)?.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("manga")
                     ?: return@withContext emptyList()
                 mangaFromDetail(manga)?.let { listOf(it) } ?: emptyList()
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     private fun mangaFromDetail(manga: JSONObject): SManga? {
@@ -126,7 +129,7 @@ class SimplyHentaiSource @Inject constructor(
                 artist = artist,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -152,6 +155,6 @@ class SimplyHentaiSource @Inject constructor(
                     ?: return@mapNotNull null
                 Page(index = i, url = url, imageUrl = url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -10,6 +10,19 @@ const val PREFETCH_WINDOW = 4
  */
 const val PREFETCH_WINDOW_METERED = 8
 
+/** Okno při úsporném režimu baterie nebo nedostatku paměti - stahovat dopředu jen minimum. */
+const val PREFETCH_WINDOW_MINIMAL = 1
+
+/**
+ * Kolik stránek dopředu předstahovat: v úsporném režimu baterie / při nedostatku paměti jen [PREFETCH_WINDOW_MINIMAL],
+ * jinak [PREFETCH_WINDOW] (nezpoplatněná síť) nebo [PREFETCH_WINDOW_METERED].
+ */
+fun prefetchWindowFor(unmetered: Boolean, savingResources: Boolean): Int = when {
+    savingResources -> PREFETCH_WINDOW_MINIMAL
+    unmetered -> PREFETCH_WINDOW
+    else -> PREFETCH_WINDOW_METERED
+}
+
 /**
  * Spočítá, které indexy stránek je potřeba předstáhnout (aktuální pozice + [count] dopředu),
  * vynechá ty, co jsou už v [alreadyPrefetched], a nikdy nepřeteče za konec [pageCount].

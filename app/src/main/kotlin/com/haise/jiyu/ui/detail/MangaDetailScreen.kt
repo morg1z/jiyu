@@ -186,6 +186,7 @@ fun MangaDetailScreen(
     // desitek kapitol najednou bez moznosti jednoho tlacitka na vraceni zpet - proto
     // se nespousti primo z menu, ale az po potvrzeni v dialogu nize.
     var pendingBulkReadConfirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    var showRemoveConfirm by remember { mutableStateOf(false) }
     val markReadUpToLabel = stringResource(R.string.detail_mark_read_up_to)
     val markAllOlderReadLabel = stringResource(R.string.detail_mark_all_older_read)
     var descriptionExpanded by remember { mutableStateOf(false) }
@@ -201,10 +202,20 @@ fun MangaDetailScreen(
     // PullToRefreshBox (viz níž) - dvojice LaunchedEffect, která si stav posílala tam a zpět,
     // odpadla.
 
-    // Chyba refreshe → snackbar
+    // Chyba refreshe → snackbar (s tlačítkem akce, když má chyba smysluplnou akci - Vyřešit ověření, nová adresa)
+    val errorAction by viewModel.errorAction.collectAsStateWithLifecycle()
+    val solveLabel = stringResource(R.string.error_action_solve_cloudflare)
+    val newDomainLabel = (errorAction as? com.haise.jiyu.util.ErrorAction.UseNewDomain)
+        ?.let { stringResource(R.string.error_action_use_new_domain, it.host) }
     LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
+        errorMessage?.let { message ->
+            val label = when (errorAction) {
+                is com.haise.jiyu.util.ErrorAction.SolveCloudflare -> solveLabel
+                is com.haise.jiyu.util.ErrorAction.UseNewDomain -> newDomainLabel
+                else -> null
+            }
+            val result = snackbarHostState.showSnackbar(message, actionLabel = label)
+            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) viewModel.performErrorAction()
             viewModel.clearError()
         }
     }
@@ -275,7 +286,7 @@ fun MangaDetailScreen(
                                 modifier = Modifier.size(22.dp),
                             )
                         }
-                        IconButton(onClick = { if (inLibrary) viewModel.removeFromLibrary() else viewModel.addToLibrary() }) {
+                        IconButton(onClick = { if (inLibrary) showRemoveConfirm = true else viewModel.addToLibrary() }) {
                             Icon(
                                 imageVector = TablerIcons.Bookmark,
                                 contentDescription = if (inLibrary) stringResource(R.string.detail_remove_from_library) else stringResource(R.string.detail_in_library),
@@ -1158,6 +1169,14 @@ fun MangaDetailScreen(
             pending = pending,
             onConfirm = { viewModel.confirmAddDespiteDuplicate() },
             onDismiss = { viewModel.cancelDuplicateAdd() },
+        )
+    }
+
+    if (showRemoveConfirm) {
+        com.haise.jiyu.ui.library.RemoveFromLibraryDialog(
+            mangaTitle = manga?.title.orEmpty(),
+            onConfirm = { viewModel.removeFromLibrary() },
+            onDismiss = { showRemoveConfirm = false },
         )
     }
 

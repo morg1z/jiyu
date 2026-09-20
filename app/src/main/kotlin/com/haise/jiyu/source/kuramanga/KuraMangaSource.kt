@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.kuramanga
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -36,7 +40,7 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -60,7 +64,7 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
@@ -100,7 +104,7 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val offset = (page - 1) * 10
                 parseListJson(get("$base/search?offset=$offset&ajax=1"))
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseLatestUpdates(html: String): List<SManga> {
@@ -123,12 +127,12 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 appendGenreFilter(filter)
             }
             parseListJson(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             // Vazba na strong tag s presnym textem "Status:"/"Author:" a jeho
             // primy rodic (ne obecne div:contains, ktere by nasly i predky
             // vyssi v DOM stromu a vratily text celeho zbytku stranky).
@@ -145,12 +149,12 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 author = author,
                 contentType = "MANHWA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("div.chapter-list div.chapter-item").mapIndexedNotNull { i, el ->
                 val a = el.selectFirst("a") ?: return@mapIndexedNotNull null
                 val href = a.attr("href")
@@ -167,23 +171,19 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                     dateUpload = parseDate(dateText),
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseDate(text: String?): Long {
-        if (text.isNullOrBlank()) return 0L
-        return try {
-            java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time ?: 0L
-        } catch (_: Exception) { 0L }
-    }
+    private fun parseDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("div.reader-width img[src*=/chapters/]").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

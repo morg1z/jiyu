@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.fanfox
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -38,7 +41,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     private fun get(url: String, referer: String = base): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", referer)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -69,7 +72,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Genre filtrovani (i vice zanru najednou) je dostupne jen pres /search formular
@@ -94,7 +97,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
             val url = if (page <= 1) "$base/directory/$sortParam" else "$base/directory/$page.html$sortParam"
             val doc = Jsoup.parse(get(url))
             doc.select("p.manga-list-1-item-title > a[href]").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -106,12 +109,12 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?title=$q&page=$page"))
             doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val genres = doc.select("p.detail-info-right-tag-list a").map { it.text().trim() }
             val authorLine = doc.selectFirst("p.detail-info-right-say")
             manga.copy(
@@ -121,12 +124,12 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
                 status = doc.selectFirst("span.detail-info-right-title-tip")?.text()?.trim(),
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val dateFormat = SimpleDateFormat("MMM dd,yyyy", Locale.US)
             doc.select("div.detail-main-list-main").mapNotNull { info ->
                 val a = info.parent() ?: return@mapNotNull null
@@ -134,15 +137,15 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
                 val name = info.selectFirst("p.title3")?.text()?.trim() ?: return@mapNotNull null
                 val num = Regex("""c([\d.]+)/""").find(href)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
                 val dateText = info.selectFirst("p.title2")?.text()?.trim().orEmpty()
-                val date = try { dateFormat.parse(dateText)?.time ?: 0L } catch (_: Exception) { 0L }
+                val date = try { dateFormat.parse(dateText)?.time ?: 0L } catch (e: Exception) { e.rethrowIfControl(); 0L }
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = date)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val readerUrl = "$base${chapter.url}"
+            val readerUrl = resolveSourceUrl(base, chapter.url)
             val html = get(readerUrl)
             val count = Regex("""var\s+imagecount\s*=\s*(\d+)""").find(html)?.groupValues?.get(1)?.toIntOrNull()
                 ?: return@withContext emptyList()
@@ -152,7 +155,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
             (1..count).map { p ->
                 Page(index = p - 1, url = "$chapterBase/chapterfun.ashx?cid=$chapterId&page=$p&key=")
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
@@ -161,7 +164,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
             val body = get(page.url, referer = "$readerUrl/")
             val decoded = JsPacker.unpackEval(body) ?: return@withContext page.url
             extractFirstImageUrl(decoded) ?: page.url
-        } catch (_: Exception) { page.url }
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 
     private fun extractFirstImageUrl(decodedJs: String): String? {

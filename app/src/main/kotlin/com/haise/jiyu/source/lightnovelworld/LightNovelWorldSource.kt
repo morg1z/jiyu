@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.lightnovelworld
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -28,13 +31,14 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
 
     override val id = "lightnovelworld"
     override val name = "Light Novel World"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://lightnovelworld.org"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -46,26 +50,26 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
                 ?: return@mapNotNull null
             val title = el.selectFirst("h3.card-title")?.text()?.trim() ?: return@mapNotNull null
             val cover = el.selectFirst("img")?.attr("src")?.let {
-                if (it.startsWith("http")) it else "$base$it"
+                resolveSourceUrl(base, it)
             }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "NOVEL")
         }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/genre-all/?page=$page")) } catch (_: Exception) { emptyList() }
+        try { parseList(get("$base/genre-all/?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/search/?q=$q&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val description = doc.select("div.summary-content p").joinToString("\n\n") { it.text().trim() }
                 .ifBlank { null }
             manga.copy(
@@ -76,7 +80,7 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
                 status = doc.selectFirst("span.status-badge")?.text()?.trim(),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     // Kapitoly jsou na samostatne strance "{novel}/chapters/?page=N" (az
@@ -95,7 +99,7 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
                 page++
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun chapterFromCard(card: Element, mangaUrl: String): SChapter? {
@@ -137,11 +141,11 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
     // "novel://text", stejny vzor jako NovelFullSource/FreeWebNovelSource.
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             val container = doc.selectFirst("div.chapter-text") ?: return@withContext emptyList()
             container.select("script, .chapter-ad-container, style").remove()
             val text = container.text().trim()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

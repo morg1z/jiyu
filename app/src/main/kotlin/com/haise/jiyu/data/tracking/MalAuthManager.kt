@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -92,27 +94,50 @@ class MalAuthManager @Inject constructor(
         } catch (_: Exception) { false }
     }
 
-    suspend fun refreshAccessToken(clientId: String): Boolean = withContext(Dispatchers.IO) {
-        val refresh = secureStore.get(KEY_REFRESH_TOKEN) ?: return@withContext false
-        try {
-            val body = FormBody.Builder()
-                .add("client_id", clientId)
-                .add("grant_type", "refresh_token")
-                .add("refresh_token", refresh)
-                .build()
-            val req = Request.Builder().url(TOKEN_URL).post(body).build()
-            val response = client.newCall(req).execute().use { it.body?.string() ?: return@withContext false }
-            val json = JSONObject(response)
-            val accessToken = json.optString("access_token").takeIf { it.isNotBlank() } ?: return@withContext false
-            secureStore.set(KEY_ACCESS_TOKEN, accessToken)
-            json.optString("refresh_token").takeIf { it.isNotBlank() }?.let { rt -> secureStore.set(KEY_REFRESH_TOKEN, rt) }
-            _accessToken.value = accessToken
-            true
-        } catch (_: Exception) { false }
+    /**
+     * Mutex - MAL při obnově REFRESH token rotuje, takže dvě souběžné obnovy by druhou zneplatnily
+     * (druhá by použila už spotřebovaný refresh token). [staleToken] = access token, se kterým selhal
+     * požadavek, který obnovu vyvolal; pokud už je uložený jiný, obnovil ho mezitím souběžný požadavek.
+     *
+     * @return true = platný access token je uložený (obnovený teď nebo souběžně), false = obnova selhala.
+     *   Odmítnutý refresh token (HTTP 400/401, "invalid_grant") = uživatel se musí přihlásit znovu, takže
+     *   se lokální přihlášení zruší; síťová chyba tokeny nechává.
+     */
+    suspend fun refreshAccessToken(clientId: String, staleToken: String? = null): Boolean = refreshMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val current = secureStore.get(KEY_ACCESS_TOKEN)
+            if (staleToken != null && !current.isNullOrBlank() && current != staleToken) return@withContext true
+            val refresh = secureStore.get(KEY_REFRESH_TOKEN) ?: return@withContext false
+            try {
+                val body = FormBody.Builder()
+                    .add("client_id", clientId)
+                    .add("grant_type", "refresh_token")
+                    .add("refresh_token", refresh)
+                    .build()
+                val req = Request.Builder().url(TOKEN_URL).post(body).build()
+                client.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        if (resp.code == 400 || resp.code == 401) clearTokens()
+                        return@withContext false
+                    }
+                    val json = JSONObject(text)
+                    val accessToken = json.optString("access_token").takeIf { it.isNotBlank() } ?: return@withContext false
+                    secureStore.set(KEY_ACCESS_TOKEN, accessToken)
+                    json.optString("refresh_token").takeIf { it.isNotBlank() }?.let { rt -> secureStore.set(KEY_REFRESH_TOKEN, rt) }
+                    _accessToken.value = accessToken
+                    true
+                }
+            } catch (_: Exception) { false }
+        }
     }
 
-    suspend fun logout() = withContext(Dispatchers.IO) {
+    private val refreshMutex = Mutex()
+
+    private fun clearTokens() {
         secureStore.remove(KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_CODE_VERIFIER, KEY_OAUTH_STATE)
         _accessToken.value = null
     }
+
+    suspend fun logout() = withContext(Dispatchers.IO) { clearTokens() }
 }

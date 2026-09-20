@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.skythewood
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -64,13 +66,14 @@ import javax.inject.Singleton
 class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "skythewood"
     override val name = "Skythewood"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://skythewood.blogspot.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -107,14 +110,14 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
         try {
             if (page > 1) return@withContext emptyList()
             fetchAllLabels().map { labelToManga(it) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (page > 1) return@withContext emptyList()
             fetchAllLabels().filter { it.contains(query, ignoreCase = true) }.map { labelToManga(it) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = manga
@@ -130,7 +133,7 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
 
     private fun parseIsoDate(iso: String): Long = try {
         OffsetDateTime.parse(iso).toInstant().toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     private data class RawPost(val title: String, val selfHref: String, val published: Long)
 
@@ -164,7 +167,7 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
                     dateUpload = r.published,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -173,6 +176,6 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
             val html = entry.optJSONObject("content")?.optString("\$t").orEmpty()
             val text = Jsoup.parse(html).text().trim()
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

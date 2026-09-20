@@ -53,6 +53,8 @@ class BackupRestoreTest {
             mangaNoteDao = db.mangaNoteDao(),
             mangaTagDao = db.mangaTagDao(),
             readHistoryDao = db.readHistoryDao(),
+            glossaryDao = db.glossaryDao(),
+            manualTranslationDao = db.manualTranslationDao(),
             db = db,
         )
     }
@@ -60,8 +62,8 @@ class BackupRestoreTest {
     @After
     fun tearDown() = db.close()
 
-    /** Poznámky jsou v pořádku, ale historie má záznam bez `chapterId` -> parsování spadne. */
-    private fun backupWithBrokenHistory() = """
+    /** Poznámky i historie jsou platné - selhání se vyvolá až při zápisu historie (viz test níže). */
+    private fun backupWithHistory() = """
         {
           "version": 3,
           "categories": [],
@@ -70,7 +72,7 @@ class BackupRestoreTest {
           "chapters": [],
           "notes": [ { "mangaId": "m1", "content": "moje poznamka", "updatedAt": 1 } ],
           "tags": [],
-          "readHistory": [ { "mangaId": "m1", "mangaTitle": "T", "chapterName": "c", "readAt": 1 } ]
+          "readHistory": [ { "chapterId": "c1", "mangaId": "m1", "mangaTitle": "T", "chapterName": "c", "readAt": 1 } ]
         }
     """.trimIndent()
 
@@ -99,9 +101,22 @@ class BackupRestoreTest {
     fun `a backup that breaks half way through leaves nothing behind`() = runTest {
         // JÁDRO NÁLEZU: poznámky se zapisovaly PŘED historií, takže bez transakce
         // zůstaly v databázi i poté, co obnova skončila chybou.
-        val result = manager.importFromJson(backupWithBrokenHistory())
+        val failingHistoryDao = io.mockk.spyk(db.readHistoryDao())
+        io.mockk.coEvery { failingHistoryDao.upsertAll(any()) } throws IllegalStateException("disk full")
+        val failingManager = BackupManager(
+            context = ApplicationProvider.getApplicationContext<Context>(),
+            repository = repository,
+            mangaNoteDao = db.mangaNoteDao(),
+            mangaTagDao = db.mangaTagDao(),
+            readHistoryDao = failingHistoryDao,
+            glossaryDao = db.glossaryDao(),
+            manualTranslationDao = db.manualTranslationDao(),
+            db = db,
+        )
 
-        assertTrue("poškozená záloha musí skončit chybou", result.isFailure)
+        val result = failingManager.importFromJson(backupWithHistory())
+
+        assertTrue("záloha, která selže při zápisu, musí skončit chybou", result.isFailure)
         assertEquals(
             "po neúspěšné obnově nesmí v databázi zůstat nic rozepsaného",
             0, db.mangaNoteDao().getAll().size,

@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.flamecomics
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -36,7 +39,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -90,7 +93,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
             val tags = categories.map { FilterTag(id = it, label = it) }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun matchesGenres(s: JSONObject, genres: List<String>): Boolean {
@@ -113,7 +116,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
             }
             val from = (page - 1) * pageSize
             if (from >= sorted.size) emptyList() else sorted.subList(from, minOf(from + pageSize, sorted.size)).mapNotNull(::seriesToManga)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -122,13 +125,13 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
             val matches = allSeries().filter { it.optString("title").lowercase().contains(q) && matchesGenres(it, filter.genres) }
             val from = (page - 1) * pageSize
             if (from >= matches.size) emptyList() else matches.subList(from, minOf(from + pageSize, matches.size)).mapNotNull(::seriesToManga)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
             val seriesId = manga.url.substringAfterLast("/")
-            val props = nextDataPageProps(get("$base${manga.url}")) ?: return@withContext manga
+            val props = nextDataPageProps(get(resolveSourceUrl(base, manga.url))) ?: return@withContext manga
             val s = props.optJSONObject("series") ?: return@withContext manga
             val genres = s.optJSONArray("tags")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
             val authors = s.optJSONArray("author")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
@@ -140,13 +143,13 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
                 author = authors.joinToString(", ").ifBlank { null },
                 status = s.optString("status").ifBlank { null },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val seriesId = manga.url.substringAfterLast("/")
-            val props = nextDataPageProps(get("$base${manga.url}")) ?: return@withContext emptyList()
+            val props = nextDataPageProps(get(resolveSourceUrl(base, manga.url))) ?: return@withContext emptyList()
             val chapters = props.optJSONArray("chapters") ?: return@withContext emptyList()
             (0 until chapters.length()).mapNotNull { i ->
                 val c = chapters.optJSONObject(i) ?: return@mapNotNull null
@@ -162,7 +165,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = c.optLong("release_date", 0L) * 1000L,
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -170,7 +173,7 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
             val parts = chapter.url.split("/").filter { it.isNotBlank() }
             val seriesId = parts.getOrNull(1) ?: return@withContext emptyList()
             val token = parts.getOrNull(2) ?: return@withContext emptyList()
-            val props = nextDataPageProps(get("$base${chapter.url}")) ?: return@withContext emptyList()
+            val props = nextDataPageProps(get(resolveSourceUrl(base, chapter.url))) ?: return@withContext emptyList()
             val images = props.optJSONObject("chapter")?.optJSONObject("images") ?: return@withContext emptyList()
             images.keys().asSequence()
                 .mapNotNull { key -> key.toIntOrNull()?.let { it to images.optJSONObject(key) } }
@@ -181,6 +184,6 @@ class FlameComicsSource @Inject constructor(private val client: OkHttpClient) : 
                     Page(i, url, url)
                 }
                 .toList()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,6 @@
 package com.haise.jiyu.ui.comickhome
 
+import com.haise.jiyu.util.relativeTimeLabel
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -795,18 +796,6 @@ internal fun ComicKMangaCard(manga: SManga, onClick: () -> Unit) {
     }
 }
 
-/** "před 2 h", "před 3 dny" apod. - ComicK styl relativniho casu misto data. */
-private fun relativeTimeLabel(uploadMs: Long): String {
-    if (uploadMs <= 0L) return ""
-    val diffMin = (System.currentTimeMillis() - uploadMs) / 60_000L
-    return when {
-        diffMin < 1     -> "teď"
-        diffMin < 60    -> "před ${diffMin} min"
-        diffMin < 1440  -> "před ${diffMin / 60} h"
-        diffMin < 43200 -> "před ${diffMin / 1440} dny"
-        else            -> SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(uploadMs))
-    }
-}
 
 /** "318.0" -> "318", "318.5" -> "318.5" - stejny vzor jako na detailu titulu. */
 private fun chapterNumLabel(n: Float): String =

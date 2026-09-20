@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.kingofshojo
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -28,13 +32,14 @@ import javax.inject.Singleton
 class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "kingofshojo"
     override val name = "Kingofshojo"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "MANHWA"
     override val homepageUrl get() = base
     private val base = "https://kingofshojo.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -43,7 +48,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         val bodyBuilder = FormBody.Builder()
         params.forEach { (k, v) -> bodyBuilder.add(k, v) }
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .post(bodyBuilder.build())
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -57,7 +62,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         val doc = Jsoup.parse(html)
         return doc.select("li").mapNotNull { li ->
             val link = li.selectFirst("div.leftseries h2 a.series") ?: return@mapNotNull null
-            val href = link.attr("href").removePrefix(base)
+            val href = toSourcePath(base, link.attr("href"))
             val postId = link.attr("rel").takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val title = link.text().trim().takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val cover = li.selectFirst("div.imgseries img")?.attr("src")
@@ -87,7 +92,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             if (tags.isNotEmpty()) cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /**
@@ -100,7 +105,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         val doc = Jsoup.parse(html)
         return doc.select("div.bsx").mapNotNull { card ->
             val link = card.selectFirst("a[href]") ?: return@mapNotNull null
-            val href = link.attr("href").removePrefix(base)
+            val href = toSourcePath(base, link.attr("href"))
             val title = card.selectFirst("div.tt")?.text()?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val cover = card.selectFirst("img")?.attr("src")?.trim()?.ifBlank { null }
             SManga(sourceId = id, url = encodeUrl(href, ""), title = title, coverUrl = cover, contentType = "MANHWA")
@@ -117,7 +122,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
             }
             val url = if (page <= 1) "$base/manga/?order=update" else "$base/manga/page/$page/?order=update"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -127,7 +132,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/page/$page/?s=$q"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -146,7 +151,7 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
                 },
                 contentType = "MANHWA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -164,23 +169,23 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
             val html = postForm("$base/wp-admin/admin-ajax.php", mapOf("action" to "get_chapters", "id" to postId))
             val options = Jsoup.parse(html).select("option[value]")
             options.mapIndexedNotNull { i, opt ->
-                val href = opt.attr("value").removePrefix(base)
+                val href = toSourcePath(base, opt.attr("value"))
                 val text = opt.text().trim()
                 val num = Regex("""(\d+(?:\.\d+)?)""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
                     ?: (options.size - i).toFloat()
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = text.ifBlank { "Chapter $num" },
                     chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img[src*=cdn.kingofshojo.com]").mapIndexedNotNull { i, img ->
                 val url = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.manga18fx
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -54,7 +58,7 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
     private fun fetchDocument(url: String): Document {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         cleartextClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Chyba ${response.code} pri nacitani $url" }
@@ -68,7 +72,7 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
             val url = link.absUrl("href").ifBlank { return@mapNotNull null }
             val title = item.selectFirst("h3.tt")?.text()?.trim().orEmpty().ifBlank { return@mapNotNull null }
             val cover = item.selectFirst("img")?.let { img ->
-                img.attr("data-src").ifBlank { img.attr("src") }
+                img.lazySrc().orEmpty()
             }?.trim()?.ifBlank { null }
 
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
@@ -92,7 +96,7 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreUrl(slug: String, page: Int) =
@@ -156,7 +160,7 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
         val link = row.selectFirst("a.chapter-name") ?: row.selectFirst("a") ?: return null
         val url = link.absUrl("href").ifBlank { return null }
         val name = link.text().trim().ifBlank { return null }
-        val chapterNumber = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+        val chapterNumber = parseChapterNumber(name) ?: 0f
         val dateText = row.selectFirst("span.chapter-time")?.text()?.trim()
 
         return SChapter(
@@ -169,21 +173,14 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
         )
     }
 
-    private fun parseDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        return try {
-            // "17 Jul 26"
-            SimpleDateFormat("d MMM yy", Locale.ENGLISH).parse(text)?.time ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
-    }
+    private fun parseDate(text: String?): Long = com.haise.jiyu.util.parseChapterDate(text)
+
 
     override suspend fun getPageList(chapter: SChapter): List<Page> =
         withContext(Dispatchers.IO) {
             val doc = fetchDocument(chapter.url)
             doc.select("div.page-break img").mapIndexedNotNull { i, img ->
-                val src = img.attr("data-src").ifBlank { img.attr("src") }.trim().ifBlank { return@mapIndexedNotNull null }
+                val src = img.lazySrc().orEmpty().trim().ifBlank { return@mapIndexedNotNull null }
                 Page(index = i, url = src, imageUrl = src)
             }
         }

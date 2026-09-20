@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.madarascans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -81,12 +83,12 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -120,7 +122,7 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
         try {
             val genre = filter.genres.firstOrNull()
             parseList(get(browseUrl(page, filter.sortBy, genre)))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // "/?s=" fulltext nepodporuje kombinaci se zanrovym filtrem - pri zvolenem zanru
@@ -133,7 +135,7 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"
             parseList(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Badge v `.lh-meta-item` s danou ikonovou tridou (napr. "fa-star") - text badge
@@ -152,12 +154,12 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
                 status = metaItemText(doc, "fa-info-circle")?.lowercase(),
                 rating = metaItemText(doc, "fa-star")?.toDoubleOrNull(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun parseChapterDate(text: String?): Long = try {
         SimpleDateFormat("yyyy/MM/dd", Locale.ENGLISH).parse(text ?: "")?.time ?: 0L
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -172,7 +174,7 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name,
                     chapterNumber = num, dateUpload = parseChapterDate(date))
             }.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     /** Vytahne kompletni JSON argument volani `fn(` z HTML - vybalancuje zavorky a
@@ -215,6 +217,6 @@ class MadarascansSource @Inject constructor(private val client: OkHttpClient) : 
                 val url = images.optString(i).takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

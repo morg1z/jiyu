@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.mangaplus
 
+import com.haise.jiyu.util.rethrowIfControl
+
 internal typealias ProtoMsg = Map<Int, List<Any>>
 
 /**
@@ -32,7 +34,7 @@ internal fun ByteArray.parseProto(): ProtoMsg = try {
         }
     }
     result
-} catch (_: Exception) {
+} catch (e: Exception) { e.rethrowIfControl();
     emptyMap()
 }
 

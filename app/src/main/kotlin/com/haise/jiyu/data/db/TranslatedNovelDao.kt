@@ -27,4 +27,13 @@ interface TranslatedNovelDao {
      */
     @Query("DELETE FROM translated_novel WHERE createdAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
+
+    /** Viz [com.haise.jiyu.data.db.TranslatedPageDao.relinkChapter] - stejná úvaha (`id` je
+     * "$chapterId::$sourceLang::$targetLang", `substr` porovnání místo `LIKE` kvůli `%`/`_` v URL). */
+    @Query("""
+        UPDATE translated_novel
+        SET id = :newChapterId || substr(id, length(:oldChapterId) + 1)
+        WHERE substr(id, 1, length(:oldChapterId) + 2) = :oldChapterId || '::'
+    """)
+    suspend fun relinkChapter(oldChapterId: String, newChapterId: String)
 }

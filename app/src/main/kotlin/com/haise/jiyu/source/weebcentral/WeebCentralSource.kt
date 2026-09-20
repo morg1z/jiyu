@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.weebcentral
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -37,7 +41,7 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -47,7 +51,7 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         val doc = Jsoup.parse(html)
         return doc.select("article.bg-base-300").mapNotNull { card ->
             val link = card.selectFirst("a[href*=/series/]") ?: return@mapNotNull null
-            val href = link.attr("href").removePrefix(base)
+            val href = toSourcePath(base, link.attr("href"))
             val title = card.selectFirst("a.link-hover")?.text()?.trim()?.ifBlank { null }
                 ?: return@mapNotNull null
             val cover = card.selectFirst("img")?.attr("src")?.takeIf { it.isNotBlank() }
@@ -80,7 +84,7 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -88,17 +92,17 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         // Pozor: "Latest" samotne (bez "Updates") vraci 307 presmerovani na chybovou
         // stranku - API prijima jen presne tenhle text.
         val sort = if (filter.sortBy == "latest") "Latest Updates" else "Popularity"
-        try { parseList(get(searchData("", page, sort, filter))) } catch (_: Exception) { emptyList() }
+        try { parseList(get(searchData("", page, sort, filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
-        try { parseList(get(searchData(query, page, "Best Match", filter))) } catch (_: Exception) { emptyList() }
+        try { parseList(get(searchData(query, page, "Best Match", filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             manga.copy(
                 title = doc.selectFirst("h1")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst("meta[property=og:image]")?.attr("content")?.takeIf { it.isNotBlank() }
@@ -107,7 +111,7 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
                 genres = doc.select("a[href*=included_tag=]").map { it.text().trim() }.filter { it.isNotBlank() },
                 author = doc.selectFirst("a[href*=\"search?author=\"]")?.text()?.trim(),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -116,14 +120,14 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
             val doc = Jsoup.parse(get("$base/series/$id2/full-chapter-list"))
             val chapters = doc.select("a[href*=/chapters/]")
             chapters.mapIndexed { i, a ->
-                val href = a.attr("href").removePrefix(base)
+                val href = toSourcePath(base, a.attr("href"))
                 val text = a.selectFirst("span.grow span")?.text()?.trim()?.ifBlank { null } ?: a.text().trim()
                 val num = Regex("""(\d+(?:\.\d+)?)""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
                     ?: (chapters.size - i).toFloat()
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = text.ifBlank { "Chapter $num" },
                     chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -133,6 +137,6 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
                 val url = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -64,7 +65,9 @@ class MainActivity : AppCompatActivity() {
         // verzich by volani bez SDK guardu bylo zbytecne systemove volani pri KAZDEM vytvoreni
         // activity, a puvodne bezelo jeste PRED super.onCreate(), coz pri obnove po process-death
         // riskovalo, ze registry pro activity-result kontrakty jeste neni pripraveny.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Jen při čerstvém startu - rotace (savedInstanceState != null) by jinak dialog s
+        // žádostí o oprávnění vyvolala znovu.
+        if (savedInstanceState == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
@@ -79,8 +82,12 @@ class MainActivity : AppCompatActivity() {
         insetsController.hide(WindowInsetsCompat.Type.systemBars())
 
         // Cold start: notifikace nebo widget tap, appka nebyla v paměti
-        intent?.data?.takeIf { it.scheme == "jiyu" && it.host != "anilist" && it.host != "mal-auth" }
-            ?.let { _pendingDeepLink.value = intent }
+        // Po rotaci/obnově (savedInstanceState != null) je intent pořád ten původní - deep link
+        // by se přehrál znovu a vrátil uživatele tam, odkud už odešel.
+        if (savedInstanceState == null) {
+            intent?.data?.takeIf { it.scheme == "jiyu" && it.host != "anilist" && it.host != "mal-auth" }
+                ?.let { _pendingDeepLink.value = intent }
+        }
 
         setContent {
             val theme by settings.theme.collectAsStateWithLifecycle(initialValue = ThemeOption.SYSTEM)
@@ -102,7 +109,13 @@ class MainActivity : AppCompatActivity() {
             JiyuTheme(mode = theme) {
                 // Počkáme na načtení onboarding statusu — zobrazíme prázdnou plochu
                 if (onboardingCompleted != null) {
-                    Surface(modifier = Modifier.fillMaxSize()) {
+                    // Explicitni color = colorScheme.background (ne vychozi colorScheme.surface,
+                    // ktery je vizualne jina barva - Midnight misto DeepSpace, viz Color.kt).
+                    // MainScreen's Scaffold je schvalne containerColor = Transparent (kazda
+                    // obrazovka si sama resi statusBarsPadding), takze kdekoli obsah nepokryje
+                    // uplne celou fyzickou plochu (pod status barem, u cutoutu), prosvital by
+                    // spatny root color jako viditelny pruh jine barvy (nahlaseno uzivatelem).
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         val navController = rememberNavController()
                         val pendingDeepLink by _pendingDeepLink.collectAsStateWithLifecycle()
                         LaunchedEffect(pendingDeepLink) {

@@ -2,11 +2,14 @@
 <!--
     Cesty, ze kterých smí FileProvider vydávat content:// URI jiným aplikacím.
 
-    Zatím stačí cache - jediný sdílený soubor je QR kód, který se generuje do
-    context.cacheDir jako "qr_share.png" (viz MangaQrScreen.shareQr). Kdyby se
-    někdy sdílelo i něco z jiné složky, musí sem přibýt odpovídající řádek,
-    jinak getUriForFile spadne na IllegalArgumentException.
+    Zatím stačí cache/shared/ - jediný sdílený soubor je QR kód, který se generuje
+    do context.cacheDir/shared/qr_share.png (viz MangaQrScreen.shareQr). Schválně
+    NENÍ zpřístupněný celý cacheDir - jiné appky by si přes content:// mohly sáhnout
+    i na věci mimo shared/ (image_cache, staré staženy soubory apod.), kdyby se do
+    cacheDir kdy zapsalo něco citlivého. Kdyby se někdy sdílelo i něco z jiné složky,
+    musí sem přibýt odpovídající řádek, jinak getUriForFile spadne na
+    IllegalArgumentException.
 -->
 <paths>
-    <cache-path name="shared_cache" path="." />
+    <cache-path name="shared_cache" path="shared/" />
 </paths>

@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.vortexscans
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -35,6 +38,7 @@ import javax.inject.Singleton
 class VortexScansSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "vortexscans"
     override val name = "Vortex Scans"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://vortexscans.org"
     private val apiBase = "https://api.vortexscans.org"
@@ -60,7 +64,7 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun parseQueryList(json: String): List<SManga> {
@@ -79,7 +83,7 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -106,19 +110,19 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
                 return@withContext parseQueryList(get(genreQueryUrl(filter.genres.first(), page)))
             }
             parseList(get("$base/series/?page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             getPopular(page, filter).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${manga.url}")
+            val html = get(resolveSourceUrl(base, manga.url))
             val doc = Jsoup.parse(html)
             val artist = Regex("""&quot;artist&quot;:\[0,&quot;([^&]*)&quot;]""").find(html)?.groupValues?.get(1)
             manga.copy(
@@ -128,12 +132,12 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
                 genres = doc.select("[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
                 author = artist?.takeIf { it.isNotBlank() },
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val html = get("$base${manga.url}")
+            val html = get(resolveSourceUrl(base, manga.url))
             val postId = Regex("""&quot;postId&quot;:\[0,(\d+)]""").find(html)?.groupValues?.get(1)
                 ?: return@withContext emptyList()
             val json = JSONObject(get("$apiBase/api/chapters?postId=$postId&skip=0&take=all&order=desc"))
@@ -146,16 +150,16 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
                 SChapter(sourceId = id, mangaUrl = manga.url, url = "${manga.url}/$slug",
                     name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("figure meta[itemprop=image]").mapIndexedNotNull { i, meta ->
                 val url = meta.attr("content").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

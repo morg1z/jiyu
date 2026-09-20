@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.omegascans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -49,7 +52,7 @@ class OmegaScansSource @Inject constructor(
     private fun get(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -93,7 +96,7 @@ class OmegaScansSource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun tagsParam(ids: List<String>): String =
@@ -107,7 +110,7 @@ class OmegaScansSource @Inject constructor(
             val order = if (filter.sortBy == "latest") "&orderBy=updated_at" else ""
             val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""
             try { parseList(get("$apiBase/query?page=$page&perPage=20$order$tags")) }
-            catch (_: Exception) { emptyList() }
+            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
@@ -117,7 +120,7 @@ class OmegaScansSource @Inject constructor(
                 val q = URLEncoder.encode(query, "UTF-8")
                 val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""
                 parseList(get("$apiBase/query?query_string=$q&page=$page&perPage=20$tags"))
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun getMangaDetails(manga: SManga): SManga =
@@ -140,7 +143,7 @@ class OmegaScansSource @Inject constructor(
                     genres = genres,
                     coverUrl = json.optString("thumbnail").ifBlank { null } ?: manga.coverUrl,
                 )
-            } catch (_: Exception) { manga }
+            } catch (e: Exception) { e.rethrowIfControl(); manga }
         }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> =
@@ -157,7 +160,7 @@ class OmegaScansSource @Inject constructor(
                     val chapterSlug = c.optString("chapter_slug").ifBlank { return@mapNotNull null }
                     val name = c.optString("chapter_name").ifBlank { chapterSlug }
                     val chapterNumber = c.optString("index").toFloatOrNull()
-                        ?: Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+                        ?: parseChapterNumber(name) ?: 0f
                     SChapter(
                         sourceId = id,
                         mangaUrl = manga.url,
@@ -167,12 +170,12 @@ class OmegaScansSource @Inject constructor(
                         dateUpload = parseIso(c.optString("created_at")),
                     )
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     private fun parseIso(iso: String): Long = try {
         java.time.Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) {
+    } catch (e: Exception) { e.rethrowIfControl();
         System.currentTimeMillis()
     }
 
@@ -187,6 +190,6 @@ class OmegaScansSource @Inject constructor(
                     val url = images.getString(i)
                     Page(index = i, url = url, imageUrl = url)
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 }

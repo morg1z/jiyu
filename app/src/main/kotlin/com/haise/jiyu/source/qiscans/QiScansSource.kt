@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.qiscans
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -8,6 +10,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -71,21 +74,14 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
-    }
-
-    private fun normalizeContentType(text: String?): String = when (text?.trim()?.uppercase()) {
-        "MANHWA" -> "MANHWA"
-        "MANHUA" -> "MANHUA"
-        "NOVEL" -> "NOVEL"
-        else -> "MANGA"
     }
 
     private fun seriesFromJson(o: JSONObject): SManga = SManga(
@@ -117,7 +113,7 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
             val sb = StringBuilder("$api/series?page=$page&perPage=24&sort=${sortParam(filter.sortBy)}")
             filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
             parseListJson(get(sb.toString()))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -126,7 +122,7 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
             if (q.length < 2) return@withContext getPopular(page, filter)
             val url = "$api/series/search?q=${URLEncoder.encode(q, "UTF-8")}&page=$page&perPage=24"
             parseListJson(get(url))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -146,12 +142,12 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
                 status = o.optString("status").ifBlank { null }?.lowercase(),
                 contentType = normalizeContentType(o.optString("type")),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     private fun parseIsoDate(iso: String): Long = try {
         java.time.Instant.parse(iso).toEpochMilli()
-    } catch (_: Exception) { 0L }
+    } catch (e: Exception) { e.rethrowIfControl(); 0L }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
@@ -182,7 +178,7 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
                 page++
             }
             chapters.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -195,6 +191,6 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
                     ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

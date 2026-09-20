@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.meowingtoons
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -40,7 +43,7 @@ class MeowingToonsSource(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -77,7 +80,7 @@ class MeowingToonsSource(
             val tags = try {
                 val arr = JSONArray(tagsAttr)
                 (0 until arr.length()).mapNotNull { arr.optString(it)?.trim()?.ifBlank { null } }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             SManga(sourceId = id, url = href, title = title, coverUrl = cover) to tags
         }.distinctBy { it.first.url }
     }
@@ -96,7 +99,7 @@ class MeowingToonsSource(
                 .map { FilterTag(id = it, label = it) }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun filterByGenres(items: List<Pair<SManga, List<String>>>, genres: List<String>): List<SManga> =
@@ -107,7 +110,7 @@ class MeowingToonsSource(
             if (page > 1) return@withContext emptyList()
             return@withContext try {
                 filterByGenres(parseLibraryWithTags(get("$root/library/")), filter.genres)
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (page > 1) return@withContext emptyList()
         // overeno zive na obou webech (timelesstoons.org i genztoons.org): "/latest/"
@@ -116,7 +119,7 @@ class MeowingToonsSource(
         val path = if (filter.sortBy == "latest") "$root/latest/" else "$root/library/"
         try {
             parseLibrary(get(path))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -124,14 +127,14 @@ class MeowingToonsSource(
             if (page > 1) return@withContext emptyList()
             val matched = try {
                 filterByGenres(parseLibraryWithTags(get("$root/library/")), filter.genres)
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             return@withContext if (query.isBlank()) matched else matched.filter { it.title.contains(query, ignoreCase = true) }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         if (page > 1) return@withContext emptyList()
         try {
             parseLibrary(get("$root/library/")).filter { it.title.contains(query, ignoreCase = true) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
@@ -144,7 +147,7 @@ class MeowingToonsSource(
                 description = description,
                 genres = genres,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -153,11 +156,11 @@ class MeowingToonsSource(
             doc.select("a[href^=/chapter/]").mapNotNull { a ->
                 val href = a.absUrl("href").ifBlank { return@mapNotNull null }
                 val label = a.attr("title").ifBlank { a.attr("alt") }.trim()
-                val num = Regex("""[\d.]+""").find(label)?.value?.toFloatOrNull() ?: return@mapNotNull null
+                val num = parseChapterNumber(label) ?: return@mapNotNull null
                 val name = label.ifBlank { "Chapter $num" }
                 SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = System.currentTimeMillis())
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -168,6 +171,6 @@ class MeowingToonsSource(
                 val url = "https://cdn.meowing.org/uploads/$uid"
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

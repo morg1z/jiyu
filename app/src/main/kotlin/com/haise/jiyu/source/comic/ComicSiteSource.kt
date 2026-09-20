@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.comic
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -12,6 +16,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import java.net.URLEncoder
 
 /**
  * Base class for Western comic reader sites.
@@ -25,6 +30,9 @@ abstract class ComicSiteSource(
 ) : MangaSource {
 
     override val contentType: String = "COMIC"
+
+    // getPopular() těchto webů řazení "Populární/Nejnovější" nerozlišuje - přepínač se nezobrazuje.
+    override val supportsSortOrder: Boolean get() = false
 
     open val popularPath: String = "/"
     open val comicItemSelector: String = "div.eg-box"
@@ -46,7 +54,7 @@ abstract class ComicSiteSource(
     protected suspend fun get(url: String): String = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
@@ -79,7 +87,7 @@ abstract class ComicSiteSource(
             val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = linkEl.text().trim().ifBlank { el.text().trim() },
                 coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src").ifBlank { it.attr("data-lazy-src") } } }
                     ?.realImageUrlOrBlank()?.ifBlank { null },
@@ -90,7 +98,7 @@ abstract class ComicSiteSource(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val url = buildString {
-            append(base).append(searchPath).append(query.replace(" ", "+"))
+            append(base).append(searchPath).append(URLEncoder.encode(query.trim(), "UTF-8"))
             if (page > 1) append(searchPageParam).append(page)
         }
         val doc = Jsoup.parse(get(url), url)
@@ -100,9 +108,9 @@ abstract class ComicSiteSource(
             val cover = el.selectFirst(comicCoverSelector)
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = linkEl.text().trim().ifBlank { el.text().trim() },
-                coverUrl = cover?.let { it.attr("src").ifBlank { it.attr("data-src") } }
+                coverUrl = cover?.let { it.lazySrc().orEmpty() }
                     ?.realImageUrlOrBlank()?.ifBlank { null },
                 contentType = "COMIC",
             )
@@ -110,7 +118,7 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
-        val url = "$base${manga.url}"
+        val url = resolveSourceUrl(base, manga.url)
         val doc = Jsoup.parse(get(url), url)
         manga.copy(
             description = doc.selectFirst(descriptionSelector)?.text(),
@@ -119,7 +127,7 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
-        val url = "$base${manga.url}"
+        val url = resolveSourceUrl(base, manga.url)
         val doc = Jsoup.parse(get(url), url)
         doc.select(chapterItemSelector).mapIndexed { i, a ->
             val text = a.text().trim()
@@ -127,7 +135,7 @@ abstract class ComicSiteSource(
             SChapter(
                 sourceId = id,
                 mangaUrl = manga.url,
-                url = a.attr("href").removePrefix(base),
+                url = toSourcePath(base, a.attr("href")),
                 name = text.ifBlank { "Issue $num" },
                 chapterNumber = num,
                 dateUpload = 0L,
@@ -136,7 +144,7 @@ abstract class ComicSiteSource(
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
-        val url = "$base${chapter.url}"
+        val url = resolveSourceUrl(base, chapter.url)
         val doc = Jsoup.parse(get(url), url)
         doc.select(pageImgSelector).mapIndexed { i, img ->
             val url = img.attr("src").ifBlank { img.attr("data-src").ifBlank { img.attr("data-lazy-src") } }.realImageUrlOrBlank()

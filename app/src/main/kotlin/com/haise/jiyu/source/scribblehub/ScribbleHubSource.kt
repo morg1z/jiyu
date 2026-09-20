@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.scribblehub
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.MangaFilter
@@ -22,13 +27,14 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val id = "scribblehub"
     override val name = "ScribbleHub"
+    override val supportsSortOrder: Boolean get() = false
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
     private val base = "https://www.scribblehub.com"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -39,15 +45,15 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
         return doc.select(".search_main_box, .novel-item").mapNotNull { el ->
             val link = el.selectFirst(".search_title a, .novel-title a, h3 a, h2 a") ?: return@mapNotNull null
             val href = link.attr("href").let {
-                if (it.startsWith("http")) it else "$base$it"
+                resolveSourceUrl(base, it)
             }
             SManga(
                 sourceId = id,
-                url = href.removePrefix(base),
+                url = toSourcePath(base, href),
                 title = link.text().trim(),
                 coverUrl = el.selectFirst(".search_img img, .novel-cover img, img")?.let { img ->
-                    img.attr("src").takeIf { s -> s.startsWith("http") }
-                        ?: img.attr("data-src").takeIf { s -> s.startsWith("http") }
+                    img.attr("src").let { s -> absoluteMediaUrl(base, s) }
+                        ?: img.attr("data-src").let { s -> absoluteMediaUrl(base, s) }
                 },
                 contentType = "NOVEL",
             )
@@ -57,23 +63,23 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             parseList(get("$base/series-ranking/?sort=toprated&page=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/?s=$q&post_type=fictionposts&paged=$page"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"), base)
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)), base)
             manga.copy(
                 title = doc.selectFirst(".fic_title, h1.title")?.text()?.trim() ?: manga.title,
                 coverUrl = doc.selectFirst(".novel-cover img, .fic_image img")?.let { img ->
-                    img.attr("src").takeIf { s -> s.startsWith("http") }
+                    img.attr("src").let { s -> absoluteMediaUrl(base, s) }
                 } ?: manga.coverUrl,
                 description = doc.selectFirst(".wi_fic_desc, .description-summary")
                     ?.text()?.trim(),
@@ -82,7 +88,7 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
                 author = doc.selectFirst(".auth_name_fic a, .author-name a")?.text()?.trim(),
                 contentType = "NOVEL",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -100,14 +106,14 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
             val req = Request.Builder()
                 .url("$base/wp-admin/admin-ajax.php")
                 .post(body)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .header("Referer", "$base${manga.url}")
+                .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
+                .header("Referer", resolveSourceUrl(base, manga.url))
                 .header("X-Requested-With", "XMLHttpRequest")
                 .build()
             val html = client.newCall(req).execute().use { it.bodyOrThrow("$base/wp-admin/admin-ajax.php") }
 
             Jsoup.parse(html, base).select("li.toc_w a").mapIndexed { i, a ->
-                val href = a.attr("href").let { if (it.startsWith("http")) it.removePrefix(base) else it }
+                val href = a.attr("href").let { toSourcePath(base, it) }
                 val name = a.text().trim().ifBlank { "Chapter ${i + 1}" }
                 SChapter(
                     sourceId = id,
@@ -118,12 +124,12 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
                     dateUpload = 0L,
                 )
             }.reversed()
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val url = if (chapter.url.startsWith("http")) chapter.url else "$base${chapter.url}"
+            val url = if (chapter.url.startsWith("http")) chapter.url else resolveSourceUrl(base, chapter.url)
             val doc = Jsoup.parse(get(url), base)
             val content = doc.selectFirst(".chapter-inner .chp-raw, .chp-raw, .chapter-content")
                 ?: return@withContext emptyList()
@@ -131,6 +137,6 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
             val text = content.text().trim()
             if (text.isBlank()) emptyList()
             else listOf(Page(0, text, "novel://text"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

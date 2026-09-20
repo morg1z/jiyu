@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import coil.Coil
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.transform.Transformation
@@ -32,6 +33,7 @@ import javax.inject.Singleton
 @Singleton
 class PageBitmapLoader @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val imageProxyConfig: com.haise.jiyu.source.interceptor.ImageProxyConfig,
 ) {
     /**
      * @param maxDimension když je zadané, Coil stránku zmenší tak, aby se vešla do čtverce téhle
@@ -72,11 +74,35 @@ class PageBitmapLoader @Inject constructor(
                     // po druhém - proto to appka spolehlivě shazovalo hned po startu hromadného
                     // překladu (viz uživatelská zpětná vazba "u překladu appka spadne").
                     .allowHardware(false)
-                    .apply { maxDimension?.let { size(it) } }
+                    // OCR a překlad potřebují ORIGINÁL - mimo úsporný režim obrázků (viz ImageProxyInterceptor).
+                    // Když je režim zapnutý, čtečka si pod stejnou URL uložila zmenšený WebP, proto OCR dostane
+                    // vlastní klíče cache, ať z ní nečte horší kopii (ani ji nepřepíše).
+                    .addHeader(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+                    .apply {
+                        if (imageProxyConfig.enabled) {
+                            val originalKey = url.substringBeforeLast("#") + "#original"
+                            diskCacheKey(originalKey)
+                            memoryCacheKey(originalKey)
+                        }
+                    }
+                    .apply {
+                        maxDimension?.let { size(it) }
+                        // Plnorozlišená stránka pro OCR (bez maxDimension) by jinak skončila ve sdílené
+                        // Coil paměťové cache a vytlačila z ní obrázky, které čtečka právě zobrazuje.
+                        // Disková cache zůstává.
+                        if (maxDimension == null) memoryCachePolicy(CachePolicy.DISABLED)
+                    }
                     .build()
                 val result = Coil.imageLoader(context).execute(request)
                 (result as? SuccessResult)?.drawable?.let { (it as? BitmapDrawable)?.bitmap }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: OutOfMemoryError) {
+            // Dekódování 15 000 px stránky v plném rozlišení může vyčerpat paměť - Error, ne Exception,
+            // takže by se jinak chytil až výš a shodil celý překlad místo jedné stránky.
+            e.report("translate:bitmap:load:oom")
+            null
         } catch (e: Exception) {
             // Nenačtená stránka = nepřeložená stránka. Bez hlášení se to navenek projeví jen
             // tím, že překlad "některé stránky přeskočil", bez jakékoli stopy proč.

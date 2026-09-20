@@ -11,12 +11,19 @@ import com.haise.jiyu.data.db.MangaDownloadedCount
 import com.haise.jiyu.data.db.MangaTotalCount
 import com.haise.jiyu.data.db.MangaUnreadCount
 import com.haise.jiyu.data.db.ManualTranslationDao
+import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.data.db.TranslatedNovelDao
+import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
+import com.haise.jiyu.util.ChapterStorage
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SGroup
@@ -30,6 +37,11 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val PAGES_TTL_MS = 10L * 60 * 1000
+private const val PAGES_MAX = 8
+private const val DETAILS_TTL_MS = 5L * 60 * 1000
+private const val DETAILS_MAX = 16
+
 /** Manga entita v knihovně, o které appka usoudila, že je stejná jako nově přidávaná (podle názvu). */
 data class DuplicateMatch(val manga: MangaEntity, val sourceName: String, val chapterCount: Int)
 
@@ -42,7 +54,14 @@ class MangaRepository @Inject constructor(
     private val customSourceDao: CustomSourceDao,
     private val mangaDexSource: MangaDexSource,
     private val manualTranslationDao: ManualTranslationDao,
+    private val readHistoryDao: ReadHistoryDao,
+    private val translatedPageDao: TranslatedPageDao,
+    private val translatedNovelDao: TranslatedNovelDao,
+    private val settings: SettingsRepository,
     private val db: AppDatabase,
+    @param:ApplicationContext private val context: Context,
+    // Sdílená paměťová cache výsledků ze zdrojů (seznam stránek, detail) - viz [SourceContentCache].
+    private val contentCache: SourceContentCache = SourceContentCache(),
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 
@@ -50,6 +69,10 @@ class MangaRepository @Inject constructor(
     fun observeLibraryInCategory(categoryId: String) = categoryDao.observeMangaInCategory(categoryId)
     fun observeMangaById(mangaId: String): Flow<MangaEntity?> = mangaDao.observeById(mangaId)
     suspend fun getAllLibraryManga(): List<MangaEntity> = mangaDao.getAllLibrary()
+    suspend fun getAllLibraryGenres(): List<String> = mangaDao.getAllLibraryGenres()
+    suspend fun getAllLibraryAuthors(): List<String> = mangaDao.getAllLibraryAuthors()
+    fun observeUpdates(): Flow<List<com.haise.jiyu.data.db.UpdateItem>> = chapterDao.observeUpdates()
+    suspend fun markEverythingRead() = chapterDao.markAllRead()
     fun observeRecentlyRead(): Flow<List<MangaEntity>> = mangaDao.observeRecentlyRead()
     fun observeContinueReading(): Flow<List<com.haise.jiyu.data.db.ContinueReadingItem>> = mangaDao.observeContinueReading()
     fun observeRecentlyAdded(): Flow<List<MangaEntity>> = mangaDao.observeRecentlyAdded()
@@ -58,13 +81,15 @@ class MangaRepository @Inject constructor(
     // ── Chapters ─────────────────────────────────────────────────────────────
 
     fun observeChapters(mangaId: String): Flow<List<ChapterEntity>> = chapterDao.observeForManga(mangaId)
-    suspend fun countChapters(mangaId: String): Int = chapterDao.countForManga(mangaId)
     suspend fun getAllChapters(mangaId: String): List<ChapterEntity> = chapterDao.getAllForManga(mangaId)
     suspend fun markAllChaptersRead(mangaIds: List<String>) = chapterDao.markAllReadForMangas(mangaIds)
     suspend fun resetActiveDownloads() = chapterDao.resetActiveDownloads()
-    suspend fun countReadChapters(): Int = chapterDao.countRead()
     fun observeReadChaptersCount(): Flow<Int> = chapterDao.observeReadCount()
     suspend fun getAllLibraryChapters(): List<ChapterEntity> = chapterDao.getAllForLibrary()
+
+    /** Dávkuje po 400, aby nenarazila na SQLite strop na počet parametrů (999). */
+    suspend fun getChaptersByIds(ids: List<String>): List<ChapterEntity> =
+        ids.chunked(400).flatMap { chapterDao.getByIds(it) }
     fun observeUnreadCounts(): Flow<List<MangaUnreadCount>> = chapterDao.observeUnreadCounts()
     fun observeTotalCounts(): Flow<List<MangaTotalCount>> = chapterDao.observeTotalCounts()
     fun observeDownloadedCountPerManga(): Flow<List<MangaDownloadedCount>> = chapterDao.observeDownloadedCountPerManga()
@@ -135,15 +160,18 @@ class MangaRepository @Inject constructor(
             mangaDao.upsert(
                 existing.copy(
                     inLibrary = existing.inLibrary || forceInLibrary,
-                    title = manga.title,
-                    coverUrl = manga.coverUrl,
-                    description = manga.description,
-                    status = manga.status,
-                    author = manga.author,
-                    artist = manga.artist,
-                    genres = manga.genres.joinToString(","),
-                    year = manga.year,
-                    contentType = manga.contentType,
+                    // Data z listingu bývají chudší než ta z detailu (chybí popis, autor, žánry...) -
+                    // prázdná hodnota nesmí přepsat to, co už detail jednou dodal (viz refreshMangaDetails).
+                    title = manga.title.ifBlank { existing.title },
+                    coverUrl = manga.coverUrl ?: existing.coverUrl,
+                    description = manga.description ?: existing.description,
+                    status = manga.status ?: existing.status,
+                    author = manga.author ?: existing.author,
+                    artist = manga.artist ?: existing.artist,
+                    genres = manga.genres.joinToString(",").ifBlank { existing.genres },
+                    year = manga.year ?: existing.year,
+                    // "MANGA" je jen výchozí hodnota SManga - nesmí zpětně přepsat konkrétnější typ (MANHWA...).
+                    contentType = if (manga.contentType.isBlank() || (manga.contentType == "MANGA" && existing.contentType != "MANGA")) existing.contentType else manga.contentType,
                     addedAt = if (forceInLibrary && existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
                 )
             )
@@ -179,15 +207,19 @@ class MangaRepository @Inject constructor(
     suspend fun findLibraryMatchesByTitle(title: String, excludeSourceId: String): List<DuplicateMatch> {
         val normalized = normalizeMangaTitle(title)
         if (normalized.isBlank()) return emptyList()
-        return getAllLibraryManga()
+        val matches = getAllLibraryManga()
             .filter { it.sourceId != excludeSourceId && normalizeMangaTitle(it.title) == normalized }
-            .map { entity ->
-                DuplicateMatch(
-                    manga = entity,
-                    sourceName = sourceManager.getById(entity.sourceId)?.name ?: entity.sourceId,
-                    chapterCount = chapterDao.countForManga(entity.id),
-                )
-            }
+        if (matches.isEmpty()) return emptyList()
+        // Jeden batched count misto N+1 (countForManga volaneho zvlast pro kazdou shodu -
+        // audit nalez), stejny GROUP BY vzor jako ChapterDao.observeTotalCounts().
+        val counts = chapterDao.countForMangas(matches.map { it.id }).associateBy({ it.mangaId }, { it.count })
+        return matches.map { entity ->
+            DuplicateMatch(
+                manga = entity,
+                sourceName = sourceManager.getById(entity.sourceId)?.name ?: entity.sourceId,
+                chapterCount = counts[entity.id] ?: 0,
+            )
+        }
     }
 
     /** Načte počet kapitol pro mangu, která JEŠTĚ NENÍ v knihovně (bez zápisu do DB) - pro porovnání při možné duplicitě. */
@@ -208,7 +240,6 @@ class MangaRepository @Inject constructor(
     suspend fun setExcludeFromUpdates(mangaId: String, exclude: Boolean) =
         mangaDao.setExcludeFromUpdates(mangaId, exclude)
 
-    suspend fun getMangaByUrl(url: String): MangaEntity? = mangaDao.getMangaByUrl(url)
     suspend fun getMangaBySourceAndUrl(sourceId: String, url: String): MangaEntity? = mangaDao.getMangaBySourceAndUrl(sourceId, url)
     suspend fun upsertManga(manga: MangaEntity) = mangaDao.upsert(manga)
 
@@ -221,17 +252,6 @@ class MangaRepository @Inject constructor(
     suspend fun addMangaReadingTime(mangaId: String, deltaMs: Long) = mangaDao.addReadingTime(mangaId, deltaMs)
     suspend fun setReadingStatus(mangaId: String, status: String?) = mangaDao.setReadingStatus(mangaId, status)
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>> = mangaDao.observeByReadingStatus(status)
-    suspend fun getAllLibraryForExport(): List<MangaEntity> = mangaDao.getAllLibrary()
-
-    suspend fun updateMangaMetadata(mangaId: String, manga: SManga) =
-        mangaDao.updateMetadata(
-            mangaId = mangaId,
-            author = manga.author,
-            artist = manga.artist,
-            genres = manga.genres.joinToString(","),
-            year = manga.year,
-        )
-
     /**
      * Odebrani z knihovny mangu ani kapitoly nemaze (jen inLibrary = false) - zaroven ale
      * resetuje stav cteni (precteno/pozice/cas), aby pripadne pozdejsi znovu-pridani te
@@ -242,10 +262,25 @@ class MangaRepository @Inject constructor(
     // db.withTransaction - 3 nezavisle zapisy bez ni mohly pri pádu appky uprostred nechat
     // nekonzistentni stav (napr. inLibrary=false, ale stary read progress nesmazany -
     // nahlaseno v auditu).
-    suspend fun removeFromLibrary(mangaId: String) = db.withTransaction {
-        mangaDao.setInLibrary(mangaId, false)
-        mangaDao.resetReadProgress(mangaId)
-        chapterDao.resetProgressForManga(mangaId)
+    suspend fun removeFromLibrary(mangaId: String) {
+        val downloadedPaths = db.withTransaction {
+            val paths = chapterDao.getAllForManga(mangaId)
+                .filter { it.downloadStatus == DownloadStatus.DOWNLOADED }
+                .mapNotNull { it.localPath }
+            mangaDao.setInLibrary(mangaId, false)
+            mangaDao.resetReadProgress(mangaId)
+            chapterDao.resetProgressForManga(mangaId)
+            // Bez tohohle zůstaly kapitoly "stažené" s localPath na smazané soubory.
+            chapterDao.resetDownloadsForManga(mangaId)
+            paths
+        }
+        // Soubory až PO úspěšné transakci - když spadne zápis do DB, o stažené kapitoly nepřijdeme.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            downloadedPaths.forEach { ChapterStorage.deleteRecursively(context, it) }
+        }
+        // Pro sync: cloud o odebrani zatim nevi, pri pristim pushi se z toho stane "nahrobek"
+        // (in_library=false) - jinak by pull odebrany titul zase vratil (audit nalez JIYU-SEC-1).
+        settings.addPendingRemovedMangaId(mangaId)
     }
 
     /**
@@ -266,7 +301,12 @@ class MangaRepository @Inject constructor(
      */
     suspend fun refreshMangaDetails(mangaId: String, manga: SManga) {
         val source = sourceManager.getById(manga.sourceId) ?: return
-        val detail = try { source.getMangaDetails(manga) } catch (_: Exception) { return }
+        val detail = try {
+            // force = true: tohle je ruční obnovení (pull-to-refresh, refresh na detailu) - má ukázat čerstvá data.
+            contentCache.getOrLoad("details", "${manga.sourceId}|${manga.url}", DETAILS_TTL_MS, DETAILS_MAX, force = true) {
+                source.getMangaDetails(manga)
+            }
+        } catch (_: Exception) { return }
         val existing = mangaDao.getById(mangaId) ?: return
         val updated = existing.copy(
             description = detail.description ?: existing.description,
@@ -300,7 +340,11 @@ class MangaRepository @Inject constructor(
      */
     suspend fun fetchCover(manga: SManga): String? {
         val source = sourceManager.getById(manga.sourceId) ?: return null
-        return try { source.getMangaDetails(manga).coverUrl } catch (_: Exception) { null }
+        return try {
+            contentCache.getOrLoad("details", "${manga.sourceId}|${manga.url}", DETAILS_TTL_MS, DETAILS_MAX) {
+                source.getMangaDetails(manga)
+            }.coverUrl
+        } catch (_: Exception) { null }
     }
 
     /** Vrací seznam nově přidaných kapitol (existující kapitoly jsou přeskočeny). */
@@ -325,8 +369,32 @@ class MangaRepository @Inject constructor(
                 discoveredAt = now,
             )
         }
-        val rowIds = chapterDao.insertNewOnly(entities)
-        return entities.filterIndexed { index, _ -> rowIds[index] != -1L }
+        // Zdroj změnil schéma URL kapitol (nebo je uložené kapitoly z importu zálohy měly jinou
+        // podobu URL): všechny by se vložily jako nové a staré řádky by zůstaly i se stavem čtení.
+        // Přemapují se podle čísla kapitoly. ComicK (agregátor, víc skupin na jedno číslo) se přeskakuje.
+        val migratedIds = if (manga.sourceId == "comick") emptySet() else migrateOrphanedChapters(mangaId, chapters)
+        val toInsert = entities.filter { it.id !in migratedIds }
+        val rowIds = chapterDao.insertNewOnly(toInsert)
+        return toInsert.filterIndexed { index, _ -> rowIds[index] != -1L }
+    }
+
+    /**
+     * Vrací id kapitol (nová id), které se přemapovaly ze starých řádků. Migruje se jen při silné shodě -
+     * aspoň [MIN_ORPHAN_MIGRATION] kapitol a polovina osiřelých - jinak jde o běžný rozdíl (jedna kapitola
+     * smazaná a jiná přidaná) a nic se nepřepojuje.
+     */
+    private suspend fun migrateOrphanedChapters(mangaId: String, chapters: List<SChapter>): Set<String> {
+        val existing = chapterDao.getAllForManga(mangaId)
+        if (existing.isEmpty()) return emptySet()
+        val fetchedIds = chapters.mapTo(HashSet()) { chapterId(it) }
+        val existingIds = existing.mapTo(HashSet()) { it.id }
+        val orphans = existing.filter { it.id !in fetchedIds && !it.isFallbackSource }
+        val fresh = chapters.filter { chapterId(it) !in existingIds }
+        if (orphans.isEmpty() || fresh.isEmpty()) return emptySet()
+        val plan = planChapterMigration(orphans, fresh)
+        if (plan.relink.size < maxOf(MIN_ORPHAN_MIGRATION, orphans.size / 2)) return emptySet()
+        db.withTransaction { applyChapterRelink(plan.relink) }
+        return plan.relink.mapTo(HashSet()) { (_, new) -> chapterId(new) }
     }
 
     /**
@@ -368,23 +436,7 @@ class MangaRepository @Inject constructor(
         // (napr. appka zabita na pozadi) nechal mangu napul premigrovanou (nektere kapitoly
         // uz relinknute na nove id, jine porad na starem).
         db.withTransaction {
-            plan.relink.forEach { (old, new) ->
-                val newId = chapterId(new)
-                chapterDao.relink(
-                    oldId = old.id,
-                    newId = newId,
-                    newUrl = new.url,
-                    newName = new.name,
-                    dateUpload = new.dateUpload,
-                    scanlationGroup = new.scanlationGroup,
-                    volume = new.volume,
-                    groupsJson = serializeChapterGroups(new.groups),
-                )
-                // relink() meni ChapterEntity.id - manual_translation.chapterId (obycejny
-                // string sloupec, zadny FK/cascade) by na stare id ukazoval do prazdna a
-                // rucni opravy tehle kapitoly by uz appka nikdy nenasla (viz relinkChapter doc).
-                manualTranslationDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
-            }
+            applyChapterRelink(plan.relink)
             if (plan.newOnly.isNotEmpty()) {
                 val now = System.currentTimeMillis()
                 val entities = plan.newOnly.map { chapter ->
@@ -405,15 +457,59 @@ class MangaRepository @Inject constructor(
                 chapterDao.insertNewOnly(entities)
             }
 
-            mangaDao.upsert(existing.copy(url = match.url, title = match.title, coverUrl = match.coverUrl ?: existing.coverUrl))
+            // Cilene UPDATE tri sloupcu, ne upsert celeho snapshotu `existing` (cteneho pred sitovymi
+            // volanimi): plny upsert vracel stare lastReadChapterId po relinkLastReadChapter
+            // nahore a prepisoval i vse, co uzivatel mezitim zmenil (progres, inLibrary,
+            // hodnoceni, MAL id) - audit nalez JIYU-DB-1.
+            mangaDao.relinkManga(id = mangaId, url = match.url, title = match.title, coverUrl = match.coverUrl)
         }
         return true
     }
 
-    suspend fun getChapterPages(sourceId: String, chapterUrl: String, mangaUrl: String): List<com.haise.jiyu.source.Page> {
+    /**
+     * Přemapuje uložené kapitoly na nové id/URL (viz [planChapterMigration]) a přenese všechny
+     * tabulky, které na kapitolu ukazují jen řetězcem. Musí běžet v transakci volajícího.
+     */
+    private suspend fun applyChapterRelink(relink: List<Pair<ChapterEntity, SChapter>>) {
+        relink.forEach { (old, new) ->
+            val newId = chapterId(new)
+            chapterDao.relink(
+                oldId = old.id,
+                newId = newId,
+                newUrl = new.url,
+                newName = new.name,
+                dateUpload = new.dateUpload,
+                scanlationGroup = new.scanlationGroup,
+                volume = new.volume,
+                groupsJson = serializeChapterGroups(new.groups),
+            )
+            // relink() meni ChapterEntity.id - vsechny dalsi tabulky, ktere na kapitolu
+            // ukazuji jen obycejnym string sloupcem/predponou (zadny FK/cascade), by na
+            // stare id ukazovaly do prazdna (viz jednotlive relinkChapter/relinkXxx doc
+            // komentare - audit nalez "relink sirotí lastReadChapterId/fallbackChapterId/
+            // read_history/translated_*").
+            manualTranslationDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
+            mangaDao.relinkLastReadChapter(oldChapterId = old.id, newChapterId = newId)
+            chapterDao.relinkFallbackChapterId(oldChapterId = old.id, newChapterId = newId)
+            readHistoryDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
+            translatedPageDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
+            translatedNovelDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
+        }
+    }
+
+    suspend fun getChapterPages(
+        sourceId: String,
+        chapterUrl: String,
+        mangaUrl: String,
+        force: Boolean = false,
+    ): List<com.haise.jiyu.source.Page> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
         val chapter = SChapter(sourceId, mangaUrl, chapterUrl, "", 0f, 0L)
-        return source.getPageList(chapter)
+        // Souběžná volání (čtečka, předstahování další kapitoly, překladové preloady, stahování) sdílí jedno načtení.
+        // Vrací se KOPIE - `Page.imageUrl` je měnitelné a volající ho může doplnit (viz MangaSource.getImageUrl).
+        return contentCache.getOrLoad("pages", "$sourceId|$chapterUrl", PAGES_TTL_MS, PAGES_MAX, force) {
+            source.getPageList(chapter)
+        }.map { it.copy() }
     }
 
     suspend fun getChapterComments(sourceId: String, chapterUrl: String): List<com.haise.jiyu.source.comments.ChapterComment> {
@@ -444,6 +540,18 @@ class MangaRepository @Inject constructor(
 
     suspend fun updateReadProgress(chapterEntityId: String, read: Boolean, lastPageRead: Int, lastReadAt: Long = 0L) =
         chapterDao.updateProgress(chapterEntityId, read, lastPageRead, lastReadAt)
+
+    /** Batched varianta [updateReadProgress] pro import historie ze zálohy (viz
+     * TachiyomiBackupImporter) - jedno UPDATE místo jednoho volání na kapitolu.
+     * Dávkuje po 400, aby nenarazila na SQLite strop na počet parametrů (999). */
+    suspend fun markChaptersRead(chapterIds: List<String>) {
+        chapterIds.chunked(400).forEach { chunk -> chapterDao.markReadByIds(chunk) }
+    }
+
+    /** Opak [markChaptersRead] - vrátí i pozici čtení (stejně jako dřívější `updateReadProgress(read = false)`). */
+    suspend fun markChaptersUnread(chapterIds: List<String>) {
+        chapterIds.chunked(400).forEach { chunk -> chapterDao.markUnreadByIds(chunk) }
+    }
 
     suspend fun updateScrollOffset(chapterEntityId: String, offset: Int, lastReadAt: Long) =
         chapterDao.updateScrollOffset(chapterEntityId, offset, lastReadAt)
@@ -480,8 +588,14 @@ class MangaRepository @Inject constructor(
         chapterListSelector: String? = null,
         pageImageSelector: String? = null,
         contentType: String = "MANGA",
-    ) = customSourceDao.upsert(
-        CustomSourceEntity(
+    ) {
+        // Stejná adresa podruhé = úprava existujícího zdroje (nový nesmí vzniknout jako duplicita
+        // se stejným katalogem a jiným id, na které by ukazovaly jen některé tituly).
+        val normalized = baseUrl.trim().trimEnd('/').lowercase()
+        val existing = customSourceDao.getAllOnce()
+            .firstOrNull { it.baseUrl.trim().trimEnd('/').lowercase() == normalized }
+        customSourceDao.upsert(
+        (existing ?: CustomSourceEntity(name = name, baseUrl = baseUrl)).copy(
             name = name,
             baseUrl = baseUrl,
             listItemSelector = listItemSelector,
@@ -492,7 +606,8 @@ class MangaRepository @Inject constructor(
             pageImageSelector = pageImageSelector,
             contentType = contentType,
         )
-    )
+        )
+    }
     suspend fun deleteCustomSource(source: CustomSourceEntity) = customSourceDao.delete(source)
     suspend fun getAllCustomSourcesOnce(): List<CustomSourceEntity> = customSourceDao.getAllOnce()
     /** Zachová původní id (na rozdíl od addCustomSource) - potřeba pro obnovu zálohy, kde na id ukazují sourceId manga. */
@@ -506,6 +621,11 @@ class MangaRepository @Inject constructor(
     }
 
     // ── Utils ─────────────────────────────────────────────────────────────────
+
+    private companion object {
+        /** Nejmenší počet spárovaných kapitol, aby se osiřelé řádky přemapovaly - viz [migrateOrphanedChapters]. */
+        const val MIN_ORPHAN_MIGRATION = 3
+    }
 
     fun mangaId(sourceId: String, url: String) = "$sourceId::$url"
     fun chapterId(chapter: SChapter) = "${chapter.sourceId}::${chapter.url}"

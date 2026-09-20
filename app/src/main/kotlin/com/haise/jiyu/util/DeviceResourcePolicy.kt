@@ -35,6 +35,18 @@ object DeviceResourcePolicy {
     fun shouldAttemptOnDeviceModels(context: Context): Boolean =
         shouldAttemptOnDeviceModels(availableMemBytes(context), isLowMemory(context))
 
+    /**
+     * Má appka šetřit zdroje (úsporný režim baterie nebo málo paměti)? Čtečka pak předstahuje jen minimum stránek -
+     * dopředu stažené stránky by jinak zbytečně zatěžovaly síť, baterii i paměť.
+     */
+    fun isSavingResources(context: Context): Boolean = try {
+        val power = context.getSystemService<android.os.PowerManager>()
+        (power?.isPowerSaveMode == true) || isLowMemory(context)
+    } catch (_: Exception) {
+        // Dotaz na stav zařízení nesmí nikdy shodit čtečku - při chybě se prostě nešetří.
+        false
+    }
+
     private fun availableMemBytes(context: Context): Long {
         val am = context.getSystemService<ActivityManager>() ?: return DEFAULT_AVAILABLE_MEM_BYTES
         val info = ActivityManager.MemoryInfo()

@@ -1,5 +1,8 @@
 package com.haise.jiyu.source.cinguru
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -48,7 +51,7 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun fetchHtml(url: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .build()
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
@@ -76,7 +79,7 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
             }
         }
         if (end == -1) return null
-        return try { JSONObject(html.substring(jsonStart, end + 1)) } catch (_: Exception) { null }
+        return try { JSONObject(html.substring(jsonStart, end + 1)) } catch (e: Exception) { e.rethrowIfControl(); null }
     }
 
     private fun listItemToSManga(obj: JSONObject): SManga? {
@@ -98,7 +101,7 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
             val key = if (filter.sortBy == "latest") "all" else "popular"
             val items = data.optJSONArray(key) ?: return@withContext emptyList()
             (0 until items.length()).mapNotNull { listItemToSManga(items.optJSONObject(it) ?: return@mapNotNull null) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // Hledani je na cin.guru cistě klientske (Next.js "nextExport" stranka) - v HTML z
@@ -107,7 +110,7 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val json = extractNextData(fetchHtml("$base${manga.url}")) ?: return@withContext manga
+            val json = extractNextData(fetchHtml(resolveSourceUrl(base, manga.url))) ?: return@withContext manga
             val data = json.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("data") ?: return@withContext manga
 
             val titleObj = data.optJSONObject("title")
@@ -121,7 +124,7 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
             val genres = tagObjs.filter { it.optString("type") == "tag" }.mapNotNull { it.optString("name").takeIf { n -> n.isNotBlank() } }
 
             manga.copy(title = title, artist = artist?.ifBlank { null }, genres = genres)
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -139,13 +142,13 @@ class CinGuruSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val json = extractNextData(fetchHtml("$base${chapter.url}")) ?: return@withContext emptyList()
+            val json = extractNextData(fetchHtml(resolveSourceUrl(base, chapter.url))) ?: return@withContext emptyList()
             val data = json.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("data") ?: return@withContext emptyList()
             val pages = data.optJSONObject("images")?.optJSONArray("pages") ?: return@withContext emptyList()
             (0 until pages.length()).mapNotNull { i ->
                 val url = pages.optJSONObject(i)?.optString("t")?.ifBlank { null } ?: return@mapNotNull null
                 Page(index = i, url = url, imageUrl = url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

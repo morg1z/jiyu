@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.webtoon
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
 import com.haise.jiyu.source.FilterTag
@@ -31,7 +35,7 @@ class WebtoonSource @Inject constructor(
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", base)
             .header("Cookie", "pagGDPR=true; needCCPA=false; needCOPPA=false; locale=en")
             .build()
@@ -50,7 +54,7 @@ class WebtoonSource @Inject constructor(
                     ?: it.attr("data-src").takeIf { s -> s.isNotBlank() }
                     ?: it.attr("src").takeIf { s -> s.isNotBlank() }
             }
-            val url = if (href.startsWith("http")) href.removePrefix(base) else href
+            val url = toSourcePath(base, href)
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANHWA")
         }
     }
@@ -81,7 +85,7 @@ class WebtoonSource @Inject constructor(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -92,7 +96,7 @@ class WebtoonSource @Inject constructor(
             }
             val path = if (filter.sortBy == "latest") "/en/originals" else "/en/ranking"
             parseCardList(get("$base$path"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -101,12 +105,12 @@ class WebtoonSource @Inject constructor(
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseCardList(get("$base/en/search?keyword=$q"))
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val title = doc.selectFirst(".detail_header .subj, h1.subj, .info .subj")?.text()?.trim() ?: manga.title
             val cover = doc.selectFirst(".detail_header .thmb img, .thumb img, .pic img")?.let {
                 it.attr("data-url").takeIf { s -> s.isNotBlank() }
@@ -117,12 +121,12 @@ class WebtoonSource @Inject constructor(
             val genres = doc.select(".genre, .info .genre, .detail_body .genre")
                 .map { it.text().trim() }.filter { it.isNotBlank() }
             manga.copy(title = title, coverUrl = cover, description = desc, author = author, genres = genres, contentType = "MANHWA")
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("#_episodeList li, .episode-list #_listUl li, ul#_listUl li").mapNotNull { li ->
                 val link = li.selectFirst("a") ?: return@mapNotNull null
                 val href = link.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
@@ -130,7 +134,7 @@ class WebtoonSource @Inject constructor(
                 val epNo = li.attr("data-episode-no").toFloatOrNull()
                     ?: href.substringAfterLast("episode_no=").substringBefore("&").toFloatOrNull()
                     ?: 0f
-                val url = if (href.startsWith("http")) href.removePrefix(base) else href
+                val url = toSourcePath(base, href)
                 SChapter(
                     sourceId = id,
                     mangaUrl = manga.url,
@@ -140,12 +144,12 @@ class WebtoonSource @Inject constructor(
                     dateUpload = 0L,
                 )
             }.sortedBy { it.chapterNumber }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("#content .viewer_lst img, .viewer_img img, #_imageList img").mapIndexedNotNull { i, img ->
                 val url = img.attr("data-url").takeIf { it.isNotBlank() }
                     ?: img.attr("data-src").takeIf { it.isNotBlank() }
@@ -153,6 +157,6 @@ class WebtoonSource @Inject constructor(
                     ?: return@mapIndexedNotNull null
                 if (url.startsWith("http")) Page(i, url, url) else null
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

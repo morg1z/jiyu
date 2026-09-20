@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.twmanga
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -35,7 +39,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", "$base/")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -45,7 +49,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
         val href = a.attr("href").ifBlank { return null }
         if (!href.startsWith("/comic/") || href.count { it == '/' } > 2) return null
         val title = a.attr("title").trim().ifBlank { return null }
-        val cover = a.selectFirst("amp-img")?.attr("src")?.trim()?.takeIf { it.startsWith("http") }
+        val cover = a.selectFirst("amp-img")?.attr("src")?.trim()?.let { absoluteMediaUrl(base, it) }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANHUA")
     }
 
@@ -70,7 +74,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             }.distinctBy { it.id }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun classifyUrl(type: String, page: Int): String =
@@ -82,7 +86,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             return@withContext try {
                 val doc = Jsoup.parse(get(classifyUrl(genre, page)))
                 doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (page > 1) return@withContext emptyList()
         // overeno zive: /list/new ma jine poradi nez homepage (48 odlisnych titulu);
@@ -91,7 +95,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val doc = Jsoup.parse(get(url))
             doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -100,18 +104,18 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
             return@withContext try {
                 val doc = Jsoup.parse(get(classifyUrl(genre, page)))
                 doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/search?q=$q&page=$page"))
             doc.select("a.comics-card__poster").mapNotNull(::parseCard).distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val tags = doc.select("div.tag-list span.tag").map { it.text().trim() }.filter { it.isNotBlank() }
             manga.copy(
                 title = doc.selectFirst("h1.comics-detail__title")?.text()?.trim() ?: manga.title,
@@ -119,12 +123,12 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 status = tags.firstOrNull(),
                 genres = tags.drop(1),
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("a[href^=/user/page_direct]").mapNotNull { a ->
                 val href = a.attr("href")
                 val query = href.substringAfter('?', "")
@@ -140,16 +144,16 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
                 val chapterUrl = "/comic/chapter/$comicId/${section}_$chapterSlot.html"
                 SChapter(sourceId = id, mangaUrl = manga.url, url = chapterUrl, name = name, chapterNumber = num, dateUpload = 0L)
             }.distinctBy { it.url }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("img[src*=bzcdn.net]").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

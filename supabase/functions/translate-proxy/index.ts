@@ -13,6 +13,32 @@ const MISTRAL_API_KEY = Deno.env.get("MISTRAL_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Jeden klient na celou instanci funkce (dřív se vytvářel při každém volání kvóty i refundu).
+const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+// Strop na dobu čekání na upstream. Bez něj by zaseknutý poskytovatel držel funkci až do limitu platformy a
+// stržené znaky by zůstaly zbytečně stržené; takhle skončí jako "upstream_error" (znaky se vrátí a appka přejde
+// na dalšího poskytovatele v řetězci).
+const UPSTREAM_TIMEOUT_MS = 60_000;
+
+// Horní meze na vstup - řádově nad reálným použitím appky (dávky bublin/odstavců), jen brzda proti zneužití, aby
+// jeden požadavek nespálil kvótu a tokeny. Přesáhne-li vstup, vrací se 413.
+const MAX_BODY_BYTES = 1_000_000;
+const MAX_TEXTS = 1_000;
+const MAX_TEXT_CHARS_TOTAL = 400_000;
+const MAX_GLOSSARY_ENTRIES = 1_000;
+const MAX_PROMPT_CHARS = 500_000;
+
+/** fetch s časovým limitem; chybu sítě/timeout převede na syntetickou odpověď 504, ať ji handlery zpracují jako chybu upstreamu. */
+async function upstreamFetch(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, { ...init, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+  } catch (e) {
+    console.error("upstream fetch failed", input.split("?")[0], String(e));
+    return new Response("upstream timeout or network error", { status: 504 });
+  }
+}
+
 // Svévolná bezpečnostní pojistka proti runaway smyčce/zneužití, NE skutečný limit od
 // Gemini/Groq/OpenRouteru - ty mají vlastní free-tier limity a samy odmítnou požadavek
 // zdarma, appka na to nikdy nic neplatí. Zvednuto 2026-07-27 poté, co reálné dní (24. a
@@ -34,6 +60,25 @@ const DAILY_CHAR_LIMIT = 3_000_000;
 const DAILY_REQUEST_LIMIT = 20_000;
 
 const OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free";
+
+// Záložní modely STEJNÉHO poskytovatele (zdarma, bez karty). Každý má na free tieru vlastní kvótu oddělenou od hlavního
+// modelu, takže při vyčerpání limitu (429) nebo chybě upstreamu (5xx) se zkusí ještě jednou, než se řetězec v appce
+// přepne na dalšího poskytovatele:
+//  - Groq: qwen/qwen3.8-27b (30 RPM, 1000 RPD, 8k TPM, 200k TPD) za openai/gpt-oss-120b,
+//  - Gemini: gemini-3.5-flash-lite za výchozí gemini-flash-latest.
+const GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b";
+const GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b";
+const GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite";
+
+/** Má cenu zkusit záložní model? 429 = vyčerpaná kvóta modelu, 5xx = chyba/přetížení upstreamu. */
+function isFallbackWorthy(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** Qwen občas vrací úvahu v `<think>…</think>` před vlastní odpovědí - pro JSON výstup se odstraní. */
+function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
 
 const NAME_HANDLING_INSTRUCTION =
   "For character names, place names, organizations, and named skills/techniques, use " +
@@ -74,6 +119,29 @@ const HONORIFICS_AND_TONE_INSTRUCTION =
   "convention. Match the intensity and register of the original dialogue - if the source is " +
   "crude, vulgar, or profane, translate it with equivalent intensity instead of softening or " +
   "censoring language that isn't censored in the source. ";
+
+/**
+ * Pravidla přirozené prózy pro novely, pro KAŽDÝ cílový jazyk. Vzniklo z uživatelského testu češtiny: překlad byl
+ * srozumitelný, ale působil strojově - chybějící zvratné zájmeno ("v duchu jsem modlil"), doslovně přenesené anglické
+ * vazby a herní okna přeložená slovo od slova ("Kliky, 100krát: Nedokončeno").
+ */
+function novelStyleInstruction(target: string): string {
+  const general =
+    `Write natural, idiomatic ${target} prose the way a professional ${target} novel translator would - ` +
+    "restructure sentences instead of following the source word order, and choose the verb or phrase a native " +
+    `${target} author would use. Keep grammar correct (reflexive verbs and pronouns, agreement, case, tense and ` +
+    "aspect), and avoid literal constructions and calques from the source language. Render game/system windows, " +
+    `status messages and labels (quests, stats, "Incomplete"/"Complete", warnings) the way ${target} games and web ` +
+    'novels conventionally do, and use natural phrasing for counts (e.g. "100 push-ups", not "Push-ups, 100 times"). ' +
+    "Keep square-bracket system text and any symbols (※, [ ]) as they are. Translate onomatopoeia and " +
+    `interjections into natural ${target} equivalents rather than transliterating them. `;
+  // Konkrétní příklady, které se osvědčily při ladění češtiny.
+  const czech = target.trim().toLowerCase() === "czech"
+    ? 'For Czech specifically: "modlil jsem se" (not "jsem modlil"), "Nesplněno", "Splněno", "Denní úkol", ' +
+      '"100 kliků", "Varování:". '
+    : "";
+  return general + czech;
+}
 
 const MANGA_BREVITY_INSTRUCTION =
   "Keep dialogue natural and concise the way people actually speak, the way it would appear " +
@@ -119,6 +187,7 @@ function systemPromptFor(mode: string, fromClause: string, target: string): stri
       `fluently in ${target}, not word-for-word. ` +
       nameHandling +
       HONORIFICS_AND_TONE_INSTRUCTION +
+      novelStyleInstruction(target) +
       "Return ONLY the JSON array, no explanations, no markdown."
     );
   }
@@ -231,8 +300,7 @@ function retryDelaySecondsFromGeminiBody(bodyText: string): number | undefined {
  * existovaly jen v živém projektu a jejich ztráta by překlad tiše rozbila.
  */
 async function checkQuota(charCount: number): Promise<{ allowed: boolean; errored: boolean }> {
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const { data: allowed, error: quotaError } = await supabase.rpc(
+  const { data: allowed, error: quotaError } = await supabaseAdmin.rpc(
     "increment_translate_usage",
     {
       p_chars: charCount,
@@ -258,8 +326,7 @@ async function checkQuota(charCount: number): Promise<{ allowed: boolean; errore
  * (napočítá se víc, nikdy míň), a rozhodně to není důvod zahodit už hotovou odpověď.
  */
 async function refundQuota(charCount: number): Promise<void> {
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const { error } = await supabase.rpc("refund_translate_usage", { p_chars: charCount });
+  const { error } = await supabaseAdmin.rpc("refund_translate_usage", { p_chars: charCount });
   if (error) console.error("refund rpc failed", error);
 }
 
@@ -284,7 +351,7 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
     return json({ text: "" }, 500);
   }
 
-  const geminiResp = await fetch(
+  const geminiResp = await upstreamFetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
@@ -307,6 +374,10 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
   if (!geminiResp.ok) {
     const bodyText = await geminiResp.text();
     console.error("gemini call failed", geminiResp.status, bodyText);
+    if (isFallbackWorthy(geminiResp.status) && model !== GEMINI_FALLBACK_MODEL) {
+      console.error(`gemini ${model} nedostupný, zkouším ${GEMINI_FALLBACK_MODEL}`);
+      return handleGeminiApi(system, user, GEMINI_FALLBACK_MODEL);
+    }
     const retryAfterSeconds = retryDelaySecondsFromGeminiBody(bodyText);
     return json({ text: "", error: upstreamErrorCode(geminiResp.status), retryAfterSeconds }, 200);
   }
@@ -326,20 +397,15 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
   return json({ text }, 200);
 }
 
-async function handleGroqApi(system: string, user: string): Promise<Response> {
-  if (!GROQ_API_KEY) {
-    console.error("GROQ_API_KEY secret není nastavený na tomto projektu");
-    return json({ text: "" }, 500);
-  }
-
-  const groqResp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+async function groqChat(model: string, system: string, user: string): Promise<Response> {
+  return await upstreamFetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${GROQ_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "openai/gpt-oss-120b",
+      model,
       temperature: 0.1,
       max_tokens: 4096,
       messages: [
@@ -356,6 +422,22 @@ async function handleGroqApi(system: string, user: string): Promise<Response> {
       response_format: { type: "json_object" },
     }),
   });
+}
+
+async function handleGroqApi(system: string, user: string): Promise<Response> {
+  if (!GROQ_API_KEY) {
+    console.error("GROQ_API_KEY secret není nastavený na tomto projektu");
+    return json({ text: "" }, 500);
+  }
+
+  let model = GROQ_PRIMARY_MODEL;
+  let groqResp = await groqChat(model, system, user);
+  if (!groqResp.ok && isFallbackWorthy(groqResp.status)) {
+    console.error("groq call failed", groqResp.status, await groqResp.text());
+    console.error(`groq ${model} nedostupný, zkouším ${GROQ_FALLBACK_MODEL}`);
+    model = GROQ_FALLBACK_MODEL;
+    groqResp = await groqChat(model, system, user);
+  }
 
   if (!groqResp.ok) {
     console.error("groq chat call failed", groqResp.status, await groqResp.text());
@@ -364,7 +446,8 @@ async function handleGroqApi(system: string, user: string): Promise<Response> {
   }
 
   const data = await groqResp.json();
-  const text: string = data?.choices?.[0]?.message?.content ?? "";
+  const raw: string = data?.choices?.[0]?.message?.content ?? "";
+  const text = model === GROQ_FALLBACK_MODEL ? stripThinking(raw) : raw;
   if (!text) return json({ text: "", error: "upstream_empty" }, 200);
   return json({ text }, 200);
 }
@@ -375,7 +458,7 @@ async function handleOpenRouterApi(system: string, user: string): Promise<Respon
     return json({ text: "" }, 500);
   }
 
-  const orResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const orResp = await upstreamFetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
@@ -437,12 +520,15 @@ async function handleOpenRouterApi(system: string, user: string): Promise<Respon
   return json({ text }, 200);
 }
 
+const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9][a-z0-9.\-]{0,60}$/;
+
 async function handleGemini(payload: Record<string, unknown>): Promise<Response> {
   const system = typeof payload.system === "string" ? payload.system : "";
   const user = typeof payload.user === "string" ? payload.user : "";
-  const model = typeof payload.model === "string" && payload.model.length > 0
-    ? payload.model
-    : "gemini-flash-latest";
+  // Model se dosazuje do URL s API klíčem projektu - povolí se jen tvar názvu Gemini modelu
+  // (žádné "/", "?", "..", jiný hostitelský prefix), cokoli jiného spadne na výchozí model.
+  const requestedModel = typeof payload.model === "string" ? payload.model : "";
+  const model = GEMINI_MODEL_PATTERN.test(requestedModel) ? requestedModel : "gemini-flash-latest";
   const provider = payload.provider === "groq"
     ? "groq"
     : payload.provider === "openrouter"
@@ -462,6 +548,7 @@ async function handleGemini(payload: Record<string, unknown>): Promise<Response>
   }
 
   const charCount = system.length + user.length;
+  if (charCount > MAX_PROMPT_CHARS) return json({ text: "", error: "payload_too_large" }, 413);
   const { allowed, errored } = await checkQuota(charCount);
   if (errored) return json({ text: "" }, 500);
   if (!allowed) return json({ text: "", error: "daily_quota_exceeded" }, 429);
@@ -497,7 +584,7 @@ async function callChatCompletion(
     }
     // Stejný model jako Groq (gpt-oss-120b), jiný upstream - Cerebras má ~5x větší
     // free-tier denní rozpočet (1M tokenů/den vs. Groqových ~200K), viz komentář u konstant.
-    const resp = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+    const resp = await upstreamFetch("https://api.cerebras.ai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${CEREBRAS_API_KEY}`,
@@ -506,6 +593,10 @@ async function callChatCompletion(
       body: JSON.stringify({
         model: "gpt-oss-120b",
         temperature: 0.1,
+        // Penalizace opakování tokenů - bez ní nízká teplota na open-weight modelu občas
+        // sklouzne do degenerativní smyčky (nahlášeno: "MANY OF THE USERS WERE HOSPITALIZED
+        // AND WERE HOSPITALIZED"). Doplňkové k app-side isRepetitionLoop retry, ne náhrada.
+        frequency_penalty: 0.3,
         max_tokens: 4096,
         messages: [
           { role: "system", content: system },
@@ -530,7 +621,7 @@ async function callChatCompletion(
       console.error("MISTRAL_API_KEY secret není nastavený na tomto projektu");
       return { content: null, error: "upstream_error" };
     }
-    const resp = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    const resp = await upstreamFetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${MISTRAL_API_KEY}`,
@@ -539,6 +630,7 @@ async function callChatCompletion(
       body: JSON.stringify({
         model: "mistral-small-latest",
         temperature: 0.1,
+        frequency_penalty: 0.3,
         max_tokens: 4096,
         messages: [
           { role: "system", content: system },
@@ -563,7 +655,7 @@ async function callChatCompletion(
       console.error("OPENROUTER_API_KEY secret není nastavený na tomto projektu");
       return { content: null, error: "upstream_error" };
     }
-    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const resp = await upstreamFetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
@@ -574,6 +666,7 @@ async function callChatCompletion(
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
         temperature: 0.1,
+        frequency_penalty: 0.3,
         max_tokens: 4096,
         messages: [
           { role: "system", content: system },
@@ -597,22 +690,32 @@ async function callChatCompletion(
     console.error("GROQ_API_KEY secret není nastavený na tomto projektu");
     return { content: null, error: "upstream_error" };
   }
-  const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "openai/gpt-oss-120b",
-      temperature: 0.1,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
+  const groqText = (model: string) =>
+    upstreamFetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        frequency_penalty: 0.3,
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+      }),
+    });
+  let model = GROQ_PRIMARY_MODEL;
+  let resp = await groqText(model);
+  if (!resp.ok && isFallbackWorthy(resp.status)) {
+    console.error("groq call failed", resp.status, await resp.text());
+    console.error(`groq ${model} nedostupný, zkouším ${GROQ_FALLBACK_MODEL}`);
+    model = GROQ_FALLBACK_MODEL;
+    resp = await groqText(model);
+  }
   if (!resp.ok) {
     console.error("groq call failed", resp.status, await resp.text());
     return {
@@ -622,7 +725,8 @@ async function callChatCompletion(
     };
   }
   const data = await resp.json();
-  return { content: data?.choices?.[0]?.message?.content ?? "" };
+  const raw: string = data?.choices?.[0]?.message?.content ?? "";
+  return { content: model === GROQ_FALLBACK_MODEL ? stripThinking(raw) : raw };
 }
 
 async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "novel"): Promise<Response> {
@@ -645,6 +749,9 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
   if (!Array.isArray(texts) || texts.length === 0) {
     return json({ translations: [] }, 200);
   }
+  if (texts.length > MAX_TEXTS || Object.keys(glossary).length > MAX_GLOSSARY_ENTRIES) {
+    return json({ translations: [], error: "payload_too_large" }, 413);
+  }
 
   const contextClause = contextClauseFor(context, recent);
   const fromClause = sourceLanguage && sourceLanguage !== "Auto" ? `from ${sourceLanguage} ` : "";
@@ -665,6 +772,10 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
     (sum: number, t: unknown) => sum + (typeof t === "string" ? t.length : 0),
     0,
   ) + systemPrompt.length;
+
+  if (charCount > MAX_TEXT_CHARS_TOTAL + MAX_PROMPT_CHARS) {
+    return json({ translations: [], error: "payload_too_large" }, 413);
+  }
 
   const { allowed, errored } = await checkQuota(charCount);
   if (errored) return json({ translations: [] }, 500);
@@ -691,7 +802,7 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
     translations = JSON.parse(cleaned);
     if (!Array.isArray(translations)) throw new Error("not an array");
   } catch {
-    console.error(`failed to parse ${provider} response as JSON array`, cleaned);
+    console.error(`failed to parse ${provider} response as JSON array (length=${cleaned.length})`);
     // Vlastnost konkrétní odpovědi, ne providera - opakovat nemá smysl, vyřazovat taky ne.
     return json({ translations: [], error: "upstream_empty" }, 200);
   }
@@ -705,6 +816,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const declaredLength = Number(req.headers.get("content-length") ?? "0");
+    if (declaredLength > MAX_BODY_BYTES) return json({ translations: [], error: "payload_too_large" }, 413);
     const payload = await req.json().catch(() => null);
     if (!payload) return json({ translations: [] }, 400);
 

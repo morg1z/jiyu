@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.likemanga
 
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -29,6 +33,7 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override val id = "likemanga"
     override val name = "LikeManga"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     override val supportsTagFilter = true
     private val base = "https://likemanga.ink"
@@ -52,14 +57,14 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val label = a.text().trim().ifBlank { return@mapNotNull null }
                 FilterTag(id = slug, label = label)
             }.distinctBy { it.id }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         if (tags.isNotEmpty()) cachedTags = tags
         tags
     }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", base)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -92,12 +97,12 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
             return@withContext try {
                 val doc = Jsoup.parse(get("$base/genres/${filter.genres.first()}/"))
                 doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val doc = Jsoup.parse(get("$base/search/top-all/$page/"))
             doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
@@ -123,12 +128,12 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                     contentType = "MANGA",
                 )
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val genres = doc.select("li.kind p.col-8 a").map { it.text().trim() }
             manga.copy(
                 title = doc.selectFirst("h1.title-detail")?.text()?.trim() ?: manga.title,
@@ -149,7 +154,7 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                     }
                 } ?: "MANGA",
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
@@ -179,16 +184,16 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 pageNum++
             }
             chapters
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${chapter.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
             doc.select("div.page-chapter img").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").takeIf { it.startsWith("http") } ?: return@mapIndexedNotNull null
+                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

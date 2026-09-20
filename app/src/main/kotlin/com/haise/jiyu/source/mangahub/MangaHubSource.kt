@@ -1,5 +1,7 @@
 package com.haise.jiyu.source.mangahub
 
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -21,6 +23,7 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id   = "mangahub"
     override val name = "MangaHub"
+    override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base  = "https://mangahub.io"
     private val api   = "https://api.mghubcdn.com/graphql"
@@ -33,10 +36,10 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
             .header("Content-Type", "application/json")
             .header("Origin", base)
             .header("Referer", "$base/")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
         client.newCall(req).execute().use { JSONObject(it.body?.string() ?: "{}") }
-    } catch (_: Exception) { JSONObject() }
+    } catch (e: Exception) { e.rethrowIfControl(); JSONObject() }
 
     private fun coverUrl(path: String?) =
         if (path.isNullOrBlank()) null
@@ -123,7 +126,7 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
         val urls = try {
             val arr = JSONArray(imagesRaw)
             (0 until arr.length()).map { arr.optString(it) }
-        } catch (_: Exception) {
+        } catch (e: Exception) { e.rethrowIfControl();
             imagesRaw.trim().split("\n").filter { it.isNotBlank() }
         }
 

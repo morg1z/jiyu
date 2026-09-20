@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import coil.size.Size
 import coil.transform.Transformation
-import java.util.concurrent.ConcurrentHashMap
+import com.haise.jiyu.util.boundedLruMap
 import kotlin.math.abs
 
 /** Ořezané okraje jako frakce (0..1) PŮVODNÍHO (neořezaného) obrázku - kolik se uřízlo z které
@@ -110,7 +110,9 @@ class CropBordersTransformation(private val pageUrl: String) : Transformation {
     }
 
     companion object {
-        private val cropFractions = ConcurrentHashMap<String, CropFractions>()
+        // Ohraničené (LRU) - dřív rostlo o záznam na každou kdy zobrazenou stránku po celý život procesu.
+        private const val MAX_CACHED_PAGES = 512
+        private val cropFractions = boundedLruMap<String, CropFractions>(MAX_CACHED_PAGES)
 
         /** Ořezové frakce naposledy spočítané pro tuhle stránku, nebo null (žádný ořez / stránka
          * ještě nenačtena). Volá se z [TranslationLayer.kt] až PO úspěšném načtení obrázku, kdy

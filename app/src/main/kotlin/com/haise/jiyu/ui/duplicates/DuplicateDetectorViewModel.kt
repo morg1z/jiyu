@@ -1,8 +1,12 @@
 package com.haise.jiyu.ui.duplicates
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.util.ChapterStorage
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
@@ -21,6 +25,7 @@ data class DuplicateGroup(
 @HiltViewModel
 class DuplicateDetectorViewModel @Inject constructor(
     private val repository: MangaRepository,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _groups = MutableStateFlow<List<DuplicateGroup>>(emptyList())

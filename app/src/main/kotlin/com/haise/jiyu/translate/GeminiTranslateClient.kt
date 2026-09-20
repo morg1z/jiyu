@@ -1,7 +1,9 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.util.executeCancellable
 import android.util.Log
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.di.TranslateProxyHttpClient
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -37,7 +39,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class GeminiTranslateClient @Inject constructor(
-    private val httpClient: OkHttpClient,
+    @TranslateProxyHttpClient private val httpClient: OkHttpClient,
     private val providerHealth: ProviderHealth,
 ) {
     val isConfigured: Boolean get() = BuildConfig.SUPABASE_URL.isNotBlank() &&
@@ -116,8 +118,8 @@ class GeminiTranslateClient @Inject constructor(
      * v translate-proxy/index.ts), aby starší verze appky, které to pole neznají, dál
      * fungovaly beze změny.
      */
-    private fun executeOnce(request: Request, provider: String): ProxyOutcome = try {
-        httpClient.newCall(request).execute().use { resp ->
+    private suspend fun executeOnce(request: Request, provider: String): ProxyOutcome = try {
+        httpClient.newCall(request).executeCancellable { resp ->
             if (resp.code == 429) {
                 // Limit hlásí sama proxy, ne upstream - přes ni vedou všichni provideři stejně,
                 // takže zkoušet zbytek řetězce je jen ztráta času.
@@ -128,8 +130,8 @@ class GeminiTranslateClient @Inject constructor(
             // sestaveny request...) by druhy pokus stejne nikdy nespravil, jen by zbytecne
             // ztratil cas na RETRY_DELAY_MILLIS pred padem na dalsiho providera v retezci
             // (stejna oprava jako GroqTranslateClient, ktery volá stejnou proxy).
-            if (!resp.isSuccessful) return@use if (resp.code in 500..599) ProxyOutcome.Retryable else ProxyOutcome.BatchFailed
-            val body = resp.body?.string() ?: return@use ProxyOutcome.Retryable
+            if (!resp.isSuccessful) return@executeCancellable if (resp.code in 500..599) ProxyOutcome.Retryable else ProxyOutcome.BatchFailed
+            val body = resp.body?.string() ?: return@executeCancellable ProxyOutcome.Retryable
             val jsonBody = JSONObject(body)
             when (val error = jsonBody.optString("error").takeIf { it.isNotBlank() }) {
                 null -> jsonBody.optString("text").takeIf { it.isNotBlank() }
@@ -155,6 +157,8 @@ class GeminiTranslateClient @Inject constructor(
             }
         }
     } catch (e: RateLimitedException) {
+        throw e
+    } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (_: IOException) {
         ProxyOutcome.Retryable // síť/timeout - druhý pokus o chvíli později běžně projde

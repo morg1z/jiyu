@@ -12,6 +12,12 @@ interface ManualTranslationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: ManualTranslationEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entries: List<ManualTranslationEntity>)
+
+    @Query("SELECT * FROM manual_translation")
+    suspend fun getAll(): List<ManualTranslationEntity>
+
     /** Opravy pro jednu stránku - volá se při každém načtení, takže je to index-covered dotaz. */
     @Query("SELECT * FROM manual_translation WHERE chapterId = :chapterId AND pageIndex = :pageIndex")
     suspend fun forPage(chapterId: String, pageIndex: Int): List<ManualTranslationEntity>

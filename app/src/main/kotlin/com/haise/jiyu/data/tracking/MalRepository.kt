@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,16 +71,34 @@ class MalRepository @Inject constructor(
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * Požadavek s Bearer tokenem: při 401 (access token MAL vyprší zhruba po hodině) jednou obnoví token
+     * přes [MalAuthManager.refreshAccessToken] a zopakuje ho. Dřív se refresh nevolal nikde, takže se
+     * po vypršení tokenu progres čtení do MAL tiše přestal synchronizovat (audit nález JIYU-ARCH-1).
+     * Selhání obnovy nebo chybějící přihlášení = `null`.
+     */
+    private suspend fun <T> authed(build: (token: String) -> Request, handle: (Response) -> T?): T? {
+        val token = authManager.accessToken.first() ?: return null
+        val first = httpClient.newCall(build(token)).execute()
+        if (first.code != 401) return first.use(handle)
+        first.close()
+        if (!hasClientId || !authManager.refreshAccessToken(clientId, staleToken = token)) return null
+        val fresh = authManager.accessToken.first() ?: return null
+        return httpClient.newCall(build(fresh)).execute().use(handle)
+    }
+
     suspend fun getUserProfile(): JSONObject? = withContext(Dispatchers.IO) {
-        val token = authManager.accessToken.first() ?: return@withContext null
         try {
-            val req = Request.Builder()
-                .url("https://api.myanimelist.net/v2/users/@me")
-                .header("Authorization", "Bearer $token")
-                .build()
-            httpClient.newCall(req).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                JSONObject(response.body?.string() ?: return@withContext null)
+            authed(
+                build = { token ->
+                    Request.Builder()
+                        .url("https://api.myanimelist.net/v2/users/@me")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                },
+            ) { response ->
+                if (!response.isSuccessful) return@authed null
+                JSONObject(response.body?.string() ?: return@authed null)
             }
         } catch (_: Exception) { null }
     }
@@ -90,17 +109,20 @@ class MalRepository @Inject constructor(
         score: Int? = null,
         numChaptersRead: Int? = null,
     ) = withContext(Dispatchers.IO) {
-        val token = authManager.accessToken.first() ?: return@withContext
         try {
-            val formBuilder = FormBody.Builder().add("status", status)
-            if (score != null) formBuilder.add("score", score.toString())
-            if (numChaptersRead != null) formBuilder.add("num_chapters_read", numChaptersRead.toString())
-            val req = Request.Builder()
-                .url("https://api.myanimelist.net/v2/manga/$malId/my_list_status")
-                .header("Authorization", "Bearer $token")
-                .patch(formBuilder.build())
-                .build()
-            httpClient.newCall(req).execute().close()
+            authed(
+                build = { token ->
+                    val formBuilder = FormBody.Builder().add("status", status)
+                    if (score != null) formBuilder.add("score", score.toString())
+                    if (numChaptersRead != null) formBuilder.add("num_chapters_read", numChaptersRead.toString())
+                    Request.Builder()
+                        .url("https://api.myanimelist.net/v2/manga/$malId/my_list_status")
+                        .header("Authorization", "Bearer $token")
+                        .patch(formBuilder.build())
+                        .build()
+                },
+            ) { it.isSuccessful }
+            Unit
         } catch (e: Exception) {
             e.report("tracking:mal:updateMangaStatus")
         }
@@ -108,15 +130,17 @@ class MalRepository @Inject constructor(
 
     /** Stáhne uživatelův status/skóre uložený přímo na MAL (pro obousměrnou synchronizaci). */
     suspend fun getMyStatus(malId: Int): MalUserStatus? = withContext(Dispatchers.IO) {
-        val token = authManager.accessToken.first() ?: return@withContext null
         try {
-            val req = Request.Builder()
-                .url("https://api.myanimelist.net/v2/manga/$malId?fields=my_list_status")
-                .header("Authorization", "Bearer $token")
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                parseMalUserStatus(resp.body?.string() ?: return@withContext null)
+            authed(
+                build = { token ->
+                    Request.Builder()
+                        .url("https://api.myanimelist.net/v2/manga/$malId?fields=my_list_status")
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                },
+            ) { resp ->
+                if (!resp.isSuccessful) return@authed null
+                parseMalUserStatus(resp.body?.string() ?: return@authed null)
             }
         } catch (_: Exception) { null }
     }

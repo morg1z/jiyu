@@ -4,44 +4,25 @@ import android.annotation.SuppressLint
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.webkit.CookieManager
+import androidx.core.view.doOnLayout
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.haise.jiyu.R
 import org.json.JSONObject
 
 /**
- * Globalni pozorovatel [CloudflareChallengeBridge] - kdyz tichy WebView solve
- * v CloudflareInterceptor selze (typicky interaktivni Cloudflare Turnstile),
- * zobrazi se tenhle dialog s viditelnym WebView, aby vyzvu mohl vyresit
- * uzivatel sam. Vlozit jednou nekam vysoko v strome (napr. MainActivity),
- * aby fungoval nezavisle na tom, na jake obrazovce appky se uzivatel zrovna
- * nachazi.
+ * Globální pozorovatel [CloudflareChallengeBridge] - když tichý WebView solve v CloudflareInterceptor nestačí
+ * (typicky Turnstile), spustí se tady neviditelný WebView, který výzvu vyřeší sám (viz
+ * [CloudflareChallengeAttempt]). Nic se uživateli neukazuje. Vložit jednou nahoře ve stromu (MainActivity),
+ * aby fungoval na jakékoli obrazovce.
  */
 @Composable
 fun CloudflareChallengeHost() {
@@ -55,33 +36,38 @@ fun CloudflareChallengeHost() {
 }
 
 /**
- * Dvoufazovy pokus o vyreseni jedne [PendingChallenge]:
- *
- * 1) Nejdrive [InvisibleAutoTapAttempt] - stejna stranka se nacte neviditelne
- *    (alpha=0, ale v realne velikosti, takze Turnstile widget dostane skutecny
- *    layout) a appka zkusi sama vicekrat najit a "kliknout" na jeho checkbox.
- *    Funguje to jen na cast pripadu (zavisi na tom, jestli Cloudflare zrovna
- *    chce jen potvrzeni kliknutim, nebo dalsi interakci/vizualni hlavolam) -
- *    NENI to zaruceny bypass, jen nejlepsi bezplatna snaha.
- * 2) Kdyz se do [AUTO_TAP_TIMEOUT_MS] nenajde cf_clearance, [revealed] se
- *    prepne na true a zobrazi se puvodni viditelny [CloudflareChallengeDialog]
- *    se stejnou strankou, aby vyzvu dores uzivatel rucne.
+ * Automatický pokus o vyřešení jedné [PendingChallenge]. WebView je NEVIDITELNÝ a nereaguje na skutečné dotyky
+ * uživatele (appka se dá dál normálně ovládat); stránku výzvy načte v reálné velikosti a sám opakovaně "klikne" na
+ * Turnstile checkbox. Když se do [AUTO_TAP_TIMEOUT_MS] nenajde cf_clearance, výzva se vzdá ([onDone] s `null`) -
+ * uživateli se NIKDY neukazuje okno ani se po něm nechce ověření.
  */
 @Composable
 private fun CloudflareChallengeAttempt(challenge: PendingChallenge, onDone: (String?) -> Unit) {
-    var revealed by remember(challenge) { mutableStateOf(false) }
-    if (revealed) {
-        CloudflareChallengeDialog(challenge = challenge, onDone = onDone)
-    } else {
-        InvisibleAutoTapAttempt(
-            challenge = challenge,
-            onSolved = onDone,
-            onGiveUp = { revealed = true },
-        )
+    InvisibleAutoTapAttempt(
+        challenge = challenge,
+        onSolved = onDone,
+        onGiveUp = { onDone(null) },
+    )
+}
+
+/**
+ * WebView, který ignoruje dotyky uživatele (celoobrazovkový neviditelný překryv by jinak blokoval appku), ale přijímá
+ * dotyky, které do něj pošle appka sama přes [tap] (klik na Turnstile checkbox).
+ */
+private class SilentWebView(context: android.content.Context) : WebView(context) {
+    private var allowTouch = false
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean = allowTouch && super.dispatchTouchEvent(event)
+
+    fun tap(event: MotionEvent) {
+        allowTouch = true
+        try { dispatchTouchEvent(event) } finally { allowTouch = false }
     }
 }
 
-private const val AUTO_TAP_TIMEOUT_MS = 9_000L
+// Neviditelný pokus je teď JEDINÝ automatický pokus v popředí (odpojený tichý WebView se přeskakuje), proto dostane
+// víc času - pomalejší bezinterakční výzva by jinak zbytečně ukázala dialog uživateli.
+private const val AUTO_TAP_TIMEOUT_MS = 18_000L
 private const val AUTO_TAP_POLL_MS = 400L
 private const val AUTO_TAP_RETRY_INTERVAL_MS = 2_500L
 private const val AUTO_TAP_PRESS_MS = 90L
@@ -140,23 +126,35 @@ private fun InvisibleAutoTapAttempt(
         // i skutecne uzivatelske dotyky na obsah pod nim).
         modifier = Modifier.fillMaxSize().alpha(0f),
         factory = { ctx ->
-            WebView(ctx).apply {
+            SilentWebView(ctx).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
-                settings.userAgentString = CloudflareInterceptor.CHROME_UA
+                // UA skutečného WebView (ne pevný řetězec) - viz CloudflareUserAgent.
+                settings.userAgentString = CloudflareUserAgent.value(ctx)
                 var tapsUsed = 0
                 var lastTapAt = 0L
                 var gaveUp = false
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
+                        val tracker = SolveTracker()
                         postDelayed(object : Runnable {
                             override fun run() {
                                 if (stopped[0] || gaveUp) return
                                 val cookies = CookieManager.getInstance().getCookie(url)
                                 if (cookies?.contains("cf_clearance") == true) {
-                                    onSolved(cookies)
+                                    // Cookie sama nestačí - hotovo je až když se stránka opakovaně ohlásí jako
+                                    // skutečná (cf_clearance se může změnit, zatímco mezistránka ještě běží).
+                                    view.evaluateJavascript(CF_PAGE_STATE_JS) { raw ->
+                                        if (stopped[0] || gaveUp) return@evaluateJavascript
+                                        if (tracker.onPoll(true, com.haise.jiyu.util.decodeJsResult(raw))) {
+                                            onSolved(cookies)
+                                        } else {
+                                            view.postDelayed(this, AUTO_TAP_POLL_MS)
+                                        }
+                                    }
                                     return
                                 }
+                                tracker.onPoll(false, null)
                                 // Az MAX_TAP_ATTEMPTS pokusu, ne jeden - prvni odhad souradnic
                                 // muze minout (jina velikost/pozice widgetu, nez appka cekala),
                                 // nebo prvni klik jen otevre/prehraje animaci checkboxu bez
@@ -170,7 +168,7 @@ private fun InvisibleAutoTapAttempt(
                                         if (point != null) {
                                             tapsUsed++
                                             lastTapAt = SystemClock.uptimeMillis()
-                                            dispatchTap(view, point.first, point.second, tapsUsed)
+                                            (view as? SilentWebView)?.let { dispatchTap(it, point.first, point.second, tapsUsed) }
                                         }
                                     }
                                 }
@@ -187,7 +185,8 @@ private fun InvisibleAutoTapAttempt(
                         onGiveUp()
                     }
                 }, AUTO_TAP_TIMEOUT_MS)
-                loadUrl(challenge.url)
+                // Stránka se načte až po prvním layoutu: Turnstile potřebuje skutečný viewport, ne WebView o velikosti nula.
+                doOnLayout { loadUrl(challenge.url) }
             }
         },
         onRelease = { it.destroy() },
@@ -226,89 +225,15 @@ private fun parseTapPoint(raw: String?, density: Float): Pair<Float, Float>? {
  * nacitani posunul), dalsi pokus na uplne stejnem miste by nejspis minul
  * znovu ze stejneho duvodu.
  */
-private fun dispatchTap(view: WebView, x: Float, y: Float, attempt: Int) {
+private fun dispatchTap(view: SilentWebView, x: Float, y: Float, attempt: Int) {
     val tx = x + (attempt - 1) * 3f
     val downTime = SystemClock.uptimeMillis()
     val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, tx, y, 0)
-    view.dispatchTouchEvent(down)
+    view.tap(down)
     down.recycle()
     view.postDelayed({
         val up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, tx, y, 0)
-        view.dispatchTouchEvent(up)
+        view.tap(up)
         up.recycle()
     }, AUTO_TAP_PRESS_MS + attempt * 15L)
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun CloudflareChallengeDialog(challenge: PendingChallenge, onDone: (String?) -> Unit) {
-    // "stopped" prezije jen tenhle jeden zobrazeni dialogu (remember bez klice) - kdyz se
-    // slozi (vyresenim/zavrenim/timeoutem), DisposableEffect ho nastavi na true a
-    // rozjety retezec postDelayed pollu se sam zastavi na dalsim tiku.
-    val stopped = remember { booleanArrayOf(false) }
-    DisposableEffect(Unit) { onDispose { stopped[0] = true } }
-    Dialog(
-        onDismissRequest = { onDone(null) },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
-            Column(Modifier.fillMaxWidth().fillMaxHeight()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.cloudflare_challenge_message, challenge.host),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f).padding(end = 8.dp),
-                    )
-                    TextButton(onClick = { onDone(null) }) {
-                        Text(stringResource(R.string.common_close))
-                    }
-                }
-                AndroidView(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.userAgentString = CloudflareInterceptor.CHROME_UA
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView, url: String) {
-                                    // Jednorazova kontrola 1.2s po nacteni STRANKY VYZVY (driv,
-                                    // nez ji uzivatel stihne rucne vyresit) byla k nicemu -
-                                    // pokud vyreseni Turnstile nevyvola dalsi plne nacteni
-                                    // stranky (caste u vlozeneho widgetu misto celostrankove
-                                    // vyzvy), onPageFinished uz znovu nespusti a appka nikdy
-                                    // nezjisti, ze cf_clearance mezitim dorazila - uzivatel pak
-                                    // musel dialog zavrit rucne, coz se bralo jako SELHANI
-                                    // (onDone(null)), i kdyz CAPTCHU realne vyresil. Misto
-                                    // jednoho pokusu se ted zkousi opakovane kazdych 500ms, dokud
-                                    // se dialog nezavre (viz "stopped" vyse) - stejny vzor jako
-                                    // tichy pokus v CloudflareInterceptor.solveCloudflareSynchronously.
-                                    val poll = object : Runnable {
-                                        override fun run() {
-                                            if (stopped[0]) return
-                                            val cookies = CookieManager.getInstance().getCookie(url)
-                                            if (cookies?.contains("cf_clearance") == true) {
-                                                onDone(cookies)
-                                            } else {
-                                                postDelayed(this, 500L)
-                                            }
-                                        }
-                                    }
-                                    postDelayed(poll, 500L)
-                                }
-                            }
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                            loadUrl(challenge.url)
-                        }
-                    },
-                    onRelease = { it.destroy() },
-                )
-            }
-        }
-    }
 }

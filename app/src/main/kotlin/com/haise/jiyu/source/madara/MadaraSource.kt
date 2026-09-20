@@ -1,5 +1,9 @@
 package com.haise.jiyu.source.madara
 
+import com.haise.jiyu.util.lazySrc
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.parseChapterNumber
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -71,16 +75,29 @@ class MadaraSource(
     // manhwaz.com pouziva pro archiv "/genre/manga?page=N" misto
     // "/manga/page/N/"). Tyhle dvě lambdy jdou pro takove weby přepsat,
     // vychozi hodnota odpovida standardnimu Madara motivu beze zmeny.
+    // Cesta výpisu titulů ("manga" u většiny webů, jinde "series", "comics", "webtoon" ...) a předpona
+    // archivu žánrů ("genre", jinde "manga-genre") - vychází z nich výchozí [popularUrl] a [genreUrl].
+    private val listPath: String = "manga",
+    private val tagPrefix: String = "genre",
     private val popularUrl: (root: String, page: Int, orderby: String) -> String =
-        { root, page, orderby -> "$root/manga/page/$page/?m_orderby=$orderby" },
+        { root, page, orderby -> "$root/$listPath/page/$page/?m_orderby=$orderby" },
     private val searchUrl: (root: String, query: String, page: Int) -> String =
         { root, query, page -> "$root/page/$page/?s=$query&post_type=wp-manga" },
     // Standardni Madara "wp-manga-genre" taxonomie ma rewrite slug "genre" a stejnou
     // /page/N/ paginaci jako archiv - overeno zive na toonily.com (odlisne tituly na
     // strance 1 vs 2). Prepsatelne pro weby, kde je taxonomie jinak pojmenovana.
     private val genreUrl: (root: String, slug: String, page: Int) -> String =
-        { root, slug, page -> "$root/genre/$slug/page/$page/" },
+        { root, slug, page -> "$root/$tagPrefix/$slug/page/$page/" },
+    /** Jazyk webu (BCP-47) - ukazuje se na kartě zdroje a řídí filtr jazyků v Procházet. */
+    private val languageOverride: String = "en",
+    /** Vzor data kapitoly konkrétního webu (např. "dd/MM/yyyy"); zkouší se před obecným parserem. */
+    private val datePattern: String? = null,
+    private val inGlobalSearch: Boolean = true,
 ) : MangaSource {
+
+    override val includeInGlobalSearch: Boolean get() = inGlobalSearch
+
+    override val language: String get() = languageOverride
 
     override val contentType: String get() = contentTypeOverride
     override val homepageUrl: String get() = baseUrl
@@ -97,7 +114,7 @@ class MadaraSource(
                     MadaraCommentStyle.WPDISCUZ -> com.haise.jiyu.source.comments.parseWpDiscuzComments(doc)
                     MadaraCommentStyle.NATIVE_WP -> com.haise.jiyu.source.comments.parseNativeWpComments(doc)
                 }
-            } catch (_: Exception) { emptyList() }
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     private val root get() = baseUrl.trimEnd('/')
@@ -110,12 +127,17 @@ class MadaraSource(
         // nema (na rozdil od skutecne Cloudflare-chranenych webu, kde tohle
         // samo o sobe nestaci).
         private const val BROWSER_USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            SourceHttp.USER_AGENT_DESKTOP
+
+        // Ruzne Madara motivy formatuji datum vydani jinak - zkousi se v tomto poradi
+        // (viz parseRelativeOrAbsoluteDate).
+        private val ABSOLUTE_DATE_FORMATS = listOf("MMMM d, yyyy", "MMM d, yyyy", "yyyy-MM-dd", "dd/MM/yyyy")
     }
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
     override val supportsTagFilter: Boolean get() = true
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
 
     // /search/ stranka je soucast madara-core pluginu (ne motivu), takze genre[]
     // checkboxy tam maji napric weby stejny HTML tvar - lisi se jen skutecne
@@ -133,7 +155,7 @@ class MadaraSource(
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
@@ -179,7 +201,7 @@ class MadaraSource(
             val title = link.attr("title").ifBlank { link.text() }.ifBlank { return@mapNotNull null }
             val url = link.absUrl("href").ifBlank { return@mapNotNull null }
             val cover = item.selectFirst("img")?.let { img ->
-                img.attr("data-src").ifBlank { img.attr("data-lazy-src") }.ifBlank { img.attr("src") }
+                img.lazySrc().orEmpty()
             }?.trim()?.ifBlank { null }
 
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = contentTypeOverride)
@@ -240,12 +262,30 @@ class MadaraSource(
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) Jsoup.parse(response.body?.string().orEmpty(), manga.url) else null
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) { e.rethrowIfControl();
                 null
             }
 
             val doc = ajaxDoc?.takeIf { it.select(selectors.chapterList).isNotEmpty() } ?: fetchDocument(manga.url)
-            val rows = doc.select(selectors.chapterList)
+            var rows = doc.select(selectors.chapterList)
+            if (rows.isEmpty()) {
+                // Starší motivy načítají kapitoly přes admin-ajax.php (id titulu je v #manga-chapters-holder).
+                val mangaId = doc.selectFirst("#manga-chapters-holder[data-id]")?.attr("data-id")?.ifBlank { null }
+                if (mangaId != null) {
+                    val viaAdminAjax = try {
+                        val request = Request.Builder()
+                            .url("$root/wp-admin/admin-ajax.php")
+                            .post(FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build())
+                            .header("User-Agent", BROWSER_USER_AGENT)
+                            .header("Referer", manga.url)
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) Jsoup.parse(response.body?.string().orEmpty(), manga.url) else null
+                        }
+                    } catch (e: Exception) { e.rethrowIfControl(); null }
+                    if (viaAdminAjax != null) rows = viaAdminAjax.select(selectors.chapterList)
+                }
+            }
 
             rows.mapNotNull { row -> chapterFromRow(row, manga.url) }
         }
@@ -256,7 +296,7 @@ class MadaraSource(
         val link = row.takeIf { it.tagName() == "a" && it.hasAttr("href") } ?: row.selectFirst("a") ?: return null
         val url = link.absUrl("href").ifBlank { return null }
         val name = link.text().trim().ifBlank { return null }
-        val chapterNumber = Regex("""[\d.]+""").find(name)?.value?.toFloatOrNull() ?: 0f
+        val chapterNumber = parseChapterNumber(name) ?: 0f
         val dateText = row.selectFirst("span.chapter-release-date, i")?.text()?.trim()
 
         return SChapter(
@@ -265,36 +305,25 @@ class MadaraSource(
             url = url,
             name = name,
             chapterNumber = chapterNumber,
-            dateUpload = parseRelativeOrAbsoluteDate(dateText),
+            dateUpload = chapterDate(dateText),
         )
     }
 
-    private fun parseRelativeOrAbsoluteDate(text: String?): Long {
-        if (text.isNullOrBlank()) return System.currentTimeMillis()
-        // "2 days ago", "3 hours ago", "1 week ago", etc.
-        val relativeMatch = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""", RegexOption.IGNORE_CASE).find(text)
-        if (relativeMatch != null) {
-            val value = relativeMatch.groupValues[1].toLongOrNull() ?: 1L
-            val unit = relativeMatch.groupValues[2].lowercase()
-            val deltaMs = when (unit) {
-                "second" -> value * 1_000L
-                "minute" -> value * 60_000L
-                "hour"   -> value * 3_600_000L
-                "day"    -> value * 86_400_000L
-                "week"   -> value * 7 * 86_400_000L
-                "month"  -> value * 30 * 86_400_000L
-                "year"   -> value * 365 * 86_400_000L
-                else     -> 0L
-            }
-            return System.currentTimeMillis() - deltaMs
+    private fun chapterDate(text: String?): Long {
+        if (text.isNullOrBlank()) return 0L
+        val locale = java.util.Locale.forLanguageTag(languageOverride)
+        datePattern?.let { pattern ->
+            val parsed = runCatching {
+                java.text.SimpleDateFormat(pattern, locale).apply {
+                    isLenient = false
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.parse(text.trim())?.time
+            }.getOrNull()
+            if (parsed != null) return parsed
         }
-        return try {
-            java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.ENGLISH).parse(text)?.time
-                ?: System.currentTimeMillis()
-        } catch (_: Exception) {
-            System.currentTimeMillis()
-        }
+        return com.haise.jiyu.util.parseChapterDate(text, locale)
     }
+
 
     // ─── Stránky kapitoly ────────────────────────────────────────────────────
 
@@ -316,7 +345,7 @@ class MadaraSource(
             val images = doc.select(selectors.pageImage)
 
             images.mapIndexedNotNull { i, img ->
-                val src = img.attr("data-src").ifBlank { img.attr("data-lazy-src") }.ifBlank { img.attr("src") }
+                val src = img.lazySrc().orEmpty()
                     .trim().ifBlank { return@mapIndexedNotNull null }
                 Page(index = i, url = src, imageUrl = src)
             }

@@ -26,7 +26,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class UpdatesViewModel @Inject constructor(
-    private val chapterDao: ChapterDao,
     private val repository: MangaRepository,
     private val settings: SettingsRepository,
     @param:ApplicationContext private val appContext: Context,
@@ -36,7 +35,7 @@ class UpdatesViewModel @Inject constructor(
         viewModelScope.launch { settings.clearNewChapters() }
     }
 
-    val updates: StateFlow<List<UpdateItem>> = chapterDao.observeUpdates()
+    val updates: StateFlow<List<UpdateItem>> = repository.observeUpdates()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isRefreshing = MutableStateFlow(false)
@@ -58,29 +57,38 @@ class UpdatesViewModel @Inject constructor(
             // hlasil "aktualizace se stahuji nejak pomalu".
             val semaphore = Semaphore(5)
             val errors = java.util.Collections.synchronizedList(mutableListOf<String>())
-            coroutineScope {
-                repository.getAllLibraryManga().map { manga ->
-                    async {
-                        semaphore.withPermit {
-                            try {
-                                val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, manga.description, manga.status, contentType = manga.contentType)
-                                repository.refreshChapters(manga.id, sManga)
-                            } catch (_: Exception) {
-                                errors += manga.title
+            try {
+                coroutineScope {
+                    // Stejný predikát jako ChapterUpdateWorker - titul vyřazený z aktualizací se ručně
+                    // neobnovuje taky.
+                    repository.getAllLibraryManga().filter { !it.excludeFromUpdates }.map { manga ->
+                        async {
+                            semaphore.withPermit {
+                                try {
+                                    val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, manga.description, manga.status, contentType = manga.contentType)
+                                    repository.refreshChapters(manga.id, sManga)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    errors += manga.title
+                                }
                             }
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
+                if (errors.isNotEmpty()) {
+                    val suffix = if (errors.size > 3) appContext.getString(R.string.library_refresh_error_and_more) else ""
+                    _refreshError.value = appContext.getString(R.string.updates_refresh_error, errors.take(3).joinToString(), suffix)
+                }
+            } finally {
+                // finally: výjimka mimo per-manga catch (např. DB při getAllLibraryManga) jinak nechala
+                // indikátor točit navždy a další refresh se odmítl (guard nahoře).
+                _isRefreshing.value = false
             }
-            if (errors.isNotEmpty()) {
-                val suffix = if (errors.size > 3) appContext.getString(R.string.library_refresh_error_and_more) else ""
-                _refreshError.value = appContext.getString(R.string.updates_refresh_error, errors.take(3).joinToString(), suffix)
-            }
-            _isRefreshing.value = false
         }
     }
 
     fun markAllRead() {
-        viewModelScope.launch { chapterDao.markAllRead() }
+        viewModelScope.launch { repository.markEverythingRead() }
     }
 }

@@ -314,12 +314,6 @@ class LibraryViewModel @Inject constructor(
     // ── Long-press akce ───────────────────────────────────────────────────────
 
     fun removeFromLibrary(mangaId: String) = viewModelScope.launch {
-        // Delete downloaded chapter files so they don't linger on disk
-        repository.getAllChapters(mangaId)
-            .filter { it.downloadStatus == DownloadStatus.DOWNLOADED }
-            .forEach { ch ->
-                ch.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }
-            }
         repository.removeFromLibrary(mangaId)
     }
 
@@ -344,10 +338,6 @@ class LibraryViewModel @Inject constructor(
     val gridColumns: StateFlow<Int> = settings.libraryGridColumns
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
     fun setGridColumns(n: Int) { viewModelScope.launch { settings.setLibraryGridColumns(n) } }
-    fun cycleGridColumns() {
-        val next = when (gridColumns.value) { 2 -> 3; 3 -> 4; else -> 2 }
-        setGridColumns(next)
-    }
 
     // ── Lokální CBZ/ZIP import ────────────────────────────────────────────────
     private val _localImportState = MutableStateFlow<LocalImportState>(LocalImportState.Idle)

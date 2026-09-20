@@ -1,5 +1,10 @@
 package com.haise.jiyu.source.mangadoom
 
+import com.haise.jiyu.util.toSourcePath
+import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.util.absoluteMediaUrl
+import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -43,7 +48,7 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun get(url: String, referer: String = base): String {
         val req = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP_124)
             .header("Referer", referer)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
@@ -53,7 +58,7 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
         val href = a.attr("href").ifBlank { return null }
         val title = a.attr("title").trim().ifBlank { return null }
         val cover = a.selectFirst("img")?.attr("src")?.trim()?.takeIf { it.isNotBlank() }
-        return SManga(sourceId = id, url = href.removePrefix(base), title = title, coverUrl = cover, contentType = "MANGA")
+        return SManga(sourceId = id, url = toSourcePath(base, href), title = title, coverUrl = cover, contentType = "MANGA")
     }
 
     @Volatile private var cachedTags: List<FilterTag>? = null
@@ -71,7 +76,7 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
             }
             cachedTags = tags
             tags
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     private fun genreDoc(slug: String, page: Int): org.jsoup.nodes.Document =
@@ -94,19 +99,19 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
                 val doc = Jsoup.parse(get("$base/popular-manga?page=$page"))
                 doc.select("div.manga-list-style a[title]:has(img)").mapNotNull(::parseCard)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isEmpty()) return@withContext emptyList()
         try {
             genreDoc(filter.genres.first(), page).select("div.col-md-4 a[title]:has(img)").mapNotNull(::parseCard)
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val fields = doc.select("dl.dl-horizontal dt").associate { dt ->
                 dt.text().trim().trimEnd(':', ' ') to dt.nextElementSibling()?.text()?.trim().orEmpty()
             }
@@ -124,19 +129,19 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
                 genres = doc.select("dd a[href*=/category/]").map { it.text().trim() }.filter { it.isNotBlank() },
                 contentType = contentType,
             )
-        } catch (_: Exception) { manga }
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get("$base${manga.url}"))
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             doc.select("ul.chapter-list li a[href]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
                 val num = href.trimEnd('/').substringAfterLast('/').toFloatOrNull() ?: 0f
                 val name = a.selectFirst("span.val")?.text()?.trim() ?: "Chapter $num"
-                SChapter(sourceId = id, mangaUrl = manga.url, url = href.removePrefix(base), name = name, chapterNumber = num, dateUpload = 0L)
+                SChapter(sourceId = id, mangaUrl = manga.url, url = toSourcePath(base, href), name = name, chapterNumber = num, dateUpload = 0L)
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
@@ -150,13 +155,13 @@ class MangaDoomSource @Inject constructor(private val client: OkHttpClient) : Ma
             (1..pageCount).map { p ->
                 Page(index = p - 1, url = "$base${chapter.url}/$p")
             }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(page.url))
-            doc.selectFirst("img#chapter_img")?.attr("src")?.takeIf { it.startsWith("http") } ?: page.url
-        } catch (_: Exception) { page.url }
+            doc.selectFirst("img#chapter_img")?.attr("src")?.let { absoluteMediaUrl(base, it) } ?: page.url
+        } catch (e: Exception) { e.rethrowIfControl(); page.url }
     }
 }

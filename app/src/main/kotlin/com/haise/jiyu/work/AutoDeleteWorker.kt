@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -41,7 +42,9 @@ class AutoDeleteWorker @AssistedInject constructor(
                 .setInitialDelay(delayDays, TimeUnit.DAYS)
                 .addTag("auto_delete")
                 .build()
-            WorkManager.getInstance(context).enqueue(request)
+            // Unikatni prace na kapitolu - dřív každé přepnutí přečteno/nepřečteno (nebo opakovaná
+            // návštěva poslední stránky) nechalo ve frontě další duplicitní úlohu.
+            WorkManager.getInstance(context).enqueueUniqueWork("auto_delete_$chapterId", ExistingWorkPolicy.REPLACE, request)
         }
     }
 }

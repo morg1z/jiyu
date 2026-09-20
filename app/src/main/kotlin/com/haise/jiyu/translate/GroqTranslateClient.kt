@@ -1,6 +1,8 @@
 package com.haise.jiyu.translate
 
+import com.haise.jiyu.util.executeCancellable
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.di.TranslateProxyHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -65,7 +67,7 @@ internal fun buildProxyRequestBody(
  */
 @Singleton
 class GroqTranslateClient @Inject constructor(
-    private val httpClient: OkHttpClient,
+    @TranslateProxyHttpClient private val httpClient: OkHttpClient,
     private val providerHealth: ProviderHealth,
 ) {
     /** false = SUPABASE_URL není nakonfigurované v local.properties, překlad nemá šanci fungovat. */
@@ -185,7 +187,7 @@ class GroqTranslateClient @Inject constructor(
         repeat(MAX_ATTEMPTS) { attempt ->
             var retryable = false
             try {
-                val result = httpClient.newCall(request).execute().use { resp ->
+                val result = httpClient.newCall(request).executeCancellable { resp ->
                     if (resp.code == 429) {
                         // Limit hlásí proxy, ne upstream - přes ni vedou všichni provideři stejně.
                         providerHealth.markAllUnavailable()
@@ -197,12 +199,12 @@ class GroqTranslateClient @Inject constructor(
                         // jen zbytecne ztrati cas na RETRY_DELAY_MILLIS pred padem na dalsiho
                         // providera v retezci.
                         retryable = resp.code in 500..599
-                        return@use null
+                        return@executeCancellable null
                     }
                     val responseText = resp.body?.string()
                     if (responseText == null) {
                         retryable = true
-                        return@use null
+                        return@executeCancellable null
                     }
                     val json = JSONObject(responseText)
                     val error = json.optString("error").takeIf { it.isNotBlank() }
@@ -211,15 +213,17 @@ class GroqTranslateClient @Inject constructor(
                         // providera - viz ProviderHealth.markUnavailable a GeminiTranslateClient.
                         val retryAfterSeconds = json.optDouble("retryAfterSeconds", Double.NaN).takeIf { !it.isNaN() }
                         providerHealth.markUnavailable(provider, retryAfterSeconds)
-                        return@use null
+                        return@executeCancellable null
                     }
-                    val arr = json.optJSONArray("translations") ?: return@use null
+                    val arr = json.optJSONArray("translations") ?: return@executeCancellable null
                     List(arr.length()) { arr.getString(it) }.also {
                         if (it.isNotEmpty()) providerHealth.markHealthy(provider)
                     }
                 }
                 if (result != null) return@withContext result
             } catch (e: RateLimitedException) {
+                throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: IOException) {
                 retryable = true // síť/timeout - druhý pokus o chvíli později běžně projde

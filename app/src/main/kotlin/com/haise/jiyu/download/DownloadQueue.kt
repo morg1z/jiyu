@@ -42,7 +42,9 @@ class DownloadQueue @Inject constructor(
             )
             // Explicitni misto spolehnuti na WorkManager default - stejna hodnota jako
             // scheduleChapterUpdates() v JiyuApp.kt, konzistentni napric appkou.
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
+            // 30 s (ne 30 min jako u periodických aktualizací): stahování kapitoly je akce, na kterou
+            // uživatel čeká, a přechodný výpadek sítě se do minuty obvykle spraví.
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .addTag("download_${chapter.id}")
             .addTag("jiyu_download")
             .build()

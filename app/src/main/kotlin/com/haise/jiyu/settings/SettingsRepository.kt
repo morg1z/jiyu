@@ -34,7 +34,6 @@ object SettingsKeys {
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
     val AUTO_DELETE_READ       = booleanPreferencesKey("auto_delete_read")
     val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
-    val ANILIST_TOKEN          = stringPreferencesKey("anilist_access_token")
     val ANILIST_ID_MAP         = stringPreferencesKey("anilist_id_map")
     val FULLSCREEN_ENABLED     = booleanPreferencesKey("fullscreen_enabled")
     val READER_THEME           = stringPreferencesKey("reader_theme")
@@ -57,6 +56,9 @@ object SettingsKeys {
     val PAGE_CURL_ENABLED      = booleanPreferencesKey("page_curl_enabled")
     val CURL_STYLE             = stringPreferencesKey("curl_style")
     val FAVORITE_SOURCE_IDS    = stringSetPreferencesKey("favorite_source_ids")
+    val PENDING_REMOVED_MANGA_IDS = stringSetPreferencesKey("pending_removed_manga_ids")
+    val SYNC_LAST_CHAPTER_PUSH_AT = longPreferencesKey("sync_last_chapter_push_at")
+    val LOCAL_DATA_OWNER_ID = stringPreferencesKey("local_data_owner_id")
     val COMICK_UPD_COUNTRIES   = stringSetPreferencesKey("comick_upd_countries")
     val COMICK_UPD_DEMOGRAPHICS = stringSetPreferencesKey("comick_upd_demographics")
     val COMICK_UPD_MATURE      = stringSetPreferencesKey("comick_upd_mature")
@@ -70,6 +72,15 @@ object SettingsKeys {
      */
     val APP_MODE = stringPreferencesKey("app_mode")
     val SHOW_ADULT_SOURCES     = booleanPreferencesKey("show_adult_sources")
+    /** Přesměrování domén zdrojů ("zrcadla"), řádky `idZdroje<TAB>host` - viz [decodeDomainOverrides]. */
+    val SOURCE_DOMAIN_OVERRIDES = stringPreferencesKey("source_domain_overrides")
+    /** Úsporný režim obrázků přes proxy wsrv.nl - opt-in, výchozí vypnuto (viz `ImageProxyInterceptor`). */
+    val IMAGE_PROXY_ENABLED = booleanPreferencesKey("image_proxy_enabled")
+    /** Volitelná HTTP/SOCKS proxy (heslo je zvlášť v šifrovaném úložišti) - viz `ProxyRepository`. */
+    val PROXY_TYPE = stringPreferencesKey("proxy_type")
+    val PROXY_HOST = stringPreferencesKey("proxy_host")
+    val PROXY_PORT = intPreferencesKey("proxy_port")
+    val PROXY_USER = stringPreferencesKey("proxy_user")
     val SAVED_SEARCHES         = stringPreferencesKey("saved_searches")
     val COMICK_SEARCH_HISTORY  = stringPreferencesKey("comick_search_history")
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
@@ -149,6 +160,18 @@ object AppMode {
     const val SOURCES = "sources"
     const val COMICK  = "comick"
 }
+
+/** Uložená proxy bez hesla - viz [SettingsRepository.proxy]. [type] je název `ProxyType`. */
+data class StoredProxy(val type: String, val host: String, val port: Int, val user: String?)
+
+internal fun encodeDomainOverrides(map: Map<String, String>): String =
+    map.entries.joinToString("\n") { "${it.key}\t${it.value}" }
+
+internal fun decodeDomainOverrides(raw: String?): Map<String, String> =
+    raw.orEmpty().lineSequence().mapNotNull { line ->
+        val i = line.indexOf('\t')
+        if (i <= 0 || i == line.length - 1) null else line.substring(0, i) to line.substring(i + 1)
+    }.toMap()
 
 @Singleton
 class SettingsRepository @Inject constructor(
@@ -284,13 +307,7 @@ class SettingsRepository @Inject constructor(
             prefs[SettingsKeys.TOTAL_PAGES_READ] = (prefs[SettingsKeys.TOTAL_PAGES_READ] ?: 0L) + count
         }
 
-    val aniListToken: Flow<String?> = dataStore.data.map { it[SettingsKeys.ANILIST_TOKEN] }
     val aniListIdMap: Flow<String>  = dataStore.data.map { it[SettingsKeys.ANILIST_ID_MAP] ?: "{}" }
-
-    suspend fun saveAniListToken(token: String?) = dataStore.edit {
-        if (token == null) it.remove(SettingsKeys.ANILIST_TOKEN)
-        else it[SettingsKeys.ANILIST_TOKEN] = token
-    }
 
     suspend fun saveAniListIdMap(json: String) = dataStore.edit { it[SettingsKeys.ANILIST_ID_MAP] = json }
 
@@ -424,6 +441,35 @@ class SettingsRepository @Inject constructor(
     val favoriteSourceIds: Flow<Set<String>> =
         dataStore.data.map { it[SettingsKeys.FAVORITE_SOURCE_IDS] ?: emptySet() }
 
+    /**
+     * ID titulů odebraných z knihovny na tomhle zařízení, o kterých cloud zatím neví - sync z nich
+     * při dalším pushi udělá "náhrobky" (in_library=false), aby se odebrání šířilo mezi zařízeními
+     * a pull odebraný titul zase nevrátil (viz SyncRepository).
+     */
+    val pendingRemovedMangaIds: Flow<Set<String>> =
+        dataStore.data.map { it[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet() }
+
+    /** Id účtu, kterému patří lokální knihovna - viz [com.haise.jiyu.sync.decideOwnership]. */
+    val localDataOwnerId: Flow<String?> = dataStore.data.map { it[SettingsKeys.LOCAL_DATA_OWNER_ID] }
+
+    suspend fun setLocalDataOwnerId(userId: String) = dataStore.edit { it[SettingsKeys.LOCAL_DATA_OWNER_ID] = userId }
+
+    /**
+     * Čas (ms) posledního úspěšného odeslání kapitol do cloudu - další push posílá jen kapitoly změněné od té doby
+     * (viz SyncRepository.pushToCloud). 0 = ještě nic neodesláno, pošle se všechno.
+     */
+    val syncLastChapterPushAt: Flow<Long> = dataStore.data.map { it[SettingsKeys.SYNC_LAST_CHAPTER_PUSH_AT] ?: 0L }
+
+    suspend fun setSyncLastChapterPushAt(millis: Long) = dataStore.edit { it[SettingsKeys.SYNC_LAST_CHAPTER_PUSH_AT] = millis }
+
+    suspend fun addPendingRemovedMangaId(mangaId: String) = dataStore.edit { prefs ->
+        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet()) + mangaId
+    }
+
+    suspend fun clearPendingRemovedMangaIds(mangaIds: Set<String>) = dataStore.edit { prefs ->
+        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet()) - mangaIds
+    }
+
     suspend fun toggleFavoriteSource(sourceId: String) = dataStore.edit { prefs ->
         val current = prefs[SettingsKeys.FAVORITE_SOURCE_IDS] ?: emptySet()
         prefs[SettingsKeys.FAVORITE_SOURCE_IDS] = if (sourceId in current) current - sourceId else current + sourceId
@@ -496,6 +542,47 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setShowAdultSources(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.SHOW_ADULT_SOURCES] = enabled }
+
+    /** Uložená proxy bez hesla, nebo `null` = vypnuto. */
+    val proxy: Flow<StoredProxy?> = dataStore.data.map { prefs ->
+        val host = prefs[SettingsKeys.PROXY_HOST]?.takeIf { it.isNotBlank() } ?: return@map null
+        val port = prefs[SettingsKeys.PROXY_PORT] ?: return@map null
+        StoredProxy(prefs[SettingsKeys.PROXY_TYPE] ?: "HTTP", host, port, prefs[SettingsKeys.PROXY_USER])
+    }
+
+    suspend fun setProxy(proxy: StoredProxy?) {
+        dataStore.edit { prefs ->
+            if (proxy == null) {
+                prefs.remove(SettingsKeys.PROXY_TYPE); prefs.remove(SettingsKeys.PROXY_HOST)
+                prefs.remove(SettingsKeys.PROXY_PORT); prefs.remove(SettingsKeys.PROXY_USER)
+            } else {
+                prefs[SettingsKeys.PROXY_TYPE] = proxy.type
+                prefs[SettingsKeys.PROXY_HOST] = proxy.host
+                prefs[SettingsKeys.PROXY_PORT] = proxy.port
+                if (proxy.user == null) prefs.remove(SettingsKeys.PROXY_USER) else prefs[SettingsKeys.PROXY_USER] = proxy.user
+            }
+        }
+    }
+
+    val imageProxyEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.IMAGE_PROXY_ENABLED] ?: false }
+
+    suspend fun setImageProxyEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.IMAGE_PROXY_ENABLED] = enabled }
+
+    /** Uživatelem zadané domény zdrojů: id zdroje -> host (viz [com.haise.jiyu.source.interceptor.DomainOverrides]). */
+    val sourceDomainOverrides: Flow<Map<String, String>> =
+        dataStore.data.map { decodeDomainOverrides(it[SettingsKeys.SOURCE_DOMAIN_OVERRIDES]) }
+
+    /** [host] `null` = zrušit přesměrování zdroje. Host se čeká už normalizovaný (viz `DomainOverrides.normalizeInput`). */
+    suspend fun setSourceDomainOverride(sourceId: String, host: String?) {
+        dataStore.edit { prefs ->
+            val map = decodeDomainOverrides(prefs[SettingsKeys.SOURCE_DOMAIN_OVERRIDES]).toMutableMap()
+            if (host == null) map.remove(sourceId) else map[sourceId] = host
+            if (map.isEmpty()) prefs.remove(SettingsKeys.SOURCE_DOMAIN_OVERRIDES)
+            else prefs[SettingsKeys.SOURCE_DOMAIN_OVERRIDES] = encodeDomainOverrides(map)
+        }
+    }
 
     /** Potvrzená plnoletost - viz [SettingsKeys.IS_ADULT]. Datum narození se neukládá. */
     val isAdult: Flow<Boolean> =

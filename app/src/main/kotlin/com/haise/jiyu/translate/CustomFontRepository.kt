@@ -136,9 +136,6 @@ class CustomFontRepository @Inject constructor(
         }
     }
 
-    /** Aktuálně uložený URL (prázdný = žádný) - pro zobrazení v nastavení. */
-    suspend fun currentUrl(): String = settings.customFontUrl.first()
-
     private fun cachedFile(url: String): File = File(File(context.filesDir, CUSTOM_FONTS_DIR), cachedFontFileName(url))
 
     private companion object {
