@@ -125,6 +125,11 @@ fun WebtoonReader(
      *  Po obsloužení se zavolá [onScrubConsumed]. */
     scrubToFraction: Float? = null,
     onScrubConsumed: () -> Unit = {},
+    /** Požadavek na skok na LOKALNI index stranky v ramci aktualne viditelne kapitoly
+     *  (slider v dolnim panelu). Bez nej byl slider ve webtoon rezimu mrtvy - jumpToPage
+     *  kanal konzumovaly jen paged ctecky. Po obslouzeni se zavola [onJumpConsumed]. */
+    jumpToPage: Int? = null,
+    onJumpConsumed: () -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
@@ -241,6 +246,27 @@ fun WebtoonReader(
             listState.scrollToItem((fraction * (total - 1)).toInt().coerceIn(0, total - 1))
         }
         onScrubConsumed()
+    }
+
+    // Skok na lokalni index stranky v ramci AKTUALNE viditelne kapitoly (slider
+    // v dolnim panelu - jede pres jumpToPage, ne scrubToFraction, protoze cisluje
+    // jen v ramci jedne kapitoly). Segment se pozna pres mapFlatIndex z prvni
+    // viditelne polozky; kdyz ta padne na "hranici kapitoly" mezi segmenty
+    // (vraci null), zkusi se sousedni stranky.
+    LaunchedEffect(jumpToPage) {
+        val page = jumpToPage ?: return@LaunchedEffect
+        val first = listState.firstVisibleItemIndex
+        val range = mapFlatIndex(first)?.let { (chapterId, _) ->
+            segmentRanges.firstOrNull { it.chapterId == chapterId }
+        } ?: mapFlatIndex(first + 1)?.let { (chapterId, _) ->
+            segmentRanges.firstOrNull { it.chapterId == chapterId }
+        } ?: mapFlatIndex(first - 1)?.let { (chapterId, _) ->
+            segmentRanges.firstOrNull { it.chapterId == chapterId }
+        }
+        if (range != null && range.pageCount > 0) {
+            listState.scrollToItem(range.startFlat + page.coerceIn(0, range.pageCount - 1))
+        }
+        onJumpConsumed()
     }
 
     val flingBehavior = ScrollableDefaults.flingBehavior()
@@ -554,6 +580,19 @@ private fun WebtoonPage(
         }
     }
 
+    // Přesný poměr stran z hlavičky souboru - PageSlicer decoduje bounds i pro
+    // neřezané stránky, takže placeholder drží PŘESNOU výšku ještě před dojezdem
+    // pixelů. Bez toho se stránka po doměření "srazila" na jinou výšku a kotva
+    // LazyColumn posunula čtenáře (hlášené "scroll nahoru táhne o kousek dolů").
+    // Single.aspect je poměr CEHÉHO obrázku - při zapnutém ořezu okrajů (cropBorders)
+    // se zobrazí až oříznutá verze s jiným poměrem, takže tam zůstává medián
+    // (u Tiled je aspect už content-rect po ořezu, tam sedí i s cropem).
+    val planAspect = when (val p = slicePlan) {
+        is PageSlicePlan.Tiled -> p.aspect
+        is PageSlicePlan.Single -> if (cropBorders) null else p.aspect
+        null -> null
+    }
+
     // Dokud stránka nemá skutečný obrázek (a tedy ani vlastní výšku), Coilův placeholder
     // nemá žádný intrinsic rozměr a Box by se v LazyColumn (viz [WebtoonSegmentPages])
     // změřil na výšku 0 - takže nenačtená stránka nezabírala žádné místo, "zmizela" ze
@@ -564,7 +603,7 @@ private fun WebtoonPage(
     val pageModifier = if (imageLoaded) {
         Modifier.fillMaxWidth()
     } else {
-        Modifier.fillMaxWidth().aspectRatio(placeholderAspectRatio)
+        Modifier.fillMaxWidth().aspectRatio(planAspect ?: placeholderAspectRatio)
     }
 
     Box(modifier = pageModifier) {
@@ -580,7 +619,7 @@ private fun WebtoonPage(
                 zoomActive = zoomActive,
                 onSizeChanged = { size = it },
             )
-        } else if (slicePlan == PageSlicePlan.Single) {
+        } else if (slicePlan is PageSlicePlan.Single) {
             RetryableAsyncImage(
                 url = pageUrl,
                 contentDescription = stringResource(R.string.reader_page_content_desc, pageIndex + 1),
@@ -600,6 +639,14 @@ private fun WebtoonPage(
                 disableCrossfade = true,
                 referer = referer,
             )
+        } else {
+            // slicePlan == null = plán se ještě počítá (bounds/probe, případně download
+            // zdroje pro řezy - trvá to i sekundy na pomalém CDN). Bez indikace tu visela
+            // jen černá díra - před řezáním stránek tu běžel Lottie spinner od složení
+            // (hlášeno: "část se nenačte, kolečko zmizí, musím čekat než se objeví").
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                ReaderPageLoadingIndicator()
+            }
         }
         // ContentScale.FillWidth nemá letterbox - vykreslený obrázek VŽDY přesně
         // odpovídá naměřenému `size` (žádné mezery po stranách/nahoře/dole na rozdíl
@@ -633,7 +680,7 @@ private fun WebtoonPage(
  * všechny řezy najednou (samotný LazyColumn virtualizuje jen stránky, ne řezy), takže
  * bez viditelnostního gate by v paměti zůstala celá stránka - a ~96 MB bitmapa, před
  * kterou řezy chrání, by se vlastně dekódovala po kusech, ale najednou. Proto se z
- * pozice v okně spočítá rozsah viditelných řezů (+1 rezerva každým směrem) a řezy mimo
+ * pozice v okně spočítá rozsah viditelných řezů (+1 nahoru, +2 dolů - směrem čtení) a řezy mimo
  * něj jsou jen `Spacer` se správným poměrem stran - žádný decode, žádná bitmapa, jen
  * správná výška. Bitmapy odscrollovaných řezů uvolní Compose+GC hned, případně je krátce
  * podrží Coil memory cache (LRU).
@@ -720,13 +767,19 @@ private fun WebtoonPageSlice(
     val context = LocalContext.current
     var retryTrigger by remember(sliceIndex) { mutableStateOf(0) }
     var isError by remember(sliceIndex) { mutableStateOf(false) }
-    var autoRetried by remember(sliceIndex) { mutableStateOf(false) }
-    // Stejná politika jako RetryableAsyncImage: jeden tichý opakovaný pokus, teprve pak
-    // uživatelské tlačítko - přechodný výpadek CDN neblikne chybovým řádkem uprostřed stránky.
+    var errorCause by remember(sliceIndex) { mutableStateOf<Throwable?>(null) }
+    var autoRetries by remember(sliceIndex) { mutableStateOf(0) }
+    // decodeRegion hlubokého řezu v progresivním JPEG dekóduje všechna data nad sebou,
+    // takže trvá i sekundy - bez indikace byl řez jen černá díra (hlášeno jako "část
+    // stránky se nenačte, kolečko zmizí"). Lottie z RetryableAsyncImage tu nechceme
+    // (animace v každém z ~15 řezů by žrala CPU), stačí tenký progress prstenec.
+    var isLoading by remember(sliceIndex) { mutableStateOf(true) }
+    // Stejná politika jako RetryableAsyncImage: tiché opakování s prodlevou podle typu
+    // chyby (429 čeká na Retry-After, viz pageAutoRetryDelayMs), teprve pak tlačítko.
     LaunchedEffect(isError) {
-        if (isError && !autoRetried) {
-            autoRetried = true
-            delay(1_500L)
+        if (isError && autoRetries < pageAutoRetryCount(errorCause)) {
+            delay(pageAutoRetryDelayMs(errorCause))
+            autoRetries++
             isError = false
             retryTrigger++
         }
@@ -749,11 +802,22 @@ private fun WebtoonPageSlice(
             modifier = Modifier.fillMaxSize(),
             onState = { state ->
                 isError = state is AsyncImagePainter.State.Error
+                if (state is AsyncImagePainter.State.Error) errorCause = state.result.throwable
+                isLoading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
             },
         )
-        if (isError && autoRetried) {
+        if (isLoading && !isError) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                OutlinedButton(onClick = { isError = false; autoRetried = false }) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White.copy(alpha = 0.5f),
+                )
+            }
+        }
+        if (isError && autoRetries >= pageAutoRetryCount(errorCause)) {
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                OutlinedButton(onClick = { isError = false; autoRetries = 0 }) {
                     Icon(TablerIcons.AlertCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                     Text(stringResource(R.string.common_retry), fontSize = 12.sp)
                 }
@@ -780,8 +844,12 @@ private const val APPEND_PREFETCH_DISTANCE = 6
 private const val MAX_ASPECT_SAMPLES = 40
 
 /**
- * Rozsah indexů řezů k dekódování: řezy protínající viewport + 1 rezerva každým směrem
- * (viz [TiledWebtoonPage]). `pageTopInWindow` = y-souřadnice horního okraje stránky v okně
+ * Rozsah indexů řezů k dekódování: řezy protínající viewport + 1 rezerva nahoru a
+ * +2 DOLŮ (viz [TiledWebtoonPage]). Asymetrie je schválná: čte se dolů a decodeRegion
+ * hlubokého řezu v progresivním JPEG dekóduje všechna data nad sebou - s rezervou jen
+ * +1 čtenář do černého řezu doscrolluje dřív, než decode doběhne (hlášeno: "část se
+ * nenačte a musím čekat"). Každý řez navíc ~6 MB bitmapy (800x2048) - levné.
+ * `pageTopInWindow` = y-souřadnice horního okraje stránky v okně
  * (záporná = stránka přečuhuje nad obrazovku). Stránka celá mimo viewport vrátí prázdný
  * rozsah - neviditelné řezy zůstávají jen vyhrazené místo (Spacer), žádný decode.
  * Internal pro JVM testy - čistá matematika bez Compose.
@@ -795,7 +863,7 @@ internal fun visibleSliceRange(
     if (pageHeightPx <= 0f || sliceCount <= 0) return IntRange.EMPTY
     val first = ((-pageTopInWindow / pageHeightPx) * sliceCount).toInt()
     val last = (((viewportHeightPx - pageTopInWindow) / pageHeightPx) * sliceCount).toInt()
-    return (first - 1).coerceAtLeast(0)..(last + 1).coerceAtMost(sliceCount - 1)
+    return (first - 1).coerceAtLeast(0)..(last + 2).coerceAtMost(sliceCount - 1)
 }
 
 /**

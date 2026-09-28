@@ -30,8 +30,16 @@ import okhttp3.Request
  * Plán vykreslení jedné stránky ve webtoon režimu - viz [PageSlicer.plan].
  */
 sealed interface PageSlicePlan {
-    /** Normální stránka - vykreslí se jedním Coil requestem jako dřív (i fallback po selhání). */
-    data object Single : PageSlicePlan
+    /**
+     * Normální stránka - vykreslí se jedním Coil requestem jako dřív (i fallback po selhání).
+     * [aspect] nese skutečný poměr stran přečtený z hlavičky souboru (bounds decode je
+     * součástí plánování), takže placeholder ve webtoon readeru může držet PŘESNOU výšku
+     * stránky už před dojezdem pixelů - bez něj se nenačtená stránka po doměření "srazila"
+     * na jinou výšku a kotva LazyColumn posunula čtenáře (hlášené "scroll táhne o kousek
+     * dolů a je zasekané"). null = zdroj nedekódovatelný (lazy URL, scramble, síť) a
+     * placeholder musí zůstat na mediánovém odhadu.
+     */
+    data class Single(val aspect: Float? = null) : PageSlicePlan
 
     /**
      * Extrémně vysoká stránka rozřezaná na [slices] řezů v souřadnicích ZDROJOVÉHO obrázku
@@ -103,7 +111,7 @@ class PageSlicer @Inject constructor(
             } catch (e: Exception) {
                 // Kontrakt "plan nikdy nehází" - cokoli neočekávaného = Single fallback.
                 android.util.Log.w(TAG, "plan failed, falling back to Single", e)
-                PageSlicePlan.Single
+                PageSlicePlan.Single()
             }.also { planCache[key] = it }
         }
     }
@@ -136,71 +144,32 @@ class PageSlicer @Inject constructor(
             ScrambledImageUrl.parse(pageUrl) != null -> "scrambled"
             else -> null
         }
-        val result = reason?.let { PageSlicePlan.Single } ?: withSourceFile(pageUrl, referer) { file ->
-            if (isAnimatedOrUnreadableHeader(file)) {
-                reason = "animated/unreadable"
-                return@withSourceFile PageSlicePlan.Single
+        val result = reason?.let { PageSlicePlan.Single() }
+            // 1) Zdroj už existuje lokálně (soubor / Coil disk snapshot / vlastní
+            //    soubor) - bounds a případný nářez se spočítají bez sítě.
+            ?: withExistingSourceFile(pageUrl) { file -> planFromFile(file, pageUrl, wantCrop) { reason = it } }
+            // 1b) S úsporným režimem se hledá pod #original klíčem, ale stránka může
+            //     být v cache už pod holým pageUrl klíčem (proxied bajty z prefetch/
+            //     zobrazení) - wsrv.nl bez resize parametrů rozměry nemění, takže
+            //     bounds z proxied kopie jsou správné a plán je bez sítě.
+            ?: (
+                if (!imageProxyConfig.enabled) null
+                else withExistingSourceFile(pageUrl, diskKey = pageUrl) { file ->
+                    planFromFile(file, pageUrl, wantCrop) { reason = it }
+                }
+            )
+            // 2) Cache miss se ZAPNUTÝM úsporným režimem obrázků: zdroj se pro plán tahal
+            //    pod separátním #original klíčem v PLNÉ velikosti a zobrazení pak stáhlo
+            //    proxied kopii znovu = dva downloady na stránku. Probe vezme jen Range
+            //    prefix hlavičky a krátkou stránku vrátí rovnou jako Single.
+            ?: probeRemotePlan(pageUrl, referer, wantCrop) { reason = it }
+            // 3) Cache miss bez probe - plný download zdroje do Coil cache (bez proxy
+            //    bajty sdílí i normální zobrazovací cesta, tj. prefetch zdarma).
+            ?: withDownloadedSourceFile(pageUrl, referer) { file -> planFromFile(file, pageUrl, wantCrop) { reason = it } }
+            ?: run {
+                if (reason == null) reason = "no-source"
+                PageSlicePlan.Single()
             }
-            val decoder = openRegionDecoder(file) ?: run {
-                reason = "no-decoder"
-                return@withSourceFile PageSlicePlan.Single
-            }
-            try {
-                val w = decoder.width
-                val h = decoder.height
-                if (w <= 0 || h <= 0) {
-                    reason = "bad-bounds"
-                    return@withSourceFile PageSlicePlan.Single
-                }
-                if (h <= MAX_UNSLICED_HEIGHT) {
-                    reason = "short ${w}x${h}"
-                    return@withSourceFile PageSlicePlan.Single
-                }
-
-                // Ořez okrajů: detekce na jednom vzorkovaném decodu celé stránky (≤ ~2 MP,
-                // frakce jsou měřítkově invariantní). Řezy se pak počítají z CONTENT rectu,
-                // takže řezané bitmapy jsou rovnou oříznuté - žádná Transformation navíc.
-                var contentLeft = 0
-                var contentTop = 0
-                var contentRight = w - 1
-                var contentBottom = h - 1
-                var fractions: CropFractions? = null
-                if (wantCrop) {
-                    val sample = sampleSizeFor(w, h, CROP_DETECT_MAX_PIXELS)
-                    val sampled = decoder.decodeRegion(
-                        Rect(0, 0, w, h),
-                        BitmapFactory.Options().apply { inSampleSize = sample },
-                    )
-                    fractions = sampled?.let { CropBordersTransformation.detectContentFractions(it) }
-                    sampled?.recycle()
-                    if (fractions != null) {
-                        contentLeft = (fractions.leftF * w).toInt().coerceIn(0, w - 2)
-                        contentTop = (fractions.topF * h).toInt().coerceIn(0, h - 2)
-                        contentRight = (w - 1 - (fractions.rightF * w).toInt()).coerceIn(contentLeft + 1, w - 1)
-                        contentBottom = (h - 1 - (fractions.bottomF * h).toInt()).coerceIn(contentTop + 1, h - 1)
-                    }
-                }
-                val contentW = contentRight - contentLeft + 1
-                val contentH = contentBottom - contentTop + 1
-                // Pozor: i když ořez stáhne obsah pod MAX_UNSLICED_HEIGHT, NESMÍME spadnout
-                // na Single - normální cesta dekóduje celý >8192px zdroj (crop běží až jako
-                // transformace po decodu), čímž by se OOM/textura-limit díra vrátila. Tiled
-                // s jedním řezem dekóduje jen content region - vždy menší nebo rovno práci.
-                val slices = TallImageSlicer.computeSlices(contentH, SLICE_HEIGHT).map { range ->
-                    Rect(contentLeft, contentTop + range.first, contentRight + 1, contentTop + range.last + 1)
-                }
-
-                // Stejný kontrakt jako CropBordersTransformation: overlay mapuje OCR souřadnice
-                // přes uložené frakce (null = nebyl ořez / overlay použije celý obrázek).
-                CropBordersTransformation.recordCropFractions(pageUrl, fractions)
-                PageSlicePlan.Tiled(contentW, contentH, slices)
-            } finally {
-                decoder.recycle()
-            }
-        } ?: run {
-            if (reason == null) reason = "no-source"
-            PageSlicePlan.Single
-        }
         // Diag: Tiled = s nářezem, jinak důvod fallbacku na jedno-obrázkovou cestu
         // (pozor na délku - logujeme jen ocas URL, ne query/podpisy).
         when (val p = result) {
@@ -212,43 +181,126 @@ class PageSlicer @Inject constructor(
         return result
     }
 
+    /**
+     * Bounds/Tiled rozhodnutí z hotového souboru zdroje. Nikdy nehází ani nevrací null -
+     * jakýkoli problém skončí [PageSlicePlan.Single] fallbackem (UI prostě použije
+     * normální jedno-obrázkovou cestu). [setReason] hlásí důvod pro diag log volajícího.
+     */
+    private fun planFromFile(file: File, pageUrl: String, wantCrop: Boolean, setReason: (String) -> Unit): PageSlicePlan {
+        // Bounds dekódujeme VŽDY, když to jde - i stránky, které nebudou řezané
+        // (krátké, animované), tak nesou přesný poměr stran pro placeholder
+        // (viz PageSlicePlan.Single.aspect). Bez něj se stránka po doměření obrázku
+        // "srazí" na jinou výšku a LazyColumn kotva čtenáře posune.
+        val animatedOrUnreadable = isAnimatedOrUnreadableHeader(file)
+        val decoder = openRegionDecoder(file) ?: run {
+            setReason(if (animatedOrUnreadable) "animated/unreadable" else "no-decoder")
+            return PageSlicePlan.Single()
+        }
+        try {
+            val w = decoder.width
+            val h = decoder.height
+            if (w <= 0 || h <= 0) {
+                setReason("bad-bounds")
+                return PageSlicePlan.Single()
+            }
+            if (animatedOrUnreadable) {
+                setReason("animated/unreadable")
+                return PageSlicePlan.Single(w.toFloat() / h)
+            }
+            if (h <= MAX_UNSLICED_HEIGHT) {
+                setReason("short ${w}x${h}")
+                return PageSlicePlan.Single(w.toFloat() / h)
+            }
+
+            // Ořez okrajů: detekce na jednom vzorkovaném decodu celé stránky (≤ ~2 MP,
+            // frakce jsou měřítkově invariantní). Řezy se pak počítají z CONTENT rectu,
+            // takže řezané bitmapy jsou rovnou oříznuté - žádná Transformation navíc.
+            var contentLeft = 0
+            var contentTop = 0
+            var contentRight = w - 1
+            var contentBottom = h - 1
+            var fractions: CropFractions? = null
+            if (wantCrop) {
+                val sample = sampleSizeFor(w, h, CROP_DETECT_MAX_PIXELS)
+                val sampled = decoder.decodeRegion(
+                    Rect(0, 0, w, h),
+                    BitmapFactory.Options().apply { inSampleSize = sample },
+                )
+                fractions = sampled?.let { CropBordersTransformation.detectContentFractions(it) }
+                sampled?.recycle()
+                if (fractions != null) {
+                    contentLeft = (fractions.leftF * w).toInt().coerceIn(0, w - 2)
+                    contentTop = (fractions.topF * h).toInt().coerceIn(0, h - 2)
+                    contentRight = (w - 1 - (fractions.rightF * w).toInt()).coerceIn(contentLeft + 1, w - 1)
+                    contentBottom = (h - 1 - (fractions.bottomF * h).toInt()).coerceIn(contentTop + 1, h - 1)
+                }
+            }
+            val contentW = contentRight - contentLeft + 1
+            val contentH = contentBottom - contentTop + 1
+            // Pozor: i když ořez stáhne obsah pod MAX_UNSLICED_HEIGHT, NESMÍME spadnout
+            // na Single - normální cesta dekóduje celý >8192px zdroj (crop běží až jako
+            // transformace po decodu), čímž by se OOM/textura-limit díra vrátila. Tiled
+            // s jedním řezem dekóduje jen content region - vždy menší nebo rovno práci.
+            val slices = TallImageSlicer.computeSlices(contentH, SLICE_HEIGHT).map { range ->
+                Rect(contentLeft, contentTop + range.first, contentRight + 1, contentTop + range.last + 1)
+            }
+
+            // Stejný kontrakt jako CropBordersTransformation: overlay mapuje OCR souřadnice
+            // přes uložené frakce (null = nebyl ořez / overlay použije celý obrázek).
+            CropBordersTransformation.recordCropFractions(pageUrl, fractions)
+            return PageSlicePlan.Tiled(contentW, contentH, slices)
+        } finally {
+            decoder.recycle()
+        }
+    }
+
     // ── Zdrojový soubor ───────────────────────────────────────────────────────
 
     /**
      * Otevře zdrojový soubor stránky a zavolá [block] dokud je přístup platný (u Coil
      * snapshotu drží pin po dobu bloku). `null` výsledek = zdroj nedostupný.
-     *
-     * - `file://` / absolutní cesta → přímo `File` (offline kapitoly).
-     * - http(s) → Coil disk cache snapshot; při missu download do Coil cache (editor) -
-     *   bajty tak slouží i normální cestě - a když editor odmítne (souběžný edit), do
-     *   vlastního souboru `tall_page_src/<md5>.bin`.
+     * Skládá se z [withExistingSourceFile] + [withDownloadedSourceFile] - viz ty.
      */
     private suspend fun <T> withSourceFile(pageUrl: String, referer: String?, block: (File) -> T): T? =
+        withExistingSourceFile(pageUrl, block = block) ?: withDownloadedSourceFile(pageUrl, referer, block)
+
+    /**
+     * Zdroj jen z už EXISTUJÍCÍCH bajtů - žádná síť:
+     * - `file://` / absolutní cesta → přímo `File` (offline kapitoly).
+     * - http(s) → Coil disk cache snapshot, případně vlastní soubor `tall_page_src/<md5>.bin`
+     *   (vznikl, když při plánování byl Coil editor obsazený jiným zápisem - bez kontroly
+     *   existence by se STRÁNKA STÁHLA ZNOVU u každého řezu, 15 řezů = 15 stejných downloadů).
+     */
+    private suspend fun <T> withExistingSourceFile(pageUrl: String, diskKey: String? = null, block: (File) -> T): T? =
         withContext(Dispatchers.IO) {
             if (pageUrl.startsWith("file://")) return@withContext runCatching { block(File(pageUrl.removePrefix("file://"))) }.getOrNull()
             if (pageUrl.startsWith("/")) return@withContext runCatching { block(File(pageUrl)) }.getOrNull()
             if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) return@withContext null
 
             val diskCache = Coil.imageLoader(context).diskCache ?: return@withContext null
-            val diskKey = diskKeyFor(pageUrl)
-            diskCache.openSnapshot(diskKey)?.use { return@withContext runCatching { block(it.data.toFile()) }.getOrNull() }
-
-            // Zdroj může už být stažený ve vlastním souboru (když při plánování byl Coil
-            // editor obsazený jiným zápisem) - bez kontroly existence by se STRÁNKA
-            // STÁHLA ZNOVU u každého řezu (15 řezů = 15 stejných downloadů).
+            diskCache.openSnapshot(diskKey ?: diskKeyFor(pageUrl))?.use {
+                return@withContext runCatching { block(it.data.toFile()) }.getOrNull()
+            }
             val own = ownSliceSourceFile(pageUrl)
             if (own.isFile && own.length() > 0) {
                 return@withContext runCatching { block(own) }.getOrNull()
             }
+            null
+        }
 
-            // Miss - stáhnout. Preferujeme zápis do Coil cache, aby stránka nemusela
-            // při pozdějším normálním requestu letět po síti znovu.
-            // POZOR: downloadToCache přes rethrowIfControl přehazuje 429 i cancellation -
-            // bez catch by 429 probublala do Compose LaunchedEffect = crash na main vlákně
-            // (reálně zaznamenáno). "Zdroj nedostupný" = Single fallback a stránka zkusí
-            // normální cestu, kde se 429 ukáže jako obvyklá chyba s retry.
+    /**
+     * Zdroj po stažení ze sítě do Coil cache / vlastního souboru. `null` = download
+     * nedostupný/selhal. POZOR: downloadToCache přes rethrowIfControl přehazuje 429 i
+     * cancellation - bez catch by 429 probublala do Compose LaunchedEffect = crash na
+     * main vlákně (reálně zaznamenáno). "Zdroj nedostupný" = Single fallback a stránka
+     * zkusí normální cestu, kde se 429 ukáže jako obvyklá chyba s retry.
+     */
+    private suspend fun <T> withDownloadedSourceFile(pageUrl: String, referer: String?, block: (File) -> T): T? =
+        withContext(Dispatchers.IO) {
+            if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) return@withContext null
+            val diskCache = Coil.imageLoader(context).diskCache ?: return@withContext null
             val file = try {
-                downloadToCache(pageUrl, diskKey, referer, diskCache)
+                downloadToCache(pageUrl, diskKeyFor(pageUrl), referer, diskCache)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -256,6 +308,84 @@ class PageSlicer @Inject constructor(
             } ?: return@withContext null
             runCatching { block(file) }.getOrNull()
         }
+
+    /**
+     * Hlavičkový probe pro http cache-miss POUZE se zapnutým úsporným režimem obrázků.
+     * Bez proxy se plánovací download chová jako prefetch (bajty pod stejným klíčem pak
+     * čte i zobrazení = žádná práce navíc), ale s proxy se pro plán stahují `#original`
+     * bajty a zobrazení pak táhne proxied kopii pod jiným klíčem - dva plné downloady
+     * na stránku. Probe proto vezme jen `Range` prefix (hlavička stačí na bounds u
+     * JPEG/PNG/WebP) a krátkou stránku vrátí rovnou jako [PageSlicePlan.Single] - zdroj
+     * se pro ni vůbec nestahuje, zobrazení zůstane na jednom (proxied) downloadu.
+     *
+     * Návrat null = pokračovat plným downloadem (vysoká stránka potřebuje celé bajty pro
+     * řezy; nedekódovatelná hlavička; ne-http URL). Při `200` (server Range ignoruje) je
+     * body už celý soubor → rovnou ho perzistujeme a naplánujeme z něj, nic se nezahodí.
+     * Nikdy nehází - jakýkoli problém = null → fallback na plný download/Single.
+     */
+    private suspend fun probeRemotePlan(
+        pageUrl: String,
+        referer: String?,
+        wantCrop: Boolean,
+        setReason: (String) -> Unit,
+    ): PageSlicePlan? = withContext(Dispatchers.IO) {
+        if (!imageProxyConfig.enabled) return@withContext null
+        if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) return@withContext null
+        val diskCache = Coil.imageLoader(context).diskCache ?: return@withContext null
+        val diskKey = diskKeyFor(pageUrl)
+        val request = Request.Builder().url(pageUrl).apply {
+            if (!referer.isNullOrBlank()) header("Referer", referer)
+            // Bounds originálu - wsrv.nl bez resize parametrů rozměry nemění a řezy
+            // stejně vždy jedou z #original bajtů (kvalita před proxy úsporou).
+            header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+            header("Range", "bytes=0-${PROBE_BYTES - 1}")
+        }.build()
+        try {
+            httpClient.newCall(request).execute().use { resp ->
+                val body = if (resp.isSuccessful) resp.body else null
+                when {
+                    body == null -> null
+                    resp.code == 206 -> {
+                        val prefix = readUpTo(body, PROBE_BYTES)
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(prefix, 0, prefix.size, bounds)
+                        when {
+                            bounds.outWidth <= 0 || bounds.outHeight <= 0 -> null
+                            isAnimatedMagic(prefix) -> {
+                                setReason("animated/probe")
+                                PageSlicePlan.Single(bounds.outWidth.toFloat() / bounds.outHeight)
+                            }
+                            bounds.outHeight <= MAX_UNSLICED_HEIGHT -> {
+                                setReason("probe ${bounds.outWidth}x${bounds.outHeight}")
+                                PageSlicePlan.Single(bounds.outWidth.toFloat() / bounds.outHeight)
+                            }
+                            else -> null // vysoká stránka - řezy potřebují celý soubor
+                        }
+                    }
+                    else -> persistBodyToCache(pageUrl, body, diskKey, diskCache)
+                        ?.let { planFromFile(it, pageUrl, wantCrop, setReason) }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Přečte max [max] bajtů z těla odpovědi - server může poslat méně (krátký soubor). */
+    private fun readUpTo(body: okhttp3.ResponseBody, max: Int): ByteArray {
+        val buf = ByteArray(max)
+        var read = 0
+        body.byteStream().use { input ->
+            while (read < buf.size) {
+                val n = input.read(buf, read, buf.size - read)
+                if (n <= 0) break
+                read += n
+            }
+        }
+        return buf.copyOf(read)
+    }
 
     /**
      * Klíč do Coil disk cache pro bajty stránky. S zapnutým úsporným režimem obrázků
@@ -278,32 +408,40 @@ class PageSlicer @Inject constructor(
             httpClient.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val body = resp.body ?: return null
-                // Coil editor může vrátit null, když nad klíčem právě běží jiný zápis
-                // (např. právě probíhající prefetch request) - pak vlastní soubor.
-                val editor = diskCache.openEditor(diskKey)
-                if (editor != null) {
-                    try {
-                        diskCache.fileSystem.write(editor.data) { body.source().readAll(this) }
-                        editor.commitAndOpenSnapshot()?.use { return it.data.toFile() }
-                        return null // commit selhal - snapshot zůstal null
-                    } catch (e: Exception) {
-                        editor.abort()
-                        throw e
-                    }
-                }
-                val file = ownSliceSourceFile(pageUrl)
-                // Unikátní tmp jméno - dva souběžné downloady (plán + řez) nesmí psát
-                // do stejného souboru, jinak se bajty propletou a výsledek je torzo.
-                val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
-                tmp.outputStream().use { out -> body.byteStream().use { it.copyTo(out) } }
-                if (!tmp.renameTo(file)) { tmp.delete(); return null }
-                pruneOwnSliceDir()
-                file
+                persistBodyToCache(pageUrl, body, diskKey, diskCache)
             }
         } catch (e: Exception) {
             e.rethrowIfControl()
             null
         }
+    }
+
+    /**
+     * Zapíše tělo odpovědi jako zdroj stránky: preferovaně do Coil disk cache (bajty pak
+     * slouží i normální cestě), při obsazeném editoru (souběžný zápis, např. právě
+     * probíhající prefetch request) do vlastního souboru `tall_page_src/<md5>.bin`.
+     * Sdílené mezi [downloadToCache] a [probeRemotePlan] (odpověď 200 = celý soubor).
+     */
+    private fun persistBodyToCache(pageUrl: String, body: okhttp3.ResponseBody, diskKey: String, diskCache: DiskCache): File? {
+        val editor = diskCache.openEditor(diskKey)
+        if (editor != null) {
+            try {
+                diskCache.fileSystem.write(editor.data) { body.source().readAll(this) }
+                editor.commitAndOpenSnapshot()?.use { return it.data.toFile() }
+                return null // commit selhal - snapshot zůstal null
+            } catch (e: Exception) {
+                editor.abort()
+                throw e
+            }
+        }
+        val file = ownSliceSourceFile(pageUrl)
+        // Unikátní tmp jméno - dva souběžné downloady (plán + řez) nesmí psát
+        // do stejného souboru, jinak se bajty propletou a výsledek je torzo.
+        val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
+        tmp.outputStream().use { out -> body.byteStream().use { it.copyTo(out) } }
+        if (!tmp.renameTo(file)) { tmp.delete(); return null }
+        pruneOwnSliceDir()
+        return file
     }
 
     /** Vlastní soubor mimo Coil cache - jen když je disk-cache entry obsazená souběžným editem. */
@@ -355,6 +493,12 @@ class PageSlicer @Inject constructor(
         private const val LOCK_STRIPES = 16
         private const val OWN_SLICE_DIR = "tall_page_src"
         private const val OWN_SLICE_MAX_FILES = 48
+        /**
+         * Kolik bajtů od začátku souboru si probe stáhne přes `Range` - bounds jsou v
+         * hlavičce (JPEG SOF může sedět až za EXIF/ICC segmenty, PNG ~33 B, WebP ~30 B),
+         * 256 KB pokryje i stránky s velkým EXIF blokem.
+         */
+        private const val PROBE_BYTES = 256 * 1024
 
         /**
          * Klíč do Coil disk cache pro zdrojové bajty stránky. Bez proxy je to holá URL

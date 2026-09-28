@@ -209,6 +209,8 @@ fun ReaderContent(
                 },
                 scrubToFraction = webtoonScrubTarget,
                 onScrubConsumed = { webtoonScrubTarget = null },
+                jumpToPage = jumpToPage,
+                onJumpConsumed = onJumpConsumed,
                 referer = referer,
             )
         } else if (pageCurlEnabled) {

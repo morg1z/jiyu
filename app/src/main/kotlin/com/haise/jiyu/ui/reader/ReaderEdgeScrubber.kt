@@ -4,11 +4,14 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,9 +42,12 @@ import androidx.compose.ui.unit.sp
  * se scrubuje pohodlně "prstem vedle linky". Během scrubu se vedle prstu ukazuje
  * chip s cílovou pozicí ([label]).
  *
- * Pozor: ~20dp dotykový strip si gesto bere pro sebe - tap/long-press na úplně
- * levém okraji (tenký proužek) proto nedojde na stránku pod ním; zbytek tap zóny
- * zůstává. Bez long-pressu strip funguje jen jako vizuální indikátor.
+ * Strip začíná až POD horní lištou (název díla + reset + seznam kapitol) -
+ * windowInsetsPadding(safeDrawing) + pevný offset za její obsah - a končí nad
+ * gesture/navigacní lištou. ~32dp dotykový strip si gesto bere pro sebe -
+ * tap/long-press na úplně levém okraji proto nedojde na stránku pod ním;
+ * zbytek tap zóny zůstává. Bez long-pressu strip funguje jen jako vizuální
+ * indikátor.
  */
 @Composable
 fun ReaderEdgeScrubber(
@@ -64,7 +70,7 @@ fun ReaderEdgeScrubber(
     DisposableEffect(Unit) {
         onDispose { if (scrubbing) onScrubActiveChanged(false) }
     }
-    val barWidth by animateDpAsState(if (scrubbing) 9.dp else 3.dp, label = "edgeScrubWidth")
+    val barWidth by animateDpAsState(if (scrubbing) 14.dp else 5.dp, label = "edgeScrubWidth")
 
     // Behem scrubu linka ukazuje pozici PRSTE (ne aktualni stranku) - jinak by
     // pri zpozdenem scrollu linka "skakala" za prstem a poutala pozornost.
@@ -74,8 +80,12 @@ fun ReaderEdgeScrubber(
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(20.dp)
-            .onSizeChanged { stripHeightPx = it.height },
+            .width(32.dp)
+            // Strip začíná až POD horní lištou (název díla, reset, seznam kapitol)
+            // a končí nad navigační/gesture lištou - jinak linka prosvítala pod
+            // průhlednou lištou a gesta uprostřed její plochy lezla sem.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(top = 72.dp),
     ) {
         // Track (tlumena cara na cele vysce).
         Box(
@@ -94,9 +104,12 @@ fun ReaderEdgeScrubber(
                 .background(accent.copy(alpha = if (scrubbing) 1f else 0.85f), RoundedCornerShape(50)),
         )
         // Dotyková vrstva - long-press+drag = scrub, obycejny tap propadne (resi tap zony stranky).
+        // Výška se měří TADY (vnořená plocha po paddingu), ne na vnějším Boxu - chip se
+        // pozicuje vůči ní a prstem cílená frakce musí sedět přesně na drag souřadnice.
         Box(
             Modifier
                 .fillMaxSize()
+                .onSizeChanged { stripHeightPx = it.height }
                 .pointerInput(Unit) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { offset ->
@@ -129,7 +142,7 @@ fun ReaderEdgeScrubber(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .absoluteOffset(x = 26.dp, y = chipY)
+                    .absoluteOffset(x = 36.dp, y = chipY)
                     .background(Color(0xE61A1B35), RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             )

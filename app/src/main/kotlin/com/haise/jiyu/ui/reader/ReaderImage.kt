@@ -37,6 +37,7 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.haise.jiyu.R
+import com.haise.jiyu.source.SourceRateLimitedException
 import com.haise.jiyu.util.ScrambledImageUrl
 import compose.icons.TablerIcons
 import compose.icons.tablericons.AlertCircle
@@ -47,7 +48,7 @@ import compose.icons.tablericons.AlertCircle
  * [com.haise.jiyu.ui.components.JiyuLoadingIndicator].
  */
 @Composable
-private fun ReaderPageLoadingIndicator(modifier: Modifier = Modifier) {
+internal fun ReaderPageLoadingIndicator(modifier: Modifier = Modifier) {
     val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.reader_page_loading))
     val progress by animateLottieCompositionAsState(
         composition = composition,
@@ -89,6 +90,32 @@ internal fun buildPageImageRequest(
 
 // ── Stránka s možností opětovného načtení při selhání ────────────────────────
 
+/**
+ * Kolik automatických opakování stránka/řez dostane podle typu chyby. HTTP 429
+ * ([SourceRateLimitedException]) je z principu přechodný stav - zdroj si sám řekl,
+ * kdy máme přijít znovu - takže dostane víc pokusů než obyčejná síťová chyba.
+ */
+internal fun pageAutoRetryCount(error: Throwable?): Int =
+    if (error is SourceRateLimitedException) 3 else 1
+
+/**
+ * Prodleva před automatickým opakováním. U 429 respektuje `Retry-After` ze serveru
+ * (a drží aspoň [RATE_LIMIT_MIN_DELAY_MS] - hlavička často chybí nebo je "1s" i když
+ * limit trvá déle). Běžné chyby čekají pevných 1,5 s.
+ */
+internal fun pageAutoRetryDelayMs(error: Throwable?): Long {
+    val retryAfter = (error as? SourceRateLimitedException)?.retryAfterMs ?: 0L
+    return if (error is SourceRateLimitedException) {
+        maxOf(retryAfter, RATE_LIMIT_MIN_DELAY_MS)
+    } else {
+        AUTO_RETRY_DELAY_MS
+    }
+}
+
+private const val AUTO_RETRY_DELAY_MS = 1_500L
+private const val RATE_LIMIT_MIN_DELAY_MS = 4_000L
+
+
 @Composable
 fun RetryableAsyncImage(
     url: String,
@@ -128,6 +155,7 @@ fun RetryableAsyncImage(
     val context = androidx.compose.ui.platform.LocalContext.current
     var retryTrigger by remember(url) { mutableStateOf(0) }
     var isError by remember(url) { mutableStateOf(false) }
+    var errorCause by remember(url) { mutableStateOf<Throwable?>(null) }
     // Vychozi true - Coil nahlasi prvni AsyncImagePainter.State (Loading) az po prvni
     // kompozici, takze bez tohohle by na jeden frame blysklo uplne prazdne misto, nez
     // se stav vubec nastavi. Bez indikatoru vubec appka vypadala, jako by se stranka,
@@ -136,14 +164,17 @@ fun RetryableAsyncImage(
     // AsyncImage nenahlasi Success/Error.
     var isLoading by remember(url) { mutableStateOf(true) }
 
-    // Jeden automatický opakovaný pokus po první chybě - časté selhání je jen přechodné (výpadek spojení,
-    // přetížený CDN při souběžném stahování víc velkých stránek). Trvalá chyba se po druhém neúspěchu ukáže
-    // jako dřív s tlačítkem "Zkusit znovu"; automaticky se tak opakuje nejvýše jednou.
-    var autoRetried by remember(url) { mutableStateOf(false) }
+    // Automatické opakování po chybě - počet a prodleva závisí na typu chyby
+    // (429/rate-limit čeká na Retry-After a zkouší víc, běžné chyby jednou po 1,5 s -
+    // viz pageAutoRetryCount/pageAutoRetryDelayMs). Trvalá chyba se po vyčerpání
+    // pokusů ukáže s tlačítkem "Zkusit znovu".
+    var autoRetries by remember(url) { mutableStateOf(0) }
     LaunchedEffect(isError) {
-        if (isError && !autoRetried) {
-            autoRetried = true
-            kotlinx.coroutines.delay(1_500L)
+        // autoRetries se navyšuje až PO delay - jinak by podmínka error UI
+        // (autoRetries >= max) blýskla během čekání na opakovaný pokus.
+        if (isError && autoRetries < pageAutoRetryCount(errorCause)) {
+            kotlinx.coroutines.delay(pageAutoRetryDelayMs(errorCause))
+            autoRetries++
             isError = false
             retryTrigger++
         }
@@ -160,6 +191,7 @@ fun RetryableAsyncImage(
             modifier = imageModifier,
             onState = { state ->
                 isError = state is AsyncImagePainter.State.Error
+                if (state is AsyncImagePainter.State.Error) errorCause = state.result.throwable
                 isLoading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
                 if (state is AsyncImagePainter.State.Success) {
                     val painterSize = state.painter.intrinsicSize
@@ -176,7 +208,7 @@ fun RetryableAsyncImage(
             }
         }
         // Během automatického opakování (viz výše) se chyba neukazuje, ať stránka neblikne s tlačítkem.
-        if (isError && autoRetried && retryTrigger > 0) {
+        if (isError && autoRetries >= pageAutoRetryCount(errorCause)) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 Column(
                     modifier = Modifier.padding(16.dp),

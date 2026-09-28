@@ -16,15 +16,15 @@ class WebtoonSliceRangeTest {
     @Test
     fun `page starting at top shows first slices plus buffer`() {
         // Stránka 15 řezů, horní okraj na vrchu obrazovky, viewport 2000 z 8000 px.
-        // Viditelné řezy 0..3, +1 rezerva -> 0..4.
-        assertEquals(0..4, range(0f, 8000f, 2000f, 15))
+        // Viditelné řezy 0..3, +2 rezerva dolů -> 0..5.
+        assertEquals(0..5, range(0f, 8000f, 2000f, 15))
     }
 
     @Test
     fun `scrolled mid-page gives middle slices with buffer both ways`() {
         // Horní okraj stránky 4000 px nad obrazovkou (top=-4000, půlka stránky).
-        // Viditelné řezy ~7..11, s rezervou 6..12.
-        assertEquals(6..12, range(-4000f, 8000f, 2000f, 15))
+        // Viditelné řezy ~7..11, s rezervou -1 nahoru / +2 dolů 6..13.
+        assertEquals(6..13, range(-4000f, 8000f, 2000f, 15))
     }
 
     @Test
@@ -35,10 +35,10 @@ class WebtoonSliceRangeTest {
     }
 
     @Test
-    fun `page fully below viewport decodes first slice as prefetch`() {
-        // Stránka začíná pod spodkem obrazovky - viditelný je nic, ale rezervní řez 0
-        // se stále dekóduje (LazyColumn předkompozice o kus pod okraj).
-        assertEquals(0..0, range(3000f, 8000f, 2000f, 15))
+    fun `page fully below viewport decodes first slices as prefetch`() {
+        // Stránka začíná pod spodkem obrazovky - viditelný je nic, ale rezervní řezy 0..1
+        // se stále dekódují (LazyColumn předkompozice o kus pod okraj + lookahead dolů).
+        assertEquals(0..1, range(3000f, 8000f, 2000f, 15))
     }
 
     @Test
