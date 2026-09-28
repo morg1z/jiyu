@@ -10,6 +10,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -230,6 +232,16 @@ class SettingsRepository @Inject constructor(
     /** Akcentová barva - klíč z [AccentOption], neznámá/stará hodnota padne na výchozí fialovou. */
     val themeAccent: Flow<String> =
         dataStore.data.map { it[SettingsKeys.THEME_ACCENT] ?: AccentOption.VIOLET }
+
+    /** Dočasná náhledová barva během tahu hue sliderem ve Vzhledu - přebíjí [themeAccent],
+     * dokud se tah nedokončí a hodnota se nezapíše. Jen v paměti: DataStore zápis za
+     * každý frame pohybu prstu by byl zbytečně drahý. */
+    private val _themeAccentPreview = MutableStateFlow<String?>(null)
+    fun setThemeAccentPreview(key: String?) { _themeAccentPreview.value = key }
+
+    /** Akcent pro vykreslení UI - během tahu hue sliderem náhled, jinak persistovaná hodnota. */
+    val effectiveThemeAccent: Flow<String> =
+        combine(themeAccent, _themeAccentPreview) { saved, preview -> preview ?: saved }
 
     val readingDirection: Flow<String> =
         dataStore.data.map { it[SettingsKeys.READING_DIRECTION] ?: ReadingDirection.LTR }

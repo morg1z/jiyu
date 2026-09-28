@@ -93,6 +93,9 @@ fun ReaderContent(
     incognitoMode: Boolean = false,
     onToggleIncognito: () -> Unit = {},
     onAdvancedSheetVisibilityChanged: (Boolean) -> Unit = {},
+    /** Edge scrubber hlasi zacatek/konec scrub gesta - auto-hide controls nesmi
+     *  schovat lišty uprostred tazeni (viz ReaderViewModel.onEdgeScrubActive). */
+    onEdgeScrubActive: (Boolean) -> Unit = {},
     sessionElapsed: Long = 0L,
     webtoonScrollSpeed: Float = 1.0f,
     pageScale: String = "fit_width",
@@ -133,6 +136,14 @@ fun ReaderContent(
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
+
+    // Stav pro edge scrubber ve webtoon modu - LazyColumn je interni v WebtoonReaderu,
+    // takze pozice/scrub se predava callbackem (reportuje flat index celeho proudu,
+    // tedy pres vsechny napojene segmenty "Nekonecneho cteni").
+    var webtoonFlatIndex by remember { mutableStateOf(0) }
+    var webtoonItemCount by remember { mutableStateOf(0) }
+    var webtoonScrubTarget by remember { mutableStateOf<Float?>(null) }
+    val isWebtoon = readingMode == ReadingMode.WEBTOON
 
     // Přednačítání stránek řeší ReaderViewModel.prefetchPagesFrom (jedno místo, stejný
     // cache klíč včetně cropBorders). Druhá paralelní fronta tady stahovala stejné
@@ -192,6 +203,12 @@ fun ReaderContent(
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
                 isAppendingNextChapter = webtoonAppendingNextChapter,
+                onScrollPositionChanged = { flatIdx, total ->
+                    webtoonFlatIndex = flatIdx
+                    webtoonItemCount = total
+                },
+                scrubToFraction = webtoonScrubTarget,
+                onScrubConsumed = { webtoonScrubTarget = null },
                 referer = referer,
             )
         } else if (pageCurlEnabled) {
@@ -257,6 +274,38 @@ fun ReaderContent(
         // Téma čtečky — barevný overlay přes stránky
         if (themeOverlay != Color.Transparent) {
             Box(modifier = Modifier.fillMaxSize().background(themeOverlay))
+        }
+
+        // ── Edge scrubber (levy okraj) ────────────────────────────────────────
+        // Viditelny jen spolu s controls (tap na screen) - stejny fade jako
+        // horni/dolni lista, jinak jen mlel nad strankou. Progrese a cil scrubu
+        // se lisi podle rezimu: paged ctecky (pager i curl) jedou pres page index
+        // a existujici jumpToPage kanal, webtoon pres flat index LazyColumn.
+        // Zobrazuje se jen kdyz je co posouvat - jedna stranka nema co scrubovat.
+        val scrubTotal = if (isWebtoon) webtoonItemCount else pages.size
+        if (scrubTotal > 1) {
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                ReaderEdgeScrubber(
+                    progress = if (isWebtoon) {
+                        webtoonFlatIndex / (scrubTotal - 1).toFloat()
+                    } else {
+                        currentPage / (scrubTotal - 1).toFloat()
+                    },
+                    onScrub = { fraction ->
+                        if (isWebtoon) webtoonScrubTarget = fraction
+                        else onJumpToPage((fraction * (scrubTotal - 1)).toInt())
+                    },
+                    label = { fraction ->
+                        "${(fraction * (scrubTotal - 1)).toInt() + 1} / $scrubTotal"
+                    },
+                    onScrubActiveChanged = onEdgeScrubActive,
+                )
+            }
         }
 
         // ── Overlay ovládání ─────────────────────────────────────────────────

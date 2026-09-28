@@ -117,6 +117,14 @@ fun WebtoonReader(
     // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
     // "mrtvého" scrollu na pomalém zdroji).
     isAppendingNextChapter: Boolean = false,
+    /** Průběžný report pozice pro edge scrubber: (flat index první viditelné položky,
+     *  celkový počet položek seznamu). Volá se ze stejného snapshotFlow jako
+     *  [onVisibleChapterChanged] - zdarma, žádný druhý sběr scrollu. */
+    onScrollPositionChanged: (firstFlatIndex: Int, totalItems: Int) -> Unit = { _, _ -> },
+    /** Požadavek na okamžitý skok na frakci (0f..1f) celého proudu - viz ReaderEdgeScrubber.
+     *  Po obsloužení se zavolá [onScrubConsumed]. */
+    scrubToFraction: Float? = null,
+    onScrubConsumed: () -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
@@ -205,6 +213,9 @@ fun WebtoonReader(
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }.collect { (idx, offset) ->
+            // Report pro edge scrubber i behem obnovy pozice - linka se hned nastavi
+            // na ulozenou pozici, ne az po prvnim uzivatelskem scrollu.
+            onScrollPositionChanged(idx, listState.layoutInfo.totalItemsCount)
             if (isRestoringPosition) return@collect
             mapFlatIndex(idx)?.let { (chapterId, localIdx) ->
                 onVisibleChapterChanged(chapterId, localIdx, offset)
@@ -217,6 +228,19 @@ fun WebtoonReader(
             // driv, nez novy obsah dorazil (live audit).
             if (idx >= lastPageFlatIndex - APPEND_PREFETCH_DISTANCE) onNeedMoreSegments()
         }
+    }
+
+    // Okamzity skok na frakci celeho proudu (edge scrubber). scrollToItem je instant -
+    // pri drag streamu (~60 pozadavku/s) kazda nova hodnota zrusi predchozi efekt
+    // a list skace primo na prst; cokoli animovaneho by za prstem zustavalo pozadu.
+    // Progress zapis bezi dal pres snapshotFlow vyse - stejne jako u normalniho scrollu.
+    LaunchedEffect(scrubToFraction) {
+        val fraction = scrubToFraction ?: return@LaunchedEffect
+        val total = listState.layoutInfo.totalItemsCount
+        if (total > 1) {
+            listState.scrollToItem((fraction * (total - 1)).toInt().coerceIn(0, total - 1))
+        }
+        onScrubConsumed()
     }
 
     val flingBehavior = ScrollableDefaults.flingBehavior()

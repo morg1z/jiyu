@@ -679,7 +679,7 @@ class ReaderViewModel @Inject constructor(
 
     private fun scheduleControlsAutoHide() {
         controlsHideJob?.cancel()
-        if (_controlsVisible.value && !advancedSheetOpen) {
+        if (_controlsVisible.value && !advancedSheetOpen && !edgeScrubActive) {
             controlsHideJob = viewModelScope.launch {
                 delay(5_000L)
                 _controlsVisible.value = false
@@ -688,6 +688,17 @@ class ReaderViewModel @Inject constructor(
     }
 
     private var advancedSheetOpen = false
+    private var edgeScrubActive = false
+
+    /**
+     * Stejny hold na auto-hide jako [onAdvancedSheetVisibilityChanged], jen pro edge
+     * scrubber (ReaderEdgeScrubber) - jinak by se controls i scrubber schovaly uprostred
+     * tazeni, pokud drag prekroci 5s auto-hide limit.
+     */
+    fun onEdgeScrubActive(active: Boolean) {
+        edgeScrubActive = active
+        if (active) controlsHideJob?.cancel() else scheduleControlsAutoHide()
+    }
 
     /**
      * Pokud je otevreny "Dalsi moznosti" sheet ve spodni liste (preklad/jazyky/

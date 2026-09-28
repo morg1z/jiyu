@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -123,6 +124,7 @@ fun AppearanceSettingsScreen(
                         AccentHuePicker(
                             themeAccent = themeAccent,
                             onSelect = { viewModel.setThemeAccent(it) },
+                            onPreview = { viewModel.previewThemeAccent(it) },
                         )
                         Spacer(Modifier.height(12.dp))
                         // Rychlé presety - tečka se zvýrazní jen pro pojmenovaný klíč
@@ -212,7 +214,8 @@ private val HUE_STOPS = List(13) { i -> Color.hsl(i * 30f, 0.82f, 0.60f) }
 
 /**
  * Spektrální výběr akcentové barvy: duhová lišta přes celý hue okruh (0-359°) s jezdeckem
- * vybarveným aktuálním odstínem. Během tahu se jezdec přebarvuje živě, do nastavení se
+ * vybarveným aktuálním odstínem. Během tahu se [onPreview] živě přebarvuje celá appka
+ * (in-memory preview kanál, viz SettingsRepository.effectiveThemeAccent), do nastavení se
  * hodnota "h:<hue>" zapíše až při puštění prstu (a na tap) - DataStore tak nedostává
  * zápis za každý pixel pohybu.
  */
@@ -220,18 +223,25 @@ private val HUE_STOPS = List(13) { i -> Color.hsl(i * 30f, 0.82f, 0.60f) }
 private fun AccentHuePicker(
     themeAccent: String,
     onSelect: (String) -> Unit,
+    onPreview: (String?) -> Unit,
 ) {
     var dragHue by remember { mutableStateOf<Float?>(null) }
-    // Puštění tahu čeká, až DataStore promítne novou hodnotu - jezdec mezitím drží
-    // pozici z prstu, jinak by na jeden frame skočil na starou barvu.
-    LaunchedEffect(themeAccent) { dragHue = null }
+    // Puštění tahu čeká, až DataStore promítne novou hodnotu - jezdec i náhled mezitím drží
+    // pozici z prstu, jinak by na jeden frame skočily na starou barvu.
+    LaunchedEffect(themeAccent) {
+        dragHue = null
+        onPreview(null)
+    }
+    // Pojistka: odchod z obrazovky uprostřed tahu nesmí nechat náhled viset.
+    DisposableEffect(Unit) { onDispose { onPreview(null) } }
     val hue = dragHue ?: accentSpecFor(themeAccent).hue
 
     val trackShape = RoundedCornerShape(12.dp)
     val thumbSize = 22.dp
     val thumbSizePx = with(LocalDensity.current) { thumbSize.toPx() }
     val thumbColor = Color.hsl(hue, 0.82f, 0.62f)
-    fun commit(h: Float) = onSelect("$ACCENT_HUE_PREFIX${h.roundToInt()}")
+    fun accentKey(h: Float) = "$ACCENT_HUE_PREFIX${h.roundToInt()}"
+    fun commit(h: Float) = onSelect(accentKey(h))
 
     BoxWithConstraints(
         modifier = Modifier
@@ -248,7 +258,9 @@ private fun AccentHuePicker(
                 detectHorizontalDragGestures(
                     onDragEnd = { dragHue?.let(::commit) },
                     onHorizontalDrag = { change, _ ->
-                        dragHue = (change.position.x / size.width * 360f).coerceIn(0f, 359.9f)
+                        val h = (change.position.x / size.width * 360f).coerceIn(0f, 359.9f)
+                        dragHue = h
+                        onPreview(accentKey(h))
                     },
                 )
             },

@@ -103,7 +103,9 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val theme by settings.theme.collectAsStateWithLifecycle(initialValue = ThemeOption.SYSTEM)
-            val accent by settings.themeAccent.collectAsStateWithLifecycle(initialValue = com.haise.jiyu.settings.AccentOption.VIOLET)
+            // effectiveThemeAccent: během tahu hue sliderem ve Vzhledu nese živý náhled
+            // (in-memory), jinak persistovanou hodnotu - celá app se přebarvuje za tahu.
+            val accent by settings.effectiveThemeAccent.collectAsStateWithLifecycle(initialValue = com.haise.jiyu.settings.AccentOption.VIOLET)
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit
             val onboardingCompleted by settings.onboardingCompleted.collectAsStateWithLifecycle(initialValue = null)
             val isDark = when (theme) {

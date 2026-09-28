@@ -253,6 +253,8 @@ class SettingsViewModel @Inject constructor(
     fun setTargetLanguage(lang: String)  = viewModelScope.launch { settings.setTargetLanguage(lang) }
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
     fun setThemeAccent(a: String)        = viewModelScope.launch { settings.setThemeAccent(a) }
+    /** Živý náhled akcentu během tahu hue sliderem (in-memory, bez DataStore zápisu). */
+    fun previewThemeAccent(a: String?)   = settings.setThemeAccentPreview(a)
     fun setReadingDirection(dir: String) = viewModelScope.launch { settings.setReadingDirection(dir) }
     fun setReadingMode(mode: String)     = viewModelScope.launch { settings.setReadingMode(mode) }
     fun setTapZonesEnabled(enabled: Boolean)      = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }

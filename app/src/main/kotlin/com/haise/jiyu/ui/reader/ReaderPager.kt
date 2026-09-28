@@ -212,7 +212,11 @@ fun MangaReader(
             val target = jumpToPage ?: return@LaunchedEffect
             val groupIdx = groups.indexOfFirst { target in it }.coerceAtLeast(0)
                 .coerceIn(0, groups.lastIndex.coerceAtLeast(0))
-            pagerState.animateScrollToPage(groupIdx)
+            // Okamzity skok (ne animateScrollToPage) - edge scrubber posila novy cil
+            // na kazdy frame tazeni a animace by za prstem nepomerne zustavala; pro
+            // puvodniho volajiciho (release slideru v ReaderControls) je instant
+            // skok funkcne stejny.
+            pagerState.scrollToPage(groupIdx)
             onJumpConsumed()
         }
 
