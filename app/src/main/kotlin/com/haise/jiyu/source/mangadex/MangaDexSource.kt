@@ -229,6 +229,7 @@ class MangaDexSource @Inject constructor(
             url = "$apiBase/manga/$mangaId",
             title = title,
             coverUrl = coverUrl,
+            countryOfOrigin = originalLanguage.ifBlank { null },
             description = description,
             status = status,
             author = author,

@@ -132,7 +132,12 @@ class TachiyomiBackupImporter @Inject constructor(
                                 dateUpload = ch.optLong("dateUpload", ch.optLong("date_upload", 0L)),
                                 read = ch.optBoolean("read", false),
                                 lastPageRead = ch.optInt("lastPageRead", ch.optInt("last_page_read", 0)),
-                                discoveredAt = System.currentTimeMillis(),
+                                // Baseline: import je obnova stavu, ne objev nových kapitol.
+                                // Per-radek System.currentTimeMillis() tu driv rozbil zamer
+                                // `addedAt` (r. 85) - kazda importovana kapitola mela cas
+                                // o par ms novejsi nez addedAt, takze `observeUpdates`
+                                // (discoveredAt > addedAt) je vsechny ukazal jako novinky.
+                                discoveredAt = manga.addedAt,
                             )
                         }
                         if (newChapters.isNotEmpty()) repository.upsertAllChapters(newChapters)

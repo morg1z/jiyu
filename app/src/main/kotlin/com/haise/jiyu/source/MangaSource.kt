@@ -23,6 +23,12 @@ data class SManga(
     val followCount: Int? = null,
     val rank: Int? = null,
     val alternateTitles: List<String> = emptyList(),
+    /** Země původu tak, jak ji vrací API zdroje (ComicK `country`: jp/kr/cn/...,
+     * MangaDex `originalLanguage`: ja/ko/zh/...). Na rozdíl od [contentType] nese
+     * RAW hodnotu - "unknown"/"others" tady zůstane viditelné, zatímco contentType
+     * z něj musí udělat default. Používá se pro katalogovou verifikaci typu titulu
+     * (viz MangaRepository.verifyContentType). */
+    val countryOfOrigin: String? = null,
     /** Nejvyšší číslo kapitoly, co zdroj u téhle položky přímo hlásí v seznamovém API (bez
      * dalšího requestu na kompletní seznam kapitol) - odhad "kolik kapitol to má", ne přesný
      * počet (může mít mezery). Zatím jen ComicK (`last_chapter`, viz ComicKSource.comicFromJson). */

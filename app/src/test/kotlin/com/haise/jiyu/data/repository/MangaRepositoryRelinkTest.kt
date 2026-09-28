@@ -76,6 +76,7 @@ class MangaRepositoryRelinkTest {
             categoryDao = db.categoryDao(),
             customSourceDao = db.customSourceDao(),
             mangaDexSource = mockk(relaxed = true),
+            mangaUpdatesRepository = mockk(relaxed = true),
             manualTranslationDao = db.manualTranslationDao(),
             readHistoryDao = db.readHistoryDao(),
             translatedPageDao = db.translatedPageDao(),

@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 40,
+    version = 41,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -372,6 +372,15 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_translated_novel_createdAt` ON `translated_novel` (`createdAt`)")
             }
         }
+        val MIGRATION_40_41 = object : Migration(40, 41) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // contentType doposud nesla cista zdrojova defaulta ("MANGA" z SManga) -
+                // proto se v knihovne objevovaly spatne tagy (Vagabond jako Manhwa).
+                // Flag rozlisuje hodnotu overenou katalogovym oracle
+                // (MangaRepository.verifyContentType) od neovereneho defaultu.
+                db.execSQL("ALTER TABLE manga ADD COLUMN contentTypeVerified INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -416,6 +425,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_37_38,
             MIGRATION_38_39,
             MIGRATION_39_40,
+            MIGRATION_40_41,
         )
     }
 }

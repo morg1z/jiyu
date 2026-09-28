@@ -262,6 +262,7 @@ class ComicKSource @Inject constructor(
                 genres      = genres,
                 year        = year,
                 contentType = contentTypeFromCountry(comic.optString("country")),
+                countryOfOrigin = comic.optString("country").takeIf { it.isNotBlank() },
                 demographic = demographic,
                 translationCompleted = translationCompleted,
                 hasAnime = hasAnime,
@@ -693,6 +694,7 @@ class ComicKSource @Inject constructor(
             title       = title,
             coverUrl    = coverUrl,
             contentType = contentTypeFromCountry(comic.optString("country")),
+            countryOfOrigin = comic.optString("country").takeIf { it.isNotBlank() },
             lastChapter = lastChapter,
         )
     }

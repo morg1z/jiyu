@@ -23,6 +23,8 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.tracking.MangaUpdatesRepository
+import com.haise.jiyu.data.tracking.MuManga
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.SChapter
@@ -50,6 +52,10 @@ private const val LISTING_TTL_MS = 3L * 60 * 1000
 private const val LISTING_MAX = 48
 private const val DETAILS_MAX = 16
 
+/** Typy, kde má katalogová verifikace smysl - NOVEL/COMIC zdroje jsou téměř vždy
+ *  uniformní (celý web je jeden typ) a oraculům chybí signál pro western comics. */
+private val CONTENT_TYPES_WORTH_VERIFYING = setOf("MANGA", "MANHWA", "MANHUA")
+
 /** Manga entita v knihovně, o které appka usoudila, že je stejná jako nově přidávaná (podle názvu). */
 data class DuplicateMatch(val manga: MangaEntity, val sourceName: String, val chapterCount: Int)
 
@@ -61,6 +67,7 @@ class MangaRepository @Inject constructor(
     private val categoryDao: CategoryDao,
     private val customSourceDao: CustomSourceDao,
     private val mangaDexSource: MangaDexSource,
+    private val mangaUpdatesRepository: MangaUpdatesRepository,
     private val manualTranslationDao: ManualTranslationDao,
     private val readHistoryDao: ReadHistoryDao,
     private val translatedPageDao: TranslatedPageDao,
@@ -149,6 +156,8 @@ class MangaRepository @Inject constructor(
 
     suspend fun addToLibrary(manga: SManga) {
         val id = upsertMangaMetadata(manga, forceInLibrary = true)
+        // Pred refreshChapters - kdyby fetch kapitol selhal, tag se stejne opravi.
+        verifyContentType(id)
         refreshChapters(id, manga)
     }
 
@@ -160,6 +169,7 @@ class MangaRepository @Inject constructor(
      */
     suspend fun openPreview(manga: SManga): String {
         val id = upsertMangaMetadata(manga, forceInLibrary = false)
+        verifyContentType(id)
         refreshChapters(id, manga)
         return id
     }
@@ -208,7 +218,9 @@ class MangaRepository @Inject constructor(
                     genres = manga.genres.joinToString(",").ifBlank { existing.genres },
                     year = manga.year ?: existing.year,
                     // "MANGA" je jen výchozí hodnota SManga - nesmí zpětně přepsat konkrétnější typ (MANHWA...).
-                    contentType = if (manga.contentType.isBlank() || (manga.contentType == "MANGA" && existing.contentType != "MANGA")) existing.contentType else manga.contentType,
+                    // contentTypeVerified = katalogově ověřená hodnota (verifyContentType) - tu nechce
+                    // přepsat ani zdrojový per-title parse, oracle je autoritativnější.
+                    contentType = if (existing.contentTypeVerified || manga.contentType.isBlank() || (manga.contentType == "MANGA" && existing.contentType != "MANGA")) existing.contentType else manga.contentType,
                     addedAt = if (forceInLibrary && existing.addedAt == 0L) System.currentTimeMillis() else existing.addedAt,
                 )
             )
@@ -356,7 +368,11 @@ class MangaRepository @Inject constructor(
             artist = detail.artist ?: existing.artist,
             genres = detail.genres.takeIf { it.isNotEmpty() }?.joinToString(",") ?: existing.genres,
             year = detail.year ?: existing.year,
-            contentType = detail.contentType,
+            // Stejna pravidla jako v upsertMangaMetadata: source-default "MANGA" ani
+            // per-title parse nesmi regresovat katalogove overeny typ (drive se tu
+            // psal detail.contentType bez podminky - tak se napr. opravene MANHWA
+            // vracelo na MANGA pri kazdem refresi detailu).
+            contentType = if (existing.contentTypeVerified || detail.contentType.isBlank() || (detail.contentType == "MANGA" && existing.contentType != "MANGA")) existing.contentType else detail.contentType,
             demographic = detail.demographic ?: existing.demographic,
             translationCompleted = detail.translationCompleted ?: existing.translationCompleted,
             hasAnime = detail.hasAnime ?: existing.hasAnime,
@@ -370,7 +386,91 @@ class MangaRepository @Inject constructor(
         // bez tehle podminky by to byl plny row-write (+ Room invalidace/Flow re-emit) pro
         // kazdy titul pri kazdem refreshi, i kdyz se ze zdroje nic nezmenilo.
         if (updated != existing) mangaDao.upsert(updated)
+        verifyContentType(mangaId)
     }
+
+    // ── Verifikace typu titulu ───────────────────────────────────────────────
+
+    /**
+     * Ověří `contentType` titulu proti autoritativním katalogům - zdrojová metadata
+     * totiž systematicky lžou: většina parserů `SManga.contentType` neplní (spadne na
+     * default "MANGA", takže novela/komiks se ukáže jako manga) a per-title pole "Type"
+     * na webu kopíruje SEO kategorii webu, ne zemi původu díla (Vagabond hostovaný na
+     * manhwa webu = "Type: Manhwa"; hlášený bug).
+     *
+     * Pořadí oraculů: ComicK (`country` = jp/kr/cn, široké pokrytí) → MangaUpdates
+     * (`type` per série - jako jediný umí i "Novel"). ComicK "others"/neznámá země se
+     * NIKDY nepoužívá jako důkaz pro MANGA - může to být cokoli (western comic, OEL).
+     *
+     * Volá se z [addToLibrary]/[openPreview] a z [refreshMangaDetails] (pull-to-refresh
+     * postupně opraví celou knihovnu). Výsledek je lepit se na
+     * [MangaEntity.contentTypeVerified]: katalogy odpověděly (i "nenašel") = flag, ať se
+     * to při každém refreshi nezkouší znovu; selhaly-li oba dotazy sítí, flag NEZAPÍŠEME
+     * a příští refresh to zkusí.
+     */
+    suspend fun verifyContentType(mangaId: String) {
+        val manga = mangaDao.getById(mangaId) ?: return
+        if (manga.contentTypeVerified) return
+        // ComicK tituly uz maji typ per-titul z `country`; uniformni zdroje (novel /
+        // western comic weby) jsou pro svuj typ autoritativni - oracle jim nema co rict.
+        if (manga.sourceId == "comick" || manga.contentType !in CONTENT_TYPES_WORTH_VERIFYING) {
+            mangaDao.markContentTypeResolved(mangaId, null)
+            return
+        }
+        val comickResults = try {
+            sourceManager.getById("comick")?.search(manga.title)
+        } catch (_: Exception) { null }
+        var answered = comickResults != null
+        var resolved = comickResults?.let { resolveTypeFromComicK(manga, it) }
+        if (resolved == null) {
+            val muResults = try { mangaUpdatesRepository.searchManga(manga.title) } catch (_: Exception) { null }
+            // MU pri chybe vraci tiche emptyList - "odpovedel" pozname jen z neprazdneho vysledku.
+            if (!muResults.isNullOrEmpty()) answered = true
+            resolved = muResults.orEmpty().firstNotNullOfOrNull { it.toContentTypeIfMatches(manga) }
+        }
+        if (!answered) return
+        mangaDao.markContentTypeResolved(mangaId, resolved)
+    }
+
+    /** Presna shoda normalizovaneho nazvu (hlavni nebo kterekoli alt title) → typ z `country`. */
+    private fun resolveTypeFromComicK(manga: MangaEntity, results: List<SManga>): String? {
+        val targets = titleCandidates(manga)
+        for (r in results) {
+            val names = (listOf(r.title) + r.alternateTitles).map(::normalizeMangaTitle)
+            if (names.none { it.isNotBlank() && it in targets }) continue
+            // "others"/neznama zeme = zadny nazor - zkusime dalsi vysledek z hledani.
+            contentTypeFromOrigin(r.countryOfOrigin)?.let { return it }
+        }
+        return null
+    }
+
+    /** Kód země/jazyka původu z API katalogu → náš tag; vše mimo jp/kr/cn ekvivalentů
+     *  = null (žádný názor, NE "MANGA" jako u ComicKSource.contentTypeFromCountry). */
+    private fun contentTypeFromOrigin(origin: String?): String? = when (origin?.lowercase()) {
+        "jp", "ja" -> "MANGA"
+        "kr", "ko" -> "MANHWA"
+        "cn", "zh", "zh-hk", "zh-tw" -> "MANHUA"
+        else -> null
+    }
+
+    /** MangaUpdates `type` per serie ("Manga"/"Manhwa"/"Manhua"/"Novel") - ostatni
+     * (OEL, Doujinshi, Artbook...) zamerne nemapujeme, nemaji jisty protijek. */
+    private fun MuManga.toContentTypeIfMatches(manga: MangaEntity): String? {
+        if (normalizeMangaTitle(title) !in titleCandidates(manga)) return null
+        return when (type) {
+            "Manga"  -> "MANGA"
+            "Manhwa" -> "MANHWA"
+            "Manhua" -> "MANHUA"
+            "Novel"  -> "NOVEL"
+            else -> null
+        }
+    }
+
+    /** Normalizovane nazvy entity (hlavni + alt titles) pro cross-katalog parovani. */
+    private fun titleCandidates(manga: MangaEntity): Set<String> =
+        (listOf(manga.title) + deserializeAltTitles(manga.alternateTitles))
+            .mapTo(linkedSetOf()) { normalizeMangaTitle(it) }
+            .apply { remove("") }
 
     /**
      * Dotáhne obálku z detailu mangy - pro zdroje, které ji nemají v rychlém výpisu
@@ -410,6 +510,14 @@ class MangaRepository @Inject constructor(
      * fetch, obnovená záloha, změněná URL schéma) notifikace hlásila staré kapitoly jako
      * novinky (uživatelský požadavek: oznámení až od kapitoly 21).
      *
+     * Nad číselné maximum se navíc klade druhá brána: `dateUpload` musí být PO přidání
+     * titulu do knihovny (`addedAt`, grace 1 den kvůli denní přesnosti dat na zdrojích).
+     * Kapitola vydaná v roce 2023 tak nemůže být "nová" pro titul přidaný dnes, i když
+     * číselně maximum přesáhne - nekompletní prvotní seznam (stránkovaný/přerušený fetch),
+     * přečíslování kapitol na zdroji nebo relink na archivnější zdroj by jinak hlásily
+     * desítky starých kapitol jako novinky (nahlášeno uživatelem). `dateUpload == 0`
+     * (zdroj datum neudává) a `addedAt == 0` (staré řádky) nechají jen číselné pravidlo.
+     *
      * Stejnou logiku zapisujeme i do `discoveredAt`: řádky nad maximem = teď, baseline/
      * backfill = addedAt mangy, takže záložka Novinky (`c.discoveredAt > m.addedAt`)
      * je taky neukazuje jako nové.
@@ -445,10 +553,12 @@ class MangaRepository @Inject constructor(
         val toInsert = entities.filter { it.id !in migratedIds }
         val rowIds = chapterDao.insertNewOnly(toInsert)
         // NULL previousMax = zakladni naplneni (zadne kapitoly ulozene nebyly) - nic se
-        // nehlasi jako nove ani pri vlozeni 200 kapitol; jinak jen cisla nad maximem.
+        // nehlasi jako nove ani pri vlozeni 200 kapitol; jinak jen cisla nad maximem,
+        // ktera navic vydal zdroj AZ PO pridani titulu (viz doc - 2023 archiv neni novinka).
         if (previousMax == null) return emptyList()
         return toInsert.filterIndexed { index, _ -> rowIds[index] != -1L }
             .filter { it.chapterNumber > previousMax }
+            .filter { it.dateUpload == 0L || it.dateUpload >= baselineTs - NEW_CHAPTER_UPLOAD_GRACE_MS }
     }
 
     /**
@@ -512,6 +622,12 @@ class MangaRepository @Inject constructor(
             applyChapterRelink(plan.relink)
             if (plan.newOnly.isNotEmpty()) {
                 val now = System.currentTimeMillis()
+                // Stejna baseline pravidla jako refreshChapters: jen kapitoly nad maximem
+                // dosavadniho archivu jsou novinky (Novinky filtruje discoveredAt > addedAt),
+                // zbytek je obsah, ktery uzivatel vlastne "mel" - recovery nesmi zaplavit
+                // Novinky celym archivem nove URL. Fallback radky do maxima nepocitat
+                // (stejny duvod jako u getMaxChapterNumber).
+                val previousMax = oldChapters.filter { !it.isFallbackSource }.maxOfOrNull { it.chapterNumber }
                 val entities = plan.newOnly.map { chapter ->
                     ChapterEntity(
                         id = chapterId(chapter),
@@ -524,7 +640,7 @@ class MangaRepository @Inject constructor(
                         scanlationGroup = chapter.scanlationGroup,
                         volume = chapter.volume,
                         groupsJson = serializeChapterGroups(chapter.groups),
-                        discoveredAt = now,
+                        discoveredAt = if (previousMax != null && chapter.chapterNumber > previousMax) now else existing.addedAt,
                     )
                 }
                 chapterDao.insertNewOnly(entities)
@@ -567,7 +683,8 @@ class MangaRepository @Inject constructor(
 
         val allChapters = chapterDao.getAllForManga(mangaId)
         val takenIds = allChapters.filter { it.isFallbackSource }.mapTo(HashSet()) { it.id }
-        val plan = planChapterMigration(allChapters.filter { !it.isFallbackSource }, newChapters)
+        val nonFallback = allChapters.filter { !it.isFallbackSource }
+        val plan = planChapterMigration(nonFallback, newChapters)
         db.withTransaction {
             // Nové id obsazené fallback kapitolou = ta kapitola na cílovém zdroji už existuje;
             // relink by narazil na PK kolizi a shodil celou transakci. Taková dvojice se prostě
@@ -575,6 +692,10 @@ class MangaRepository @Inject constructor(
             applyChapterRelink(plan.relink.filter { (_, n) -> chapterId(n) !in takenIds })
             if (plan.newOnly.isNotEmpty()) {
                 val now = System.currentTimeMillis()
+                // Stejna baseline pravidla jako refreshChapters: cilovy archiv je obsah,
+                // ktery uzivatel "mel" - jen kapitoly nad maximem puvodniho seznamu jsou
+                // novinky pro Novinky (discoveredAt > addedAt).
+                val previousMax = nonFallback.maxOfOrNull { it.chapterNumber }
                 val entities = plan.newOnly.map { chapter ->
                     ChapterEntity(
                         id = chapterId(chapter),
@@ -587,7 +708,7 @@ class MangaRepository @Inject constructor(
                         scanlationGroup = chapter.scanlationGroup,
                         volume = chapter.volume,
                         groupsJson = serializeChapterGroups(chapter.groups),
-                        discoveredAt = now,
+                        discoveredAt = if (previousMax != null && chapter.chapterNumber > previousMax) now else existing.addedAt,
                     )
                 }
                 chapterDao.insertNewOnly(entities)
@@ -799,6 +920,10 @@ class MangaRepository @Inject constructor(
     private companion object {
         /** Nejmenší počet spárovaných kapitol, aby se osiřelé řádky přemapovaly - viz [migrateOrphanedChapters]. */
         const val MIN_ORPHAN_MIGRATION = 3
+        /** Tolerance brány "vydáno až po přidání" v [refreshChapters] - zdroje udávají
+         * `dateUpload` s denní přesností (půlnoc), takže kapitola vydaná tentýž den, kdy
+         * uživatel titul přidal, nesmí gatem propadnout. 2023 archiv tohle nikdy neprojde. */
+        const val NEW_CHAPTER_UPLOAD_GRACE_MS = 24L * 60 * 60 * 1000
     }
 
     fun mangaId(sourceId: String, url: String) = "$sourceId::$url"

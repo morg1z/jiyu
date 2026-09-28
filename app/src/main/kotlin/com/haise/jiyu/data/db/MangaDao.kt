@@ -150,6 +150,12 @@ interface MangaDao {
     @Query("UPDATE manga SET sourceId = :sourceId, url = :url, title = :title, coverUrl = COALESCE(:coverUrl, coverUrl) WHERE id = :id")
     suspend fun relinkMangaSource(id: String, sourceId: String, url: String, title: String, coverUrl: String?)
 
+    /** Zápis výsledku katalogové verifikace typu (viz MangaRepository.verifyContentType) -
+     * `resolvedType == null` = oracle nic nenašel, jen se označí jako ověřené (ať se to
+     * nezkouší při každém refreshi). Jinak zapíše ověřený typ + flag najednou. */
+    @Query("UPDATE manga SET contentType = COALESCE(:resolvedType, contentType), contentTypeVerified = 1 WHERE id = :mangaId")
+    suspend fun markContentTypeResolved(mangaId: String, resolvedType: String?)
+
     // Doplnek ChapterDao.resetProgressForManga - manga radek se pri odebrani z knihovny
     // take nemaze, takze "Pokracovat X" a cas cteni by jinak po znovu-pridani ukazovaly
     // stary stav z doby pred odebranim.

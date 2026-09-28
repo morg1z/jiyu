@@ -42,6 +42,10 @@ data class MangaEntity(
     val autoDownload: Boolean = false,
     val userRating: Int? = null,
     val contentType: String = "MANGA",
+    /** Typ už ověřil autoritativní katalog (ComicK `country` / MangaUpdates `type`,
+     * viz MangaRepository.verifyContentType) - verifikovaná hodnota má přednost před
+     * jakýmkoli source-defaultem, který by ji jinak při refreshi vrátil zpátky. */
+    val contentTypeVerified: Boolean = false,
     val excludeFromUpdates: Boolean = false,
     val malId: Int? = null,
     val malScore: Float? = null,

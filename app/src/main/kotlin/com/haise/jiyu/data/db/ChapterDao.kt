@@ -139,8 +139,11 @@ interface ChapterDao {
 
     /** Nejvyšší zatím známé číslo kapitoly - baseline pro "nové kapitoly" (refreshChapters
      * hlásí jako nové jen inserty nad tímhle maximem; NULL = kapitoly se ještě nikdy
-     * nenačetly, takže vkládaná dávka je zakladní naplnění, ne novinka). */
-    @Query("SELECT MAX(chapterNumber) FROM chapter WHERE mangaId = :mangaId")
+     * nenačetly, takže vkládaná dávka je zakladní naplnění, ne novinka). Fallback řádky
+     * (kapitolu dotáhl resolver z JINÉHO zdroje - `isFallbackSource`) se vynechávají:
+     * jejich číslování nemusí odpovídat hostitelskému zdroji a nafouknuté maximum by
+     * umlčelo skutečně nové kapitoly titulu. */
+    @Query("SELECT MAX(chapterNumber) FROM chapter WHERE mangaId = :mangaId AND isFallbackSource = 0")
     suspend fun getMaxChapterNumber(mangaId: String): Float?
 
     /** Batched varianta [countForManga] - pro seznam manga id vrátí počty jedním dotazem

@@ -27,6 +27,10 @@ data class MuManga(
     val coverUrl: String?,
     val year: Int?,
     val description: String?,
+    /** Typ série dle katalogu MangaUpdates ("Manga", "Manhwa", "Manhua", "Novel",
+     * "OEL", "Artbook", "Doujinshi", ...) - per-titul pravda, používá se pro
+     * verifikaci tagu typu v knihovně (MangaRepository.verifyContentType). */
+    val type: String? = null,
 )
 
 /** Vytaženo z [MangaUpdatesRepository.searchManga] jako čistá funkce, aby šlo otestovat bez OkHttp. */
@@ -40,6 +44,7 @@ internal fun parseMuSearchResults(body: String): List<MuManga> {
             coverUrl = rec.optJSONObject("image")?.optJSONObject("url")?.optString("thumb"),
             year = rec.optString("year").toIntOrNull(),
             description = rec.optString("description").take(200).takeIf { it.isNotBlank() },
+            type = rec.optString("type").takeIf { it.isNotBlank() },
         )
     }
 }

@@ -87,6 +87,7 @@ class MangaRepositoryRefreshDetailsTest {
         mangaDexSource = mockk(relaxed = true)
         repository = MangaRepository(
             sourceManager, mangaDao, chapterDao, categoryDao, customSourceDao, mangaDexSource,
+            mangaUpdatesRepository = mockk(relaxed = true),
             manualTranslationDao = mockk(relaxed = true),
             readHistoryDao = mockk(relaxed = true),
             translatedPageDao = mockk(relaxed = true),
@@ -305,5 +306,95 @@ class MangaRepositoryRefreshDetailsTest {
         )
 
         assertEquals(listOf(21f, 22f), newlyAdded.map { it.chapterNumber })
+    }
+
+    @Test
+    fun `a chapter published before the title was added is not new even above the max`() = runTest {
+        // Uzivatel pridal titul dnes; prvotni seznam byl nekompletni (jen ch1-4), pozdejsi
+        // fetch dotahl i ch5-6 vydane v roce 2023 - notifikace na ne nemaji chodit
+        // (nahlaseny bug: po pridani mangy prislo upozorneni na kapitoly z r. 2023).
+        val addedAt = System.currentTimeMillis()
+        val year2023 = addedAt - 1_000L * 24 * 3600 * 1000 // ~3 roky zpet
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex", addedAt = addedAt))
+        chapterDao.upsertAll((1..4).map { storedChapter("mangadex::/c/$it", it.toFloat()) })
+
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..4).map { sChapter("/c/$it", it.toFloat()) } +
+                sChapter("/c/5", 5f).copy(dateUpload = year2023) +
+                sChapter("/c/6", 6f).copy(dateUpload = year2023),
+        )
+
+        assertEquals(emptyList<ChapterEntity>(), newlyAdded)
+        // Radek se vlozit ma (v knihovne existuje), jen se nehlasi jako novinka.
+        assertEquals(6, chapterDao.getAllForManga("m1").size)
+    }
+
+    @Test
+    fun `a chapter published after the title was added is reported as new`() = runTest {
+        val addedAt = System.currentTimeMillis()
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex", addedAt = addedAt))
+        chapterDao.upsertAll((1..4).map { storedChapter("mangadex::/c/$it", it.toFloat()) })
+
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..4).map { sChapter("/c/$it", it.toFloat()) } +
+                sChapter("/c/5", 5f).copy(dateUpload = addedAt + 3600_000L),
+        )
+
+        assertEquals(listOf(5f), newlyAdded.map { it.chapterNumber })
+    }
+
+    @Test
+    fun `a chapter published earlier the same day survives the day-precision grace`() = runTest {
+        // Zdroje udavaji dateUpload s denni presnosti (pulnoc) - kapitola vydana dnes
+        // rano ma timestamp pod addedAt odpoledne, ale je to porad "dnesni" novinka.
+        val addedAt = System.currentTimeMillis()
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex", addedAt = addedAt))
+        chapterDao.upsertAll((1..4).map { storedChapter("mangadex::/c/$it", it.toFloat()) })
+
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..4).map { sChapter("/c/$it", it.toFloat()) } +
+                sChapter("/c/5", 5f).copy(dateUpload = addedAt - 2 * 3600_000L),
+        )
+
+        assertEquals(listOf(5f), newlyAdded.map { it.chapterNumber })
+    }
+
+    @Test
+    fun `a chapter without an upload date keeps the plain number rule`() = runTest {
+        // dateUpload = 0 (zdroj datum neudava) - gate se necha vypnout, aby se notifikace
+        // u bezzdatumovych zdroju neumlčely uplne.
+        val addedAt = System.currentTimeMillis()
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex", addedAt = addedAt))
+        chapterDao.upsertAll((1..4).map { storedChapter("mangadex::/c/$it", it.toFloat()) })
+
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..4).map { sChapter("/c/$it", it.toFloat()) } + sChapter("/c/5", 5f),
+        )
+
+        assertEquals(listOf(5f), newlyAdded.map { it.chapterNumber })
+    }
+
+    @Test
+    fun `a fallback chapter from another source does not raise the baseline max`() = runTest {
+        // Resolver dotahl ch100 z JINEHO zdroje jako fallback - jeho cislo nesmi zvednout
+        // baseline, jinak by se skutecna nova kapitola 5 na hlavnim zdroji umlčela.
+        val addedAt = System.currentTimeMillis()
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex", addedAt = addedAt))
+        chapterDao.upsertAll(
+            (1..4).map { storedChapter("mangadex::/c/$it", it.toFloat()) } +
+                storedChapter("other::/fb", 100f).copy(sourceId = "other", isFallbackSource = true),
+        )
+
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..4).map { sChapter("/c/$it", it.toFloat()) } +
+                sChapter("/c/5", 5f).copy(dateUpload = addedAt + 3600_000L),
+        )
+
+        assertEquals(listOf(5f), newlyAdded.map { it.chapterNumber })
     }
 }
