@@ -9,6 +9,7 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
@@ -168,13 +169,15 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
             val firstImg = Jsoup.parse(firstHtml).selectFirst("img#image")?.attr("src")?.let { normalizeImgUrl(it) }
                 ?: return@withContext emptyList()
             val totalPages = Regex("""total_pages\s*=\s*(\d+)""").find(firstHtml)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-            val pages = mutableListOf(Page(0, firstImg, firstImg))
-            for (p in 2..totalPages) {
-                val html = get("$base${chapter.url}$p.html")
-                val img = Jsoup.parse(html).selectFirst("img#image")?.attr("src")?.let { normalizeImgUrl(it) } ?: continue
-                pages.add(Page(p - 1, img, img))
+            // totalPages znám předem - HTML každé reader stránky dotáhneme souběžně
+            // (30 stran = 30 RTT -> ~8 RTT, v pořadí se zachovává přes rozsah).
+            val rest = fetchPagesParallel(2, totalPages) { p ->
+                Jsoup.parse(get("$base${chapter.url}$p.html"))
+                    .selectFirst("img#image")?.attr("src")?.let { normalizeImgUrl(it) }
+                    ?.let { img -> listOf(Page(p - 1, img, img)) }
+                    .orEmpty()
             }
-            pages
+            listOf(Page(0, firstImg, firstImg)) + rest
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
