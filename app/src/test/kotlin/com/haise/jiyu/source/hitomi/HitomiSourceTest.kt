@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hitomi
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -44,6 +45,17 @@ class HitomiSourceTest {
         gg = { m: function(g) { var o = 1; switch (g) { case 999: o = 0; break; } return o; }, b: '123456/' };
     """.trimIndent()
 
+    // Vyrez z "/alltags-b.html" - href nese URL-encoded nazev tagu vcetne
+    // pripadneho sex-prefixu ("female:big breasts"), text odkazu je label.
+    private val tagsHtml = """
+        <html><body>
+        <ul class="posts">
+            <li><a href="/tag/female%3Abig%20breasts-all.html">big breasts</a></li>
+            <li><a href="/tag/bodysuit-all.html">bodysuit</a></li>
+        </ul>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -55,6 +67,11 @@ class HitomiSourceTest {
                         .setBody(Buffer().write(nozomiBytes))
                     path == "/popular/today-all.nozomi" -> MockResponse().setResponseCode(206)
                         .setBody(Buffer().write(nozomiBytes))
+                    path == "/tag/female%3Abig%20breasts-all.nozomi" -> MockResponse().setResponseCode(206)
+                        .setBody(Buffer().write(nozomiBytes))
+                    path.startsWith("/alltags-") -> MockResponse().setBody(
+                        if (path == "/alltags-b.html") tagsHtml else "<html></html>"
+                    )
                     path == "/galleryblock/42.html" -> MockResponse().setBody(galleryBlockHtml)
                     path == "/galleries/42.js" -> MockResponse().setBody(galleryInfoJs)
                     path == "/gg.js" -> MockResponse().setBody(ggJs)
@@ -127,6 +144,19 @@ class HitomiSourceTest {
             "https://w2.gold-usergeneratedcontent.net/123456/999/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaae73.webp",
             pages[0].url,
         )
+    }
+
+    @Test
+    fun `getAvailableTags decodes sex-prefixed tag names from alltags indexes`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(listOf("bodysuit", "female:big breasts"), tags.map { it.id }.sorted())
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the tag nozomi index`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("female:big breasts")))
+        assertEquals(1, result.size)
+        assertEquals("Test Gallery", result[0].title)
     }
 
     @Test

@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -72,6 +73,12 @@ class ComicKBrowseViewModel @Inject constructor(
     val openError: StateFlow<String?> = _openError.asStateFlow()
 
     private var page = 1
+
+    // Bez trackovaneho jobu se loadFirstPage() zavolane behem rozbehnuteho searchAdvanced
+    // zastavilo na "if (_loading.value) return" v loadMore() - vysledky se uz vycistily,
+    // ale novy request se nespustil a obrazovka zustala prazdna az do dalsiho pokusu
+    // (audit - napr. prepsani dotazu behem leticiho hledani nebo rychly applyFilters).
+    private var searchJob: kotlinx.coroutines.Job? = null
 
     init {
         loadFirstPage()
@@ -136,23 +143,31 @@ class ComicKBrowseViewModel @Inject constructor(
         page = 1
         _results.value = emptyList()
         _error.value = null
+        // Zrus rozbehnuty request stare stranky/dotazu, jinak by ho loadMore() bral za
+        // "loading" a prvni stranka noveho dotazu by se nikdy nespustila.
+        searchJob?.cancel()
         loadMore()
     }
 
     fun loadMore() {
         if (_loading.value) return
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             _loading.value = true
             try {
                 val f = _filters.value.copy(query = _query.value)
                 val next = comicKSource.searchAdvanced(page, f)
                 _results.value = (_results.value + next).distinctBy { it.sourceId + it.url }
                 if (next.isNotEmpty()) page++
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Zruseny request (nove hledani / novy filtr) neni chyba - nesmi se reportovat
+                // ani psat _error, kdyz uzivatelovi rezultaty muze prave zobrazovat novy job.
+                throw e
             } catch (e: Exception) {
                 e.report("comickbrowse:searchAdvanced")
                 if (_results.value.isEmpty()) _error.value = e.toFriendlyMessage()
             } finally {
-                _loading.value = false
+                // Zruseny STARY search nesmi vynulovat loading NOVEHO jobu.
+                if (searchJob === coroutineContext.job) _loading.value = false
             }
         }
     }
@@ -163,7 +178,7 @@ class ComicKBrowseViewModel @Inject constructor(
         _openingManga.value = manga
         viewModelScope.launch {
             try {
-                val id = repository.openPreview(manga)
+                val id = repository.registerPreview(manga)
                 onOpened(id)
             } catch (e: Exception) {
                 e.report("comickbrowse:openManga")

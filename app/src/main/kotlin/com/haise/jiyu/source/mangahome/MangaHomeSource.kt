@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.mangahome
 
 import com.haise.jiyu.util.resolveSourceUrl
+import com.haise.jiyu.source.fanfox.JsPacker
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
@@ -58,9 +59,10 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
         tags
     }
 
-    private fun get(url: String): String {
+    private fun get(url: String, referer: String = base): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
+            .header("Referer", referer)
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -75,12 +77,41 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // /search na webu prijima type= (manga|manhwa|manhua), is_completed= (0|1),
+    // released= + released_method=eq - vsechny overene zive (ruzne sady,
+    // kombinovatelne s ingenres).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+    )
+    override val supportsYearFilter: Boolean get() = true
+
+    private val SITE_TYPES = setOf("manga", "manhwa", "manhua")
+
+    private fun searchUrl(page: Int, filter: MangaFilter, query: String = ""): String = buildString {
+        append("$base/search?name=").append(URLEncoder.encode(query, "UTF-8")).append("&page=").append(page)
+        if (filter.genres.isNotEmpty()) append("&ingenres=").append(filter.genres.joinToString(",")).append("&exgenres=")
+        when (filter.status) {
+            "completed" -> append("&is_completed=1")
+            "ongoing" -> append("&is_completed=0")
+        }
+        filter.comicTypes.firstOrNull()?.takeIf { it in SITE_TYPES }?.let { append("&type=").append(it) }
+        filter.year?.let { append("&released=").append(it).append("&released_method=eq") }
+    }
+
+    private fun hasSearchFilters(filter: MangaFilter) =
+        filter.genres.isNotEmpty() || filter.status != null ||
+            filter.comicTypes.isNotEmpty() || filter.year != null
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        // Kdyz jsou vybrane zanry, nema "/directory"/"/latest" zadny genre parametr -
+        // Kdyz jsou vybrane zanry/filtry, nema "/directory"/"/latest" zadny param -
         // musime prehodit na /search s ingenres (viz getAvailableTags) - overeno zive.
-        if (filter.genres.isNotEmpty()) {
-            val genres = filter.genres.joinToString(",")
-            return@withContext try { parseList(get("$base/search?name=&ingenres=$genres&exgenres=&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (hasSearchFilters(filter)) {
+            return@withContext try { parseList(get(searchUrl(page, filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // "/latest/N.html" ma stejnou kartu (a.post-cover) jako "/directory/N.html",
         // jen jiny zdroj razeni - overeno zive, vraci odlisne tituly.
@@ -90,9 +121,7 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            val genreParam = if (filter.genres.isNotEmpty()) "&ingenres=${filter.genres.joinToString(",")}&exgenres=" else ""
-            parseList(get("$base/search?name=$q&page=$page$genreParam"))
+            parseList(get(searchUrl(page, filter, query)))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -123,7 +152,9 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
             val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
             val items = doc.select("ul.detail-chlist li")
             items.mapIndexedNotNull { i, li ->
-                val a = li.selectFirst("a[href^=${manga.url}/c]") ?: return@mapIndexedNotNull null
+                // Odkaz muze mit pred /c jeste svazek: /manga/{slug}/v35/c300
+                // (drivejsi selektor a[href^={url}/c] tyhle kapitoly preskocil).
+                val a = li.selectFirst("a[href*=${manga.url}/]") ?: return@mapIndexedNotNull null
                 val href = a.attr("href")
                 val text = a.text().trim()
                 val num = Regex("""(\d+(?:\.\d+)?)""").find(href.substringAfterLast("/c"))?.value?.toFloatOrNull()
@@ -136,14 +167,44 @@ class MangaHomeSource @Inject constructor(private val client: OkHttpClient) : Ma
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Cteci stranka je JS-driven: <img id="image"> se plni az pres
+    // chapterfun.ashx?cid={chapter_id}&page={N} (odpoved = Dean Edwards packer,
+    // dekoduje JsPacker). Stejny mechanismus jako FanFox/MangaFox - viz tam.
+    // Page.url je "virtualni" chapterfun URL, skutecne image URL se resi az
+    // v getImageUrl (lazy, stejne jako webovy reader - 1 request na stranku).
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            doc.select("img.image[src]").mapIndexedNotNull { i, img ->
-                val src = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
-                val url = if (src.startsWith("//")) "https:$src" else src
-                Page(i, url, url)
+            val readerUrl = resolveSourceUrl(base, chapter.url)
+            val html = get(readerUrl)
+            val count = Regex("""imagecount\s*=\s*(\d+)""").find(html)?.groupValues?.get(1)?.toIntOrNull()
+                ?: return@withContext emptyList()
+            val chapterId = Regex("""chapter_id\s*=\s*(\d+)""").find(html)?.groupValues?.get(1)
+                ?: return@withContext emptyList()
+            // chapterBase = adresar ctecky (/manga/{slug}) - chapterfun.ashx
+            // staci na libovolne ceste, cid urcuje obsah.
+            val chapterBase = readerUrl.trimEnd('/').substringBeforeLast("/")
+            (1..count).map { p ->
+                Page(index = p - 1, url = "$chapterBase/chapterfun.ashx?cid=$chapterId&page=$p&key=")
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    override suspend fun getImageUrl(page: Page): String = withContext(Dispatchers.IO) {
+        try {
+            val readerUrl = page.url.substringBefore("/chapterfun.ashx")
+            val body = get(page.url, referer = "$readerUrl/")
+            val decoded = JsPacker.unpackEval(body)
+                ?: throw java.io.IOException("MangaHome: chapterfun odpoved neni packer payload")
+            // Rozbalene JS: function dm5imagefun(){var pix="//cdn/...";
+            // var pvalue=["/v000.jpg","/v001.jpg"];if(i==0){pvalue[i]="//cdn..."}}
+            val basePath = Regex("""if\s*\(\s*i\s*==\s*0\s*\)\s*\{\s*pvalue\[i\]\s*=\s*"([^"]*)"""").find(decoded)?.groupValues?.get(1)
+            val firstEntry = Regex("""pvalue\s*=\s*\[\s*"([^"]*)"""").find(decoded)?.groupValues?.get(1)
+            if (basePath == null || firstEntry == null) {
+                throw java.io.IOException("MangaHome: v rozbalenem JS chybi pvalue/basePath")
+            }
+            val url = basePath + firstEntry
+            return@withContext if (url.startsWith("//")) "https:$url" else url
+        } catch (e: java.io.IOException) { throw e }
+          catch (e: Exception) { e.rethrowIfControl(); throw java.io.IOException("MangaHome resolver: ${e.message}", e) }
     }
 }

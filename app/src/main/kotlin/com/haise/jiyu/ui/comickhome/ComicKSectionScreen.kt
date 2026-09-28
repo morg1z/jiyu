@@ -96,7 +96,7 @@ fun ComicKSectionScreen(
                     }
                 }
                 reviews.isNotEmpty() -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + navBottom)) {
-                    items(reviews) { review ->
+                    items(reviews, key = { it.comic.url + "#" + it.content.hashCode() }) { review ->
                         Box(modifier = Modifier.padding(vertical = 6.dp)) {
                             ReviewCard(review = review, onClick = { viewModel.openManga(review.comic, onOpenManga) }, modifier = Modifier.fillMaxWidth())
                         }

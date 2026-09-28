@@ -221,16 +221,14 @@ class ManhwaSusuSource @Inject constructor(private val client: OkHttpClient) : M
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val slug = chapter.url.trimEnd('/').substringAfterLast('/')
-            val html = get(chapter.url)
-            // Obrazky stranek jsou primo v HTML (src i data-src), jen se hleda podle
-            // slugu aktualni kapitoly v ceste, aby se vyfiltrovaly nesouvisejici
-            // obrazky (cover, related sekce), ktere slug kapitoly v URL nemaji.
-            Regex("""https://[^"'\s]+/${Regex.escape(slug)}/[^"'\s]+\.(?:jpg|jpeg|png|webp)""", RegexOption.IGNORE_CASE)
-                .findAll(html)
-                .map { it.value }
+            val doc = Jsoup.parse(get(chapter.url), chapter.url)
+            // Stranky jsou <img data-src="https://s*.manhwature.com/..."> - src je jen
+            // lazy placeholder (/readerarea.svg). Cesta stranek se lisi podle serie
+            // (/chapters/{id}/ vs /images/), proto se filtruje jen host CDN a
+            // vylouci covery (/covers/). Poradi = DOM poradi.
+            doc.select("img[data-src]")
+                .mapNotNull { it.attr("data-src").takeIf { u -> u.contains("manhwature.com") && !u.contains("/covers/") } }
                 .distinct()
-                .toList()
                 .mapIndexed { i, url -> Page(i, url, url) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }

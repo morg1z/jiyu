@@ -6,6 +6,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.parseChapterNumber
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -26,8 +27,10 @@ class HachirawSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id = "hachiraw"
     override val name = "Hachiraw"
+    override val language = "ja" // japonsky raw web bez prekladu (overeno zive)
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
     private val base = "https://hachiraw.win"
 
     private fun get(url: String): String {
@@ -47,7 +50,35 @@ class HachirawSource @Inject constructor(private val client: OkHttpClient) : Man
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // Web ma jen par kategorii (Action/Adult/Ecchi/Fantasy/Harem - overeno zive),
+    // odkazy "/category/{id}/" jsou v hlavni navigaci homepage. Archiv strankuje
+    // jako WordPress "/category/{id}/page/{n}/". Vice kategorii najednou web
+    // nepodporuje - pri vice vybranych se pouzije prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            Jsoup.parse(get("$base/")).select("a[href*=/category/]").mapNotNull { a ->
+                val tagId = a.attr("href").substringAfter("/category/").trim('/')
+                if (tagId.isBlank() || !tagId.all { it.isDigit() }) return@mapNotNull null
+                val label = a.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = tagId, label = label)
+            }.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                val url = "$base/category/${filter.genres.first()}/" +
+                    if (page > 1) "page/$page/" else ""
+                val doc = Jsoup.parse(get(url))
+                doc.select("article.post.manga").mapNotNull(::parseCard)
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        }
         try {
             val url = if (page <= 1) "$base/" else "$base/page/$page/"
             val doc = Jsoup.parse(get(url))
@@ -56,6 +87,7 @@ class HachirawSource @Inject constructor(private val client: OkHttpClient) : Man
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"

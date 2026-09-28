@@ -35,6 +35,7 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
 
     override val id = "mangaraw4u"
     override val name = "MangaRaw4u"
+    override val language = "vi" // vietnamsky web (html lang="vi", overeno zive)
     override val homepageUrl get() = base
     private val base = "https://mangaraw4u.com"
 
@@ -75,29 +76,53 @@ class MangaRaw4uSource @Inject constructor(private val client: OkHttpClient) : M
             SManga(sourceId = id, url = toSourcePath(base, href), title = title, coverUrl = cover, contentType = "MANGA")
         }
 
+    // Web /search filtruje status= 1(renzai)|2(kankei)|3(kyusai)|4(uchikiri) -
+    // overeno zive (status=2 vraci jinou sadu nez vychozi). Select "filterType"
+    // na strance existuje, ale zadna URL varianta (type=, types[]=, filter[type]=)
+    // serverove nefiltruje - typ filtr nepropagujeme.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+
+    private val statusValues = mapOf(
+        "ongoing" to "1", "completed" to "2", "hiatus" to "3", "cancelled" to "4",
+    )
+    private val sortValues = mapOf(
+        "latest" to "-updated_at", "updated" to "-updated_at",
+        "popular" to "-views", "new" to "-created_at", "title" to "name",
+    )
+
+    private fun searchUrl(filter: MangaFilter, page: Int?, query: String? = null): String {
+        val sort = sortValues[filter.sortBy] ?: "-views"
+        val sb = StringBuilder("$base/search?sort=$sort")
+        page?.let { sb.append("&page=").append(it) }
+        filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+        statusValues[filter.status]?.let { sb.append("&status=").append(it) }
+        query?.takeIf { it.isNotBlank() }
+            ?.let { sb.append("&filter%5Bname%5D=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             // /search?sort= ma stejnou strukturu karet jako uvodni strana, ale na rozdil
             // od ni umi radit i podle "-updated_at" (Nejnovejsi) - overeno zivě, jina data
             // nez u "-views" (Popularni).
-            val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
-            val genreParam = filter.genres.firstOrNull()?.let { "&genre=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
-            val doc = Jsoup.parse(get("$base/search?sort=$sort&page=$page$genreParam"))
+            val doc = Jsoup.parse(get(searchUrl(filter, page)))
             parseResultCards(doc)
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
-        val genre = filter.genres.firstOrNull()
-        if (genre != null) {
+        val hasBrowseFilters = filter.genres.isNotEmpty() || filter.status != null
+        if (hasBrowseFilters) {
             // Genrovy archiv nema samostatny JSON endpoint - pouzivame stejnou HTML
             // /search stranku jako getPopular, jen navic s parametrem genre a volitelnym
             // filter[name] pro dotaz (overeno zive: kombinace genre+filter[name] funguje).
             try {
-                val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
-                val nameParam = if (query.isNotBlank()) "&filter%5Bname%5D=${URLEncoder.encode(query, "UTF-8")}" else ""
-                val doc = Jsoup.parse(get("$base/search?sort=$sort&genre=${URLEncoder.encode(genre, "UTF-8")}$nameParam"))
+                val doc = Jsoup.parse(get(searchUrl(filter, null, query)))
                 return@withContext parseResultCards(doc)
             } catch (e: Exception) { e.rethrowIfControl(); return@withContext emptyList() }
         }

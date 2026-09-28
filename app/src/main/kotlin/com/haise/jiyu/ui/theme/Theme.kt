@@ -9,6 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.haise.jiyu.settings.AccentOption
 import com.haise.jiyu.settings.ThemeOption
 
 val JiyuShapes = Shapes(
@@ -22,9 +23,14 @@ val JiyuShapes = Shapes(
 /**
  * @param mode ThemeOption.SYSTEM / DARK / LIGHT / TRUE_BLACK - SYSTEM se rozhodne
  * podle OS mezi DARK a LIGHT (true black je vždy jen explicitní volba, ne systémová).
+ * @param accentKey klíč z [AccentOption] - akcentová barva appky (výchozí fialová).
  */
 @Composable
-fun JiyuTheme(mode: String = ThemeOption.SYSTEM, content: @Composable () -> Unit) {
+fun JiyuTheme(
+    mode: String = ThemeOption.SYSTEM,
+    accentKey: String = AccentOption.VIOLET,
+    content: @Composable () -> Unit,
+) {
     val resolvedMode = if (mode == ThemeOption.SYSTEM) {
         if (isSystemInDarkTheme()) ThemeOption.DARK else ThemeOption.LIGHT
     } else mode
@@ -36,7 +42,7 @@ fun JiyuTheme(mode: String = ThemeOption.SYSTEM, content: @Composable () -> Unit
     // volat ho přímo v těle composable (ne přes LaunchedEffect, kde by se
     // hodnoty aplikovaly až o snímek později a colorScheme níže by na prvním
     // snímku ještě četl staré barvy).
-    applyPaletteMode(resolvedMode)
+    applyPaletteMode(resolvedMode, accentKey)
 
     val colorScheme = if (isLight) {
         lightColorScheme(

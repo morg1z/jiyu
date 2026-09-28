@@ -46,6 +46,55 @@ internal fun averageArgb(a: Int, b: Int): Int {
 }
 
 /**
+ * Průměrná barva vnitřních ~60 % záplaty (střed, kam se přeložený text skutečně sází).
+ *
+ * Používá se pro volbu barvy textu u bublin kreslených ZÁPLATOU (viz TranslationOverlay):
+ * tam se dosud rozhodovalo podle navzorkovaného prstence kolem OCR boxu
+ * ([OcrEngine.sampleBackgroundColor]) - ten ale zachytí i tmavou kresbu MIMO bublinu
+ * (vlasy, černý line-art, tmavý kostým), dominantní kbelík pak vyjde tmavý a "jas pozadí"
+ * vybere bílé písmo pro záplatu, která je ve skutečnosti světlá - nahlášené "bílý text
+ * na bílé záplate" (nečitelné). Skutečné pixely záplaty jsou jediný zdroj pravdy o tom,
+ * co se pod textem doopravdy vykreslí.
+ *
+ * Vzorkuje se mřížkou (~32x32 bodů) jen ve střední oblasti, ne celá plocha - text sedí
+ * vycentrovaný, takže průměr z okrajů (kde může ležet jiná kresba) by rozhodnutí kazil.
+ * Cena na bublinu zůstává zanedbatelná (~1 tisíc čtení pixelů).
+ *
+ * @param colorAt funkce čtení ARGB pixelu na souřadnici (typicky Bitmap::getPixel)
+ * @return průměrný ARGB (alfa 0xFF), nebo null pro degenerovanou/nesvzorkovatelnou oblast
+ */
+internal fun patchMeanArgb(colorAt: (x: Int, y: Int) -> Int, width: Int, height: Int): Int? {
+    val x0 = (width * 0.2f).toInt()
+    val x1 = (width * 0.8f).toInt()
+    val y0 = (height * 0.2f).toInt()
+    val y1 = (height * 0.8f).toInt()
+    if (x1 <= x0 || y1 <= y0) return null
+    val stepX = ((x1 - x0) / PATCH_SAMPLE_STEPS).coerceAtLeast(1)
+    val stepY = ((y1 - y0) / PATCH_SAMPLE_STEPS).coerceAtLeast(1)
+    var r = 0L
+    var g = 0L
+    var b = 0L
+    var n = 0L
+    var y = y0
+    while (y < y1) {
+        var x = x0
+        while (x < x1) {
+            val c = colorAt(x, y)
+            r += (c ushr 16) and 0xFF
+            g += (c ushr 8) and 0xFF
+            b += c and 0xFF
+            n++
+            x += stepX
+        }
+        y += stepY
+    }
+    if (n == 0L) return null
+    return (0xFF shl 24) or ((r / n).toInt() shl 16) or ((g / n).toInt() shl 8) or (b / n).toInt()
+}
+
+private const val PATCH_SAMPLE_STEPS = 32
+
+/**
  * Sjednotí velikost písmen přeloženého textu s originálem, aby lettering vypadal jako
  * v původní bublině. Komiksový/manga lettering je konvenčně VELKÝMI PÍSMENY (viz reference
  * fotky: "IT'S OBVIOUS.", "I BET THEY'LL SAY..."), proto:

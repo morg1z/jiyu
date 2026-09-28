@@ -33,13 +33,29 @@ import javax.inject.Singleton
  * `p.chapter-start-mark` a `p.chapter-end-mark`.
  */
 @Singleton
-class NovelCoolSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
+class NovelCoolSource @Inject constructor(client: OkHttpClient) : NovelCoolEngine(
+    client = client,
+    id = "novelcool",
+    name = "Novel Cool",
+    base = "https://www.novelcool.com",
+    inGlobalSearch = true,
+)
 
-    override val id = "novelcool"
-    override val name = "Novel Cool"
+/** Sdílený engine - ru.novelcool.com používá identický markup (overeno zive),
+ * jen rusky obsah. */
+open class NovelCoolEngine(
+    private val client: OkHttpClient,
+    override val id: String,
+    override val name: String,
+    private val base: String,
+    private val languageOverride: String = "en",
+    private val inGlobalSearch: Boolean = false,
+) : MangaSource {
+
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
-    private val base = "https://www.novelcool.com"
+    override val language get() = languageOverride
+    override val includeInGlobalSearch get() = inGlobalSearch
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)

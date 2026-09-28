@@ -99,6 +99,46 @@ class NovelBuddySourceTest {
     }
 
     @Test
+    fun `chapter names collapse duplicated Chapter prefix and slug ids`() = runTest {
+        // API vraci u AU/epilog kapitol zdvojeny "Chapter" a slug pred dvojteckou
+        // (overeno zive na api.novelbuddy.me u Mother of Learning).
+        server.shutdown()
+        server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/titles/search") -> MockResponse().setBody(searchJson)
+                    path == "/titles/abc123/chapters" -> MockResponse().setBody(
+                        """{"success":true,"data":{"chapters":[
+                            {"url":"/t/c4","name":"Chapter ch-au-4: The AU - Grand Whistler","number":113,"updated_at":"2026-01-01T00:00:00.000Z"},
+                            {"url":"/t/c3","name":"Chapter Chapter ch-au-4: The AU Chapter - Grand Whistler","number":112,"updated_at":"2026-01-01T00:00:00.000Z"},
+                            {"url":"/t/c2","name":"Chapter Chapter aw: Afterword","number":108,"updated_at":"2026-01-01T00:00:00.000Z"},
+                            {"url":"/t/c1","name":"Chapter 5: The Beginning","number":5,"updated_at":"2026-01-01T00:00:00.000Z"},
+                            {"url":"/t/c0","name":"Chapter 106","number":106,"updated_at":"2026-01-01T00:00:00.000Z"}
+                        ]}}""",
+                    )
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        val s = NovelBuddySource(redirectingClient(server))
+        val manga = s.getPopular(1).first()
+        val names = s.getChapterList(manga).map { it.name }
+        assertEquals(
+            listOf(
+                "The AU - Grand Whistler",
+                "The AU Chapter - Grand Whistler",
+                "Afterword",
+                "Chapter 5: The Beginning",
+                "Chapter 106",
+            ),
+            names,
+        )
+    }
+
+    @Test
     fun `malformed JSON returns empty list, not an exception`() = runTest {
         server.shutdown()
         server = MockWebServer()

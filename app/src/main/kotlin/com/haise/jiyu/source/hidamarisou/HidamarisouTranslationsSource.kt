@@ -38,6 +38,7 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
     override val supportsSortOrder: Boolean get() = false
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://hidamarisoutranslations.com"
 
     private fun get(url: String): String {

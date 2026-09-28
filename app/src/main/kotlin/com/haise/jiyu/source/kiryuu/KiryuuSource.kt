@@ -42,6 +42,7 @@ import javax.inject.Singleton
 class KiryuuSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "kiryuu"
     override val name = "Kiryuu"
+    override val language = "id" // indonesky scanlation web (overeno zive)
     override val homepageUrl get() = base
     private val base = "https://v7.kiryuu.to"
 

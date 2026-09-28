@@ -52,6 +52,14 @@ fun renderBoxRect(pos: PositionedTranslationBlock): PatchRect =
  * obrys se ptá jen, jestli se nějaký našel. Když jednolité není, kreslí se záplata - ta
  * zakryje jen tahy písmen a každý zakrytý pixel dopočítá z okolí, takže vzorek přežije.
  *
+ * ## Záplata je u lettering-na-kresbě povinná, ne volitelná
+ * Text bez obrysu bubliny na pestré kresbě (titulkové captiony, ručně kreslené nápisy)
+ * se SMÍ překreslit - ale výhradně záplatou: originální tahy se smažou dopočítáním z okolí
+ * a překlad se napíše přes ně barvou původního písma (viz meanTextArgbOut v
+ * [buildTextPatch]). Pevná výplň by tam udělala viditelnou placku přes malbu (nahlášené
+ * "THE BATTLE OF SEKIGAHARA" na akvarelu sněhu), proto render takový blok bez záplaty
+ * přeskočí a nechá prosvítat originál - viz pravidlo `art_lettering` v BubbleOverlayLayer.
+ *
  * Bez opravy geometrie záplaty (viz odstavec výše) by tohle nešlo: roztažené zbytky tahů
  * byly původní důvod, proč záplata u bublin s obrysem skončila.
  */
@@ -61,4 +69,4 @@ fun patchPlan(positioned: List<PositionedTranslationBlock>): Map<Int, PatchRect>
         .associate { (index, pos) -> index to renderBoxRect(pos) }
 
 private fun TranslatedBlock.needsPatch(): Boolean =
-    !isSfx && !isUntranslated && !bgUniform
+    !isSfx && !isUntranslated && !isArtText && !bgUniform

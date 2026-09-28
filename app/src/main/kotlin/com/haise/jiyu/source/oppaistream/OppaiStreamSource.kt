@@ -69,6 +69,11 @@ class OppaiStreamSource @Inject constructor(
     // zive: genres=yuri vs bez filtru - jine tituly).
     override val supportsTagFilter: Boolean get() = true
 
+    // api-search.php?status= aplikuje filtr (overeno zive). Web ma jen
+    // ongoing/finished - hiatus chip UI schova pres availableStatuses.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() = listOf("ongoing", "completed")
+
     @Volatile private var cachedTags: List<FilterTag>? = null
 
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
@@ -85,10 +90,20 @@ class OppaiStreamSource @Inject constructor(
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun genreSearchUrl(query: String, page: Int, genres: List<String>, order: String = ""): String {
+    // api-search.php?status= - hodnoty z HTML status-blocku webu: all,
+    // ongoing, finished (hiatus web nema - proto omezene availableStatuses).
+    // Overeno zive: finished=705 titulu vs ongoing/all=1244; neznamy status
+    // se ignoruje (vrati vse), proto nesmi prosit nic mimo mapovani.
+    private fun statusParam(status: String?): String = when (status) {
+        "ongoing" -> "ongoing"
+        "completed" -> "finished"
+        else -> "all"
+    }
+
+    private fun genreSearchUrl(query: String, page: Int, genres: List<String>, order: String = "", status: String? = null): String {
         val q = URLEncoder.encode(query, "UTF-8")
         val g = URLEncoder.encode(genres.joinToString(","), "UTF-8")
-        return "$base/api-search.php?text=$q&order=$order&page=$page&limit=18&status=&genres=$g&blacklist="
+        return "$base/api-search.php?text=$q&order=$order&page=$page&limit=18&status=${statusParam(status)}&genres=$g&blacklist="
     }
 
     // Řazení "api-search.php?order=" z webu (checkboxy Order): views = Most Views, uploaded = Recently
@@ -99,15 +114,15 @@ class OppaiStreamSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             try {
-                parseCardListing(fetchDocument(genreSearchUrl("", page, filter.genres, orderFor(filter))))
+                parseCardListing(fetchDocument(genreSearchUrl("", page, filter.genres, orderFor(filter), filter.status)))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            if (filter.genres.isNotEmpty()) {
+            if (filter.genres.isNotEmpty() || filter.status != null) {
                 return@withContext try {
-                    parseCardListing(fetchDocument(genreSearchUrl(query.trim(), page, filter.genres)))
+                    parseCardListing(fetchDocument(genreSearchUrl(query.trim(), page, filter.genres, "", filter.status)))
                 } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
             }
             if (query.isBlank()) return@withContext getPopular(page, filter)

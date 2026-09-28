@@ -321,3 +321,74 @@ internal fun linesInDifferentYoloBoxes(a: RawTextBlock, b: RawTextBlock, boxes: 
     val boxB = yoloBoxIndexContaining(b, boxes) ?: return false
     return boxA != boxB
 }
+
+/**
+ * Sloučí bloky, jejichž střed padá do STEJNÉHO detekovaného YOLO boxu - tedy do jedné
+ * fyzicky rozpoznané bubliny (viz [yoloBoxIndexContaining]). [mergeNearbyLines] jim
+ * sloučení mohlo odmítnout už na geometrii (vertikální mezera nad tolerancí,
+ * horizontálně mimo řádek) nebo na [hasWallBetween] (tenká kreslená linie uvnitř jedné
+ * bubliny); sdílený YOLO box je pro "jedna bublina" silnější důkaz než obě kontroly
+ * dohromady. Bez tohohle se dva bloky pod jedním obrysem překládají separátně - jeden
+ * skončí UNTRANSLATED a bublina vyjde napůl anglicky, napůl česky (audit Vagabondu:
+ * "MATA-HACHI'S BEEN" + přeložená druhá půlka ve stejné bublině).
+ *
+ * Bloky, jejichž střed nepadá do ŽÁDNÉHO boxu (YOLO je jistě nenašel), zůstávají
+ * netknuté - stejná politika jako u [linesInDifferentYoloBoxes]: chybějící signál
+ * nesmí nic rozbít.
+ */
+internal fun mergeBlocksInSameYoloBox(blocks: List<RawTextBlock>, boxes: List<DetectedBubbleBox>): List<RawTextBlock> {
+    if (blocks.size < 2 || boxes.isEmpty()) return blocks
+    val boxIndex = blocks.map { yoloBoxIndexContaining(it, boxes) }
+    if (boxIndex.all { it == null }) return blocks
+
+    val parent = IntArray(blocks.size) { it }
+    fun find(x: Int): Int {
+        var r = x
+        while (parent[r] != r) r = parent[r]
+        var c = x
+        while (parent[c] != r) { val next = parent[c]; parent[c] = r; c = next }
+        return r
+    }
+    for (i in blocks.indices) {
+        val bi = boxIndex[i] ?: continue
+        for (j in i + 1 until blocks.size) {
+            if (boxIndex[j] == bi && find(i) != find(j)) parent[find(i)] = find(j)
+        }
+    }
+
+    return blocks.indices.groupBy { find(it) }.map { (_, idxs) ->
+        if (idxs.size == 1) blocks[idxs[0]] else mergeBubbleGroup(idxs.map { blocks[it] })
+    }
+}
+
+/**
+ * Sestaví jeden blok z členů téže bubliny - stejné zásady jako skupinový merge v
+ * [mergeNearbyLines] (pořadí řádků, svislé sloupce zprava doleva, průměr výšky řádku),
+ * jen členové jsou už SLUČENÉ bloky: lineCount se SČÍTÁ přes členy a nativeLineHeightF
+ * je průměr vážený počtem řádků každého člena, ne prostý průměr výšek bloků.
+ */
+private fun mergeBubbleGroup(members: List<RawTextBlock>): RawTextBlock {
+    val vertical = members.all { it.isVertical }
+    val group = if (vertical) {
+        members.sortedWith(compareByDescending<RawTextBlock> { it.rightF }.thenBy { it.topF })
+    } else {
+        members.sortedWith(compareBy({ it.topF }, { it.leftF }))
+    }
+    val totalLines = group.sumOf { it.lineCount.coerceAtLeast(1) }
+    return RawTextBlock(
+        text = group.joinToString(" ") { it.text },
+        leftF = group.minOf { it.leftF },
+        topF = group.minOf { it.topF },
+        rightF = group.maxOf { it.rightF },
+        bottomF = group.maxOf { it.bottomF },
+        lineCount = totalLines,
+        isVertical = vertical,
+        // nativeLineHeightF == 0f znamená "neznámé" (starý záznam) - do průměru se tehdy
+        // dosadí odhad z vlastních boundů člena místo nuly, která by průměr zkreslila dolů.
+        nativeLineHeightF = group.fold(0f) { acc, b ->
+            val lines = b.lineCount.coerceAtLeast(1)
+            val height = if (b.nativeLineHeightF > 0f) b.nativeLineHeightF else (b.bottomF - b.topF) / lines
+            acc + height * lines
+        } / totalLines,
+    )
+}

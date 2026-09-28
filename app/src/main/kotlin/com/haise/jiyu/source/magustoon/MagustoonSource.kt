@@ -40,6 +40,9 @@ class MagustoonSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val id = "magustoon"
     override val name = "Magustoon"
     override val supportsSortOrder: Boolean get() = false
+    // Web ma zanry jen jako prostý text na detailu - zadne genre-slug odkazy,
+    // takze neni co filtrovat. Prazdny picker by byl mrtva UX cesta.
+    override val supportsTagFilter: Boolean get() = false
     override val contentType = "MANHWA"
     override val homepageUrl get() = base
     private val base = "https://magustoon.org"

@@ -164,6 +164,36 @@ internal fun longestIndivisibleRunWidthPx(text: String, measureSegment: (String)
         .filter { it.isNotEmpty() }
         .maxOfOrNull { measureSegment(it) } ?: 0f
 
+/**
+ * Poslední záchrana, když se překlad nevejde do bubliny ANI na podlaze
+ * [ABSOLUTE_MIN_FONT_SP] - místo aby Compose klipoval text uprostřed glyfu (audit
+ * Vagabondu: "TO JSEM NEMYSL." uříznuté na "NEMYSL" čárou), ubere koncová slova a
+ * text uzavře výpustkou. Zkrácený překlad s "…" je čitelnější než viditelně
+ * uříznutý řádek; celý originál je vždycky dostupný klepnutím na bublinu (flip).
+ *
+ * @param fits "vejde se tento kandidát?" - volající ho skládá ze skutečného měření
+ *   textu při zvolené velikosti písma (výška i nejdelší nezalomitelný úsek, stejná
+ *   podmínka jako [fitFontSizeToBox]).
+ */
+internal fun truncateToFit(
+    text: String,
+    maxIterations: Int = 24,
+    fits: (String) -> Boolean,
+): String {
+    if (fits(text)) return text
+    // Strukturovaná pole ("\n" = hranice popisek/jméno/podtitul, viz mergeNearbyLines)
+    // se zkracovat nesmí - rozbilo by to povinný počet řádků; tam klip stačí.
+    if (text.contains('\n')) return text
+    var words = text.trim().split(' ').filter { it.isNotBlank() }
+    var iterations = 0
+    while (words.size > 1 && iterations++ < maxIterations) {
+        words = words.dropLast(1)
+        val candidate = words.joinToString(" ").trimEnd('.', ',', ';', ':', '!', '?', '…') + "…"
+        if (fits(candidate)) return candidate
+    }
+    return text
+}
+
 /** Hrubý krok prvního sestupu z [ShapeFitResult] hledání (viz [fitFontSizeToBox]). */
 private const val COARSE_STEP_SP = 2f
 

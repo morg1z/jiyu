@@ -4,6 +4,783 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.0
+
+### Čtečka: skok na nejnovější kapitolu po relinku/refreshi kapitol
+
+Hlášený bug ze starší verze (v1.2.72): po chybě překladu se čtenář "hodil"
+z kapitoly 1 na ~200. Příčina v `ReaderViewModel.navigatePrev()` — když se
+otevřená kapitola v seznamu `allChapters` nenajde (refresh/migrace/relink
+id mezi `getChapter` a `getAllChapters`), `indexOfFirst` vrátí -1 a starý
+guard `idx >= lastIndex` ho propustil → `target = 0` = `allChapters[0]` =
+nejnovější kapitola (seznam je `ORDER BY chapterNumber DESC`).
+
+- `navigatePrev()` teď odmítá `idx < 0`; `updateNavState()` při chybějící
+  kapitole nepovolí ani prev/next šipku.
+- Self-healing v `loadChapter()`: když se otevřená kapitola v čerstvém
+  seznamu nenajde, vloží se zpět na své místo v DESC pořadí
+  (`insertSortedDesc`) — `idx == -1` tak v čtečce nemůže nastat a navigace
+  zůstává funkční i po relinku.
+- `ErrorReporter.breadcrumb()` — nová ne-fatal stopa pro inkonzistentní stavy
+  (Log.w + Crashlytics breadcrumb, bez záznamu výjimky). ReaderViewModel ji
+  volá přes `chapterIndexOrTrace()` na všech místech, kde hledá kapitolu
+  v `allChapters`, a při samotném dosazení — v logu/Crashlytics je vidět
+  kapitola, manga i velikost seznamu místo tichého selhání.
+- Regresní testy `ReaderViewModelNavigationTest` — chybějící kapitola se
+  dosadí zpět a navigace dál funguje, nejstarší kapitola nenaviguje,
+  normální prev/next funguje.
+
+### Filtry zdrojů — pokrytí dotažené pro release
+
+- **Status filtr** (`ongoing/completed/hiatus`) nově zapojen u zdrojů, kde je
+  server-side podpora ověřená živě: **ComicK** (`/v1.0/search?status=1-4`),
+  **ComicKArt** (`/api/search?status=`), **Mangapill** (`publishing/finished/
+  on hiatus` z `<option>` formuláře), **MangaWorld** (`archive?status=ongoing/
+  completed/paused`), **OppaiStream** (`api-search.php?status=ongoing/finished`).
+- **Year filtr** nově u **ComicK** a **ComicKArt** (`from=rok&to=rok`, ověřeno).
+- **`MangaSource.availableStatuses`** — nová vlastnost (vzor `availableSorts`):
+  UI schová chipy stavů, které zdroj neumí vyjádřit (OppaiStream nemá hiatus).
+- **Mrtvé tag pickery zavřené** — `supportsTagFilter = false` u zdrojů bez
+  ověřitelné browsable taxonomie (ColoredManga, LuaComic, Magustoon,
+  MangaCloud, MangaDotNet, SimplyHentai, NextSeries×3). Předtím dědily
+  default `true` → tlačítko "Žánry" otevřelo picker s "zdroj žádné tagy
+  nenabízí". NextSeries přitom měl v hlavičce komentář "vypnuto", ale
+  deklarace chyběla - skutečně se dědilo `true`.
+
+### Per-source filtry — audit celého katalogu (engine + standalone + API)
+
+Každý zdroj teď vystavuje jen filtry, které jeho web/API skutečně server-side
+aplikuje (živě ověřeno porovnáním výstupů; viditelné ale mrtvé formuláře se
+nevystavují — MangaKatana, EA-Hentai `type`, AstraToons `types[]`, NyxScans).
+
+- **Engine Madara** — GET formulář `?s=&post_type=wp-manga&genre[]=&status[]=
+  &orderby=` (status slugy on-going/end/canceled/on-hold); custom `searchUrl`
+  override instancí zůstává funkční pro čisté fulltext dotazy.
+- **Engine Themesia** — `status=`/`type=`/`order=` na archivu; na
+  `genreArchive` webech (číselná genre ID) má žánr přednost před statusem,
+  stejně jako na webu.
+- **Standalone** — Kingofshojo (`status=on-going|end`, `type=`), MangaCherri +
+  MangaMikan (`status`, sort mapování), MangaRaw4u (`status` 1-4 + `filter[name]`),
+  MangaHome (`type`, `release` rok), FanFox (`type` 1-7, `released`), MangaWorld
+  (`type`), Hentai20 (`status`), DemonicScans (POST `status` + `order`),
+  IFreedom (`status[]` + `sort`), AstraToons (`/comics?status=&sortBy=`, kombinuje
+  s žánrem), RoyalRoad (`status`, `type`, `orderBy`+`dir`, `tagsAdd`), NovelFire
+  (`status` v cestě), Thunderscans + VioletScans (`status`, `type` včetně
+  comic/novel), KDTScans + SpiderScans (`/search/?status=`), KuraManga
+  (`status` na ajax endpointu, kombinuje s `genre=`).
+- **API zdroje** — VortexScans (`seriesStatus`/`seriesType`/`genreIds` na
+  `/api/query`), ValirScans (`status`/`type`/`sort`/`genre` na `/api/series`),
+  AsuraScans (`status`/`type` na `/api/series`), QiScans (`status`/`type`
+  uppercase na `/api/v1/series`), OmegaScans (`status` capitalized na
+  `/api/query`), Ezmanga (`status` uppercase), HiveToons (`seriesStatus`/
+  `seriesType`/`genre` na `/api/query` — `/api/posts` je ignoruje, proto
+  filtrové dotazy routují přes query endpoint).
+- **Závěrečný sweep** — Manhwa210 (`filter[status]=1|2` z webového JS),
+  MangaDenizi (`status` + `sort` na `/api/v1/web/manga`, `type=` API ignoruje),
+  MangaTown (bitmask `/directory/-{genre}-{year}-{status}--{type}/`),
+  MangaFire (`search()` má paritu filtrů s `getPopular` — `order[]` i při
+  keyword dotazu). Ověřené mrtvé cesty nevystaveny: MangaBoomers API pole
+  `states`/`types` (frontend je posílá, ale `/api/searchManga` aplikuje jen
+  `genres`), RanobesCom statusy (ajax dle_filter, `/f/` URL jen pro
+  rok/kapitoly/sort), OrionScans + TeamShadowi (GET params ignorovány,
+  JS-only), MangaKatana GET filtry, KaliScan `?type=count` (interní param).
+
+### ComicK Art: žánry vs tagy + kompletní sada filtrů z webu
+
+Web comick.art rozděluje metadata na **žánry** (84 kurátorovaných) a **tagy**
+(~9 300 volných uživatelských) — `/api/metadata` je vrací ve dvou sekcích,
+ale appka je slévala do jednoho plochého seznamu a vše posílala přes
+`genres=`. Picker pak ukazoval dospělé/volné tagy jako "žánry" (uživatel
+je přisuzoval nhentai — ve skutečnosti šlo o vlastní taxonomii comick.art).
+
+- **`FilterTag.kind`** (`genre`/`tag`) — `getAvailableTags()` rozděluje žánry
+  a tagy; picker je kreslí do dvou sekcí "Žánry"/"Tagy".
+- **`MangaFilter`** rozšířen o `excludeGenres`, `tags`, `excludeTags`,
+  `demographic`, `comicTypes`, `minChapters`, `createdRangeDays`,
+  `sortAscending` — všechny mapují na parametry `/api/search` ověřené živě
+  proti webu (`excludes`, `tags`, `excluded_tags`, `demographic`, `country`,
+  `minimum`, `time`, `order_direction`).
+- **Třístavový výběr** u zdrojů s `supportsExcludeTags` (tap: vypnuto →
+  zahrnout → vyloučit; vyloučené červeně + přeškrtnuté). Zdroje bez podpory
+  excludu si nechávají obyčejný toggle.
+- **Nové řádky ve filter sheetu** podle capability flags: demografie
+  (Shounen/Seinen/Shoujo/Josei/None), typ díla (jp/kr/cn/others), min.
+  počet kapitol, časové okno vzniku, směr řazení. U zdrojů bez podpory se
+  řádky schovávají místo mrtvých ovladačů.
+- **Status `cancelled` (4)** doplněn do ComicK/ComicKArt mapování.
+- Tag picker je klíčovaný na `source.id` — žádné tagy nepřežijí přepnutí
+  zdroje; každý zdroj ukazuje jen svou taxonomii (nhentai jen svoje,
+  comick.art jen svoje).
+
+### Webtoon: řezané vykreslení extrémně vysokých stránek (OOM / GPU limit)
+
+Stránka 800×30000 px = ~96 MB bitmapa v RAM a nad ~8192 px výšky se nevejde do
+GPU textury (Compose ji potichu nevykreslí). DemonicScans to řešil per-source
+re-encodem dlaždic; teď je generická cesta pro všechny zdroje:
+
+- **`PageSlicer`** — pro stránky vyšší než 8192 px postaví `PageSlicePlan.Tiled`:
+  řezy po 2048 px ve zdrojových souřadnicích, `BitmapRegionDecoder` dekóduje
+  jen viditelný region v nativní kvalitě (žádný re-encode ani downsampling →
+  plná kvalita i při zoomu). Zdrojové bajty se berou z Coil disk cache,
+  při missu se stáhnou přes image klienta do cache (editor) nebo do
+  `tall_page_src/`. `file://` (offline kapitoly) jde přímo.
+- **Ruční virtualizace** v `WebtoonReader` — vnořený Column v položce
+  LazyColumn by složil všechny řezy najednou; proto se z `boundsInWindow`
+  počítá rozsah viditelných řezů (+1 rezerva) a řezy mimo něj jsou jen
+  `Spacer` se správným poměrem stran. Při aktivním pinch-zoomu se rozsah
+  přepočítává každý frame (transformace předka nemusí spolehlivě budit
+  `onGloballyPositioned`).
+- **Ořez okrajů v plánu** — `CropBordersTransformation.detectContentFractions`
+  /`recordCropFractions` vystavené; detekce běží na ≤2 MP vzorku, řezy se
+  počítají z content rectu a overlay mapuje OCR souřadnice stejným kontraktem
+  jako u neřezané cesty.
+- **Bezpečné fallbacky** — lazy URL, scramble, animované formáty (GIF/animovaný
+  WebP/APNG detekce z hlavičky), nedekodovatelné soubory → `Single` = původní
+  cesta. Dokud plán není známý, normální decode se nespouští (jinak by Coil
+  stihl celou bitmapu dřív, než plán vrátí Tiled).
+- **`PageSliceFetcher`** — Coil fetcher pro `PageSliceRequest`; výsledek jde
+  do memory cache pod klíčem `pageSlice:<url>:<i>:<crop>`.
+
+Dotaženo audit reviewem:
+
+- **Opakovaný download zdroje** — když zdrojový soubor skončil ve
+  `tall_page_src/` (Coil editor při plánování obsazený jiným zápisem), každý
+  řez minal snapshot a stránka se stahovala znovu (15 řezů = až 15× download).
+  `withSourceFile` teď nejdřív zkontroluje existenci vlastního souboru;
+  `.tmp` soubory mají unikátní jména (souběžné zápisy se nepletou) a
+  `pruneOwnSliceDir` uklízí i zaschlá `.tmp` torza.
+- **Úsporný režim obrázků vs. kvalita řezů** — `downloadToCache` posílá
+  `HEADER_ORIGINAL` a se zapnutou wsrv.nl proxy používá separátní disk klíč
+  `url#original` (konvence `PageBitmapLoader`), takže řezy se vždy dekódují
+  z plnokvalitních bajtů.
+- **Detekce animace** — WebP se pozná autoritativně přes VP8X flags byte
+  (offset 20, bit 0x02), ne jen skenem `ANIM`/`ANMF` v 512 B okně, které by
+  minulo soubory s velkým ICCP/EXIF chunkem. Čtecí okno 4 KiB + čtení
+  v cyklu (short-read).
+
+Zařízení-test (S24 Ultra) odhalil a opravil **tři crashy/problémy**:
+
+- **`SourceRateLimitedException` shazovala appku přes async `enqueue()`** —
+  byla to checked `Exception`, ne `IOException`; OkHttp `AsyncCall` na
+  dispatcher vlákně chytá jen IOException, takže 429 při Coil načítání obrázku
+  zabila celý proces (FATAL EXCEPTION: OkHttp Dispatcher). Teď je
+  `IOException` + `NonRetryable` — doručí se do `onFailure` jako normální
+  chyba a `RetryInterceptor` ji přesto neopakuje.
+- **429 v `downloadToCache` probublala do Compose** — `rethrowIfControl()` ji
+  záměrně přehazuje (jinak by se hláška "příliš mnoho požadavků" spolkla), ale
+  `withSourceFile` neměl catch → výjimka skončila neodchycená v
+  `LaunchedEffect` na main vlákně = druhý FATAL. `withSourceFile` teď 429
+  chytá jako "zdroj nedostupný" (Single fallback, normální cesta ukáže chybu
+  s retry) a `plan()` má pojistku — "nikdy nehází" drží i při neočekávané
+  výjimce.
+- **`jiyu://reader` deep link neměl manifest intent-filter** — `navDeepLink` v
+  Compose NavGraph se do manifestu negeneruje (umí to jen XML grafy); QR/jiné
+  appky/`am start` neresolvovaly. Filtr doplněn stejně jako `jiyu://manga`.
+- **ComicKArt obálky/stránky 403** — `*.comicknew.pictures` CDN má hotlink
+  ochranu (bez `Referer: https://comick.art/` vrací 403), ale chyběla v mapě
+  `hotlinkRefererSuffixes` → všechny covery i stránky kapitol ComicK Art se
+  tvářily jako prázdné. Suffix match přidán (pokryje cdn1/cdn2/n1/…).
+- **`PageSlicer` diag log** — `plan TILED WxH slices=N` / `plan Single(důvod)`
+  v logcatu pro ladění na zařízení.
+
+
+### Překlad: česká kvalita — morfologie v promptu, seed glosář, výstupní lint
+
+Audit Vagabondu: „VY MALÉHO BASTARDA" (místo vokativu), „Hlasitost" (místo
+„Svazek"), „TO JSEM NEMYSL.", „ZATÍŽETE", germanismus „UPS!".
+
+- **Nová prompt sekce „ČESKÁ MORFOLOGIE"** (`GeminiUltraPrompt`) — vokativ
+  při oslovení („ty malý bastarde"), genitivní slovosklad („lovci uprchlíků"),
+  ediční termíny (Volume→Svazek, NIKDY „Hlasitost"), povinná diakritika i ve
+  verzálkách („MUSĚLI" ne „MUSELI"), přirozený rozkazovací způsob („pojďme" ne
+  „pojďme jít"), konzistence makronů („TAKEZŌ" všude, i když OCR jednou napíše
+  „TAKEZO").
+- **Seed glosář `DEFAULT_CS_GLOSSARY`** — Volume→Svazek, Chapter→Kapitola,
+  Prologue→Prolog, Epilogue→Epilog, Afterword→Doslov, Omake→Omake,
+  Side Story→Vedlejší příběh, Part→Část. Slučuje se pod per-manga glosář
+  v `glossaryFor` — uložený/vlastní záznam má přednost.
+- **Výstupní lint** `CzechOutputLint` + asset `cs_common_words.txt` (~35k
+  frekvenčních tvarů z OpenSubtitles) — český token mimo slovník, který se
+  nepodobá žádnému zdrojovému tokenu (jména/skloňované pojmy se neflagují:
+  Froda~Frodo, TAKEZŌ~TAKEZO), se označí podezřelým. Když je podezřelých
+  ≥⅓ kontrolovaných slov, blok se prohlásí `isUntranslated` → dostane repair
+  retry přes zbývající providery v `fillUntranslatedBlocks`, a když ani to
+  nepomůže, čtenář vidí originál místo zkomoleniny. Běží jen pro cíl „Czech".
+- Testy: `CzechOutputLintTest` 12 scénářů (useknuté slovo, gibberish, správná
+  věta, jméno z originálu, skloňované jméno, krátké tokeny, poměrový práh,
+  prázdný slovník, jen interpunkce).
+
+### Překlad: maska víceřádkových bublin, nouzový post-řez a art-text skip
+
+Audit Vagabondu: „MATA-HACHI'S BEEN" prosvítalo nad překladem, „TO JSEM
+NEMYSL." se uřízlo klipou uprostřed glyfu a „Vagakond"→„Vagabond" překrylo
+ručně kreslené logo obyčejným boxem.
+
+- **Svislý bleed o jeden řádek** — u víceřádkových bloků bez tvaru/záplaty se
+  maska roztáhne o `nativeLineHeightF` nahoru i dolů (cap 24 dp). OCR box
+  víceřádkového textu občas ořízne krajní glyfy nebo sloučený blok nezahrnuje
+  krajní řádek a originál pak prosvítal těsně nad/pod výplní.
+- **Nouzový post-řez `truncateToFit`** (`BubbleTextFit`) — když se překlad
+  nevejde ani na podlaze `ABSOLUTE_MIN_FONT_SP`, `AutoFitTranslatedText` ubere
+  koncová slova a uzavře text výpustkou („TO JSEM VŮBEC…") místo viditelně
+  useknutého řádku uprostřed glyfu. Strukturovaná pole (`\n`) se nezkracují;
+  celý originál je vždy dostupný klepnutím na bublinu.
+- **Art-text skip** — `TranslatedBlock.isArtText` + `isArtTextEcho`
+  (`TranslationMerge`): když se „překlad" od OCR liší jen diakritikou nebo
+  ≤2 znaky na stejné délce (Vagakond→Vagabond, TAKEZO→TAKEZŌ), nenesl žádnou
+  novou informaci a overlay by lettering jen zdegradoval → bublina se
+  nevykreslí, originál zůstane vidět. Sdílený predikát `bubbleSkipReason`
+  hlásí `"art_text"` v `BubbleSkip` logu i `TranslationDiagnostics` coverage
+  (nový čítač `artText`). Serializace `"artText"` je zpětně kompatibilní
+  (`optBoolean`, staré záznamy = false).
+- `PIPELINE_VERSION` → **28** — celý Vagabond audit balík (WP3 SFX hranice,
+  WP4 YOLO merge, WP5 slovníkový lint, WP7 art-text) mění klasifikaci, merge
+  i uložený výstup; stará cache propadá a stránky se překládají znovu.
+- Testy: `TranslationMergeTest` +7 scénářů `isArtTextEcho` (logo typo,
+  diakritika, case, skutečný překlad, krátké tokeny, jiná délka, verbatim),
+  `BubbleTextFitTest` +6 scénářů `truncateToFit` (fit beze změny, ubrání slov,
+  interpunkce, jedno slovo, strukturované pole, cap iterací).
+
+### Překlad: slovníkový OCR lint + nové zkomoleniny ve fix tabulce
+
+Audit Vagabondu: „VAL-LAGE", „FOGET", „SIRVIVOR", „SHURE" — model pak věrně
+překládal nesmysly. Nová poslední linie v `cleanOcrLatinText`:
+
+- **EN slovník** `assets/en_common_words.txt` (~20k nejčastějších slov, lazy
+  načtený a sdílený v `TranslateRepository`). Verzálkový token mimo slovník s
+  PRÁVĚ JEDNÝM slovníkovým sousedem na editační vzdálenost 1 se opraví na něj.
+- **Pomlčkový artefakt** — „VAL-LAGE" (lettering rozbil slovo pomlčkou uprostřed
+  řádku; `joinHyphenatedLineBreaks` spojuje jen přes `\n`) se pro dotaz spojí a
+  opraví na „VILLAGE".
+- **Konzervativní hranice**: slovo, co ve slovníku je, se nedotkne; známé SFX
+  se nikdy neopraví (`isKnownSfx` — bez něj by „THUD" přepsal na „THUS");
+  apostrofy/tečky/číslice vylučují účast; nejednoznačné kandidáty (>1 soused)
+  lint nechává být. Jména (TAKEZO) zůstávají.
+- **Fix tabulka** rozšířená o auditované zkomoleniny: FOGET→FORGET,
+  SIRVIVOR→SURVIVOR, SHURE→SURE (funguje i bez slovníku).
+- Testy `OcrTextCleanupTest`: +8 scénářů (audit slova, hyphen artefakt, SFX
+  ochrana, nejednoznačnost, jména/kontrakce, no-op bez slovníku); celkem 29.
+
+### Překlad: fragmentované bubliny se překládají jako celek
+
+Audit Vagabondu: „I'M…" zůstalo anglicky vedle přeloženého „JÁ NE…", na ch2
+„MATA-HACHI'S BEEN" + „PTÁM SE TĚ." ve stejné bublině — OCR rozdělil jednu
+bublinu na dva bloky a každý se překládal zvlášť.
+
+- `BubbleMerge.mergeBlocksInSameYoloBox` — union-find pre-merge: bloky, jejichž
+  střed padá do TÉHOŽ YOLO bubble boxu, se spojí do jednoho textu ještě před
+  klasifikací a překladem. Bloky v různých YOLO boxech ani bloky mimo každý
+  box se nedotknou. Merge jde ve čtecím pořadí, sčítá `lineCount` a bere
+  vážený průměr `nativeLineHeight`.
+- `OcrEngine` (ne-japonská větev): `mergeNearbyLines` → `mergeBlocksInSameYoloBox`
+  → reading-order sort. Japonská manga-ocr větev beze změny.
+- `TranslationLayout.mergeUntranslatedSiblingBlocks` — render fallback pro
+  případ, že jeden fragment dostal překlad a sourozenec `UNTRANSLATED` marker:
+  přeložený sourozenec rozšíří rect (a řádky tvaru, když střed padá do jeho
+  profilu) přes glyfy nepřeloženého — nezůstane poloviční anglická bublina.
+  Seznam zůstává stejně dlouhý (indexy klíčují `TextPatchProvider` záplaty);
+  nepřeložený blok se jen nepříjde vykreslit.
+- Continuation prompt už existuje (`detectContinuations` → „POKRAČUJE Z:" ve
+  `GeminiUltraPrompt`) — pre-merge teď řeší případ, kdy oba fragmenty leží
+  v jednom vizuálním tvaru a `detectContinuations` neměl jak je spárovat.
+- Testy: `BubbleMergeTest` +5 scénářů (stejný/různý YOLO box, mimo box,
+  3-blok reading order, prázdná YOLO kolekce); `TranslationLayoutCollisionTest`
+  +4 scénáře (absorpce sourozence, union tvaru, vzdálený blok beze změny,
+  side-by-side bubliny se nikdy nesloučí).
+
+### Překlad: krátké repliky přes kresbu se už neztrácejí jako „SFX"
+
+Audit Vagabondu: „THAT'S…", „SWORDS?", „LETHAL…" — slova vysázená pro důraz
+přímo přes kresbu (`bgUniform=false`) spadala do SFX → nikdy se nepřeložila,
+stránka si nechala anglický originál.
+
+- Over-art pravidlo v `BubbleClassifier.detectSfx` se pro slova se samohláskou
+  zúžilo na `letters ≤ 4` — delší „slovo se samohláskou" je spíš zdůrazněná
+  replika než vymyšlený zvuk. Známé zvuky s samohláskou >4 písmen (CRASH,
+  FWOOSH, RUMBLE) chytá pořád seznam `sfxWords`/`collapsedSfxWords`; bezesamohláskové
+  zvuky (KRRR, SHNK) a krátké zvuky ≤4 (THUD, POW) beze změny.
+- `commonShortWordsNotSfx` rozšířen o kontrakce (I'M, DON'T, THAT'S…), krátké
+  repliky (SURE, FOOL, LIAR, HERO, DEAD, ALIVE…) a vážkací/interjekce — chrání
+  slova ≤4 písmen se samohláskou, která nadále over-art pravidlo chytá.
+- Dokumentovaný trade-off: nevýslovný zvuk se samohláskou >4 písmen mimo seznam
+  (GRAAAW) projde k překladu — model ho vrátí skoro beze změny; lepší než
+  polknout skutečnou repliku.
+- Testy `BubbleClassifierTest`: +4 scénáře (audit slova, listed SFX regrese,
+  trade-off, vowel-less regrese); celkem 52 testů zelených.
+
+### Překlad: diagnostika pokrytí (coverage) per stránka i kapitola
+
+- `TranslationDiagnostics.recordPage` nově zapisuje `coverage` souhrn:
+  `ocrRaw`/`detected`/`output`/`translated`/`sfx`/`untranslated`/`noLetters`/
+  `dropped` — „OCR našel N regionů, přeložilo se M, zbytek přeskočen protože…"
+  bez luštění jednotlivých bublin. Vynechané repliky z auditu („THAT'S…",
+  „STOP.") se tak poznají rovnou z `dropped`/`skip` polí.
+- Každá bublina nese `skip` důvod (`sfx`/`untranslated`/`no_letters`) — sdílený
+  predikát s `BubbleOverlayLayer`, takže log odpovídá tomu, co se doopravdy
+  nevykreslí.
+- Nový `recordChapter` záznam `kind:"chapter"` — jeden souhrnný řádek na
+  kapitolu (stránky/bubliny/přeložené/SFX/nepřeložené) i pro kapitolu bez
+  překladatelného textu.
+- OCR fáze `translateChapter` propíše `rawCount` (počet OCR regionů před
+  čištěním) vedle classified výsledku — `PageOcrResult` místo `Triple`.
+
+### Překladové overlay: řešení kolizí a TOC stránky
+
+Audit přeložených kapitol (Vagabond ch1 TOC shluk, ch2 „JEDOVATÝ" přes SFX):
+
+- **Shape-vs-shape kolize** — bloky s detekovaným tvarem bubliny se nikdy
+  navzájem kolizně neřešily (dřív jen heuristika×heuristika a heuristika×shape).
+  Nový `resolveShapeOverlaps` rozdělí překryv hranicí v půli mezery mezi
+  textovými recty — box se smí zmenšit jen k vlastnímu textu, nikdy pod něj;
+  dvojice s opravdu protínajícími se texty se nechává (zmenšení pod glyphy by
+  zakrylo původní písmo).
+- **Listový režim (TOC)** — `isDenseListPage` detekuje ≥6 řádkových bloků
+  naskládaných pod sebou se silným horizontálním překryvem → vypne se
+  „no-neighbor" expanze (každý box zůstane na své řádce); midpoint expanze
+  ke skutečným sousedům zůstává.
+- **SFX pevné překážky** — SFX bloky se samy už neroztahují (nevyditelný
+  expandovaný box jen tlačil sousední dialogy na stranu); drží vlastní OCR
+  rect a slouží čistě jako překážka.
+- **Konvergenční post-pass** — párové kolizní opravy iterují do konvergence
+  (max 4 průchody) místo pevných 2 kol, která na hustých stránkách zanechávala
+  zbytkové překryvy.
+- Unit testy: `TranslationLayoutCollisionTest` (8 testů — shape×shape split
+  midpointem, TOC stránka bez překryvů, SFX překážka, intersecting texty se
+  nechávají být).
+
+### Webtoon „Nekonečné čtení": stabilita scrollu a překladu přes hranice kapitol
+
+Audit přeloženého Vagabondu (ch2→ch3) odhalil, že nekonečný scroll na pomalém
+zdroji stál ~28 s bez jakékoliv indikace a běžící překlad zemřel při překročení
+do napojené kapitoly:
+
+- **Indikace načítání** — na konci seznamu se během appendu ukazuje spinner
+  `Načítám další kapitolu…` (lokalizováno cs/en/es/fr) místo tichého dead-endu.
+- **Retry fetchu** — seznam stránek další kapitoly se zkouší až 3× s odstupem
+  2 s; dřív jediný timeout znamenal zaseknutí do náhodného swipeu.
+- **Sdílený preload** — append připojí (`join`) běžící `preloadNextChapter`
+  téhož cíle místo paralelního duplicitního fetchu.
+- **Překlad přežije hranici** — `onWebtoonVisibleChapterChanged` už nevolá
+  `cancelActiveTranslation()`: zápisy jsou klíčované `chapterId`, takže batch
+  předchozí kapitoly bezpečně doběhne na pozadí a skutečně se zobrazí. Ruší
+  se jen komentáře a detekce dvoustran (UI stav konkrétní kapitoly).
+- **`translateMode` je kontinuální** — dřív se při překročení segmentu tichě
+  vypnul; teď překládá dál bez zásahu uživatele.
+- **Room cache v napojené kapitole** — nový `preloadCachedTranslations`
+  naplní per-chapter mapu hned po appendu, už se nečeká na ruční spuštění.
+- **Progress guard** — ukazatele průběhu se píšou jen pro aktuální kapitolu;
+  cizí dobíhající batch si nepřepíše průběh pod novým titulkem.
+- **Fronta batchů** — „Přeložit vše" na novou kapitolu, dokud běží stará, se
+  zařadí (`pendingBatchChapterId`) místo paralelního dvojitého běhu.
+- **Median placeholder** — výška nenatáhnutých stránek se odhadne mediánem
+  posledních 40 reálných poměrů stran (clamp 0.5–1.6) místo fixního 0.7;
+  méně poskakování obsahu při doloadování stránek.
+- **Append trigger 6 stran před koncem** (dřív 3) + stabilní klíče LazyColumn.
+- `putTranslatedPage` ignoruje prázdné listy bloků — `{i: []}` už nikdy
+  netvrdí „stránka má překlad".
+- Unit testy: `WebtoonPlaceholderAspectTest` (5), aktualizovaný
+  `ReaderViewModelBatchTranslateTest` (batch dobíhá na pozadí místo zabití).
+
+### Oprava useknutých galerií (imhentai/hentaifox/hentaizap/doujiva)
+
+`getPageList` počítal **vyrenderované thumbnail náhledy** na stránce galerie —
+weby ale renderují jen prvních ~10 (imhentai/hentaifox/hentaizap) / ~24
+(doujiva) thumbů bez ohledu na délku galerie. Výsledek: galerie se 1425
+stranami nabídla jen 10 stránek.
+
+- **imhentai** — počet se čte z `li.pages` ("Pages: N"), thumbs jen fallback.
+- **hentaifox** — totéž přes `span.i_text.pages`.
+- **hentaizap** — totéž přes `p.hz-gallery-pages`.
+- **doujiva** — počet z `"numberOfPages"` v JSON-LD detailu.
+- Unit testy mají fixture s deklarovaným počtem > počtu thumbů, takže
+  regrese se propadne.
+- Ostatní galerie zdroje ověřeny: nhentai/hentaihand/hentainexus/asmhentai
+  čtou autoritativní API/JSON součty, eahentai/hentaipaw embedují všechny
+  stránky do payloadu, 3hentai renderuje všechny thumbs (ověřeno: strana 25
+  na 24stránkové galerii vrací 404).
+
+### Audit metadat zdrojů: `language` a `isAdult`
+
+Live probe (`<html lang>`, titulky stránek, žánrové taxonomie) našel
+rozpor s deklarovanými metadaty u části zdrojů — všechny seděly na výchozím
+`language = "en"` / `isAdult = false`:
+
+- **Jazyk** (špatně `en` → správně):
+  `astratoons` → `pt`, `readhunters` → `pt`, `samuraiscan` → `es`,
+  `kiryuu` → `id`, `dankemoe` → `de`, `twmanga` → `zh`,
+  `mangaraw4u` → `vi` (je to vietnamský web, ne raw),
+  `raw1001`/`hachiraw`/`weloma`/`mangarawbest` → `ja` (raw weby).
+- **`isAdult = true` nově**: `manhwa210` (dominantně adult manhwa žánry),
+  `toonily`, `manhwatop`, `manhuaplus`, `cocomic` (yaoi/BL), `mangagg`
+  (vše adult manhwa agregátory) a `mangago` (yaoi/BL katalog).
+  Tyto weby se při vypnutých adult zdrojích v nastavení nově skryjí z
+  Procházet — dřív se objevovaly vedle general zdrojů.
+- Zůstávají `en`/non-adult záměrně: `mangasushi`, `mangaread`, `mangazin`,
+  `kingofshojo`, `batcave`, `hachirumi` — general katalogy, kde se smut
+  žánry objevují jen sporadicky; source-level flag by je schoval celé.
+
+### Oprava lazy resoluce stránek v čtečce + MangaHome packer (ověřeno na zařízení)
+
+- **`MangaSource.getImageUrl()` se v produkci nikdy nevolala** — čtečka posílala
+  `Page.url` rovnou do Coilu, takže lazy zdroje (MangaHome, FanFox, EHentai,
+  HentaiFox, ImHentai…) dostávaly virtuální HTML/JS adresu → černá obrazovka.
+  Nový `LazyPageFetcher` (registrovaný v `JiyuApp`) odchytí `url#jiyu_lazy=…`
+  marker, zavolá `resolvePageImageUrl`, stáhne reálnou URL (kopíruje Referer)
+  a `ChapterDownloadWorker` resolvuje stejně, takže se nestává, že by se do
+  souboru uložil JS místo obrázku. Ověřeno na telefonu: MangaHome i FanFox
+  resolvují na `zjcdn.*.jpg` a stránky renderují.
+- **`JsPacker.unpackEval` padal na Androidu** — regex začínal neescapovaným
+  literálem `}`, což ICU regex (na rozdíl od JDK) bere jako chybu syntaxe
+  → `PatternSyntaxException` → tichý fallback. JVM testy proto procházely,
+  zařízení padalo. `}` escapováno na `\}` + regresní test s reálným 658 B
+  `chapterfun.ashx` payloadem z MangaHome.
+- `MangaHomeSource.getImageUrl` už neselže tiše — při nečitelném payloadu
+  hodí `IOException` (stránka ukáže chybu/retry), ne aby se virtuální URL
+  tvářila jako obrázek.
+
+### Oprava zdrojů: Vortex Scans, MangaHome, Dynasty, NextSeries, MangaThemesia, ManhwaSusu
+Live audit všech 255 zdrojů (`LiveSourceSmokeTest`) našel a opravil:
+
+- **Vortex Scans** — web přešel z hydration-`postId` na server-renderované
+  kapitoly na `?tab=chapters`; stránky se čtou přímo z `<img>` (podpora
+  `page-0001_*.webp` i `01.webp`, vyloučení coverů/coin-wall assetů).
+- **MangaHome** — čtečka je JS-driven (`<img id="image">` + `chapterfun.ashx`
+  s Dean Edwards packerem). Nově `getPageList` čte `chapter_id`/`imagecount`
+  a `getImageUrl` lazy rozbaluje packer přes `JsPacker` (sdílený s FanFox).
+- **Dynasty Scans** — cover-burst v `getPopular` (21 paralelních fetchů)
+  překračoval ~10 req/okno rate-limit webu → následné detail/kapitoly dotazy
+  dostávaly 503 a vracely prázdno u titulů, co kapitoly mají. `get()` teď
+  retryuje 503/429 po 1.2 s a cover prefetch jede na paralelismu 2 s
+  rozestupem startů.
+- **NextSeries šablona** (Drake Scans, DivaScans) — stránky přešly do
+  escapovaného Next.js RSC payloadu (`pageNumber`/`imageUrl`); starý
+  `/uploads/series/.../p{n}.webp` regex zůstal jako fallback.
+- **MangaThemesia šablona** (Scythe Scans apod.) — prázdný `#readerarea`
+  (lazy AJAX) nově fallbackuje na WordPress REST `wp-json/wp/v2/posts/{id}`
+  → `content.rendered`.
+- **ManhwaSusu** — lazy-loading `data-src`, CDN `/chapters/` i `/images/`
+  na manhwature.com, vyloučení coverů.
+
+Live-test harness teď navíc zkouší detail→kapitoly→stránky na prvních 3
+titulech výpisu (ne jen prvním) a u kapitol bez stránek zkouší i poslední a
+prostřední — odfiltruje licencované/prázdné série a coin-locknuté kapitoly,
+které dřív falešně označily funkční zdroj jako rozbitý. Hláška rozlišuje
+„seznam kapitol prázdný" vs. „kapitoly bez stránek". BaoziManhua je označen
+`isBroken` (stará doména WAF-blokována, nový web je Astro s jinými routami —
+čeká na přepsání parseru).
+
+### Oprava zdrojů II: MangaFire, NovelFire, TeamShadowi, Mangack, ReadHunters, LuaComic
+Druhý průchod live auditu (cover + 2 stránky + search + WAF detekce):
+
+- **MangaFire** — API nově vyžaduje `vrf` podpis query parametrů; přidán
+  `MangaFireVrfSigner` + povinné hlavičky (`X-Requested-With`, `Accept`).
+- **Novel Fire** — web migroval z novelfire.net na **novelphoenix.com**
+  (`/book/` → `/novel/`, identický markup) + agresivní rate-limit (429) při
+  průchodu stránkami kapitol → `get()` retry na 429/5xx po 1.2 s.
+- **TeamShadowi** — `/api/series/{slug}` přestal vracet `chapters`; kompletní
+  seznam včetně `image_paths` je embedovaný v RSC payloadu detailu
+  (`self.__next_f.push`) → regex extrakce escapovaného JSON, `is_locked`,
+  `$D` datumy.
+- **Mangack** — karty mají prázdný `img[alt]` (titul v `a[title]`) a obrázky
+  kapitol se přesunuly z i.imgur.com na cdn.black-clover.org → `getPageList`
+  bere všechny `.entry-content img` s příponou obrázku, ne jednu doménu.
+- **ReadHunters** (dřív huntersscan.xyz → readhunters.xyz) — Madara šablona
+  nově čte i `canvas.protected-chapter-canvas[data-page-url]` (chráněná
+  canvas čtečka); `lazySrc()` umí `data-page-url`.
+- **LuaComic** — CDN přestal přidávat `.jpg` suffix (`page_NNN.webp.jpg` →
+  `page_NNN.webp`); filtr nyní poznává stránky podle `/series/` v cestě a
+  odfiltruje thumbnaily na stejném CDN.
+- **3Asq** — doména 3asq.org → 3asq.online (301).
+
+Harness: detekce WAF stránek zesílena (403/503 kód, `_cf_chl_opt`, „Just a
+moment", gatekeeper `challenge_required`, sonda prvního interního odkazu pro
+weby s čistou homepage) — `challenge-platform` marker odstraněn, je na každé
+CF stránce (false positives). Zdroje `isBroken` se reportují jako SKIP.
+Odstraněny mrtvé ext zdroje: comicsvalley (522), makimaaaaa (vypnutý archiv
+`/manga/`), mangatx_cc (rozbité SSL). Todaymanga označen `isBroken` (server
+nikdy neodpovídá).
+
+### Oprava zdrojů III: SimplyHentai, Lilymanga, pomalé weby
+Třetí průchod auditu:
+
+- **Simply Hentai** — web přešel z Next.js (`__NEXT_DATA__` JSON) na
+  server-renderovaný frontend: výpis = `article.manga-container` karty,
+  detail = `h1` + `pages-overview` náhledy. Plné obrázky na CDN
+  `images.sh-cdn.com` = `small_thumb_{hash}` bez prefixu. `getPageList`
+  primárně čte `/all-pages` (v appce projde CF interceptor); fallback =
+  sekvenční `/page/{id}` adresy (počet z „View all N images"), lazy
+  rozlišuje `getImageUrl`. Search zůstal best-effort `/search/{slug}`.
+- **Lilymanga** — `/gl/page/1/` server 301 → `/gl/` a s query parametry
+  padá na HTTP 500; `popularUrl` teď stranu 1 staví jako `/gl/?m_orderby=`.
+- **Pomalé weby** — 3Asq (3asq.online), MangaDenizi i Temple Scan
+  (templescanss.com) odpovídají ~30–90 s na request, sdílený readTimeout
+  30 s nestačil → všechny dostaly odvozený klient s readTimeout 90–120 s.
+  MangaDenizi navíc detail-JSON kešuje (detail endpoint nese i kapitoly —
+  bez keše se tahal dvakrát).
+- **Harness** — budget na zdroj 90 → 180 s (pomalé weby); WAF probe zkouší
+  až 3 interní odkazy s předností archivních cest (japscan: čistá homepage,
+  `/mangas/` za výzvou); detekce custom gatekeeperu podle finální cesty
+  po redirectech (`/_c` — batcave.biz, `/__gatekeeper`); prázdný výpis +
+  nenačtená homepage se hlásí zvlášť.
+
+### Zrychlení: detail titulu se otevírá okamžitě, kapitoly doběhnou na pozadí
+Klik na titul v Procházet, ComicK feedu/browse/sekcích, skupinách,
+doporučeních i po výběru kopie v Novela/Komiks resolveru už NEČEKÁ na síťový
+fetch celého seznamu kapitol (u ComicK detail-json + sekvenční stránkování po
+60 = vteřiny na spinneru). Nový `MangaRepository.registerPreview()` jen zapíše
+metadata a vrátí id → navigace proběhne hned; `MangaDetailViewModel` si
+prázdný seznam kapitol sám dotáhne na pozadí (`_isRefreshing` + pod sekcí
+Kapitoly svítí „Načítám kapitoly…" s progress barem). Titul s kapitoly v DB
+(cache, knihovna) se chová stejně jako doteď — bez fetchu. Offline/fail se
+hlásí snackbarem na detailu místo blokace navigace a auto-retry při návratu
+sítě funguje přes existující connectivity hook. `openPreview()` (upsert +
+await refresh) zůstává jen SourceResolveru, který kapitoly potřebuje
+synchronně pro výběr nejlepší shody.
+
+### Změna: comick.art je u KAŽDÉHO titulu prohledaný jako první zdroj
+Slug-probe comick.art mirroru už se nepouští jen souběžně se sweepem — sweep se
+teď startuje až PO jeho dokončení (`probeJob.join()`), takže mirror kandidát
+emituje před každým výsledkem ostatních zdrojů a kompletní mirror vyhraje
+early-exit/auto-open, než se vůbec rozjede fuzzy hledání. Platí pro každý titul
+bez ohledu na 18+ rating. Současně `rankCandidates` dává kompletnímu mirroru
+prioritu i nad oblíbeným zdrojem (dřív byl favorit nad ním). Probe timeout
+snížen 8s→5s, protože teď gateuje start zbytku hledání — při nedostupném
+mirroru se hledání opozdí maximálně o ten strop.
+
+### Nové: jednorázové tipy k gestům (Procházet / ComicK filtry)
+Při prvním otevření záložky Procházet vyskočí tip, že dlouhým podržením záložky
+otevřeš přepínač režimů (jednotlivé zdroje / ComicK / Novela / Komiks). Při
+prvním vstupu do ComicK agregátoru vyskočí tip, že dlouhým podržením názvu
+ComicK v horní liště otevřeš filtry obsahu. Obě "tabulky" mají vlastní
+persistované flagy (`browse_mode_tip_shown`, `comick_filter_tip_shown`),
+nezávislé na `onboarding_completed` — ukážou se proto i uživatelům, kteří
+onboarding dokončili dávno před přidáním těchto funkcí. Každá se zobrazí jen
+jednou; ComicK tip počká na odklepnutí browse tipu, aby se sheety neskládaly.
+
+### Změna: 18+ ComicK tituly hledají jen v 18+ zdrojích, comick.art první
+ComicK titul s `content_rating` erotica/pornographic se při hledání zdroje
+kapitol teď prohledává VÝHRADNĚ v adult zdrojích + comick.art mirror (mirror
+patří do "18+ sady" — nese stejná data jako ComicK a už běží jako fáze 0, tedy
+první). Dřív se u adult titulů prohledávaly všechny zdroje včetně ne-adult.
+Neznámý rating (selhal fetch metadat) se chová konzervativně dál — hledá všude,
+aby transientní výpadek nezrušil zdroje ne-adult titulu. Ne-adult tituly adult
+zdroje pořád nikdy neotvírají.
+
+### Oprava: oznámení/Novinky už nehlásí staré kapitoly jako nové
+"Nová kapitola" se dřív poznala podle vložení řádku do DB - cokoliv se vložilo
+(i reupload kapitoly z roku 2024, nebo celá baseline dávka po selhaném prvním
+fetchi/obnově zálohy) notifikovalo jako novinku. Teď `refreshChapters` vrací jen
+kapitoly s číslem NAD předchozím maximem: přidáš titul s 20 kapitolami -> žádné
+oznámení, dokud nevyjde 21. Stejně se nespustí autoDownload na baseline.
+Záložka Novinky vylučuje navíc první objevenou dávku každého titulu (MIN
+discoveredAt), takže se retroaktivně schovají i dřív špatně zařazené baseline
+řádky; backfill řádky dostávají discoveredAt = addedAt místo "teď".
+
+### Změna: hlavička Novela/Komiks Domů scrolluje pryč s obsahem
+Horní lišta (název, přepínač Domů/Katalog, hledání) u agregovaných režimů Novela
+a Komiks byla připnutá mimo lazy obsah - při scrollu zůstávala na obrazovce.
+Teď je první položkou LazyColumn/mřížky a odjede s obsahem, stejně jako už to
+dávno umí ComicK Home. Loading/empty stavy katalogu hlavičku drží nad středovým
+obsahem ve sloupci.
+
+### Oprava: ComicK režim zobrazuje a hledá podle anglických názvů
+ComicK API v listových odpovědích (/top, /v1.0/search, md_comics v /chapter) vrací
+"title" často v originálním písmu - japonsky/korejsky - i když web comick.io ukazuje
+anglické jméno. `comicFromJson` teď název vybírá přes `md_titles`: EN + is_default,
+pak EN, pak romanizovaný default, nakonec původní title. Stejnou prioritu má i
+cross-source resolver (`getTitleInfo` řadí EN názvy jako searchTitle), takže
+hledání kapitol na MangaDexu/ostatních zdrojích běží podle anglického jména.
+`getMangaDetails` title z detailního endpointu přepočítává taky, takže i tituly
+dřív uložené v knihovně s japonským názvem se při refreshe opraví na anglické.
+
+### Oprava: loga zdrojů se přednačítají hned, ne až při scrollu
+Favicony zdrojů v mřížce Procházet se komponovaly až při scrollu do view - loga
+vyskakovala postupně "skokově". Obrazovka teď při otevření do Coil disk cache
+enqueueuje všechny favicon URL najednou (pár kilobajtů na zdroj), takže karty mají
+logo okamžitě z disku i hluboko v seznamu. Set prefetched URL zabraňuje duplicitním
+requestům při recompose; DDG fallback zůstává lenivý (jede jen při selhání primárního).
+
+### Nové: dlouhý stisk na Procházet přepíná agregované režimy
+Dlouhé podržení záložky **Procházet** ve spodní liště otevře malou tabulku se čtyřmi
+režimy - Zdroje jednotlivě, ComicK, Novela, Komiks - s fajfkou u aktivního. Volba režimu
+ho zároveň uloží jako aktivní (stejně jako přepínač v Nastavení → Zdroje) a rovnou
+naviguje na jeho domovskou obrazovku. Detekce jede přes interakce itemu (nativní ripple
+i zvýraznění zůstávají); při dlouhém stisku se interní click zruší, aby se po puštění
+prstu nestartoval i obyčejný přechod na záložku.
+
+### Audit: ~40 oprav napříč appkou (reader, sync, download, síť, UI)
+Kompletní průchod kódem našel a opravil řadu bugů - hlavní:
+
+- **Stahování přes SAF bylo rozbité** - `DocumentFile.fromSingleUri` na tree URI nikdy
+  nenamatchoval soubory: stažená kapitola ve vlastní složce se tvářila jako prázdná
+  (offline čtení, CBZ export, velikost, mazání). Opraveno na `fromTreeUri`.
+- **Zamítnuté notifikační oprávnění označilo staženou kapitolu jako ERROR** - `notify()`
+  hází SecurityException, které padalo do catch workera; u aktualizací knihovny navíc
+  spustilo retry celé vlny. Notifikace teď běží v runCatching a na správném kanálu.
+- **Tombston-y sync nesly čas odebrání** - odložený push smazaného titulu mohl přepsat
+  novější opětovné přidání na jiném zařízení. Ukládá se `id|removedAtMs`, staré záznamy
+  se čtou jako timestamp 0.
+- **Sign-out udržoval stav sync napříč účty** - tombston-y a push hranice kapitol přežily
+  odhlášení. `clearSyncStateForSignOut()` je čistí, ale zachová `localDataOwnerId` pro
+  konfliktní dialog vlastnictví knihovny.
+- **Tracker pushy mohly SNÍŽIT progress** - souběžné updateProgress (ch10 pak ch5) doletěly
+  v opačném pořadí. `TrackerSyncCoordinator` má teď monotónní guard per tracker+manga.
+- **MangaUpdates expirovaný token tiše selhával** - 401 teď zahodí session, UI ukáže
+  odpojení místo donekonečna "připojeno".
+- **Cloudflare výzvy pod špatný host** - `resolve()` cílil na aktuální pending výzvu;
+  zpozděná odpověď staré výzvy zapsala clearance jinému zdroji. `resolve(challengeId, ...)`.
+- **`Server: cloudflare` + 403 spouštělo captcha u jakékoli 403** - fallback teď vyžaduje
+  tělo vypadající jako challenge stránka; hard WAF block (Wordfence) padá do typed-error
+  `CloudflareBlockedException`, ne na passthrough.
+- **Mirror domény se auto-aplikovaly** - útočník přesměrováním na "same-brand" doménu
+  přebral provoz zdroje. Vždy jen návrh `UseNewDomain`, uživatel potvrdí v UI.
+- **wsrv.nl proxy dostávala Cookie/Authorization** - hlavičky se pro proxy cizí host
+  stripnou; host validace URL přes `isSourceHost` (canonical host + subdomény + override),
+  ne substring match (`evil-a.to` už neprojde).
+- **SourceSlowdown rezervace bez stropu** - dav obrázků po 429 si bookoval sloty do minut
+  a dispatcher vlákna spala. `MAX_QUEUE_MS = 30s` horizont rezervací.
+- **Souběžné souborové přístupy** - neomezené mapy interceptorů (clearance/failure/
+  hostLocks/recorded/blockedHosts/DoH cache) teď všechny jedou přes `boundedLruMap`.
+- **UI job races** - ComicKHome/ComicKBrowse/SourceBrowse: přepsané requesty starým
+  výsledkem, `CancellationException` polykané jako chyba, finally starého jobu
+  vynulovalo loading novému - všude job tracking + ownership guardy.
+- **Knihovna: pull-to-refresh re-entrancy** - dvojí potáhnutí spustilo dvě paralelní
+  vlny refreshů; `refreshJob` guard.
+- **Detail: "Pokračovat" počítáno z filtrovaného seznamu** - aktivní filtr kapitol
+  přesměroval pokračování na špatnou kapitolu; teď `_rawChapters`.
+- **Webtoon scroll psal ~4 DB zápisy na každý pixel** - `onPageChanged` reaguje jen
+  na skutečnou změnu indexu/kapitoly.
+- **Reader pager state přežíval změnu kapitoly** - `rememberSaveable(pages)` klíčuje
+  podle seznamu stránek.
+- **Panel mode OOM** - `IntArray(width*height)` na gigapixel webtoon; analýza okrajů
+  běží na downscaled bitmapě.
+- **DB: indexy 39→40** - `fallbackChapterId`, `createdAt` u překladových tabulek;
+  sync pull manga dotazy batchované (`getByIds`) místo N+1.
+- **Backup import** - limit 512 MB na velikost souboru před načtením do paměti.
+- **Download worker** - invalid input → status ERROR (ne visící DOWNLOADING),
+  `suspendCancellableCoroutine` + `call.cancel()`, decode failure → IOException (retry),
+  `*.tmp` atomický rename + čištění zbylých dočasných souborů v SAF.
+- **Reader referer z cache cesty** - stránky načtené z Coil cache neměly `_pageReferer`,
+  chyběly hlavičky při retry; a po přepnutí webtoon segmentu se prefetch nerestartoval.
+- **MangaUpdates/MAL/Kitsu 401** - viz výše; MAD slugs s `/`, `?`, `#`, `&` se odmítají
+  po URL decode (path/query injection přes scrapeované taxonomy).
+
+### Vzhled: volitelná akcentová barva
+Nastavení → Vzhled má novou sekci "Barva aplikace" - duhová spektrální lišta přes celý
+hue okruh (libovolný odstín 0-359°, jezdec se přebarvuje pod prstem a volba se zapíše
+až při puštění) + řada 8 pojmenovaných presetů pro rychlou volbu. Mění se jen akcent
+(`Accent/AccentLight/AccentDark`), povrchy a text zůstávají podle světlého/tmavého/true-black
+motivu a sémantické barvy (úspěch, varování, chyba) se nedotýkají. Pro vlastní odstín se
+light/dark/true-black paleta dopočítá přes HSL - žlutá oblast se ve světlém motivu
+stmavuje kvůli kontrastu na bílé. Uloženo v DataStore, projeví se okamžitě bez restartu.
+
+### Oprava: reset hesla byl slepá ulička - teď vede do appky
+Odkaz z resetovacího e-mailu teď míří na `jiyu://auth` (povolené v Supabase redirect URLs).
+MainActivity link zachytí, GoTrue z něj importuje recovery session a otevře se nová obrazovka
+pro zadání nového hesla (potvrzení shodou, min. 6 znaků). Prošlý/zneužitý odkaz se pozná a
+ukáže hlášku o expiraci místo zamítnutí při submitu.
+
+### Supabase: migrace FK + UUID a verify_jwt na translate-proxy
+- `manga_sync`/`chapter_sync`/`user_settings_sync`/`library_backups`/`public_manga_lists` mají
+  `user_id` typu UUID s FK na `auth.users` + ON DELETE CASCADE (smazání účtu smaže atomicky i data).
+- `translate-proxy` běží s `verify_jwt=true` (supabase/config.toml): volání bez platného JWT
+  vrací 401 už na gatewayi, appka posílá anon klíč jako dřív.
+- Auth redirect URLs povolují `jiyu://**`.
+
+### Oprava: pomalé načítání stránek v čtečce + prefetch CELÉ kapitoly
+Stránky se načítaly dvojitě - ReaderContent i ReaderViewModel enqueueovaly stejné URL
+přes různé requesty, takže OkHttp fronta na hostitele (5 slotů) se cpala duplicitami a
+viditelná stránka čekala za prefetchi; při zapnutém ořezu měly navíc jiný cache klíč a
+stahovaly se dvakrát. Compose prefetch je smazaný - jediný zdroj přednačítání je teď
+`ReaderViewModel.prefetchPagesFrom` se stejným `buildPageImageRequest` (referer, ořez,
+descramble) jako zobrazení.
+
+Místo posuvného okna (4-8 stránek dopředu) se teď předstahuje **celá kapitola
+sekvenčně** - `startChapterPrefetch` v ReaderViewModelu jede jeden job na kapitolu a
+stahuje stránky v pořadí 0, 1, 2, 3... jednu po druhé, takže prioritu má vždy první
+zatím nenačtená stránka. Stránka okolo aktuální pozice (±1) se přeskakuje - tu drží
+zobrazovací cesta pageru, nezbytečný duplicitní fetch by jí konkuroval. Sekvenční
+model drží síťovou zátěž nízko (max 1 request naráz), takže viditelná stránka nikdy
+nečeká za prefetchi. Prefetch dekóduje jen do 512px bitmapy - disk cache ukládá RAW
+stažené bajty pod klíčem URL, takže zobrazení v plné velikosti čte z disku bez sítě a
+memory cache se necpou desítky velkých bitmap ("zůstaly načtené" = disk cache 256 MB,
+návrat na starší stránky jde bez síťového dotazu). Selhaná stránka se vrátí do fronty
+a po dokončení průchodu se za 2 s zkusi znovu, celkem max 3 průchody (dřív zůstala
+označená jako prefetchnutá a nikdy se nezkusila). Stažené kapitoly (lokální soubory)
+se nepředstahují - už jsou na disku. V úsporném režimu se dál předstahuje jen 1 stránka
+dopředu při každém otočení.
+
+### Audit: ~20 oprav napříč appkou (SAF stahování, notifikace, sync, browse, zdroje)
+Kompletní audit kódu našel a opravil tyto reálné bugy:
+
+**Stahování a offline**
+- `ChapterStorage` používal `DocumentFile.fromSingleUri` na tree URI složky kapitol →
+  `listFiles()`/`findFile()` nikdy nic nevrátilo, takže SAF-stažené kapitoly se tvářily
+  prázdné (offline čtení, CBZ, velikost, mazání všechno rozbité). Opraveno na
+  `fromTreeUri` ve všech 6 operacích.
+- Zamítnuté notifikační oprávnění (Android 13+) házelo `SecurityException` z
+  `nm.notify()` → propadlo do catch workeru a ÚSPĚŠNĚ staženou kapitolu přepsalo na ERROR;
+  u `ChapterUpdateWorker` zase vyvolalo retry celé knihovny. Notifikace teď běží v
+  `runCatching` a "staženo" jede na správný kanál (dřív kanál nových kapitol).
+- `AutoDeleteWorker` maže stažené kapitoly i když uživatel funkci po naplánování vypnul
+  - teď nastavení čte až při běhu, ne při zařazení do fronty.
+
+**Synchronizace**
+- Hromadné "označit přečtené" (`markAllRead`/`markReadByIds`/`markAllReadForMangas`)
+  nezapisovalo `lastReadAt` → inkrementální push je nikdy neposlal do cloudu a pull
+  je mohl přepsat zpět na nepřečtené.
+- `SyncRepository.sync()` neměl mutex - dvě souběžné synchronizace (tlačítko +
+  automatický trigger + claim/discard) se mohly přelít a pull mohl zapisovat řádky,
+  které druhý pull mezitím smazal. Všechny tři cesty teď serializuje `Mutex`.
+
+**Procházení zdrojů**
+- `ComicKBrowseViewModel`: `loadFirstPage()` během letícího requestu se zarazilo na
+  `if (_loading) return` - výsledky se vymazaly, ale nový dotaz se nespustil → prázdná
+  obrazovka. Search/popular joby se teď před novým výpisem ruší.
+- `SourceBrowseViewModel`: `CancellationException` se chytal jako obyčejná chyba
+  (mazal výsledky a ukazoval error uprostřed psaní); popular/search/loadMore joby si
+  mohly navzájem přepisovat výsledky. Všechny tři cesty se trackují a ruší.
+- `MangaDetailViewModel`: "Pokračovat" a "první nepřečtená" se počítaly z FILTROVANÉHO
+  seznamu kapitol - zapnutý text/status/scanlator filtr schoval poslední čtenou
+  kapitolu a tlačítko skočilo na špatnou, nebo zmizelo. Teď jedou z `_rawChapters`.
+
+**Síť a zdroje**
+- Scrape OkHttp klient neměl `callTimeout` - host posílající data "po kapkách" pod
+  hranicí readTimeoutu držel Throttle permit i vlákno donekonečna (5 pomalých odpovědí
+  = mrtvý host pro celou appku). Strop 150 s (pokrývá i Cloudflare solve ~108 s + čtení).
+- `isCloudflareBlocked`: samotné `Server: cloudflare` + 403 stačilo na spuštění
+  interaktivního WebView dialogu u JAKÉKOLI obyčejné 403 (WAF block, geo-block, špatný
+  Referer na CDN). Fallback teď vyžaduje tělo vypadající jako challenge stránka.
+- `MirrorProbe` automaticky aplikoval "same-brand" redirect domény - útočníkovi stačilo
+  zaregistrovat `brand-cokoliv.tld` a provoz zdroje se bez optání přesměroval na cizí
+  doménu. Mirror se teď vždy jen nabídne uživateli.
+- `ImageProxyInterceptor` posílal na wsrv.nl kromě URL i hlavičky requestu (Cookie,
+  Authorization) - proxy teď dostane čistý GET.
+- `shouldOverrideUrlLoading` ve skrytém WebView povolil substring match hosta
+  (`evil-a.to`, `a.to.attacker.com`) - teď jen přesný host nebo subdoména.
+- `ComixImageInterceptor` nerecykloval dekódovanou bitmapu při selhání `restoreTiles`
+  (nativní leak na každý obrázek); `parseRetryAfterMs` přetekl u obřího Retry-After
+  na 0 ms.
+- `loadChapterComments` používal `lateinit var job` - nahrazeno `coroutineContext.job`.
+- Uložení stránky do galerie hlásilo úspěch i když `openOutputStream` vrátil null nebo
+  `compress` selhal - v galerii zůstala prázdná 0B položka; teď se smazává a hlásí chybu.
+- `JiyuApp` vytvářel 5 throwaway `CoroutineScope` - jeden sdílený `appScope`.
+
+### Nový zdroj: Comix (comix.to)
+comix.to je SPA s podepsaným a šifrovaným API (`/api/v1`), takže zdroj kombinuje tři
+cesty: detail a část listingů čte přímo ze SSR `script#initial-data`, podepsané dotazy
+podepisuje nativně přes `ComixCipher` (crypto materiál se jednou zachytí hookem na
+`atob` ve skrytém WebView a rotuje s deployi webu - nic se nehardkóduje), a jako
+fallback se listing/kapitoly/stránky zachytávají během stránky ve WebView. Obrázky
+stránek dešifruje `ComixImageInterceptor` na image klientovi (legacy XOR podle
+`x-enc-*` hlaviček, 5×5 dlaždice podle `x-scramble-*` + `v3` flagu), takže
+descrambling pokrývá čtečku i offline stahování. Listing umí řazení
+populární/nejnovější/název, žánrové filtry (`genres_in[]`) a bezpečný content rating
+(safe + suggestive). Ověřeno proti fungující referenční implementaci
+(keiyoushi/extensions-source) a živě: SSR detail parsování, struktura dist bundlů
+(env-*.js) i crypto inicializace přes atob. WebView cesty (zachycení cipher
+materiálu, kapitoly, stránky) čekají na ověření na zařízení.
+
 ## v1.2.58
 
 ### Oprava: "Srolování stránky" mělo jinou matematiku ohybu než originál PlayLikeCurl

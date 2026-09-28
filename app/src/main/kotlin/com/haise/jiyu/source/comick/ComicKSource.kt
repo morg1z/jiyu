@@ -61,6 +61,10 @@ class ComicKSource @Inject constructor(
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
     override val supportsTagFilter: Boolean get() = true
+    // /v1.0/search aplikuje status/from/to server-side (stejne ciselniky jako
+    // ComicKSearchFilters, overeno zive v searchAdvanced).
+    override val supportsStatusFilter: Boolean get() = true
+    override val supportsYearFilter: Boolean get() = true
 
     /**
      * [getAvailableTags] pro obecný filtr - znovupoužívá stejný živě dotažený a
@@ -78,12 +82,24 @@ class ComicKSource @Inject constructor(
         filter.genres.forEach { append("&genres=${URLEncoder.encode(it, "UTF-8")}") }
     }
 
+    // /v1.0/search status=1-4 (stejne ciselniky jako searchAdvanced - overeno
+    // zive) a from/to pro rok vydani.
+    private fun StringBuilder.appendStatusYearFilter(filter: MangaFilter) {
+        when (filter.status) {
+            "ongoing" -> append("&status=1")
+            "completed" -> append("&status=2")
+            "hiatus" -> append("&status=4")
+        }
+        filter.year?.takeIf { it > 0 }?.let { append("&from=$it&to=$it") }
+    }
+
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
             val url = buildString {
                 append("$apiBase/v1.0/search?q=$q&limit=20&page=$page")
                 appendGenreFilter(filter)
+                appendStatusYearFilter(filter)
             }
             parseComicList(getArray(url))
         }
@@ -99,6 +115,7 @@ class ComicKSource @Inject constructor(
             val url = buildString {
                 append("$apiBase/v1.0/search?sort=$sort&limit=20&page=$page")
                 appendGenreFilter(filter)
+                appendStatusYearFilter(filter)
             }
             parseComicList(getArray(url))
         }
@@ -222,17 +239,23 @@ class ComicKSource @Inject constructor(
 
             // md_titles - stejne pole, ktere getTitleInfo() pouziva pro cross-source parovani,
             // tady jen bereme vsechny nazvy krome toho, co uz appka pouziva jako hlavni titul.
+            // Detailni endpoint ma md_titles taky - prepocteme zobrazovany nazev,
+            // aby se do knihovny propasl anglicky nazev i u titulu ulozeneho
+            // jeste s japonskym (refreshMangaDetails title zpetne prepise).
+            val displayTitle = preferredTitle(comic) ?: manga.title
+
             val altTitlesArr = comic.optJSONArray("md_titles")
             val alternateTitles = mutableListOf<String>()
             if (altTitlesArr != null) {
                 for (i in 0 until altTitlesArr.length()) {
                     val t = altTitlesArr.optJSONObject(i) ?: continue
                     val titleText = if (t.isNull("title")) null else t.optString("title").ifBlank { null }
-                    if (titleText != null && titleText != manga.title) alternateTitles.add(titleText)
+                    if (titleText != null && titleText != displayTitle) alternateTitles.add(titleText)
                 }
             }
 
             manga.copy(
+                title       = displayTitle,
                 description = desc,
                 status      = status,
                 author      = author,
@@ -271,16 +294,24 @@ class ComicKSource @Inject constructor(
 
             val fallbackTitle = if (comic.isNull("title")) null else comic.optString("title").ifBlank { null }
             val titlesArr = comic.optJSONArray("md_titles")
-            val alternates = mutableListOf<Pair<String, Boolean>>()
+            val alternates = mutableListOf<Triple<String, String, Boolean>>() // title, lang, isDefault
             if (titlesArr != null) {
                 for (i in 0 until titlesArr.length()) {
                     val t = titlesArr.optJSONObject(i) ?: continue
-                    if (t.optString("lang") !in ROMANIZED_LANGS) continue
+                    val lang = t.optString("lang")
+                    if (lang !in ROMANIZED_LANGS) continue
                     val title = if (t.isNull("title")) null else t.optString("title").ifBlank { null }
-                    if (title != null) alternates.add(title to t.optBoolean("is_default", false))
+                    if (title != null) alternates.add(Triple(title, lang, t.optBoolean("is_default", false)))
                 }
             }
-            val ordered = alternates.sortedByDescending { it.second }.map { it.first }
+            // Anglictina prvni - ostatni zdroje (MangaDex, MangaFire, ...) hledame podle
+            // EN nazvu; is_default byva ja-ro romanizace, ktera by se jinak dostala na
+            // prvni misto a EN nazev by se na hledani nemusel dostat vubec. Uvnitr
+            // stejneho jazyka vede is_default.
+            val ordered = alternates
+                .sortedWith(compareByDescending<Triple<String, String, Boolean>> { it.second == "en" }
+                    .thenByDescending { it.third })
+                .map { it.first }
             val contentRating = if (comic.isNull("content_rating")) null else comic.optString("content_rating").ifBlank { null }
             ComicKTitleInfo(
                 alternateTitles = (ordered + listOfNotNull(fallbackTitle)).distinct(),
@@ -640,7 +671,7 @@ class ComicKSource @Inject constructor(
      * stejný tvar položky, proto jedna sdílená funkce.
      */
     private fun comicFromJson(comic: JSONObject): SManga? {
-        val title = comic.optString("title").ifBlank { return null }
+        val title = preferredTitle(comic) ?: return null
         val slug  = comic.optString("slug").ifBlank { return null }
 
         // Titulní obrázek: první položka md_covers s neprázdným b2key
@@ -664,6 +695,38 @@ class ComicKSource @Inject constructor(
             contentType = contentTypeFromCountry(comic.optString("country")),
             lastChapter = lastChapter,
         )
+    }
+
+    /**
+     * Vybere zobrazovany nazev titulu. Pole "title" u listovych odpovedi (/top, /v1.0/search,
+     * md_comics v /chapter) byva v ORIGINALNIM pismu (japonsky/korejsky - overeno zive, napr.
+     * "探索者イリアスは人見知り..."), proto preferujeme anglicky nazev z md_titles:
+     *
+     * 1) lang=="en" s is_default (oficialni anglicky nazev - "The Top Dungeon Farmer")
+     * 2) prvni lang=="en" (fanouskovsky anglicky nazev)
+     * 3) is_default v romanizovanych jazycich (co ComicK web ukazuje, kdyz EN neexistuje)
+     * 4) prvni romanizovany
+     * 5) puvodni "title" (fallback, kdyz md_titles chybi - napr. md_comics v /chapter
+     *    muze mit jen title/slug/md_covers)
+     */
+    private fun preferredTitle(comic: JSONObject): String? {
+        val primary = if (comic.isNull("title")) null else comic.optString("title").ifBlank { null }
+        val titles = comic.optJSONArray("md_titles") ?: return primary
+        var enDefault: String? = null
+        var en: String? = null
+        var romajiDefault: String? = null
+        var romaji: String? = null
+        for (i in 0 until titles.length()) {
+            val t = titles.optJSONObject(i) ?: continue
+            if (t.isNull("title")) continue
+            val name = t.optString("title").ifBlank { continue }
+            val isDefault = t.optBoolean("is_default", false)
+            when (t.optString("lang")) {
+                "en" -> if (isDefault) enDefault = name else if (en == null) en = name
+                in ROMANIZED_LANGS -> if (isDefault) romajiDefault = name else if (romaji == null) romaji = name
+            }
+        }
+        return enDefault ?: en ?: romajiDefault ?: romaji ?: primary
     }
 
     /** ComicK nema vlastni "contentType" pole - odvozujeme ho z puvodu (jp/kr/cn). internal kvuli testu. */

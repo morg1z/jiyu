@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.util.ChapterStorage
+import kotlinx.coroutines.flow.first
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -20,10 +21,15 @@ class AutoDeleteWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val repository: MangaRepository,
+    private val settings: com.haise.jiyu.settings.SettingsRepository,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val chapterId = inputData.getString(KEY_CHAPTER_ID) ?: return Result.failure()
+        // Nastaveni se cte AZ pri behu, ne pri naplanovani - uloha se planuje s delay az
+        // nekolik dni a uzivatel mezitim muze funkci vypnout; bez kontroly tady by naplanovana
+        // prace smazala soubory i po vypnuti (audit - ztrata dat proti vuli uzivatele).
+        if (!settings.autoDeleteRead.first()) return Result.success()
         val chapter = repository.getChapter(chapterId) ?: return Result.success()
         if (chapter.read && chapter.downloadStatus == DownloadStatus.DOWNLOADED) {
             chapter.localPath?.let { path -> ChapterStorage.deleteRecursively(context, path) }

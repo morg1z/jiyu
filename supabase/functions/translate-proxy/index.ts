@@ -149,6 +149,21 @@ const MANGA_BREVITY_INSTRUCTION =
   "stiff or unnatural spoken aloud. ";
 
 /**
+ * Tolerance k OCR šumu - stejný princip jako sekce "CHYBY OCR VE VSTUPU" v
+ * GeminiUltraPrompt (gemini cesta ji ma, proxy prompt ji do tehle verze nemel).
+ * NALEZ z telefonu: bubliny preklady pres groq/openrouter/mistral fallbacky model
+ * zkomoleniny prekladal doslova ("MAKE6" jako sloveso "make" s cislici navic),
+ * protoze mu nikdo nerekl, ze vstup je OCR a token muze byt poskozeny.
+ */
+const MANGA_OCR_NOISE_INSTRUCTION =
+  "Input strings come from OCR of comic lettering, so a token may be garbled by " +
+  "substituted, inserted or dropped characters (\"MLURDER\" = MURDER, \"MAKE6\" = MAKES, " +
+  "\"LIMlTS\" = LIMITS, \"Dn SALE\" = ON SALE) or contain stray digits/symbols. Infer the " +
+  "intended word from context and translate its intended meaning - never translate the " +
+  "garbled form literally. Keep plausible proper names (characters, places, series " +
+  "titles) as written even when they look unusual. ";
+
+/**
  * Blok, ktery rekne modelu, CO vlastne preklada a co uz zaznelo.
  *
  * NALEZ: zalozni cesta (tahle) posilala jen holy seznam vet - zadny nazev dila, zadny typ
@@ -198,6 +213,7 @@ function systemPromptFor(mode: string, fromClause: string, target: string): stri
     `so the result reads fluently in ${target}, rather than translating word-for-word. ` +
     nameHandling +
     HONORIFICS_AND_TONE_INSTRUCTION +
+    MANGA_OCR_NOISE_INSTRUCTION +
     MANGA_BREVITY_INSTRUCTION +
     "Return ONLY the JSON array, no explanations, no markdown."
   );
@@ -345,7 +361,17 @@ function shouldRefund(error: unknown): boolean {
   return error === "upstream_rate_limited" || error === "upstream_error";
 }
 
-async function handleGeminiApi(system: string, user: string, model: string): Promise<Response> {
+// Přetížení upstreamu (503 "high demand") bývá otázka sekund. Hlavní model se proto zkusí ještě párkrát znovu, než se
+// přepne na slabší záložní (flash-lite): dřív se přepínalo hned, takže při každém výkyvu poptávky se celá kapitola
+// přeložila slabším modelem (zkomolená jména, doslovné překlady) a hlavní model přitom za pár sekund fungoval.
+// 429 se neopakuje - to je vyčerpaná kvóta modelu (denní limit), ta se za pár sekund neuvolní.
+const GEMINI_OVERLOAD_RETRY_DELAYS_MS = [1500, 3500];
+
+function isOverloadStatus(status: number): boolean {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+async function handleGeminiApi(system: string, user: string, model: string, overloadRetry = 0): Promise<Response> {
   if (!GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY secret není nastavený na tomto projektu");
     return json({ text: "" }, 500);
@@ -374,6 +400,12 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
   if (!geminiResp.ok) {
     const bodyText = await geminiResp.text();
     console.error("gemini call failed", geminiResp.status, bodyText);
+    if (isOverloadStatus(geminiResp.status) && overloadRetry < GEMINI_OVERLOAD_RETRY_DELAYS_MS.length) {
+      const delayMs = GEMINI_OVERLOAD_RETRY_DELAYS_MS[overloadRetry];
+      console.error(`gemini ${model} přetížený (${geminiResp.status}), zkouším znovu za ${delayMs} ms`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return handleGeminiApi(system, user, model, overloadRetry + 1);
+    }
     if (isFallbackWorthy(geminiResp.status) && model !== GEMINI_FALLBACK_MODEL) {
       console.error(`gemini ${model} nedostupný, zkouším ${GEMINI_FALLBACK_MODEL}`);
       return handleGeminiApi(system, user, GEMINI_FALLBACK_MODEL);
@@ -394,7 +426,11 @@ async function handleGeminiApi(system: string, user: string, model: string): Pro
     console.error("gemini returned no text", data?.candidates?.[0]?.finishReason);
     return json({ text: "", error: "upstream_empty" }, 200);
   }
-  return json({ text }, 200);
+  // Pole "model" říká appce, KTERÝ model doopravdy odpověděl - po fallbacku na
+  // GEMINI_FALLBACK_MODEL je to flash-lite, takže appka ví, že výsledek je degradovaný
+  // a nemá ho natrvalo cachovat (viz TranslateRepository - accept-best-available, ale
+  // neukládat). Starší verze appky pole ignorují a chovají se jako dřív.
+  return json({ text, model }, 200);
 }
 
 async function groqChat(model: string, system: string, user: string): Promise<Response> {
@@ -449,7 +485,7 @@ async function handleGroqApi(system: string, user: string): Promise<Response> {
   const raw: string = data?.choices?.[0]?.message?.content ?? "";
   const text = model === GROQ_FALLBACK_MODEL ? stripThinking(raw) : raw;
   if (!text) return json({ text: "", error: "upstream_empty" }, 200);
-  return json({ text }, 200);
+  return json({ text, model }, 200);
 }
 
 async function handleOpenRouterApi(system: string, user: string): Promise<Response> {
@@ -517,7 +553,7 @@ async function handleOpenRouterApi(system: string, user: string): Promise<Respon
   const data = await orResp.json();
   const text: string = data?.choices?.[0]?.message?.content ?? "";
   if (!text) return json({ text: "", error: "upstream_empty" }, 200);
-  return json({ text }, 200);
+  return json({ text, model: OPENROUTER_MODEL }, 200);
 }
 
 const GEMINI_MODEL_PATTERN = /^gemini-[a-z0-9][a-z0-9.\-]{0,60}$/;
@@ -571,12 +607,14 @@ async function handleGemini(payload: Record<string, unknown>): Promise<Response>
 /**
  * @returns content = odpověď modelu, nebo null při selhání. [error] nese důvod selhání ve
  *   stejném slovníku jako [UpstreamErrorCode] - viz tam, proč to appka potřebuje vědět.
+ *   [model] říká appce, který upstream model doopravdy odpověděl (hlavně po fallbacku na
+ *   GROQ_FALLBACK_MODEL) - viz poznámku o poli "model" v handleGeminiApi.
  */
 async function callChatCompletion(
   provider: "groq" | "openrouter" | "cerebras" | "mistral",
   system: string,
   userContent: string,
-): Promise<{ content: string | null; error?: string; retryAfterSeconds?: number }> {
+): Promise<{ content: string | null; error?: string; retryAfterSeconds?: number; model?: string }> {
   if (provider === "cerebras") {
     if (!CEREBRAS_API_KEY) {
       console.error("CEREBRAS_API_KEY secret není nastavený na tomto projektu");
@@ -613,7 +651,7 @@ async function callChatCompletion(
       };
     }
     const data = await resp.json();
-    return { content: data?.choices?.[0]?.message?.content ?? "" };
+    return { content: data?.choices?.[0]?.message?.content ?? "", model: "gpt-oss-120b" };
   }
 
   if (provider === "mistral") {
@@ -647,7 +685,7 @@ async function callChatCompletion(
       };
     }
     const data = await resp.json();
-    return { content: data?.choices?.[0]?.message?.content ?? "" };
+    return { content: data?.choices?.[0]?.message?.content ?? "", model: "mistral-small-latest" };
   }
 
   if (provider === "openrouter") {
@@ -683,7 +721,7 @@ async function callChatCompletion(
       };
     }
     const data = await resp.json();
-    return { content: data?.choices?.[0]?.message?.content ?? "" };
+    return { content: data?.choices?.[0]?.message?.content ?? "", model: OPENROUTER_MODEL };
   }
 
   if (!GROQ_API_KEY) {
@@ -726,7 +764,7 @@ async function callChatCompletion(
   }
   const data = await resp.json();
   const raw: string = data?.choices?.[0]?.message?.content ?? "";
-  return { content: model === GROQ_FALLBACK_MODEL ? stripThinking(raw) : raw };
+  return { content: model === GROQ_FALLBACK_MODEL ? stripThinking(raw) : raw, model };
 }
 
 async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "novel"): Promise<Response> {
@@ -784,7 +822,7 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
   // Status 200 i při selhání upstreamu (dřív se u Groqu vracelo 500) - jinak by appka
   // odpověď zahodila jako "server chyba, zkus znovu" a k poli "error", ve kterém stojí
   // "tenhle provider má vyčerpanou kvótu", by se vůbec nedostala. Viz [UpstreamErrorCode].
-  const { content, error, retryAfterSeconds } = await callChatCompletion(provider, systemPrompt, JSON.stringify(texts));
+  const { content, error, retryAfterSeconds, model } = await callChatCompletion(provider, systemPrompt, JSON.stringify(texts));
   if (content === null) {
     if (shouldRefund(error)) await refundQuota(charCount);
     return json({ translations: [], error, retryAfterSeconds }, 200);
@@ -807,7 +845,7 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
     return json({ translations: [], error: "upstream_empty" }, 200);
   }
 
-  return json({ translations }, 200);
+  return json({ translations, model }, 200);
 }
 
 Deno.serve(async (req: Request) => {

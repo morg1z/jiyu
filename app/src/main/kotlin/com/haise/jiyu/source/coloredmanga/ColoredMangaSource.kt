@@ -47,6 +47,9 @@ class ColoredMangaSource @Inject constructor(private val client: OkHttpClient) :
     override val id = "coloredmanga"
     override val name = "Colored Manga"
     override val supportsSortOrder: Boolean get() = false
+    // Katalog je jednostránkový ld+json; zanry jsou jen v per-manga RSC
+    // detailu - browsable taxonomie neexistuje, picker by byl prazdny.
+    override val supportsTagFilter: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://colorizedmangas.com"
 

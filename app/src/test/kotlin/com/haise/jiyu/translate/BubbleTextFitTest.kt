@@ -513,4 +513,45 @@ class BubbleTextFitTest {
         assertTrue(minTranslationFontSp(0.1f) >= ABSOLUTE_MIN_FONT_SP * 0.1f)
         assertTrue(minTranslationFontSp(1.6f) <= ABSOLUTE_MIN_FONT_SP)
     }
+
+    // ── truncateToFit (WP7 - nouzový post-řez místo uříznutého řádku) ──
+
+    @Test
+    fun `text that already fits is returned unchanged`() {
+        assertEquals("KDE JSME?", truncateToFit("KDE JSME?") { true })
+    }
+
+    @Test
+    fun `an overflowing text drops trailing words until it fits`() {
+        // "vejde se" jen když má kandidát <= 3 slova - simuluje box na 3 slova.
+        val fits: (String) -> Boolean = { it.split(' ').size <= 3 }
+        val result = truncateToFit("TO JSEM VŮBEC NEMYSLEL TAK", fits = fits)
+        assertEquals("TO JSEM VŮBEC…", result)
+    }
+
+    @Test
+    fun `trailing punctuation is stripped before the ellipsis`() {
+        val fits: (String) -> Boolean = { it.split(' ').size <= 2 }
+        assertEquals("TO JSEM…", truncateToFit("TO JSEM NEMYSLEL.", fits = fits))
+    }
+
+    @Test
+    fun `a single word that does not fit is left for the clip`() {
+        // Nezkracovat na prázdný řetězec - klip se postará líp než smazání obsahu.
+        assertEquals("KONSTANTINOPLE", truncateToFit("KONSTANTINOPLE") { false })
+    }
+
+    @Test
+    fun `structured field text is never truncated`() {
+        // "\n" nese povinnou strukturu (popisek/jméno/podtitul) - zkrácení by rozbilo pole.
+        val text = "POPISEK\nJMÉNO\nPODTITUL"
+        assertEquals(text, truncateToFit(text) { false })
+    }
+
+    @Test
+    fun `truncation stops at the iteration cap`() {
+        // fits nikdy neprojde a slov je víc než maxIterations - musí to doběhnout, ne viset.
+        val long = (1..60).joinToString(" ") { "SLOVO$it" }
+        assertEquals(long, truncateToFit(long, fits = { false }, maxIterations = 24))
+    }
 }

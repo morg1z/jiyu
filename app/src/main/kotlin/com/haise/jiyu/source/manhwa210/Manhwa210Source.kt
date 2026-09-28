@@ -41,6 +41,7 @@ import javax.inject.Singleton
 class Manhwa210Source @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "manhwa210"
     override val name = "Manhwa210"
+    override val isAdult = true // katalog dominantne adult manhwa (zanry Hentai/Smut/Adult, overeno zive)
     override val contentType = "MANHWA"
     override val homepageUrl get() = base
     override val supportsTagFilter = true
@@ -84,13 +85,29 @@ class Manhwa210Source @Inject constructor(private val client: OkHttpClient) : Ma
 
     private fun genreUrl(slug: String, page: Int) = "$base/genre/$slug?page=$page"
 
+    // /list prijima filter[status]= (1=completed/dokonceno, 2=ongoing/nekompletni)
+    // podle app.js doQuery() - overeno zive: filter[status]=2 meni sadu a web
+    // parametr propaguje do strankovacich odkazu. Kombinace s sort= funguje.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed")
+
+    private fun listUrl(page: Int, filter: MangaFilter): String {
+        val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
+        val status = when (filter.status) {
+            "completed" -> "&filter%5Bstatus%5D=1"
+            "ongoing" -> "&filter%5Bstatus%5D=2"
+            else -> ""
+        }
+        return "$base/list?sort=$sort&page=$page$status"
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseList(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
             }
-            val sort = if (filter.sortBy == "latest") "-updated_at" else "-views"
-            parseList(Jsoup.parse(get("$base/list?sort=$sort&page=$page")))
+            parseList(Jsoup.parse(get(listUrl(page, filter))))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

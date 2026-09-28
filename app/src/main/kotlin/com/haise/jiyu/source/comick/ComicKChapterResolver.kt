@@ -6,6 +6,7 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
+import com.haise.jiyu.source.isSameContentGroup
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
@@ -40,6 +41,11 @@ data class ResolvedCandidate(
      * má jen pár kapitol (nebo jen začátek/konec), i když je jeho počet kapitol "dost velký". */
     val minChapterNumber: Float? = null,
     val maxChapterNumber: Float? = null,
+    /** Kandidát nalezený deterministickým probe stejného slugu na comick.art mirroru
+     * (ne fuzzy hledáním názvu) - sdílený slug = potvrzeně stejná série. Mirror nese
+     * stejné skupinové verze jako ComicK, proto pro early-exit stačí kvalitní brány
+     * (požadovaná kapitola + kompletnost + rozsah) bez podmínky oblíbený/skupina. */
+    val isDirectMirror: Boolean = false,
 )
 
 /**
@@ -56,7 +62,12 @@ class ComicKChapterResolver @Inject constructor(
     private val comicKSource: ComicKSource,
     private val cloudflareInterceptor: CloudflareInterceptor,
 ) {
-    private data class CachedCandidate(val source: MangaSource, val manga: SManga, val chapters: List<SChapter>)
+    private data class CachedCandidate(
+        val source: MangaSource,
+        val manga: SManga,
+        val chapters: List<SChapter>,
+        val isDirectMirror: Boolean = false,
+    )
 
     // Ohranicena LRU cache - appka za dobu behu muze projit desitky/stovky ComicK titulu, bez
     // stropu by mapa rostla neomezene po celou dobu behu procesu (stejny audit nalez jako
@@ -101,8 +112,17 @@ class ComicKChapterResolver @Inject constructor(
         }
         val found = java.util.Collections.synchronizedList(mutableListOf<CachedCandidate>())
         searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens) { candidate ->
-            found.add(candidate)
-            send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
+            // Dedupe podle source.id: comick.art muze prijit dvakrat - z probe faze 0
+            // (slug, isDirectMirror) i z bezneho sweepu (title-search, kdyz mirror ma
+            // titul pod jinym slugem). Prvni emise vyhrava a je to vzdy probe -
+            // sweep se pousti az po probeJob.join(), viz searchAndFetchStreamingInternal.
+            val isNew = synchronized(found) {
+                if (found.none { it.source.id == candidate.source.id }) {
+                    found.add(candidate)
+                    true
+                } else false
+            }
+            if (isNew) send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
         }
         // I prazdny vysledek se cachuje (negativni cache) - bez tohohle drahe cross-source
         // hledani přes VŠECHNY zdroje probíhalo znovu při každém otevření titulu bez shody,
@@ -128,6 +148,7 @@ class ComicKChapterResolver @Inject constructor(
             },
             minChapterNumber = c.chapters.minOfOrNull { it.chapterNumber },
             maxChapterNumber = c.chapters.maxOfOrNull { it.chapterNumber },
+            isDirectMirror = c.isDirectMirror,
         )
 
     /**
@@ -172,6 +193,17 @@ class ComicKChapterResolver @Inject constructor(
         onFound: suspend (CachedCandidate) -> Unit,
     ) = coroutineScope {
         val semaphore = Semaphore(5)
+        // Fáze 0: přímý slug-probe comick.art mirroru - uzivatelsky pozadavek:
+        // comick.art se prohledava jako PRVNÍ zdroj u KAZDEHO titulu (at je 18+
+        // nebo ne). Probe bezi soubezne jen s fetch titleInfo (nezavisi na nem)
+        // a sweep se pusti az PO jeho dokonceni (probeJob.join() nize) - mirror
+        // kandidat tak emituje pred kazdym sweep vysledkem a kompletni mirror
+        // vyhraje early-exit/auto-open, nez se vubec rozjede fuzzy hledani.
+        // Zpozdeni sweepu o probe stoji typicky ~0.3-1s; pri nedostupnem mirroru
+        // strop je MIRROR_PROBE_TIMEOUT_MS.
+        val probeJob = launch {
+            probeComicKArtMirror(comicKMangaUrl, comicKTitle, comicKContentType, onFound)
+        }
         var titleInfoFetchFailed = false
         val titleInfo = try {
             comicKSource.getTitleInfo(comicKMangaUrl)
@@ -182,6 +214,7 @@ class ComicKChapterResolver @Inject constructor(
             titleInfoFetchFailed = true
             ComicKTitleInfo(alternateTitles = emptyList(), contentRating = null)
         }
+        probeJob.join()
         val alternateTitles = titleInfo.alternateTitles
         // Selhani requestu neznamena, ze titul NENI adult - jen ze to nevime. Radeji
         // prohledat i adult zdroje navic (levne - presna shoda nazvu je stejne odfiltruje),
@@ -189,15 +222,29 @@ class ComicKChapterResolver @Inject constructor(
         // titul (nahlaseny bug). Skutecne bezpecny non-adult vysledek z API (contentRating
         // == null, ale request USPEL) se timhle nemeni.
         val isAdultTitle = titleInfoFetchFailed || isAdultRating(titleInfo.contentRating)
+        // Potvrzeny adult titul (rating primo z API) - odlisuje se od "nevim" stavu
+        // (fetch selhal), protoze jen potvrzene adult tituly se prohledavaji VYHRADNE
+        // v adult zdrojich (uzivatelsky pozadavek); u neznameho ratingu se pro jistotu
+        // hleda vsude, aby transientni vypadek nesmzal zdroje ne-adult titulu.
+        val isConfirmedAdult = isAdultRating(titleInfo.contentRating)
         val searchTitle = alternateTitles.firstOrNull() ?: comicKTitle
         val normalizedTargets = (alternateTitles + comicKTitle).map { normalizeMangaTitle(it) }.toSet()
         val eligible = sourceManager.getAllForCrossSourceSearch()
             .filter { it.id != "comick" && it.includeInGlobalSearch && isSameContentGroup(it.contentType, comicKContentType) }
             // Ne-adult ComicK titul nikdy neprohledává isAdult zdroje (i kdyz je uzivatel
-            // globalne povolil v Nastaveni) - a adult titul je naopak vzdy zahrne, i kdyz
-            // je uzivatel globalne skryl z Prochazet/hledani. Zamerne nezavisle na
-            // SourceManager.getAll()/showAdultSources - viz getAllForCrossSourceSearch.
-            .filter { isAdultTitle || !it.isAdult }
+            // globalne povolil v Nastaveni). Potvrzeny adult titul se prohledava JEN
+            // v adult zdrojich + comick.art mirror (patri do "18+ sady" - mirror nese
+            // stejna data jako ComicK vcetne adult titulu a uz bezi jako faze 0, tedy
+            // prvni). Neznamy rating (fetch selhal) = konzervativne vsechny zdroje.
+            // Zamerne nezavisle na SourceManager.getAll()/showAdultSources - viz
+            // getAllForCrossSourceSearch.
+            .filter { src ->
+                when {
+                    !isAdultTitle -> !src.isAdult
+                    isConfirmedAdult -> src.isAdult || src.id == com.haise.jiyu.source.comickart.ComicKArtSource.SOURCE_ID
+                    else -> true
+                }
+            }
             // Hledá se jen v anglických zdrojích: ComicK je anglický katalog, překlad do jiného jazyka (ru, pt, es...)
             // by při otevření kapitoly dal titul, který uživatel nemůže číst, a zbytečně by zatěžoval hledání.
             .filter { isSearchLanguage(it.language) }
@@ -229,23 +276,50 @@ class ComicKChapterResolver @Inject constructor(
         }
     }
 
+    /**
+     * Fáze 0 - deterministický probe comick.art mirroru. Mirror má vlastní DB se
+     * sdíleným `slug` titulu (hid se NESDÍLÍ - viz ComicKArtSource doc), takže
+     * stačí zkusit jeho chapter-list pro stejný slug: žádné fuzzy hledání názvu,
+     * žádný search request. Kapitoly navíc nesou stejné skupinové verze jako
+     * ComicK, takže match názvu není potřeba vůbec - slug je jednoznačný.
+     *
+     * Prázdný seznam kapitol / jakákoli chyba = mirror titul nemá → tiše přeskočit
+     * (normální sweep přes ostatní zdroje poběží dál). `onFound` se volá z
+     * paralelní coroutiny - volající musí zvládat souběžná volání (viz výše).
+     */
+    private suspend fun probeComicKArtMirror(
+        comicKMangaUrl: String,
+        comicKTitle: String,
+        comicKContentType: String,
+        onFound: suspend (CachedCandidate) -> Unit,
+    ) {
+        try {
+            val slug = comicKMangaUrl.substringAfterLast("/").ifBlank { return }
+            val source = sourceManager.getAllForCrossSourceSearch()
+                .find { it.id == com.haise.jiyu.source.comickart.ComicKArtSource.SOURCE_ID && it.includeInGlobalSearch }
+                ?.takeIf { isSameContentGroup(it.contentType, comicKContentType) }
+                ?: return
+            val manga = SManga(
+                sourceId = source.id,
+                url = "${source.homepageUrl ?: com.haise.jiyu.source.comickart.ComicKArtSource.DEFAULT_BASE}/comic/$slug",
+                title = comicKTitle,
+                coverUrl = null,
+            )
+            val chapters = withTimeoutOrNull(MIRROR_PROBE_TIMEOUT_MS) { source.getChapterList(manga) } ?: return
+            if (chapters.isEmpty()) return
+            onFound(CachedCandidate(source, manga, chapters, isDirectMirror = true))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("comick:resolver:mirror")
+        }
+    }
+
     /** Anglický zdroj ("en", "en-US"...). */
     private fun isSearchLanguage(language: String): Boolean = language.lowercase().startsWith("en")
 
     /** "erotica"/"pornographic" = 18+ na ComicK škále (stejná škála jako MangaDex/MangaFire content_rating filtr), "safe"/"suggestive"/null = ne. */
     private fun isAdultRating(contentRating: String?): Boolean = contentRating in ADULT_CONTENT_RATINGS
-
-    /**
-     * MANGA/MANHWA/MANHUA se pro účely hledání zdroje berou jako jedna skupina (region
-     * asijského komiksu) - stejná konvence jako `BrowseViewModel.MANGA_GROUP` pro
-     * Procházet, protože spousta zdrojů má title-level typ smíchaný a jen jeden
-     * "výchozí" contentType na úrovni celého zdroje. Novely a americké komiksy se
-     * nikdy neprohledávají u ComicK titulu (ComicK sám je jen manga/manhwa/manhua tracker).
-     */
-    private fun isSameContentGroup(sourceType: String, targetType: String): Boolean {
-        val asianComicTypes = setOf("MANGA", "MANHWA", "MANHUA")
-        return if (targetType in asianComicTypes) sourceType in asianComicTypes else sourceType == targetType
-    }
 
     private companion object {
         /** Zdroj skupiny = normalizovaný název zdroje obsahuje normalizovaný token skupiny (nebo naopak). */
@@ -257,5 +331,10 @@ class ComicKChapterResolver @Inject constructor(
 
         val ADULT_CONTENT_RATINGS = setOf("erotica", "pornographic")
         const val MAX_CACHED_TITLES = 128
+        /** Timeout fáze 0 (comick.art slug probe) - probe teď GATEuje start sweepu
+         * (comick.art = vzdy prvni zdroj, viz searchAndFetchStreamingInternal), takze
+         * jeho strop je zaroven nejhorsi zpozdeni zbytku hledani pri visicim mirroru.
+         * 5s (kratsi nez per-source 8s): jeden request, zdravy mirror odpovi za <2s. */
+        const val MIRROR_PROBE_TIMEOUT_MS = 5_000L
     }
 }

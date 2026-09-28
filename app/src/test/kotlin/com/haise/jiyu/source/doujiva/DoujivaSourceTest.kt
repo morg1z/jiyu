@@ -33,6 +33,9 @@ class DoujivaSourceTest {
         <div><span>Artists:</span><a class="tag-artist" href="/artist/cypher05"><span>cypher05</span><span>3</span></a></div>
         <div><a href="/tag/big-breasts">Big Breasts</a></div>
         <div hidden id="S:e"><a href="/tag/stockings">Stockings</a></div>
+        <!-- Realne thumbs jen pro prvnich ~24 stran; autoritativni soucet je
+             "numberOfPages" v JSON-LD (audit 2026-11: 178 stran, 24 thumbu). -->
+        <script type="application/ld+json">{"@type":"CreativeWork","numberOfPages":4}</script>
         <div class="grid">
             <a href="/manga/apex-behavior/read/cmmp4sesr002l0ss3fk0yxzaj?page=1"><img src="https://cdn.doujiva.com/apex-behavior/chapter-1/001.thumb.webp" alt="Page 1"/></a>
             <a href="/manga/apex-behavior/read/cmmp4sesr002l0ss3fk0yxzaj?page=2"><img src="https://cdn.doujiva.com/apex-behavior/chapter-1/002.thumb.webp" alt="Page 2"/></a>
@@ -80,12 +83,13 @@ class DoujivaSourceTest {
     }
 
     @Test
-    fun `getPageList converts thumb urls to full-res by dropping the thumb suffix`() = runTest {
+    fun `getPageList uses declared numberOfPages and builds full-res urls`() = runTest {
         val manga = source.getPopular(1).first()
         val chapter = source.getChapterList(manga).first()
         val pages = source.getPageList(chapter)
-        assertEquals(2, pages.size)
+        // Fixture: numberOfPages=4, ale jen 2 thumby - realne chovani webu.
+        assertEquals(4, pages.size)
         assertEquals("https://cdn.doujiva.com/apex-behavior/chapter-1/001.webp", pages[0].url)
-        assertEquals("https://cdn.doujiva.com/apex-behavior/chapter-1/002.webp", pages[1].url)
+        assertEquals("https://cdn.doujiva.com/apex-behavior/chapter-1/004.webp", pages[3].url)
     }
 }

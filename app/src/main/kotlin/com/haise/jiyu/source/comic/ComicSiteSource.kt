@@ -52,6 +52,11 @@ abstract class ComicSiteSource(
     open val searchPageParam: String = "&page="
 
     protected suspend fun get(url: String): String = withContext(Dispatchers.IO) {
+        // Cizi host ze scrapeovane stranky nepoustime klientem zdroje - isSourceHost bere
+        // ohled i na uzivatelsky nastavena zrcadla (DomainOverrides).
+        if (!com.haise.jiyu.util.isSourceHost(base, url)) {
+            throw java.io.IOException("Odmítnutý cizí hostitel: $url")
+        }
         val req = Request.Builder()
             .url(url)
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
@@ -129,9 +134,14 @@ abstract class ComicSiteSource(
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val url = resolveSourceUrl(base, manga.url)
         val doc = Jsoup.parse(get(url), url)
-        doc.select(chapterItemSelector).mapIndexed { i, a ->
+        val chapterEls = doc.select(chapterItemSelector)
+        chapterEls.mapIndexed { i, a ->
             val text = a.text().trim()
-            val num = Regex("""#?(\d+(?:\.\d+)?)""").find(text)?.groupValues?.get(1)?.toFloatOrNull() ?: (1000f - i)
+            // Fallback bez čísla v názvu: pořadové číslo relativní k VELIKOSTI seznamu
+            // (drive pevne 1000f-i - u kratkych titulu kapitoly "cislo 980" a podobny nesmysl;
+            // u vzestupnych seznamu poradi naopak - audit).
+            val num = Regex("""#?(\d+(?:\.\d+)?)""").find(text)?.groupValues?.get(1)?.toFloatOrNull()
+                ?: (chapterEls.size - i).toFloat()
             SChapter(
                 sourceId = id,
                 mangaUrl = manga.url,

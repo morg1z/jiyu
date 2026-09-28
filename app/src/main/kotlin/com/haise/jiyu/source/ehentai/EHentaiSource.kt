@@ -107,6 +107,9 @@ class EHentaiSource @Inject constructor(
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // Bez parametru web řadí čistě chronologicky (nejnovější nahrání) - "Populární"
         // tab potřebuje samostatnou "/popular" stránku (ověřeno živě, jiný obsah).
+        // Web "?page=N" na front listing ignoruje (vraci identickou stranku 1 -
+        // audit DUP; realna paginace jede pres "next=" gid cursor, zatim nepodporujeme).
+        if (page > 1) return@withContext emptyList()
         val cats = catsFilterValue(filter)
         val url = if (filter.sortBy == "popular") {
             "$base/popular" + if (cats != null) "?$cats" else ""
@@ -118,6 +121,7 @@ class EHentaiSource @Inject constructor(
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
+        if (page > 1) return@withContext emptyList() // "?page=" ignorovan - viz getPopular
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             val cats = catsFilterValue(filter)

@@ -14,6 +14,8 @@ import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -35,11 +37,26 @@ class DynastySource @Inject constructor(
 
     private val base = "https://dynasty-scans.com"
 
+    // Dynasty rate-limituje na ~10 requestu za kratke okno (~1 s) - pres limit
+    // vraci 503, ale resetuje po ~1.5 s. Retry po pauze proto vetsinou projde.
+    // Bez retry cover-burst v getPopular saturuje limit a nasledny detail fetch
+    // (klik na titul hned po vypsani) vraci 503 -> "zadne kapitoly" u titulu,
+    // co kapitoly normalne ma (overeno zive).
     private fun get(url: String): String {
-        val req = Request.Builder().url(url)
-            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
-            .build()
-        return client.newCall(req).execute().use { it.bodyOrThrow(url) }
+        var lastError: java.io.IOException? = null
+        repeat(2) { attempt ->
+            try {
+                if (attempt > 0) Thread.sleep(1_200)
+                val req = Request.Builder().url(url)
+                    .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
+                    .build()
+                return client.newCall(req).execute().use { it.bodyOrThrow(url) }
+            } catch (e: java.io.IOException) {
+                if (!e.message.orEmpty().contains("503") && !e.message.orEmpty().contains("429")) throw e
+                lastError = e
+            }
+        }
+        throw lastError!!
     }
 
     // series.json vraci strankovane vysledky, zabalene do "tags" pole objektu
@@ -108,9 +125,31 @@ class DynastySource @Inject constructor(
                     )
                 }
             }
-            items
+            // JSON listing obalky nenosi - dotahnou se paralelne z detailnich
+            // stranek (img.thumbnail = tag_contents_covers obrazek). Bez toho
+            // by browse grid byl cisty text (audit 2026-10 "21t/0c").
+            // Paralelismus 2 + rozestup startu - plny burst (i jen 21/4) prekroci
+            // ~10 req/okno rate-limit webu a nasledne dotazy (tagy/search/kapitoly)
+            // koncily 503 -> prazdno (re-audit + live mereni: 11 OK pak 503).
+            val io2 = Dispatchers.IO.limitedParallelism(2)
+            coroutineScope {
+                items.mapIndexed { i, m ->
+                    async(io2) {
+                        if (i > 0) kotlinx.coroutines.delay(120L * i)
+                        m.copy(coverUrl = fetchSeriesCover(m.url) ?: m.coverUrl)
+                    }
+                }.map { it.await() }
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
+
+    /** Obalka serie z detailni stranky ("/series/{slug}" -> img.thumbnail). */
+    private fun fetchSeriesCover(seriesPath: String): String? =
+        try {
+            val doc = Jsoup.parse(get("$base$seriesPath"), base)
+            doc.selectFirst("img.thumbnail")?.attr("src")
+                ?.let { if (it.startsWith("//")) "https:$it" else resolveSourceUrl(base, it) }
+        } catch (e: Exception) { null }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {

@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentai3
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -69,6 +70,15 @@ class Hentai3SourceTest {
         </body></html>
     """.trimIndent()
 
+    // Vyrez z zive odpovedi https://3hentai.net/tags?page=1 - index tagu, odkazy
+    // jsou absolutni "/tags/{slug}".
+    private val tagsHtml = """
+        <html><body>
+        <a href="https://3hentai.net/tags/ahegao-female">ahegao (female)</a>
+        <a href="https://3hentai.net/tags/big-breasts-female">big breasts (female)</a>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -76,6 +86,10 @@ class Hentai3SourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path == "/tags" || path.startsWith("/tags?") -> MockResponse().setBody(
+                        if (path.endsWith("page=1")) tagsHtml else ""
+                    )
+                    path.startsWith("/tags/") -> MockResponse().setBody(listHtml)
                     path.startsWith("/language/english") -> MockResponse().setBody(listHtml)
                     path.startsWith("/search") -> MockResponse().setBody(listHtml)
                     path == "/d/713098" -> MockResponse().setBody(detailHtml)
@@ -125,6 +139,21 @@ class Hentai3SourceTest {
         assertEquals(2, pages.size)
         assertEquals("https://s1.3hentai.net/d2421239/1.jpg", pages[0].url)
         assertEquals("https://s1.3hentai.net/d2421239/2.jpg", pages[1].url)
+    }
+
+    @Test
+    fun `getAvailableTags reads the paginated tag index`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("ahegao-female", tags[0].id)
+        assertEquals("ahegao (female)", tags[0].label)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the tag archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("ahegao-female")))
+        assertEquals(1, result.size)
+        assertEquals("[Cammy] Couldn't Mother in law be \"USED\" 3?", result[0].title)
     }
 
     @Test

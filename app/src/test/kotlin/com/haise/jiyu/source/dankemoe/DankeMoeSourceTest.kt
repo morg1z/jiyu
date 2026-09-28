@@ -18,15 +18,15 @@ class DankeMoeSourceTest {
     private lateinit var source: DankeMoeSource
 
     private val homeHtml = """
-        <html><body>
-        <div class="card h-100 text-center">
+        <html><body><script>
+        const series_data = [{"html": `<div class="card h-100 text-center">
             <div class="embed-responsive embed-responsive-7by10">
                 <a href="/read/manga/test-series/">
                     <img class="card-img-top embed-responsive-item lazy" data-src="/media/manga/test-series/volume_covers/1/cover.webp" alt="Cover for Test Series">
                 </a>
             </div>
-        </div>
-        </body></html>
+        </div>`}];
+        </script></body></html>
     """.trimIndent()
 
     private val seriesJson = """

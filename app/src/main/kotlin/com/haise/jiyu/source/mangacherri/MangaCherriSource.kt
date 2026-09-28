@@ -20,18 +20,19 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.net.URLDecoder
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * mangacherri.com - vlastni Vue/Nuxt sablona (SSR), plne server-rendered
- * vcetne cteni. Obrazky primo v HTML bez tokenu. Odkazy na kapitoly jsou
- * RELATIVNI bez uvodniho lomitka (napr. `"slug/24108"`), proto se HTML
- * parsuje s explicitni base URI, aby `abs:href` spravne poskladalo cestu.
- * Hledani (`/search.php` POST) se nepodarilo overit jako funkcni filtr -
- * search() vraci prazdny seznam.
+ * mangacherri.com - plne server-rendered.
+ *
+ * 2026-10 redesign: web bezel na stejnem enginu jako mangamikan.com
+ * (article.cherri-list-card, /title/{slug}, /read/{id}, /genre/{slug},
+ * img[data-page] v ctecce). Puvodni routy home.php/new-chapters.php/
+ * genre.php/search.php byly odstraneny (302 na homepage). Listing:
+ * /manga?sort=popular|updated&page=N&genre={slug}&q={query} - vsechny
+ * parametry funguji server-side (overeno zive).
  */
 @Singleton
 class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -40,6 +41,10 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
     override val name = "MangaCherri"
     override val homepageUrl get() = base
     private val base = "https://mangacherri.com"
+
+    private companion object {
+        val SITE_STATUSES = setOf("ongoing", "completed", "hiatus")
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -51,21 +56,21 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
 
     private fun parseDoc(url: String) = Jsoup.parse(get(url), url)
 
-    private fun parseCard(a: Element): SManga? {
+    private fun parseCard(article: Element): SManga? {
+        val a = article.selectFirst("a.cherri-list-card__cover") ?: return null
         val href = a.attr("href").ifBlank { return null }
-        val title = a.attr("title").trim().ifBlank { return null }
-        val cover = a.selectFirst("img")?.attr("src")?.trim()?.let { absoluteMediaUrl(base, it) }
+        val title = article.selectFirst("h2 a")?.text()?.trim()
+            ?: a.selectFirst("img")?.attr("alt")?.trim()?.removePrefix("Cover of ")
+            ?: return null
+        if (title.isBlank()) return null
+        val cover = a.selectFirst("img")?.attr("src")?.trim()
+            ?.let { absoluteMediaUrl(base, it) }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
     // ─── Filtrovani podle zanru ──────────────────────────────────────────────
-    // /genre.php?genre=<Nazev> je samostatna, plne server-rendered stranka -
-    // overeno zive: genre=Isekai vraci 3 tituly, genre=Romance vraci 541
-    // odlisnych titulu (zadny prekryv v prvnich polozkach). Vypis NENI
-    // strankovany na serveru (`page` parametr se tise ignoruje - stejna sada
-    // vsech titulu na kazde strance), proto se pro page > 1 vraci prazdny
-    // seznam, aby appka nezobrazovala porad dokola stejnou (casto obrovskou)
-    // mnozinu.
+    // /manga?genre={slug} filtruje server-side (overeno: drama -> 194 stories).
+    // Hodnoty zanru jsou slugy z <select name="genre"> na /manga.
 
     override val supportsTagFilter: Boolean get() = true
 
@@ -74,58 +79,65 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
         cachedTags?.let { return@withContext it }
         try {
-            val doc = parseDoc("$base/genre.php")
-            val tags = doc.select("a[href*=genre.php?genre=]").mapNotNull { a ->
-                val href = a.attr("href")
-                val genreId = href.substringAfter("genre=").substringBefore("&")
-                    .let { runCatching { URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
-                    .ifBlank { null } ?: return@mapNotNull null
-                val label = a.attr("title").trim().ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
-                FilterTag(id = genreId, label = label)
-            }.distinctBy { it.id }
+            val doc = parseDoc("$base/manga")
+            val tags = doc.select("select[name=genre] option[value]").mapNotNull { opt ->
+                val value = opt.attr("value").trim().ifBlank { return@mapNotNull null }
+                val label = opt.text().trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = value, label = label)
+            }
             cachedTags = tags
             tags
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun parseGenreList(doc: Document): List<SManga> =
-        doc.select("div.manga-item a:has(img)").mapNotNull(::parseCard).distinctBy { it.url }
+    private fun parseList(doc: Document): List<SManga> =
+        doc.select("article.cherri-list-card").mapNotNull(::parseCard).distinctBy { it.url }
 
-    private fun fetchGenre(genreId: String): Document =
-        parseDoc("$base/genre.php?genre=${URLEncoder.encode(genreId, "UTF-8")}")
+    // Web filtruje status= ongoing|completed|hiatus i sort= (overeno zive -
+    // ruzne sady karet pro ongoing/completed i sort=title vs updated).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+
+    private val sortValues = mapOf(
+        "latest" to "updated", "popular" to "popular", "title" to "title",
+    )
+
+    private fun listingUrl(page: Int, filter: MangaFilter, query: String? = null): String {
+        val sort = sortValues[filter.sortBy] ?: "popular"
+        val sb = StringBuilder("$base/manga?sort=$sort&page=$page")
+        filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+        filter.status?.takeIf { it in SITE_STATUSES }?.let { sb.append("&status=").append(it) }
+        query?.let { sb.append("&q=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
+    }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try {
-            if (filter.genres.isNotEmpty()) {
-                if (page > 1) return@withContext emptyList()
-                return@withContext parseGenreList(fetchGenre(filter.genres.first()))
-            }
-            // overereno zive: home.php je jen sada karuselu (Popular Now/Latest Chapter/
-            // Most Popular/Completed), zatimco new-chapters.php ma vlastni strankovanou
-            // mrizku razenou dle posledni aktualizace kapitoly - genuinne jina razeni.
-            val path = if (filter.sortBy == "latest") "new-chapters.php" else "home.php"
-            val doc = Jsoup.parse(get("$base/$path?page=$page"))
-            doc.select("a.manga-cover-link").mapNotNull(::parseCard).distinctBy { it.url }
-        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        try { parseList(parseDoc(listingUrl(page, filter))) }
+        catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isEmpty()) return@withContext emptyList()
-        try {
-            if (page > 1) return@withContext emptyList()
-            parseGenreList(fetchGenre(filter.genres.first()))
-        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (query.isBlank()) return@withContext getPopular(page, filter)
+        try { parseList(parseDoc(listingUrl(page, filter, query))) }
+        catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
             val doc = parseDoc(resolveSourceUrl(base, manga.url))
-            val status = doc.select("span.text.grey.small").firstOrNull { it.text().trim() == "Status" }
-                ?.nextElementSibling()?.text()?.trim()
             manga.copy(
-                genres = doc.select("a[href*=/genre.php]").map { it.text().trim() }.filter { it.isNotBlank() },
-                author = doc.select("a[href*=/author/]").firstOrNull()?.text()?.trim()?.takeIf { it.isNotBlank() },
-                status = status?.takeIf { it.isNotBlank() },
+                description = doc.selectFirst(".cherri-detail__description")
+                    ?.text()?.trim()?.ifBlank { null },
+                genres = doc.select(".cherri-detail__chips a[href*=/genre/]")
+                    .map { it.text().trim() }.filter { it.isNotBlank() },
+                // Autor je obycejny <p><strong>jmeno</strong></p> za description blokem.
+                author = doc.selectFirst(".cherri-detail__description ~ p strong")
+                    ?.text()?.trim()?.ifBlank { null },
+                // "ROSE LIBRARY . ONGOING" - status je za oddelovacem.
+                status = doc.selectFirst(".cherri-detail__copy .eyebrow")?.text()
+                    ?.substringAfter('·')?.trim()?.lowercase()?.ifBlank { null },
             )
         } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
@@ -133,11 +145,14 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = parseDoc(resolveSourceUrl(base, manga.url))
-            doc.select("div.chapters-container a[href]").mapNotNull { a ->
+            doc.select("a.cherri-chapter-row[data-chapter-row]").mapNotNull { a ->
                 val href = a.attr("abs:href").ifBlank { return@mapNotNull null }
-                val name = a.text().trim().ifBlank { return@mapNotNull null }
+                val name = a.selectFirst("strong")?.text()
+                    ?.replace(Regex("\\s*NEW\\s*$"), "")?.trim()
+                    ?: a.text().trim().ifBlank { return@mapNotNull null }
                 val num = parseChapterNumber(name) ?: 0f
-                SChapter(sourceId = id, mangaUrl = manga.url, url = toSourcePath(base, href), name = "Chapter $name", chapterNumber = num, dateUpload = 0L)
+                val date = a.attr("data-created-at").toLongOrNull()?.times(1000) ?: 0L
+                SChapter(sourceId = id, mangaUrl = manga.url, url = toSourcePath(base, href), name = name, chapterNumber = num, dateUpload = date)
             }.distinctBy { it.url }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
@@ -145,7 +160,7 @@ class MangaCherriSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            doc.select("img[src*=/mangas/]").mapIndexedNotNull { i, img ->
+            doc.select("img[data-page]").mapIndexedNotNull { i, img ->
                 val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
                 Page(i, url, url)
             }

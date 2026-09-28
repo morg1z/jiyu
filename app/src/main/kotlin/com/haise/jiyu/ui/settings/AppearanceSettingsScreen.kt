@@ -1,27 +1,61 @@
 package com.haise.jiyu.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.haise.jiyu.settings.ThemeOption
+import com.haise.jiyu.ui.theme.ACCENT_HUE_PREFIX
+import com.haise.jiyu.ui.theme.ACCENT_OPTIONS
+import com.haise.jiyu.ui.theme.CardBorder
+import com.haise.jiyu.ui.theme.TextMuted
+import com.haise.jiyu.ui.theme.TextPrimary
+import com.haise.jiyu.ui.theme.accentSpecFor
 import com.haise.jiyu.ui.theme.screenGradient
+import kotlin.math.roundToInt
 
 @Composable
 fun AppearanceSettingsScreen(
@@ -29,6 +63,7 @@ fun AppearanceSettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val theme             by viewModel.theme.collectAsStateWithLifecycle()
+    val themeAccent       by viewModel.themeAccent.collectAsStateWithLifecycle()
     val libraryGridColumns by viewModel.libraryGridColumns.collectAsStateWithLifecycle()
     val defaultCategoryId  by viewModel.defaultCategoryId.collectAsStateWithLifecycle()
     val allCategories      by viewModel.categories.collectAsStateWithLifecycle()
@@ -82,6 +117,47 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
+                SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_appearance_accent_title)) {
+                    // SettingsSection nemá vnitřní padding - obsah by přesahoval na hranu karty.
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        AccentHuePicker(
+                            themeAccent = themeAccent,
+                            onSelect = { viewModel.setThemeAccent(it) },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        // Rychlé presety - tečka se zvýrazní jen pro pojmenovaný klíč
+                        // (u vlastního odstínu ze slideru žádná nesvítí, slider drží polohu sám).
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            ACCENT_OPTIONS.forEach { spec ->
+                                val selected = themeAccent == spec.key
+                                val label = stringResource(spec.labelRes)
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .semantics { contentDescription = label }
+                                        .selectable(
+                                            selected = selected,
+                                            onClick = { viewModel.setThemeAccent(spec.key) },
+                                            role = Role.RadioButton,
+                                        )
+                                        .clip(CircleShape)
+                                        .background(spec.dark.accent)
+                                        .border(
+                                            width = if (selected) 2.dp else 1.dp,
+                                            color = if (selected) TextPrimary else CardBorder,
+                                            shape = CircleShape,
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 SettingsSection(title = stringResource(com.haise.jiyu.R.string.settings_appearance_library_title)) {
                     androidx.compose.material3.Text(
                         text = stringResource(com.haise.jiyu.R.string.settings_appearance_grid_columns_title),
@@ -128,5 +204,76 @@ fun AppearanceSettingsScreen(
                 Spacer(Modifier.height(40.dp + navBottom))
             }
         }
+    }
+}
+
+/** Gradient spektra pro [AccentHuePicker] - 13 zastávek po 30° kryje celý hue okruh. */
+private val HUE_STOPS = List(13) { i -> Color.hsl(i * 30f, 0.82f, 0.60f) }
+
+/**
+ * Spektrální výběr akcentové barvy: duhová lišta přes celý hue okruh (0-359°) s jezdeckem
+ * vybarveným aktuálním odstínem. Během tahu se jezdec přebarvuje živě, do nastavení se
+ * hodnota "h:<hue>" zapíše až při puštění prstu (a na tap) - DataStore tak nedostává
+ * zápis za každý pixel pohybu.
+ */
+@Composable
+private fun AccentHuePicker(
+    themeAccent: String,
+    onSelect: (String) -> Unit,
+) {
+    var dragHue by remember { mutableStateOf<Float?>(null) }
+    // Puštění tahu čeká, až DataStore promítne novou hodnotu - jezdec mezitím drží
+    // pozici z prstu, jinak by na jeden frame skočil na starou barvu.
+    LaunchedEffect(themeAccent) { dragHue = null }
+    val hue = dragHue ?: accentSpecFor(themeAccent).hue
+
+    val trackShape = RoundedCornerShape(12.dp)
+    val thumbSize = 22.dp
+    val thumbSizePx = with(LocalDensity.current) { thumbSize.toPx() }
+    val thumbColor = Color.hsl(hue, 0.82f, 0.62f)
+    fun commit(h: Float) = onSelect("$ACCENT_HUE_PREFIX${h.roundToInt()}")
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(34.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val h = (offset.x / size.width * 360f).coerceIn(0f, 359.9f)
+                    dragHue = h
+                    commit(h)
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { dragHue?.let(::commit) },
+                    onHorizontalDrag = { change, _ ->
+                        dragHue = (change.position.x / size.width * 360f).coerceIn(0f, 359.9f)
+                    },
+                )
+            },
+    ) {
+        val widthPx = constraints.maxWidth.toFloat()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(trackShape)
+                .background(Brush.horizontalGradient(HUE_STOPS))
+                .border(1.dp, CardBorder, trackShape),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset {
+                    val x = (hue / 360f * widthPx - thumbSizePx / 2)
+                        .coerceIn(0f, widthPx - thumbSizePx)
+                    IntOffset(x.roundToInt(), 0)
+                }
+                .size(thumbSize)
+                .shadow(4.dp, CircleShape)
+                .clip(CircleShape)
+                .background(thumbColor)
+                .border(2.dp, Color.White, CircleShape),
+        )
     }
 }

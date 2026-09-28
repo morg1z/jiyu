@@ -176,6 +176,57 @@ class GeminiUltraPromptTest {
         assertEquals("Frodo", response.newTerms[0].source)
     }
 
+    // ── Záchrana useknuté odpovědi (parseTruncatedResponse) ─────────────────────
+
+    @Test
+    fun `a truncated response salvages the complete bubbles before the cut`() {
+        // JÁDRO NÁLEZU Z LOGU: "Unterminated object at character 9739" - model narazil
+        // na output limit a JSON se utnul uprostřed pole. Celá dávka se zahodila i když
+        // prefix obsahoval kompletní objekty. Zbytek dořekne opravný dotaz po id.
+        val json = """
+            {"bubbles": [
+              {"id": 0, "original": "Hi", "translated": "Ahoj", "bubble_size_tag": "TINY", "is_sfx": false, "syllable_breaks": "Ahoj"},
+              {"id": 1, "original": "Bye", "translated": "Nashle", "bubble_size_tag": "TINY", "is_sfx": false, "syllable_breaks": "Na-shle"},
+              {"id": 2, "original": "Never give up", "translated": "Nikd
+        """.trimIndent()
+
+        val salvaged = GeminiUltraPrompt.parseTruncatedResponse(json)
+
+        assertEquals(2, salvaged!!.bubbles.size)
+        assertEquals("Ahoj", salvaged.bubbles[0].translated)
+        assertEquals("Nashle", salvaged.bubbles[1].translated)
+    }
+
+    @Test
+    fun `a cut inside a string still salvages earlier complete objects`() {
+        // Uříznutí uvnitř "translated" řetězce - poslední objekt je rozbitý, ale
+        // první zůstane.
+        val json = """{"bubbles": [{"id": 0, "original": "Hi", "translated": "Ahoj", "bubble_size_tag": "TINY", "is_sfx": false}, {"id": 1, "original": "Yo", "translated": "Č"""
+
+        val salvaged = GeminiUltraPrompt.parseTruncatedResponse(json)
+
+        assertEquals(1, salvaged!!.bubbles.size)
+        assertEquals(0, salvaged.bubbles[0].id)
+    }
+
+    @Test
+    fun `truncation before any complete object returns null`() {
+        // Utžene hned na začátku - není co zachránit, volající padá klasicky.
+        assertTrue(GeminiUltraPrompt.parseTruncatedResponse("""{"bubbles": [{"id": 0, "orig""") == null)
+        assertTrue(GeminiUltraPrompt.parseTruncatedResponse("""{"bubbles": [""") == null)
+        assertTrue(GeminiUltraPrompt.parseTruncatedResponse("""úplný rozpad, žádný JSON""") == null)
+    }
+
+    @Test
+    fun `a complete response returns the whole array, not a subset`() {
+        // Pojistka: na nedotčené odpovědi nesmí salvage nic zahodit.
+        val json = """{"bubbles": [{"id": 0, "original": "Hi", "translated": "Ahoj", "bubble_size_tag": "TINY", "is_sfx": false}], "new_terms": []}"""
+
+        val salvaged = GeminiUltraPrompt.parseTruncatedResponse(json)
+
+        assertEquals(1, salvaged!!.bubbles.size)
+    }
+
     // ── Věty rozdělené do víc bublin ────────────────────────────────────────────
 
     private fun bubble(

@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentaizap
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -65,12 +66,24 @@ class HentaiZapSourceTest {
             <a href="/tag/decoy-tag/">Decoy Tag</a>
             <a href="/artist/decoy-artist/">Decoy Artist</a>
         </div>
+        <!-- Realne se renderuje jen prvnich ~10 thumbs, soucet je v
+             p.hz-gallery-pages (audit 2026-11: Pages: 131 pri 10 thumbech). -->
+        <p class="hz-gallery-pages">Pages: 10</p>
         <div class="thumbstrip">
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/cover.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/1t.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/2t.jpg"/>
             <img src="https://m11.hentaizap.com/032/k5bi98t4z0/10t.jpg"/>
         </div>
+        </body></html>
+    """.trimIndent()
+
+    // Vyrez z zive odpovedi https://hentaizap.com/tags/popular/?page=1 - nazev
+    // tagu je v __name spanu, vedlejsi __badge nese pocet galerii.
+    private val tagsHtml = """
+        <html><body>
+        <li class="hz-legacy-taxonomy-item"><a class="hz-legacy-taxonomy-item__button" href="/tag/big-breasts/"><span class="hz-legacy-taxonomy-item__name">big breasts    </span><span class="hz-legacy-taxonomy-item__badge">448068</span></a></li>
+        <li class="hz-legacy-taxonomy-item"><a class="hz-legacy-taxonomy-item__button" href="/tag/futanari/"><span class="hz-legacy-taxonomy-item__name">futanari    </span><span class="hz-legacy-taxonomy-item__badge">80807</span></a></li>
         </body></html>
     """.trimIndent()
 
@@ -81,6 +94,10 @@ class HentaiZapSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path.startsWith("/tags/popular/") -> MockResponse().setBody(
+                        if (path.endsWith("page=1")) tagsHtml else ""
+                    )
+                    path.startsWith("/tag/") -> MockResponse().setBody(popularHtml)
                     path.startsWith("/popular/") -> MockResponse().setBody(popularHtml)
                     path.startsWith("/gallery/1610961") -> MockResponse().setBody(detailHtml)
                     else -> MockResponse().setResponseCode(404)
@@ -114,13 +131,29 @@ class HentaiZapSourceTest {
     }
 
     @Test
-    fun `getPageList derives full-res webp urls from the thumbstrip, sorted numerically`() = runTest {
+    fun `getAvailableTags reads the popular tag index without the badge count`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("big-breasts", tags[0].id)
+        assertEquals("big breasts", tags[0].label)
+        assertEquals("futanari", tags[1].id)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the tag archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("big-breasts")))
+        assertEquals(1, result.size)
+        assertEquals("Childbirth Island 2&3", result[0].title)
+    }
+
+    @Test
+    fun `getPageList uses declared Pages count and builds full-res webp urls`() = runTest {
         val manga = source.getPopular(1).first()
         val chapter = source.getChapterList(manga).first()
         val pages = source.getPageList(chapter)
-        assertEquals(3, pages.size)
+        // Fixture: Pages: 10, ale jen 3 thumbs - realne chovani webu.
+        assertEquals(10, pages.size)
         assertEquals("https://m11.hentaizap.com/032/k5bi98t4z0/1.webp", pages[0].url)
-        assertEquals("https://m11.hentaizap.com/032/k5bi98t4z0/2.webp", pages[1].url)
-        assertEquals("https://m11.hentaizap.com/032/k5bi98t4z0/10.webp", pages[2].url)
+        assertEquals("https://m11.hentaizap.com/032/k5bi98t4z0/10.webp", pages[9].url)
     }
 }

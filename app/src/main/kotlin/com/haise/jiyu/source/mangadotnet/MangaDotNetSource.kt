@@ -33,6 +33,9 @@ class MangaDotNetSource @Inject constructor(private val client: OkHttpClient) : 
     override val id = "mangadotnet"
     override val name = "Mangadotnet"
     override val supportsSortOrder: Boolean get() = false
+    // Zanry jsou jen v /api/manga/{id} detailu; API nema katalogovy genre
+    // endpoint - picker by byl prazdny.
+    override val supportsTagFilter: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://mangadot.net"
 

@@ -50,28 +50,59 @@ interface ChapterDao {
 
     /** Ruční označení přečtené/nepřečtené (detail mangy) předává `lastReadAt = 0` a `lastPageRead = 0` -
      * tehdy se maže i uložený webtoon offset, aby "nepřečteno" nenechalo starou pozici. Čtečka
-     * vždy posílá skutečný čas, takže čtení první stránky offset nesmaže. */
+     * vždy posílá skutečný čas, takže čtení první stránky offset nesmaže.
+     * `pageCount > 0` (čtečka zná skutečný počet vykreslených stránek) se zapíše do
+     * `verifiedPageCount` - reálná verze "online ověření" počtu stránek, potřebná pro
+     * % průběhu kapitoly na kartách "Pokračovat ve čtení". */
     @Query(
         "UPDATE chapter SET read = :read, lastPageRead = :lastPageRead, lastReadAt = :lastReadAt, " +
+            "verifiedPageCount = CASE WHEN :pageCount > 0 THEN :pageCount ELSE verifiedPageCount END, " +
             "lastScrollOffset = CASE WHEN :lastPageRead = 0 AND :lastReadAt = 0 THEN 0 ELSE lastScrollOffset END " +
             "WHERE id = :id"
     )
-    suspend fun updateProgress(id: String, read: Boolean, lastPageRead: Int, lastReadAt: Long)
+    suspend fun updateProgress(id: String, read: Boolean, lastPageRead: Int, lastReadAt: Long, pageCount: Int = 0)
+
+    /** Propagace postupu čtení na kapitoly, které na [resolvedChapterId] přesměrovávají přes
+     * `fallbackChapterId` - typicky metadatová ComicK kapitola, kterou appka při výběru zdroje
+     * přilinkovala na reálnou kapitolu jiného zdroje (viz SourceResolverViewModel.selectCandidate).
+     * `read` se nikdy nesníží (dočtená zůstane dočtená - stejné pravidlo jako u hlavního zápisu
+     * v ReaderViewModel.processPageProgress); `lastPageRead`/`verifiedPageCount` se drží v synchu,
+     * aby % na kartách fungovalo i pro ComicK tituly. */
+    @Query(
+        "UPDATE chapter SET read = MAX(read, :read), lastPageRead = :lastPageRead, lastReadAt = :lastReadAt, " +
+            "verifiedPageCount = CASE WHEN :pageCount > 0 THEN :pageCount ELSE verifiedPageCount END " +
+            "WHERE fallbackChapterId = :resolvedChapterId"
+    )
+    suspend fun propagateProgressToFallbackParents(
+        resolvedChapterId: String,
+        read: Boolean,
+        lastPageRead: Int,
+        lastReadAt: Long,
+        pageCount: Int,
+    )
+
+    /** Přilinkuje kapitolu na "reálnou" kapitolu, kterou appka skutečně čte (ComicK metadatová
+     * kapitola → resolved kapitola zdroje). Při pozdějším výběru jiného zdroje se prostě přepíše. */
+    @Query("UPDATE chapter SET fallbackChapterId = :targetChapterId WHERE id = :id")
+    suspend fun setFallbackTarget(id: String, targetChapterId: String?)
 
     @Query("UPDATE chapter SET lastScrollOffset = :offset, lastReadAt = :lastReadAt WHERE id = :id")
     suspend fun updateScrollOffset(id: String, offset: Int, lastReadAt: Long)
 
-    /** Přemapuje kapitolu na novou URL/id při opravě odkazu (viz MangaRepository.recoverMangaLink) -
-     * záměrně NEMĚNÍ read/lastPageRead/lastReadAt/lastScrollOffset/downloadStatus/localPath/
-     * pageCount/discoveredAt, aby uživatel o postup čtení/stažené soubory nepřišel. */
+    /** Přemapuje kapitolu na novou URL/id (+ zdroj při cross-source relinku, viz
+     * MangaRepository.recoverMangaLink/relinkMangaToSource) - záměrně NEMĚNÍ read/lastPageRead/
+     * lastReadAt/lastScrollOffset/downloadStatus/localPath/pageCount/discoveredAt, aby uživatel
+     * o postup čtení/stažené soubory nepřišel. */
     @Query("""
-        UPDATE chapter SET id = :newId, url = :newUrl, name = :newName, dateUpload = :dateUpload,
-               scanlationGroup = :scanlationGroup, volume = :volume, groupsJson = :groupsJson
+        UPDATE chapter SET id = :newId, sourceId = :newSourceId, url = :newUrl, name = :newName,
+               dateUpload = :dateUpload, scanlationGroup = :scanlationGroup, volume = :volume,
+               groupsJson = :groupsJson
         WHERE id = :oldId
     """)
     suspend fun relink(
         oldId: String,
         newId: String,
+        newSourceId: String,
         newUrl: String,
         newName: String,
         dateUpload: Long,
@@ -106,6 +137,12 @@ interface ChapterDao {
     @Query("SELECT COUNT(*) FROM chapter WHERE mangaId = :mangaId")
     suspend fun countForManga(mangaId: String): Int
 
+    /** Nejvyšší zatím známé číslo kapitoly - baseline pro "nové kapitoly" (refreshChapters
+     * hlásí jako nové jen inserty nad tímhle maximem; NULL = kapitoly se ještě nikdy
+     * nenačetly, takže vkládaná dávka je zakladní naplnění, ne novinka). */
+    @Query("SELECT MAX(chapterNumber) FROM chapter WHERE mangaId = :mangaId")
+    suspend fun getMaxChapterNumber(mangaId: String): Float?
+
     /** Batched varianta [countForManga] - pro seznam manga id vrátí počty jedním dotazem
      * místo N+1 (viz [com.haise.jiyu.data.repository.MangaRepository.findLibraryMatchesByTitle]). */
     @Query("SELECT mangaId, COUNT(*) as count FROM chapter WHERE mangaId IN (:mangaIds) GROUP BY mangaId")
@@ -116,6 +153,33 @@ interface ChapterDao {
 
     @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
     fun observeReadCount(): Flow<Int>
+
+    /** Jednorázové deduplikované počty pro obrazovku Statistik - stejná logika slučování
+     * skupinových duplicit jako [observeTotalCounts]/[observeUnreadCounts] (agregátorské zdroje
+     * typu ComicK mají řádek na skupinu, ne na kapitolu), jen sjednocené do jednoho čísla
+     * napříč knihovnou. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM (
+            SELECT DISTINCT mangaId, (CASE WHEN chapterNumber > 0 THEN CAST(chapterNumber AS TEXT) ELSE id END) AS chapterKey
+            FROM chapter WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)
+        )
+        """
+    )
+    suspend fun countDistinctInLibrary(): Int
+
+    /** Dedupovaný počet PŘEČTENÝCH kapitol - kapitola se počítá, když je přečtená aspoň v jedné
+     * skupinové verzi (WHERE read = 1 před DISTINCT). Obyčejný COUNT(read=1) u ComicK titulů
+     * nafukuje počet násobkem skupin. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM (
+            SELECT DISTINCT mangaId, (CASE WHEN chapterNumber > 0 THEN CAST(chapterNumber AS TEXT) ELSE id END) AS chapterKey
+            FROM chapter WHERE read = 1 AND mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)
+        )
+        """
+    )
+    suspend fun countReadDistinctInLibrary(): Int
 
     @Query("SELECT * FROM chapter WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
     suspend fun getAllForLibrary(): List<ChapterEntity>
@@ -183,6 +247,12 @@ interface ChapterDao {
     //    jako samostatny radek - bez tehle podminky by kazda skupina znamenala vlastni
     //    polozku ve feedu (uzivatel hlasil 3 upozorneni na stejnou kapitolu). Vybere se jen
     //    NEJDRIV objevena skupina jako zastupce cisla kapitoly.
+    // 3) `c.discoveredAt > MIN(discoveredAt)` - prvni objevena davka je vzdy zakladni
+    //    naplneni titulu (kapitoly vlozene jednim refresem sdili stejny timestamp), tudiz
+    //    nikdy "novinka". Bez tehle podminky by ve feedu visely stare kapitoly z manga,
+    //    jejichz baseline se naplnil AZ PO pridani (selhany prvni fetch, obnovena zaloha,
+    //    smazane a znovu nactene kapitoly) - tj. presne nahlasene "stare oznameni z 2024",
+    //    protoze baseline radky meli discoveredAt par ms PO addedAt.
     @Query("""
         SELECT c.id as chapterId, c.name as chapterName, c.chapterNumber, c.dateUpload,
                c.mangaId, m.title as mangaTitle, m.coverUrl, c.sourceId, c.read
@@ -190,6 +260,9 @@ interface ChapterDao {
         INNER JOIN manga m ON c.mangaId = m.id
         WHERE m.inLibrary = 1
           AND c.discoveredAt > m.addedAt
+          AND c.discoveredAt > (
+              SELECT MIN(c4.discoveredAt) FROM chapter c4 WHERE c4.mangaId = c.mangaId
+          )
           AND c.id = (
               SELECT c2.id FROM chapter c2
               WHERE c2.mangaId = c.mangaId AND c2.chapterNumber = c.chapterNumber
@@ -203,11 +276,14 @@ interface ChapterDao {
     """)
     fun observeUpdates(): Flow<List<UpdateItem>>
 
-    @Query("UPDATE chapter SET read = 1 WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
-    suspend fun markAllRead()
+    // lastReadAt = :nowAt u vsech "oznacit prectene" UPDATE - SyncRepository.chaptersToPush
+    // filtruje push podle lastReadAt >= lastPushAt, takze bez zapisu casu by se hromadne
+    // oznaceni nikdy neodeslalo do cloudu a pull by je mohl prepsat zpet (audit).
+    @Query("UPDATE chapter SET read = 1, lastReadAt = :nowAt WHERE mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)")
+    suspend fun markAllRead(nowAt: Long = System.currentTimeMillis())
 
-    @Query("UPDATE chapter SET read = 1, lastPageRead = 0 WHERE mangaId IN (:mangaIds)")
-    suspend fun markAllReadForMangas(mangaIds: List<String>)
+    @Query("UPDATE chapter SET read = 1, lastPageRead = 0, lastReadAt = :nowAt WHERE mangaId IN (:mangaIds)")
+    suspend fun markAllReadForMangas(mangaIds: List<String>, nowAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE chapter SET downloadStatus = 'NOT_DOWNLOADED' WHERE downloadStatus IN ('QUEUED', 'DOWNLOADING')")
     suspend fun resetActiveDownloads()
@@ -221,6 +297,6 @@ interface ChapterDao {
     @Query("UPDATE chapter SET read = 0, lastPageRead = 0, lastScrollOffset = 0, lastReadAt = 0 WHERE id IN (:chapterIds)")
     suspend fun markUnreadByIds(chapterIds: List<String>)
 
-    @Query("UPDATE chapter SET read = 1, lastPageRead = 0 WHERE id IN (:chapterIds)")
-    suspend fun markReadByIds(chapterIds: List<String>)
+    @Query("UPDATE chapter SET read = 1, lastPageRead = 0, lastReadAt = :nowAt WHERE id IN (:chapterIds)")
+    suspend fun markReadByIds(chapterIds: List<String>, nowAt: Long = System.currentTimeMillis())
 }

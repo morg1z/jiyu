@@ -40,22 +40,139 @@ data class PositionedTranslationBlock(
  * ([layoutHeuristic]) - viz spec docs/superpowers/specs/2026-07-24-bubble-shape-and-font-design.md.
  */
 fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTranslationBlock> {
-    val shapeBased = blocks.filter { it.shape != null }
-    val heuristicBased = blocks.filter { it.shape == null }
+    // isUntranslated sourozenec ve STEJNÉ bublině jako přeložený blok - rozšířit sourozence
+    // přes jeho glyfy (audit Vagabondu: "MATA-HACHI'S BEEN" zůstalo EN vedle přeloženého
+    // "PTÁM SE TĚ." v jedné bublině). Vrací seznam STEJNÉ délky - indexy v positioned
+    // klíčují TextPatchProvider záplaty a přemapování by je rozbilo; absorbovaný blok se
+    // jen nechá vykreslit jako dosud (renderer ho přeskočí přes bubbleSkipReason).
+    val effectiveBlocks = mergeUntranslatedSiblingBlocks(blocks)
+    val shapeBased = effectiveBlocks.filter { it.shape != null }
+    val heuristicBased = effectiveBlocks.filter { it.shape == null }
 
-    val shapePositioned = shapeBased.map { b ->
-        val shape = b.shape!!
-        PositionedTranslationBlock(
-            block = b,
-            leftF = shape.minOf { it.leftF },
-            topF = shape.first().yF,
-            rightF = shape.maxOf { it.rightF },
-            maxBottomF = shape.last().yF,
-            minTopF = shape.first().yF,
+    val shapePositioned = resolveShapeOverlaps(
+        shapeBased.map { b ->
+            val shape = b.shape!!
+            PositionedTranslationBlock(
+                block = b,
+                leftF = shape.minOf { it.leftF },
+                topF = shape.first().yF,
+                rightF = shape.maxOf { it.rightF },
+                maxBottomF = shape.last().yF,
+                minTopF = shape.first().yF,
+            )
+        },
+    )
+
+    // TOC/seznam: mnoho bloku naskladanych pod sebou s prubeznym horizontalnim prekryvem.
+    // V takovem layoutu je volna expanze bez souseda destruktivni (kazdy box se roztahne
+    // do radky vedle) - vypne se jen no-neighbor fallback; expanze k realnym sousedum
+    // pres midpoint mezer zustava, protoze ta nikdy kolizi nevyrobi.
+    val denseList = isDenseListPage(heuristicBased.filter { !it.isSfx })
+
+    return shapePositioned + layoutHeuristic(heuristicBased, shapePositioned, denseList)
+}
+
+/** Kolik procent užšího z obou rectů se musí vodorovně překrývat, aby šlo o jednu bublinu. */
+private const val SIBLING_MIN_HORIZONTAL_OVERLAP = 0.45f
+
+/** Svislá mezera mezi půlkami jedné bubliny v násobcích řádkové výšky sourozence. */
+private const val SIBLING_MAX_GAP_LINES = 1.5f
+
+/**
+ * Předstupňový pass [layoutTranslationBlocks]: blok s `isUntranslated` (model vrátil
+ * UNTRANSLATED_MARKER - nečitelné OCR, selhání poskytovatele) nechává prosvítat anglický
+ * originál. Když takový blok leží ve STEJNÉ fyzické bublině jako přeložený sourozenec
+ * (audit Vagabondu: "MATA-HACHI'S BEEN" EN vedle přeloženého "PTÁM SE TĚ."), rozšíří
+ * geometrii sourozence přes jeho rect - maska pak zakryje i původní anglické glyfy a
+ * bublina vizuálně zůstane jedna, ne půl-EN/půl-CS.
+ *
+ * "Stejná bublina" = silný vodorovný překryv (≥ [SIBLING_MIN_HORIZONTAL_OVERLAP] užšího)
+ * A svislá mezera do ~[SIBLING_MAX_GAP_LINES] řádků, NEBO střed bloku uvnitř sourodcova
+ * detekovaného tvaru. Prah je záměrně přísnější než u `detectContinuations` (0,15) - tam
+ * se sdílí jen kontext promptu, tady se fyzicky prodlužuje maska.
+ *
+ * Seznam má na výstupu STEJNOU délku jako na vstupu (absorbovaný blok zůstává - renderer
+ * ho přeskočí) - indexy klíčují záplaty v TextPatchProvider, rozbily by se posunem.
+ */
+internal fun mergeUntranslatedSiblingBlocks(blocks: List<TranslatedBlock>): List<TranslatedBlock> {
+    fun TranslatedBlock.isAbsorbableFragment(): Boolean =
+        // Čistě interpunkční SFX ("!", "…") se neabsorbuje - samotný vykřičník může
+        // být legitimní dramatická bublina a překrytí by ho zahodilo; jen útržky
+        // s písmenem ("F", "S") jsou odřezek sazby, co do sousední masky patří.
+        isUntranslated || (isSfx && shape == null && originalText.count { it.isLetter() } in 1..2)
+    if (blocks.none { it.isAbsorbableFragment() }) return blocks
+
+    val absorbedInto = mutableMapOf<Int, Int>()
+    for (ui in blocks.indices) {
+        val u = blocks[ui]
+        // Vedle untranslated bloků se absorbují i mikro-SFX fragmenty (<=2 písmena bez
+        // vlastního tvaru) - odtržené písmeno sazby ("F" od FORGIVE ME) se má rozpustit
+        // v masce sousední přeložené bubliny, ne viset vedle ní na kresbě.
+        if (!u.isAbsorbableFragment()) continue
+        var bestTi = -1
+        var bestRatio = 0f
+        for (ti in blocks.indices) {
+            if (ti == ui) continue
+            val t = blocks[ti]
+            if (t.isSfx || t.isUntranslated) continue
+            if (centerInsideShapeRow(u, t)) { bestTi = ti; break }
+            val overlapX = minOf(u.rightF, t.rightF) - maxOf(u.leftF, t.leftF)
+            val narrowerW = minOf(u.rightF - u.leftF, t.rightF - t.leftF)
+            if (narrowerW <= 0f) continue
+            val ratio = overlapX / narrowerW
+            if (ratio < SIBLING_MIN_HORIZONTAL_OVERLAP) continue
+            val tLine = (t.bottomF - t.topF) / t.lineCount.coerceAtLeast(1)
+            val gap = maxOf(0f, maxOf(u.topF, t.topF) - minOf(u.bottomF, t.bottomF))
+            if (gap > tLine * SIBLING_MAX_GAP_LINES) continue
+            if (ratio > bestRatio) { bestTi = ti; bestRatio = ratio }
+        }
+        if (bestTi >= 0) absorbedInto[ui] = bestTi
+    }
+    if (absorbedInto.isEmpty()) return blocks
+
+    val out = blocks.toMutableList()
+    for ((ui, ti) in absorbedInto) {
+        val u = blocks[ui]
+        val t = out[ti]
+        out[ti] = t.copy(
+            leftF = minOf(t.leftF, u.leftF),
+            topF = minOf(t.topF, u.topF),
+            rightF = maxOf(t.rightF, u.rightF),
+            bottomF = maxOf(t.bottomF, u.bottomF),
+            shape = t.shape?.let { unionShapeWithRect(it, u) },
         )
     }
+    return out
+}
 
-    return shapePositioned + layoutHeuristic(heuristicBased, shapePositioned)
+/** Leží střed [u] uvnitř řádkového profilu tvaru [t]? Přesnější "ta samá bublina" než bbox. */
+private fun centerInsideShapeRow(u: TranslatedBlock, t: TranslatedBlock): Boolean {
+    val shape = t.shape ?: return false
+    val cx = (u.leftF + u.rightF) / 2f
+    val cy = (u.topF + u.bottomF) / 2f
+    val row = shape.minByOrNull { kotlin.math.abs(it.yF - cy) } ?: return false
+    return cx >= row.leftF && cx <= row.rightF
+}
+
+/**
+ * Union tvaru (řádkový profil BubbleShapePoint) s obdélníkem [rect]: po jeho výšce se
+ * nasampluje 9 řádků a každý se buď připojí jako nový řádek profilu, nebo rozšíří
+ * existující - výsledný obalový box i výplň tak pokryjí i glyphy absorbovaného bloku.
+ */
+private fun unionShapeWithRect(shape: List<BubbleShapePoint>, rect: TranslatedBlock): List<BubbleShapePoint> {
+    val rows = shape.toMutableList()
+    val samples = 8
+    for (s in 0..samples) {
+        val y = rect.topF + (rect.bottomF - rect.topF) * s / samples
+        val idx = rows.indexOfFirst { kotlin.math.abs(it.yF - y) < 0.002f }
+        if (idx >= 0) {
+            val r = rows[idx]
+            rows[idx] = r.copy(leftF = minOf(r.leftF, rect.leftF), rightF = maxOf(r.rightF, rect.rightF))
+        } else {
+            rows += BubbleShapePoint(yF = y, leftF = rect.leftF, rightF = rect.rightF)
+        }
+    }
+    return rows.sortedBy { it.yF }
 }
 
 /** Ohraničující obdélník - společný tvar pro sousedy z [layoutHeuristic] i z pevných tvarových bublin. */
@@ -75,6 +192,96 @@ private fun PositionedTranslationBlock.toObstacleRect() = NeighborRect(leftF, mi
  */
 private const val NEARBY_PROXIMITY_F = 0.005f
 
+/** Kolik bloku se musi naskladat do "radku", aby stranka platila za listovy layout (TOC). */
+private const val DENSE_LIST_MIN_BLOCKS = 6
+
+/** Kolik procent sousednich paru musi horizontalne prekryvat, aby platil listovy rezim. */
+private const val DENSE_LIST_ALIGNED_FRACTION = 0.6f
+
+/** Kolik pruchodu shape-vs-shape kolizniho reseni - viz [resolveShapeOverlaps]. */
+private const val SHAPE_COLLISION_PASSES = 3
+
+/**
+ * Dva bloky s detekovanym tvarem se muzou prekryvat (flood-fill obrys je sirokorysejsi nez
+ * text uvnitr, dve bubliny se u sebe dotykaji, nebo detekce spojila kus pozadi navic) -
+ * driv se takove dvojice vykreslily pres sebe doslova (audit TOC stranky Vagabondu:
+ * neprehledny shluk prekrytych boxu). Reseni: sdilena hranice v PULI mezery mezi textovymi
+ * recty - shape boxy se smi zmensit jen do vlastniho OCR textu, nikdy pod nej, takze oba
+ * preklady zustanou citelne a kryjou cely svuj glyph region. Kdyz se textove recty samotne
+ * prekryvaji (nepravda skoro nikdy - pak detekce udelala z dvou bublin jednu), dvojici
+ * nechame byt: zmensit box pod glyphy by zakrylo puvodni pismo jeste pred vykreslenim.
+ */
+private fun resolveShapeOverlaps(
+    positioned: List<PositionedTranslationBlock>,
+): List<PositionedTranslationBlock> {
+    val result = positioned.toMutableList()
+    repeat(SHAPE_COLLISION_PASSES) {
+        var changed = false
+        for (i in result.indices) {
+            for (j in i + 1 until result.size) {
+                val a = result[i]; val b = result[j]
+                val overlapX = minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF)
+                val overlapY = minOf(a.maxBottomF, b.maxBottomF) - maxOf(a.minTopF, b.minTopF)
+                if (overlapX <= 0f || overlapY <= 0f) continue
+
+                val resolved = splitShapePair(a, b) ?: continue
+                result[i] = resolved.first
+                result[j] = resolved.second
+                changed = true
+            }
+        }
+        if (!changed) return result
+    }
+    return result
+}
+
+/** Svisly split preferujeme (bubliny v mange se typicky radeji pod sebe); horizontalni jen jako fallback. */
+private fun splitShapePair(
+    a: PositionedTranslationBlock,
+    b: PositionedTranslationBlock,
+): Pair<PositionedTranslationBlock, PositionedTranslationBlock>? {
+    val upper = if (a.block.topF <= b.block.topF) a else b
+    val lower = if (a.block.topF <= b.block.topF) b else a
+    if (upper.block.bottomF <= lower.block.topF) {
+        val boundary = (upper.block.bottomF + lower.block.topF) / 2f
+        val newUpper = upper.copy(maxBottomF = upper.maxBottomF.coerceAtMost(boundary))
+        val newLower = lower.copy(minTopF = lower.minTopF.coerceAtLeast(boundary))
+        if (newUpper.maxBottomF < upper.maxBottomF || newLower.minTopF > lower.minTopF) {
+            return if (upper === a) newUpper to newLower else newLower to newUpper
+        }
+    }
+    val left = if (a.block.leftF <= b.block.leftF) a else b
+    val right = if (a.block.leftF <= b.block.leftF) b else a
+    if (left.block.rightF <= right.block.leftF) {
+        val boundary = (left.block.rightF + right.block.leftF) / 2f
+        val newLeft = left.copy(rightF = left.rightF.coerceAtMost(boundary))
+        val newRight = right.copy(leftF = right.leftF.coerceAtLeast(boundary))
+        if (newLeft.rightF < left.rightF || newRight.leftF > right.leftF) {
+            return if (left === a) newLeft to newRight else newRight to newLeft
+        }
+    }
+    return null
+}
+
+/**
+ * Pravda, kdyz heuristicke bloky tvori husty "seznam" (obsahove stranky, TOC): serazene podle
+ * topF maji po dvou silny horizontalni prekryv. Meri se jen ne-SFX bloky - stranky plne SFX
+ * hexagonu nejsou seznam. Na normalni manga strance bubliny skacou vodorovne i svisle, takze
+ * podminka se temer nikdy netrefi.
+ */
+internal fun isDenseListPage(blocks: List<TranslatedBlock>): Boolean {
+    if (blocks.size < DENSE_LIST_MIN_BLOCKS) return false
+    val sorted = blocks.sortedBy { it.topF }
+    var aligned = 0
+    for (i in 1 until sorted.size) {
+        val prev = sorted[i - 1]; val cur = sorted[i]
+        val overlapX = minOf(prev.rightF, cur.rightF) - maxOf(prev.leftF, cur.leftF)
+        val narrower = minOf(prev.rightF - prev.leftF, cur.rightF - cur.leftF).coerceAtLeast(0.0001f)
+        if (overlapX / narrower > 0.5f) aligned++
+    }
+    return aligned >= (sorted.size - 1) * DENSE_LIST_ALIGNED_FRACTION
+}
+
 /** Viz komentář u výpočtu `maxBottom` v [layoutHeuristic] - nezávislý strop na to, jak daleko
  * smí box expandovat SMĚREM K SOUSEDOVI, i když je skutečný soused dál. Řádově stejné jako
  * existující 3x šířkový strop. */
@@ -83,6 +290,7 @@ private const val NEIGHBOR_DISTANCE_CAP_MULTIPLIER = 6f
 private fun layoutHeuristic(
     blocks: List<TranslatedBlock>,
     shapeObstacles: List<PositionedTranslationBlock> = emptyList(),
+    denseList: Boolean = false,
 ): List<PositionedTranslationBlock> {
     fun verticallyOverlaps(a: NeighborRect, b: NeighborRect) =
         a.topF < b.bottomF + NEARBY_PROXIMITY_F && a.bottomF > b.topF - NEARBY_PROXIMITY_F
@@ -92,6 +300,20 @@ private fun layoutHeuristic(
     val positioned = blocks.map { b ->
         val bRect = b.toRect()
         val peerRects = blocks.filter { it !== b }.map { it.toRect() } + obstacleRects
+
+        // SFX blok se sam nevykresluje - nema smysl mu expandovat (nevyditelny box by jen
+        // zbytecne tiskl sousedni dialogove boxy na stranu). Drzi vlastni OCR rect a slouzi
+        // ciste jako prekazka v peerRects ostatnich.
+        if (b.isSfx) {
+            return@map PositionedTranslationBlock(
+                block = b,
+                leftF = b.leftF,
+                topF = b.topF,
+                rightF = b.rightF,
+                maxBottomF = b.bottomF,
+                minTopF = b.topF,
+            )
+        }
 
         val leftNeighbor = peerRects.filter { verticallyOverlaps(it, bRect) && it.rightF <= b.leftF + 0.001f }
             .maxByOrNull { it.rightF }
@@ -111,7 +333,10 @@ private fun layoutHeuristic(
         // je stejné, ať už má blok souseda, nebo ne (viz BubbleTextFit.DEFAULT_MAX_ITERATIONS
         // pro řešení namačkaného textu jinou, bezpečnější cestou - přes fitter, ne přes
         // rozšiřování boxu do kresby).
-        val expandFactor = if (b.bgUniform) 3f else 1.15f
+        // Na listovych strankach (TOC - viz isDenseListPage) navic volna expanze bez souseda
+        // znamenala rozlezeni radkoveho textu pres sousedni radky = auditovana katastrofa;
+        // faktor 0 necha jen vlastni rect (midpoint expanze k realnym sousedum jede dal).
+        val expandFactor = if (denseList) 0f else if (b.bgUniform) 3f else 1.15f
         val ownWidth = b.rightF - b.leftF
         val expandLimitLeft = leftNeighbor?.let { (b.leftF + it.rightF) / 2f } ?: (b.leftF - ownWidth * expandFactor).coerceAtLeast(0f)
         val expandLimitRight = rightNeighbor?.let { (b.rightF + it.leftF) / 2f } ?: (b.rightF + ownWidth * expandFactor).coerceAtMost(1f)
@@ -173,11 +398,17 @@ private fun layoutHeuristic(
     }.toMutableList()
 
     // Řádková heuristika výše nezachytí diagonálně sousedící bloky (jeden začíná výš,
-    // ale je posunutý vpravo mimo "stejnou řadu") - po prvotní expanzi ještě jednou
-    // projdeme všechny dvojice a případný přesah zmenšíme, přednostně svisle (zkrácením
+    // ale je posunutý vpravo mimo "stejnou řadu") - po prvotní expanzi ještě projdeme
+    // všechny dvojice a případný přesah zmenšíme, přednostně svisle (zkrácením
     // maxBottomF horního bloku), a teprve když by to zmenšilo box pod jeho původní OCR
-    // rozměr, vodorovně (posunutím sdílené hranice na střed přesahu).
-    repeat(2) {
+    // rozměr, vodorovně (posunutím sdílené hranice na střed přesahu). Iterujeme do
+    // konvergence (max 4 průchody): pevné 2 kolá dřív na hustych strankach (TOC)
+    // zanechavala zbytkove prekryvy - jeden pass vyresi par A/B a zaroven muze zpusobit
+    // novy prekryv proti C.
+    var collisionPasses = 0
+    while (collisionPasses < 4) {
+        collisionPasses++
+        var changed = false
         for (i in positioned.indices) {
             for (j in positioned.indices) {
                 if (i == j) continue
@@ -185,6 +416,7 @@ private fun layoutHeuristic(
                 val overlapX = minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF)
                 val overlapY = minOf(a.maxBottomF, b.maxBottomF) - maxOf(a.minTopF, b.minTopF)
                 if (overlapX <= 0f || overlapY <= 0f) continue
+                changed = true
 
                 val upperIdx = if (a.minTopF <= b.minTopF) i else j
                 val lowerIdx = if (a.minTopF <= b.minTopF) j else i
@@ -205,6 +437,7 @@ private fun layoutHeuristic(
                 }
             }
         }
+        if (!changed) break
     }
 
     // Stejná oprava jako výše, ale proti tvarovým bublinám (viz [shapeObstacles]) - ty se

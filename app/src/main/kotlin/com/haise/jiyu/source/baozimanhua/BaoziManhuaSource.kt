@@ -33,6 +33,12 @@ class BaoziManhuaSource @Inject constructor(private val client: OkHttpClient) : 
     override val supportsSortOrder: Boolean get() = false
     override val contentType = "MANHUA"
     override val language = "zh"
+    // baozimh.com vraci 403 i s browser hlavickami; web se prestehoval na
+    // baozimh.org s komplet novym Astro frontendem (/hots, /manga/{slug},
+    // /chapterlist/{slug} bez statickych odkazu) - parser ceka na prepis.
+    override val isBroken: Boolean get() = true
+    override val brokenReason: String get() =
+        "baozimh.com je mrtvé (403 WAF), baozimh.org má nový Astro frontend - vyžaduje přepis parseru"
     override val homepageUrl get() = base
     private val base = "https://www.baozimh.com"
 

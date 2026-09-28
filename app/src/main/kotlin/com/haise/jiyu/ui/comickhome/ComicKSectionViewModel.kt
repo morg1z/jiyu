@@ -80,7 +80,7 @@ class ComicKSectionViewModel @Inject constructor(
         _openingManga.value = manga
         viewModelScope.launch {
             try {
-                val id = repository.openPreview(manga)
+                val id = repository.registerPreview(manga)
                 onOpened(id)
             } catch (e: Exception) {
                 e.report("comicksection:openManga")

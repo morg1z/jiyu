@@ -98,21 +98,43 @@ class AsuraScansSource @Inject constructor(private val client: OkHttpClient) : M
         }
     }
 
-    private fun genreFilteredList(slug: String, page: Int): List<SManga> {
-        val encoded = URLEncoder.encode(slug, "UTF-8")
-        return parseApiSeries(get("$apiBase/api/series?page=$page&genre=$encoded"))
+    // /api/series prijima status= (ongoing|completed|hiatus|dropped) a type=
+    // (manga|manhwa|manhua) - overeno zive: status=completed vraci jen completed,
+    // type=manga jen manga.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+    )
+
+    private val statusValues = mapOf(
+        "ongoing" to "ongoing", "completed" to "completed",
+        "hiatus" to "hiatus", "cancelled" to "dropped",
+    )
+    private val siteTypes = setOf("manga", "manhwa", "manhua")
+
+    private fun apiSeriesUrl(page: Int, filter: MangaFilter): String = buildString {
+        append("$apiBase/api/series?page=").append(page)
+        filter.genres.firstOrNull()?.let { append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+        statusValues[filter.status]?.let { append("&status=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { append("&type=").append(it) }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) return@withContext genreFilteredList(filter.genres.first(), page)
+            if (filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty())
+                return@withContext parseApiSeries(get(apiSeriesUrl(page, filter)))
             parseList(get("$base/browse?page=$page"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) return@withContext genreFilteredList(filter.genres.first(), page)
+            if (filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty())
+                return@withContext parseApiSeries(get(apiSeriesUrl(page, filter)))
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/browse?page=$page&q=$q"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

@@ -23,6 +23,7 @@ import io.mockk.spyk
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -267,13 +268,42 @@ class MangaRepositoryRefreshDetailsTest {
     }
 
     @Test
-    fun `a single replaced chapter is treated as a normal new chapter, nothing is relinked`() = runTest {
+    fun `a single replaced chapter is inserted but not reported as new`() = runTest {
         mangaDao.upsert(entity("m1").copy(sourceId = "mangadex"))
         chapterDao.upsertAll((1..4).map { storedChapter("mangadex::/c/$it", it.toFloat(), read = true) })
 
+        // Reupload chapter 4 pod novym URL se vlozi jako radek, ale cislem NEpresahuje
+        // max 4 - neni to "nova kapitola" (notifikace ma prijit az u ch5).
         val newlyAdded = refreshWith("mangadex", listOf(sChapter("/c/1", 1f), sChapter("/c/2", 2f), sChapter("/c/3", 3f), sChapter("/other/4", 4f)))
 
-        assertEquals(listOf("mangadex::/other/4"), newlyAdded.map { it.id })
+        assertEquals(emptyList<ChapterEntity>(), newlyAdded)
         assertEquals(5, chapterDao.getAllForManga("m1").size)
+        assertNotNull(chapterDao.getById("mangadex::/other/4"))
+    }
+
+    @Test
+    fun `the first chapter fill is a baseline, nothing is reported as new`() = runTest {
+        // Titul pridany s 20 kapitolami (nebo baseline naplneny az po selhanem prvnim
+        // fetchi) - zadne oznameni, dokud nevyjde 21.
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex"))
+
+        val newlyAdded = refreshWith("mangadex", (1..20).map { sChapter("/c/$it", it.toFloat()) })
+
+        assertEquals(emptyList<ChapterEntity>(), newlyAdded)
+        assertEquals(20, chapterDao.getAllForManga("m1").size)
+    }
+
+    @Test
+    fun `only chapters above the stored max are reported as new`() = runTest {
+        mangaDao.upsert(entity("m1").copy(sourceId = "mangadex"))
+        chapterDao.upsertAll((1..20).map { storedChapter("mangadex::/c/$it", it.toFloat()) })
+
+        // Fetch obsahuje stare kapitoly, 2 nove (21, 22) a jeden backfill cisla 5 pod novym URL.
+        val newlyAdded = refreshWith(
+            "mangadex",
+            (1..22).map { sChapter("/c/$it", it.toFloat()) } + sChapter("/other/5", 5f),
+        )
+
+        assertEquals(listOf(21f, 22f), newlyAdded.map { it.chapterNumber })
     }
 }

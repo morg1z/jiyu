@@ -315,6 +315,22 @@ private fun ModeStep(appMode: String, onSelect: (String) -> Unit) {
         )
         Spacer(Modifier.height(10.dp))
         ModeOptionCard(
+            title = stringResource(R.string.onb_mode_novel_title),
+            description = stringResource(R.string.onb_mode_novel_desc),
+            note = null,
+            selected = appMode == AppMode.NOVEL,
+            onClick = { onSelect(AppMode.NOVEL) },
+        )
+        Spacer(Modifier.height(10.dp))
+        ModeOptionCard(
+            title = stringResource(R.string.onb_mode_comic_title),
+            description = stringResource(R.string.onb_mode_comic_desc),
+            note = null,
+            selected = appMode == AppMode.COMIC,
+            onClick = { onSelect(AppMode.COMIC) },
+        )
+        Spacer(Modifier.height(10.dp))
+        ModeOptionCard(
             title = stringResource(R.string.onb_mode_manual_title),
             description = stringResource(R.string.onb_mode_manual_desc),
             note = null,

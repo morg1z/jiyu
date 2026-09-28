@@ -76,15 +76,26 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.comick.ChapterUpdate
 import com.haise.jiyu.source.comick.ReviewItem
 import com.haise.jiyu.source.comick.TopFeed
+import com.haise.jiyu.ui.components.FeatureTipSheet
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
+import com.haise.jiyu.ui.theme.CompletedTitleStyle
 import com.haise.jiyu.ui.theme.GlowCyan
+import com.haise.jiyu.ui.theme.LatestTitleStyle
+import com.haise.jiyu.ui.theme.PopularTitleStyle
+import com.haise.jiyu.ui.theme.ReviewsTitleStyle
+import com.haise.jiyu.ui.theme.SectionTitleStyle
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
+import com.haise.jiyu.ui.theme.TrendingTitleStyle
+import com.haise.jiyu.ui.theme.UpdatesTitleStyle
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.screenGradient
 import compose.icons.TablerIcons
 import compose.icons.tablericons.ArrowLeft
+import compose.icons.tablericons.Bolt
 import compose.icons.tablericons.Book
+import compose.icons.tablericons.CircleCheck
+import compose.icons.tablericons.Clock
 import compose.icons.tablericons.Flame
 import compose.icons.tablericons.Search
 import compose.icons.tablericons.Settings
@@ -302,6 +313,7 @@ fun ComicKHomeScreen(
                                 val label = stringResource(R.string.comick_home_popular_new)
                                 WindowSection(
                                     title = label,
+                                    titleStyle = PopularTitleStyle,
                                     window = popularNewWindow,
                                     onWindowChange = { viewModel.setPopularNewWindow(it) },
                                     comics = feed.popularNew[popularNewWindow].orEmpty().take(15),
@@ -313,6 +325,7 @@ fun ComicKHomeScreen(
                                 val label = stringResource(R.string.comick_home_most_recent_popular)
                                 WindowSection(
                                     title = label,
+                                    titleStyle = TrendingTitleStyle,
                                     window = mostRecentPopularWindow,
                                     onWindowChange = { viewModel.setMostRecentPopularWindow(it) },
                                     comics = feed.mostRecentPopular[mostRecentPopularWindow].orEmpty().take(15),
@@ -386,6 +399,27 @@ fun ComicKHomeScreen(
                 }
             }
         }
+    }
+
+    // Jednorazovy tip "dlouhy stisk na nazev ComicK = filtry" - nezavisly flag
+    // na onboardingu, ukaze se i uzivatelum na starsi verzi. Pocka na odklepnuti
+    // browse tipu z MainScreen (jinak by se dva sheety skladali pres sebe).
+    val comickFilterTipShown by viewModel.comickFilterTipShown.collectAsStateWithLifecycle()
+    val browseModeTipShown by viewModel.browseModeTipShown.collectAsStateWithLifecycle()
+    var showFilterTip by remember { mutableStateOf(false) }
+    LaunchedEffect(comickFilterTipShown, browseModeTipShown) {
+        if (!comickFilterTipShown && browseModeTipShown) showFilterTip = true
+    }
+    if (showFilterTip && !showPreferences) {
+        FeatureTipSheet(
+            title = stringResource(R.string.tip_comick_title),
+            body = stringResource(R.string.tip_comick_body),
+            icon = TablerIcons.Settings,
+            onDismiss = {
+                showFilterTip = false
+                viewModel.setComickFilterTipShown()
+            },
+        )
     }
 
     if (showPreferences) {
@@ -515,13 +549,23 @@ private fun ComicKHomeHeader(
     }
 }
 
+/** Nadpis sekce ve stylu ComicK webu - gradient text + ikonka ve startovni
+ * barve gradientu (sdilena paleta z ui/theme/SectionHeading.kt). */
 @Composable
-private fun SectionHeader(title: String, onViewAll: () -> Unit) {
+private fun SectionHeader(title: String, style: SectionTitleStyle, onViewAll: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        if (style.icon != null) {
+            Icon(style.icon, contentDescription = null, tint = style.iconTint, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            title,
+            style = TextStyle(brush = style.brush, fontWeight = FontWeight.Bold, fontSize = 16.sp),
+            modifier = Modifier.weight(1f),
+        )
         Text(
             stringResource(R.string.comick_home_view_all),
             color = Violet,
@@ -546,17 +590,49 @@ private fun ToggleSection(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
-                Text(
-                    leftLabel, color = if (!rightSelected) TextPrimary else TextSecondary.copy(alpha = 0.5f),
-                    fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                    modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(false) }) },
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                // Web-styl: "Nove pridane" zelene (Clock), "Dokoncene" modre
+                // (CircleCheck) - aktivni strana nese gradient, neaktivni ztlumi.
+                Icon(
+                    TablerIcons.Clock, contentDescription = null,
+                    tint = if (!rightSelected) LatestTitleStyle.iconTint else TextSecondary.copy(alpha = 0.4f),
+                    modifier = Modifier.size(16.dp),
                 )
+                if (!rightSelected) {
+                    Text(
+                        leftLabel,
+                        style = TextStyle(brush = LatestTitleStyle.brush, fontWeight = FontWeight.Bold, fontSize = 16.sp),
+                        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(false) }) },
+                    )
+                } else {
+                    Text(
+                        leftLabel, color = TextSecondary.copy(alpha = 0.5f),
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(false) }) },
+                    )
+                }
                 Text("/", color = TextSecondary, fontSize = 16.sp)
-                Text(
-                    rightLabel, color = if (rightSelected) TextPrimary else TextSecondary.copy(alpha = 0.5f),
-                    fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                    modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(true) }) },
+                if (rightSelected) {
+                    Text(
+                        rightLabel,
+                        style = TextStyle(brush = CompletedTitleStyle.brush, fontWeight = FontWeight.Bold, fontSize = 16.sp),
+                        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(true) }) },
+                    )
+                } else {
+                    Text(
+                        rightLabel, color = TextSecondary.copy(alpha = 0.5f),
+                        fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                        modifier = Modifier.pointerInput(Unit) { detectTapGestures(onTap = { onToggle(true) }) },
+                    )
+                }
+                Icon(
+                    TablerIcons.CircleCheck, contentDescription = null,
+                    tint = if (rightSelected) CompletedTitleStyle.iconTint else TextSecondary.copy(alpha = 0.4f),
+                    modifier = Modifier.size(15.dp),
                 )
             }
             Text(
@@ -571,6 +647,7 @@ private fun ToggleSection(
 @Composable
 private fun WindowSection(
     title: String,
+    titleStyle: SectionTitleStyle,
     window: String,
     onWindowChange: (String) -> Unit,
     comics: List<SManga>,
@@ -578,7 +655,7 @@ private fun WindowSection(
     onViewAll: () -> Unit,
 ) {
     Column {
-        SectionHeader(title, onViewAll)
+        SectionHeader(title, titleStyle, onViewAll)
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -617,7 +694,7 @@ private fun MangaRow(comics: List<SManga>, onOpenManga: (SManga) -> Unit) {
 @Composable
 private fun ReviewSection(reviews: List<ReviewItem>, onOpenManga: (SManga) -> Unit, onViewAll: () -> Unit) {
     Column {
-        SectionHeader(stringResource(R.string.comick_home_recent_reviews), onViewAll)
+        SectionHeader(stringResource(R.string.comick_home_recent_reviews), ReviewsTitleStyle, onViewAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -638,11 +715,17 @@ private fun ReviewSection(reviews: List<ReviewItem>, onOpenManga: (SManga) -> Un
 @Composable
 private fun UpdatesFeedHeader(order: String, onOrderChange: (String) -> Unit, onOpenPreferences: () -> Unit) {
     Column {
-        Text(
-            stringResource(R.string.comick_home_tab_updates),
-            color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+        Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(TablerIcons.Bolt, contentDescription = null, tint = UpdatesTitleStyle.iconTint, modifier = Modifier.size(16.dp))
+            Text(
+                stringResource(R.string.comick_home_tab_updates),
+                style = TextStyle(brush = UpdatesTitleStyle.brush, fontWeight = FontWeight.Bold, fontSize = 16.sp),
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,

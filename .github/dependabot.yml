@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Akce ve workflow jsou zafixované na SHA - Dependabot navrhne PR s novým SHA, když vyjde nová verze.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

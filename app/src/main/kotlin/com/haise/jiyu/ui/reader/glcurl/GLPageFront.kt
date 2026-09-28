@@ -4,6 +4,10 @@ package com.haise.jiyu.ui.reader.glcurl
  * Port `PageFront.java` - aktivní ("otáčená") stránka při otáčení VPŘED (na další stránku).
  * Matematika je záměrně 1:1 s PlayLikeCurl: původní kratší vlnová délka vytváří viditelnou
  * spirálu/trubičku a síla ohybu je stejná v celé výšce stránky.
+ *
+ * [mirrored] (RTL): přesné horizontální zrcadlení deformace - pozice sloupce `c` se počítá
+ * jako `1 - x_nemirrored(GRID - c)` a Z jako `z_nemirrored(GRID - c)`; `u` texcoord zůstává
+ * `col/GRID`, takže stránka se loupe z levého okraje doprava a obrázek zůstává čitelný.
  */
 class GLPageFront : GLPage() {
 
@@ -20,17 +24,20 @@ class GLPageFront : GLPage() {
                 val perc = 1f - curlCirclePosition / GRID.toFloat()
                 val dx = GRID - curlCirclePosition
                 var calcR = RADIUS
-                if (calcR > RADIUS) calcR = RADIUS
-                calcR = RADIUS
                 var movX = 0f
                 if (perc < 0.20f) calcR = RADIUS * perc * 5
                 if (perc > 0.05f) movX = perc - 0.05f
-                if (isActive) {
-                    vertices[pos + 2] = (calcR * Math.sin(3.14 / (GRID * 0.60f) * (col - dx)) + calcR * 1.1f).toFloat()
-                }
                 val wHRatio = 1f - calcR
+                if (isActive) {
+                    val curveCol = if (mirrored) GRID - col else col
+                    vertices[pos + 2] = (calcR * Math.sin(3.14 / (GRID * 0.60f) * (curveCol - dx)) + calcR * 1.1f).toFloat()
+                }
 
-                vertices[pos] = (col / GRID.toFloat() * wHRatio) - movX
+                vertices[pos] = if (mirrored) {
+                    (1f - wHRatio) + col / GRID.toFloat() * wHRatio + movX
+                } else {
+                    col / GRID.toFloat() * wHRatio - movX
+                }
                 vertices[pos + 1] = (row / GRID.toFloat() * hWRatio) - hWCorrection
             }
         }

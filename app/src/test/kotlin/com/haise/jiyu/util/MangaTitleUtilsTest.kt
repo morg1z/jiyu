@@ -41,4 +41,28 @@ class MangaTitleUtilsTest {
     fun `cyrillic titles are preserved as before`() {
         assertEquals(normalizeMangaTitle("соло левелинг"), normalizeMangaTitle("Соло Левелинг"))
     }
+
+    @Test
+    fun `titleMatchesQuery accepts real hits and rejects fallback listing noise`() {
+        // Skutecne shody prochazeji
+        org.junit.Assert.assertTrue(titleMatchesQuery("Absolute Batman", "batman"))
+        org.junit.Assert.assertTrue(titleMatchesQuery("It's Symbie", "symbie"))
+        org.junit.Assert.assertTrue(titleMatchesQuery("Batman", "absolute batman"))
+        // Fallback vypisy zdroju, co query ignoruji, se zahodi
+        org.junit.Assert.assertFalse(titleMatchesQuery("IDW Sonic The Hedgehog", "symbie"))
+        org.junit.Assert.assertFalse(titleMatchesQuery("The Flash Issue 37", "batman"))
+        org.junit.Assert.assertFalse(titleMatchesQuery("For Laughing Out Loud 14", "absolute batman"))
+    }
+
+    @Test
+    fun `titleMatchesQuery does not over-filter edge cases`() {
+        // Dotaz ze samych kratkych slov nefiltruje nic
+        org.junit.Assert.assertTrue(titleMatchesQuery("Anything", "x y"))
+        // Prazdny dotaz projde vsechno
+        org.junit.Assert.assertTrue(titleMatchesQuery("Anything", "  "))
+        // Prazdny nazev je vzdy sum
+        org.junit.Assert.assertFalse(titleMatchesQuery("", "batman"))
+        // Jednotokenovy fuzzy hit - token dotazu je podretezec nazvu
+        org.junit.Assert.assertTrue(titleMatchesQuery("Solo Leveling: Ragnarok", "solo"))
+    }
 }

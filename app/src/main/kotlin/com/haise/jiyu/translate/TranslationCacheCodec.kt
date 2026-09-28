@@ -28,6 +28,7 @@ internal fun List<TranslatedBlock>.toCacheJson(): String = JSONArray().also { ar
             put("bg", b.bgColorArgb)
             put("bgBottom", b.bgColorBottomArgb)
             put("sfx", b.isSfx)
+            put("artText", b.isArtText)
             put("lc", b.lineCount)
             put("type", b.bubbleType.name)
             put("untrans", b.isUntranslated)
@@ -77,6 +78,9 @@ internal fun TranslatedPageEntity.toBlocks(): List<TranslatedBlock> = try {
             // gradientu místo pádu, dokud se stránka znovu nepřeloží.
             bgColorBottomArgb = o.optInt("bgBottom", if (o.has("bg")) o.getInt("bg") else DEFAULT_BUBBLE_BG_ARGB),
             isSfx = o.optBoolean("sfx", false),
+            // Starší cache záznamy nemají "artText" - default false (žádná bublina se
+            // nikdy neoznačila za art-text), takže se vykreslují jako dosud.
+            isArtText = o.optBoolean("artText", false),
             lineCount = o.optInt("lc", 1),
             shape = shape,
             bubbleType = try { BubbleType.valueOf(o.optString("type", "SPEECH")) } catch (e: Exception) { BubbleType.SPEECH },

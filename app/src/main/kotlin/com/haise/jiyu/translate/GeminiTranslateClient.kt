@@ -74,12 +74,67 @@ class GeminiTranslateClient @Inject constructor(
         // jediného requestu - tohle je hlavní úspora u dlouhé kapitoly, viz ProviderHealth.
         if (!providerHealth.isAvailable(provider)) return@withContext null
 
+        val raw = sendPrompt(
+            system = GeminiUltraPrompt.buildSystemPrompt(glossary, mangaContext),
+            user = GeminiUltraPrompt.buildUserPrompt(bubbles, previousLines),
+            provider = provider,
+        ) ?: return@withContext null
+
+        return@withContext try {
+            GeminiUltraPrompt.parseResponse(raw.text).copy(model = raw.model)
+        } catch (e: Exception) {
+            // Useknutá odpověď (model narazil na output limit) - kompletní bubliny z
+            // validního prefixu zachráníme, ocásek dořekne opravný dotaz v repository.
+            // Bez tohohle se zahodila celá dávka i když jí byla většina čitelná.
+            val salvaged = GeminiUltraPrompt.parseTruncatedResponse(raw.text)
+            if (salvaged != null && salvaged.bubbles.isNotEmpty()) {
+                Log.w(LOG_TAG, "translate:$provider: useknutá odpověď - zachráněno ${salvaged.bubbles.size} bublin z prefixu")
+                e.report("translate:gemini:parseResponse:provider=$provider:salvaged")
+                return@withContext salvaged.copy(model = raw.model)
+            }
+            // Neparsovatelná odpověď - nemá smysl retryovat, model to znovu nespraví.
+            // Hlásíme ale ven: tohle je přesně ten druh tiché chyby, kdy se překlad
+            // "prostě neudělá" a bez hlášení není podle čeho zjistit proč.
+            e.report("translate:gemini:parseResponse:provider=$provider")
+            null
+        }
+    }
+
+    /**
+     * Self-review dávka ([TranslationReview]) - posílá dvojice zdroj->překlad zpět
+     * přes stejný proxy řetězec a vrací SUROVÝ text odpovědi (JSON s verdicty).
+     * Výsledek se nikdy neparsuje na GeminiTranslationResponse - má jiné schéma.
+     */
+    suspend fun reviewPairs(
+        pairs: List<Pair<String, String>>,
+        provider: String = "gemini",
+        targetLanguage: String = "Czech",
+    ): String? = withContext(Dispatchers.IO) {
+        if (!isConfigured || pairs.isEmpty()) return@withContext null
+        if (!providerHealth.isAvailable(provider)) return@withContext null
+        sendPrompt(
+            system = TranslationReview.buildSystemPrompt(targetLanguage),
+            user = TranslationReview.buildUserPrompt(pairs),
+            provider = provider,
+        )?.text
+    }
+
+    private data class RawReply(val text: String, val model: String?)
+
+    /**
+     * Sdílené poslání system+user promptu přes proxy - používá jak překladová dávka,
+     * tak review dávka. Opakuje se JEN přechodné selhání (viz ProxyOutcome.Retryable).
+     * Dřív se opakovala i odpověď proxy s prázdným textem - jenže tak vypadalo i
+     * natvrdo vyčerpané Gemini, takže se na jistě marný požadavek pálily pokusy
+     * a prodleva, a to na každém providerovi každé dávky kapitoly.
+     */
+    private suspend fun sendPrompt(system: String, user: String, provider: String): RawReply? {
         val requestBody = JSONObject().apply {
             put("mode", "gemini")
             put("provider", provider)
             if (provider == "gemini") put("model", GeminiUltraPrompt.MODEL)
-            put("system", GeminiUltraPrompt.buildSystemPrompt(glossary, mangaContext))
-            put("user", GeminiUltraPrompt.buildUserPrompt(bubbles, previousLines))
+            put("system", system)
+            put("user", user)
         }
 
         val request = Request.Builder()
@@ -90,26 +145,14 @@ class GeminiTranslateClient @Inject constructor(
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        // Opakuje se JEN přechodné selhání (viz ProxyOutcome.Retryable). Dřív se opakovala
-        // i odpověď proxy s prázdným textem - jenže tak vypadalo i natvrdo vyčerpané Gemini,
-        // takže se na jistě marný požadavek pálily tři pokusy a přes dvě vteřiny čekání,
-        // a to na každém providerovi každé dávky kapitoly.
         repeat(MAX_ATTEMPTS) { attempt ->
             when (val outcome = executeOnce(request, provider)) {
-                is ProxyOutcome.Text -> return@withContext try {
-                    GeminiUltraPrompt.parseResponse(outcome.value)
-                } catch (e: Exception) {
-                    // Neparsovatelná odpověď - nemá smysl retryovat, model to znovu nespraví.
-                    // Hlásíme ale ven: tohle je přesně ten druh tiché chyby, kdy se překlad
-                    // "prostě neudělá" a bez hlášení není podle čeho zjistit proč.
-                    e.report("translate:gemini:parseResponse:provider=$provider")
-                    null
-                }
-                ProxyOutcome.ProviderDown, ProxyOutcome.BatchFailed -> return@withContext null
+                is ProxyOutcome.Text -> return RawReply(outcome.value, outcome.model)
+                ProxyOutcome.ProviderDown, ProxyOutcome.BatchFailed -> return null
                 ProxyOutcome.Retryable -> if (attempt < MAX_ATTEMPTS - 1) delay(RETRY_DELAY_MILLIS)
             }
         }
-        null
+        return null
     }
 
     /**
@@ -137,7 +180,10 @@ class GeminiTranslateClient @Inject constructor(
                 null -> jsonBody.optString("text").takeIf { it.isNotBlank() }
                     ?.let { text ->
                         providerHealth.markHealthy(provider)
-                        ProxyOutcome.Text(text)
+                        // "model" hlásí proxy od té verze, co umí interní fallback na
+                        // slabší model - starší proxy ho nemá, pak je null a appka se
+                        // chová jako dřív (výsledek se cachuje).
+                        ProxyOutcome.Text(text, jsonBody.optString("model").takeIf { it.isNotBlank() })
                     }
                     ?: ProxyOutcome.BatchFailed
                 UPSTREAM_EMPTY -> ProxyOutcome.BatchFailed
@@ -169,7 +215,7 @@ class GeminiTranslateClient @Inject constructor(
 
     /** Jak dopadlo jedno volání proxy - viz [executeOnce]. */
     private sealed interface ProxyOutcome {
-        data class Text(val value: String) : ProxyOutcome
+        data class Text(val value: String, val model: String? = null) : ProxyOutcome
 
         /** Upstream odmítá obsluhu (kvóta, výpadek) - provider je odstavený, neopakovat. */
         data object ProviderDown : ProxyOutcome

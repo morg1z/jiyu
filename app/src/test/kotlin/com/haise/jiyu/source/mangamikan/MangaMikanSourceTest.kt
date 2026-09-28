@@ -19,26 +19,31 @@ class MangaMikanSourceTest {
 
     private val browseHtml = """
         <html><body>
-        <a class="card-manga d-block" href="/manga/test-series" title="Test Series">
-            <div class="cover-wrap"><img class="cover" src="https://cdn.example.com/cover.jpg"></div>
-        </a>
+        <article class="collection-book manga-card--default">
+            <a class="collection-book__cover" href="https://mangamikan.com/title/test-series">
+                <img src="/uploads/covers/1.webp" alt="Cover of Test Series">
+            </a>
+            <h3><a href="https://mangamikan.com/title/test-series">Test Series</a></h3>
+        </article>
         </body></html>
     """.trimIndent()
 
     private val detailHtml = """
         <html><body>
-        <span class="me-2">Author: <b>Jane Doe</b></span>
-        <a class="genre-pill" href="/genre.php?genre=Action">Action</a>
-        <a class="genre-pill" href="/genre.php?genre=Fantasy">Fantasy</a>
-        <a href="/read/test-series/1">Chapter 1</a>
-        <a href="/read/test-series/2">Chapter 2</a>
+        <p class="collection-synopsis">A test summary.</p>
+        <div class="collection-book-tags"><a href="https://mangamikan.com/genre/action">Action</a><a href="https://mangamikan.com/genre/fantasy">Fantasy</a></div>
+        <p class="collection-creator">By Jane Doe</p>
+        <div class="chapter-arsenal__list">
+            <a href="https://mangamikan.com/read/2" data-chapter-row data-created-at="1620922186"><span class="chapter-arsenal__name"><strong>Chapter 2</strong></span></a>
+            <a href="https://mangamikan.com/read/1" data-chapter-row data-created-at="1620922086"><span class="chapter-arsenal__name"><strong>Chapter 1</strong></span></a>
+        </div>
         </body></html>
     """.trimIndent()
 
     private val pagesHtml = """
         <html><body>
-        <img class="page-img js-lazy" src="data:image/gif;base64,x" data-src="/i.php?c=1&amp;f=0001.webp&amp;exp=1&amp;t=abc">
-        <img class="page-img js-lazy" src="data:image/gif;base64,x" data-src="/i.php?c=1&amp;f=0002.webp&amp;exp=1&amp;t=def">
+        <img src="/mangas/1/p0001.webp" alt="Page 1" data-page="1">
+        <img src="/mangas/1/p0002.webp" alt="Page 2" data-page="2">
         </body></html>
     """.trimIndent()
 
@@ -50,8 +55,8 @@ class MangaMikanSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/browse") -> MockResponse().setBody(browseHtml)
-                    path == "/manga/test-series" -> MockResponse().setBody(detailHtml)
-                    path == "/read/test-series/1" -> MockResponse().setBody(pagesHtml)
+                    path == "/title/test-series" -> MockResponse().setBody(detailHtml)
+                    path == "/read/1" -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -66,22 +71,22 @@ class MangaMikanSourceTest {
     }
 
     @Test
-    fun `getPopular parses card-manga listing`() = runTest {
+    fun `getPopular parses collection-book listing`() = runTest {
         val result = source.getPopular(1)
         assertEquals(1, result.size)
         assertEquals("Test Series", result[0].title)
-        assertEquals("/manga/test-series", result[0].url)
-        assertEquals("https://cdn.example.com/cover.jpg", result[0].coverUrl)
+        assertEquals("https://mangamikan.com/title/test-series", result[0].url)
+        assertEquals("https://mangamikan.com/uploads/covers/1.webp", result[0].coverUrl)
     }
 
     @Test
-    fun `search reuses card-manga parsing`() = runTest {
+    fun `search reuses collection-book parsing`() = runTest {
         val result = source.search("test")
         assertEquals(1, result.size)
     }
 
     @Test
-    fun `getMangaDetails parses author and genre-pill list`() = runTest {
+    fun `getMangaDetails parses creator and genre tag list`() = runTest {
         val manga = source.getPopular(1).first()
         val details = source.getMangaDetails(manga)
         assertEquals("Jane Doe", details.author)
@@ -89,22 +94,22 @@ class MangaMikanSourceTest {
     }
 
     @Test
-    fun `getChapterList parses read links`() = runTest {
+    fun `getChapterList parses data-chapter-row links`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
         assertEquals(2, chapters.size)
-        assertEquals(1f, chapters[0].chapterNumber)
-        assertEquals(2f, chapters[1].chapterNumber)
+        assertEquals(2f, chapters[0].chapterNumber)
+        assertEquals(1f, chapters[1].chapterNumber)
     }
 
     @Test
-    fun `getPageList reads pre-signed i-php URLs from data-src, unescaping entities`() = runTest {
+    fun `getPageList reads direct data-page image URLs`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
-        val pages = source.getPageList(chapters[0])
+        val pages = source.getPageList(chapters[1])
         assertEquals(2, pages.size)
-        assertEquals("https://mangamikan.com/i.php?c=1&f=0001.webp&exp=1&t=abc", pages[0].url)
-        assertEquals("https://mangamikan.com/i.php?c=1&f=0002.webp&exp=1&t=def", pages[1].url)
+        assertEquals("https://mangamikan.com/mangas/1/p0001.webp", pages[0].url)
+        assertEquals("https://mangamikan.com/mangas/1/p0002.webp", pages[1].url)
     }
 
     @Test

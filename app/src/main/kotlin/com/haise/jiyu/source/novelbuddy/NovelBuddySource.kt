@@ -62,7 +62,7 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
                 url = encodeUrl(path, titleId),
                 title = name,
                 coverUrl = o.optString("cover").ifBlank { null },
-                description = o.optString("summary").ifBlank { null },
+                description = o.optString("summary").ifBlank { null }?.let { Jsoup.parse(it).text() },
                 status = mapStatus(o.optString("status")),
                 genres = o.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.getJSONObject(it).optString("name") } } ?: emptyList(),
                 contentType = "NOVEL",
@@ -152,12 +152,25 @@ class NovelBuddySource @Inject constructor(private val client: OkHttpClient) : M
                     sourceId = id,
                     mangaUrl = manga.url,
                     url = c.optString("url"),
-                    name = c.optString("name").ifBlank { "Chapter" },
+                    name = cleanChapterName(c.optString("name")).ifBlank { "Chapter" },
                     chapterNumber = c.optDouble("number", 0.0).toFloat(),
                     dateUpload = parseDate(c.optString("updated_at")),
                 )
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    /**
+     * API slepě předřazuje "Chapter " i když uložený název už ho obsahuje
+     * ("Chapter Chapter ch-au-4: ..."), a AU/epilog side-kapitoly mají místo
+     * názvu slug ("ch-au-4:", "aw:", "ep:") před dvojtečkou. Zkolabujeme
+     * zdvojený prefix a u slug názvů použijeme lidskou část za dvojtečkou.
+     * "Chapter 5: The Beginning" se nemění - před dvojtečkou je číslo, ne slug.
+     */
+    private fun cleanChapterName(raw: String): String {
+        val collapsed = raw.replace(Regex("^(?:Chapter\\s+)+", RegexOption.IGNORE_CASE), "Chapter ")
+        val m = Regex("^Chapter\\s+[a-z][a-z0-9-]*:\\s+(.+)$", RegexOption.IGNORE_CASE).find(collapsed)
+        return m?.groupValues?.get(1)?.trim()?.ifBlank { null } ?: collapsed
     }
 
     private fun parseDate(text: String?): Long {

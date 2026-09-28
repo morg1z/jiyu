@@ -43,8 +43,23 @@ internal fun originalMatches(returnedOriginal: String, expectedText: String): Bo
     val expectedWords = words(expectedText)
     if (expectedWords.isEmpty()) return true // prilis kratky text na smysluplne porovnani, neveto
     val returnedWords = words(returnedOriginal)
-    val overlap = expectedWords.intersect(returnedWords).size
+    // Slovo se počítá i při drobném překlepu: model při echu často opraví OCR chybu ("SIRVIVOR" ->
+    // "SURVIVOR") a přesná shoda pak správný překlad zahodila jako "odpověď na jinou bublinu", takže
+    // bublina zůstala anglicky. Jiná bublina má překryv blízko nule i s tolerancí překlepů.
+    val overlap = expectedWords.count { expected -> expected in returnedWords || returnedWords.any { isTypoOf(expected, it) } }
     return overlap.toFloat() / expectedWords.size >= 0.4f
+}
+
+/** Slova se liší nejvýš o jeden znak (vložení/smazání/záměna) - jen u slov od 4 znaků, kratší by se plést začala. */
+private fun isTypoOf(a: String, b: String): Boolean {
+    if (a.length < 4 || b.length < 4 || kotlin.math.abs(a.length - b.length) > 1) return false
+    var i = 0
+    while (i < a.length && i < b.length && a[i] == b[i]) i++
+    return when {
+        a.length == b.length -> a.substring(i + 1) == b.substring(i + 1)
+        a.length > b.length -> a.substring(i + 1) == b.substring(i)
+        else -> a.substring(i) == b.substring(i + 1)
+    }
 }
 
 /**
@@ -89,6 +104,86 @@ internal fun isSuspiciousVerbatimCopy(original: String, translated: String): Boo
 }
 
 private const val MIN_VERBATIM_LENGTH = 4
+
+/**
+ * Model vrátil text skoro totožný s OCR originálem - liší se jen diakritikou nebo drobným
+ * poškozením (audit Vagabondu: "Vagakond" -> "Vagabond" přes ručně kreslené titulní logo).
+ * Takový překlad nenesl žádnou novou informaci: přepsat lettering běžným fontem bubliny by
+ * originál jen zdegradoval. Render tuhle bublinu přeskočí (viz `bubbleSkipReason` /
+ * `TranslatedBlock.isArtText`) a originál zůstane vidět.
+ *
+ * Na rozdíl od [isSuspiciousVerbatimCopy] (přesná shoda = podezření na nedodržení překladu)
+ * je tohle MĚKKÁ shoda - Levenshtein ≤2 na stejné délce po normalizaci (lowercase, bez
+ * diakritiky, jen písmena/číslice). Pokrývá přesnou shodu i jednoznakové OCR poškození.
+ * Pod 4 písmena se nevyhodnocuje - u dvoupísmenných tokenů ("HI"/"OK") je distanční
+ * blízkost nejednoznačná a jejich overlay je beztak neškodný.
+ *
+ * Samotná shoda ("STOP" -> "STOP") už dřív skončila `isUntranslated` přes
+ * [isSuspiciousVerbatimCopy]; tady dochytáváme i téměř-shodu, která verbatim filtr mine.
+ */
+internal fun isArtTextEcho(original: String, translated: String): Boolean {
+    val o = normalizeArtTextEcho(original)
+    val t = normalizeArtTextEcho(translated)
+    if (o.length < 4) return false
+    if (o.length == t.length) return levenshteinAtMost(o, t, 2)
+    // Logo + přilepený přeložený pojem: překlad obsahuje (téměř) celý originál a jen
+    // krátce navazuje - "VAGAKONDVIZBIGEDIIION" -> "...SVAZEK" (audit: cover logo
+    // dostalo šedý box s přepsaným textem). Podmínka podílu brání falešnému poplachu
+    // "Takezō" < "Takezō jde ven" - originál musí tvořit většinu překladu.
+    return o.length >= 6 && t.length > o.length && t.contains(o) && o.length >= (t.length * 0.7f)
+}
+
+/** Sjednocení pro [isArtTextEcho] - lowercase, bez diakritiky, jen písmena a číslice. */
+private fun normalizeArtTextEcho(text: String): String = buildString(text.length) {
+    for (c in text) {
+        // Nejdřív lowercase - STRIP_DIACRITICS je klíčovaná malými znaky.
+        val lower = c.lowercaseChar()
+        val plain = STRIP_DIACRITICS[lower] ?: lower
+        if (plain.isLetterOrDigit()) append(plain)
+    }
+}
+
+internal val STRIP_DIACRITICS = mapOf(
+    'á' to 'a', 'ä' to 'a', 'à' to 'a', 'â' to 'a', 'ã' to 'a', 'å' to 'a', 'ā' to 'a',
+    'č' to 'c', 'ć' to 'c', 'ç' to 'c',
+    'ď' to 'd',
+    'é' to 'e', 'ë' to 'e', 'è' to 'e', 'ê' to 'e', 'ě' to 'e', 'ę' to 'e',
+    'í' to 'i', 'ï' to 'i', 'ì' to 'i', 'î' to 'i',
+    'ł' to 'l', 'ľ' to 'l',
+    'ň' to 'n', 'ñ' to 'n', 'ń' to 'n',
+    'ó' to 'o', 'ö' to 'o', 'ò' to 'o', 'ô' to 'o', 'õ' to 'o', 'ø' to 'o', 'ō' to 'o',
+    'ř' to 'r', 'ŕ' to 'r',
+    'š' to 's', 'ś' to 's', 'ș' to 's',
+    'ť' to 't',
+    'ú' to 'u', 'ü' to 'u', 'ù' to 'u', 'û' to 'u', 'ů' to 'u', 'ū' to 'u',
+    'ý' to 'y', 'ÿ' to 'y',
+    'ž' to 'z', 'ź' to 'z', 'ż' to 'z',
+)
+
+/**
+ * Levenshtein se stropem [max] - vrátí false jakmile je jisté, že překročí limit
+ * (každý řádek DP tabulky je minimem nad ním). Oba řetězce mají stejnou délku, ale
+ * stále řešíme plnou edit-distance: transpozice/zdvojení znaku (insert+delete) jsou
+ * častější OCR chyba než pouhá výměna.
+ */
+internal fun levenshteinAtMost(a: String, b: String, max: Int): Boolean {
+    val m = a.length; val n = b.length
+    if (kotlin.math.abs(m - n) > max) return false
+    var prev = IntArray(n + 1) { it }
+    for (i in 1..m) {
+        var rowMin = Int.MAX_VALUE
+        val cur = IntArray(n + 1)
+        cur[0] = i
+        for (j in 1..n) {
+            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+            cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if (cur[j] < rowMin) rowMin = cur[j]
+        }
+        if (rowMin > max) return false
+        prev = cur
+    }
+    return prev[n] <= max
+}
 
 /**
  * Kolik vět text obsahuje, odhadnuto z koncové interpunkce (běh `.`/`!`/`?` nebo výpustka

@@ -22,17 +22,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * vortexscans.org bezi na Astro s hydratovanymi "islands" (stejna sablona
- * jako u nekolika dalsich scan skupin) - listing/detail je server-rendered
- * HTML se schema.org microdata, ale plny seznam kapitol se na detailni
- * strance NEnacte cely (jen posledni davka), protoze si ho stahuje az
- * klientsky island z api.vortexscans.org. Skutecny endpoint (bez potreby
- * prihlaseni) byl zjisten z bundlovaneho JS te komponenty:
- *   GET https://api.vortexscans.org/api/chapters?postId={id}&skip=0&take=all&order=desc
- * postId je jen v embedovanych hydration-props na detailni strance (ne v URL),
- * proto se vytahuje regexem primo ze syroveho HTML. Zdrojova API pro
- * fulltextove vyhledavani (/api/posts?search=...) parametr search tise
- * ignoruje, proto se search resi filtrovanim vysledku getPopular.
+ * vortexscans.org - drive Astro s hydratovanymi "islands", dnes React SPA
+ * (react-aria komponenty, data-rac atributy). Seznam kapitol si detailni
+ * stranka natahuje cely az na zalozce Kapitoly - ta je server-renderovana
+ * na `?tab=chapters`, takze staci jeden GET navic a postId (drive tahane
+ * regexem z hydration props) se vubec nepotrebuje. Stranky kapitoly jsou
+ * server-renderovane <img> se src ".../page-0001_...webp".
+ *
+ * Zdrojova API pro fulltextove vyhledavani (/api/posts?search=...) parametr
+ * search tise ignoruje, proto se search resi filtrovanim vysledku getPopular.
  */
 @Singleton
 class VortexScansSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -78,8 +76,30 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
-    private fun genreQueryUrl(genreId: String, page: Int) =
-        "$apiBase/api/query?page=$page&perPage=20&view=archive&genreIds=$genreId"
+    // /api/query prijima i seriesStatus= (ONGOING|COMPLETED|HIATUS|DROPPED) a
+    // seriesType= (MANGA|MANHWA|MANHUA) - overeno zive: seriesStatus=COMPLETED
+    // vraci jen COMPLETED, seriesType=MANGA jen MANGA.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "MANGA", label = "Manga"),
+        FilterTag(id = "MANHWA", label = "Manhwa"),
+        FilterTag(id = "MANHUA", label = "Manhua"),
+    )
+
+    private val statusValues = mapOf(
+        "ongoing" to "ONGOING", "completed" to "COMPLETED",
+        "hiatus" to "HIATUS", "cancelled" to "DROPPED",
+    )
+    private val siteTypes = setOf("MANGA", "MANHWA", "MANHUA")
+
+    private fun queryUrl(page: Int, filter: MangaFilter): String = buildString {
+        append("$apiBase/api/query?page=").append(page).append("&perPage=20&view=archive")
+        filter.genres.firstOrNull()?.let { append("&genreIds=").append(it) }
+        statusValues[filter.status]?.let { append("&seriesStatus=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { append("&seriesType=").append(it) }
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -106,8 +126,8 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
         // telefonu (stejna pricina jako u HiveToonsSource - oba bezi na Astro). S
         // lomitkem uz web odpovi rovnou 200, zadne presmerovani.
         try {
-            if (filter.genres.isNotEmpty()) {
-                return@withContext parseQueryList(get(genreQueryUrl(filter.genres.first(), page)))
+            if (filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty()) {
+                return@withContext parseQueryList(get(queryUrl(page, filter)))
             }
             parseList(get("$base/series/?page=$page"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
@@ -137,29 +157,38 @@ class VortexScansSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val html = get(resolveSourceUrl(base, manga.url))
-            val postId = Regex("""&quot;postId&quot;:\[0,(\d+)]""").find(html)?.groupValues?.get(1)
-                ?: return@withContext emptyList()
-            val json = JSONObject(get("$apiBase/api/chapters?postId=$postId&skip=0&take=all&order=desc"))
-            val chapters = json.optJSONObject("post")?.optJSONArray("chapters") ?: return@withContext emptyList()
-            (0 until chapters.length()).map { i ->
-                val c = chapters.getJSONObject(i)
-                val num = c.optDouble("number", 0.0).toFloat()
-                val slug = c.optString("slug")
-                val name = c.optString("title").takeIf { it.isNotBlank() } ?: "Chapter $num"
-                SChapter(sourceId = id, mangaUrl = manga.url, url = "${manga.url}/$slug",
-                    name = name, chapterNumber = num, dateUpload = 0L)
-            }
+            // Zalozka Kapitoly je server-renderovana cela na ?tab=chapters (vychozi
+            // detailni stranka ukazuje jen prvni + posledni davku). Cislo kapitoly se
+            // cte z href "/series/{slug}/chapter-{num}", nazev neni - jen "Chapter N".
+            val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url) + "?tab=chapters"))
+            doc.select("a[href*=/chapter-]").mapNotNull { a ->
+                val href = a.attr("href")
+                val num = Regex("""chapter-([0-9.]+)""").find(href)?.groupValues?.get(1)?.toFloatOrNull()
+                    ?: return@mapNotNull null
+                val label = if (num == num.toLong().toFloat()) num.toLong().toString() else num.toString()
+                SChapter(sourceId = id, mangaUrl = manga.url, url = href,
+                    name = "Chapter $label", chapterNumber = num, dateUpload = 0L)
+            }.distinctBy { it.url }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
+            // Stranky jsou <img> v adresari kapitoly na storage: upload/series/{slug}/
+            // {chapterDir}/{soubor} - soubor je bud "page-0001_x.webp" nebo jen
+            // "01.webp" (format se lisi podle serie, proto basename zacinajici
+            // cislici nebo "page"). Vynechavat featured/chapter-featured/cp.webp.
+            // Poradi = poradi v DOM (reader je rendruje v poradi cteni).
+            val slug = chapter.url.split("/").getOrNull(2) ?: ""
+            val prefix = "/upload/series/$slug/"
             val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            doc.select("figure meta[itemprop=image]").mapIndexedNotNull { i, meta ->
-                val url = meta.attr("content").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
-                Page(i, url, url)
-            }
+            doc.select("img[src]").map { it.attr("src") }
+                .filter { it.contains(prefix) && !it.contains("featured") }
+                .filter {
+                    val base2 = it.substringAfterLast('/')
+                    base2.firstOrNull()?.isDigit() == true || base2.startsWith("page")
+                }
+                .mapIndexed { i, url -> Page(i, url, url) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

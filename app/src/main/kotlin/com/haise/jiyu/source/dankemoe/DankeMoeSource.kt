@@ -31,8 +31,10 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
 
     override val id = "dankemoe"
     override val name = "Danke fürs Lesen"
+    override val language = "de" // nemecky web (overeno zive - obsah v nemcine)
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://danke.moe"
 
     private fun get(url: String): String {
@@ -43,17 +45,27 @@ class DankeMoeSource @Inject constructor(private val client: OkHttpClient) : Man
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
+    // Homepage karty nejsou v DOM - lezi jako HTML stringy v JS poli
+    // `series_data` ("html": `<div class="card ...">...`) a renderuji se az
+    // klient-side. Parsujeme proto jednotlive "html" fragmenty.
+    private val cardHtmlRe = Regex("\"html\"\\s*:\\s*`(.*?)`", RegexOption.DOT_MATCHES_ALL)
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
-            val doc = Jsoup.parse(get("$base/"))
-            doc.select("div.card a[href^=/read/manga/]:has(img)").mapNotNull { a ->
+            val pageHtml = get("$base/")
+            cardHtmlRe.findAll(pageHtml).mapNotNull { m ->
+                val card = Jsoup.parse(m.groupValues[1])
+                val a = card.selectFirst("a[href^=/read/manga/]") ?: return@mapNotNull null
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
-                val img = a.selectFirst("img") ?: return@mapNotNull null
-                val title = img.attr("alt").trim().removePrefix("Cover for ").ifBlank { return@mapNotNull null }
-                val cover = img.attr("data-src").trim().takeIf { it.isNotBlank() }?.let { resolveSourceUrl(base, it) }
+                val img = card.selectFirst("img")
+                val title = img?.attr("alt")?.trim()?.removePrefix("Cover for ")
+                    ?: a.text().trim()
+                if (title.isBlank()) return@mapNotNull null
+                val cover = img?.attr("data-src")?.trim()?.takeIf { it.isNotBlank() }
+                    ?.let { resolveSourceUrl(base, it) }
                 SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
-            }.distinctBy { it.url }
+            }.distinctBy { it.url }.toList()
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

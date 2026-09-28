@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
+import com.haise.jiyu.translate.BubbleOverlayFix
 import com.haise.jiyu.translate.BubbleShapePoint
 import com.haise.jiyu.translate.BubbleType
 import com.haise.jiyu.translate.LineMetrics
@@ -71,6 +74,7 @@ import com.haise.jiyu.translate.averageArgb
 import com.haise.jiyu.translate.bubbleSkipReason
 import com.haise.jiyu.translate.estimateNativeFontPx
 import com.haise.jiyu.translate.fitFontSizeToBox
+import com.haise.jiyu.translate.hasLeakedToken
 import com.haise.jiyu.translate.hasTranslatableLetters
 import com.haise.jiyu.translate.fitFixedLinesToShape
 import com.haise.jiyu.translate.fitTextToShape
@@ -80,11 +84,16 @@ import com.haise.jiyu.translate.layoutTranslationBlocks
 import com.haise.jiyu.translate.longestIndivisibleRunWidthPx
 import com.haise.jiyu.translate.matchOriginalCase
 import com.haise.jiyu.translate.minTranslationFontSp
+import com.haise.jiyu.translate.patchMeanArgb
 import com.haise.jiyu.translate.renderBoxRect
 import dagger.hilt.android.EntryPointAccessors
 import com.haise.jiyu.translate.snapBubbleBg
 import com.haise.jiyu.translate.tidyFrenchStyleSpacing
 import com.haise.jiyu.translate.tidyStrandedPunctuation
+import com.haise.jiyu.translate.TranslationDiagnostics
+import com.haise.jiyu.translate.truncateToFit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // ── Translation overlay - sdíleno mezi MangaReader (ReaderPager.kt) a WebtoonReader.kt ──
 //
@@ -165,22 +174,25 @@ internal fun shouldShowTranslationOverlay(hasBlocks: Boolean, imageLoaded: Boole
  *   (viz ReaderViewModel.toggleBubbleFlip) - bubbleIndex je pozice bubliny v [positioned], ne
  *   v původním (nefiltrovaném) `blocks`.
  */
+private val CropFractions.spanX get() = (1f - leftF - rightF).coerceAtLeast(0.01f)
+private val CropFractions.spanY get() = (1f - topF - bottomF).coerceAtLeast(0.01f)
+private fun CropFractions.remapX(f: Float) = ((f - leftF) / spanX).coerceIn(0f, 1f)
+private fun CropFractions.remapY(f: Float) = ((f - topF) / spanY).coerceIn(0f, 1f)
+
+/** Obrys bubliny (z OCR i znovunalezený při vykreslení) je vždy v prostoru NEOŘÍZLÉ bitmapy. */
+private fun List<BubbleShapePoint>.remapForCrop(crop: CropFractions): List<BubbleShapePoint> =
+    map { it.copy(yF = crop.remapY(it.yF), leftF = crop.remapX(it.leftF), rightF = crop.remapX(it.rightF)) }
+
 /** Přemapuje frakce bloku (a jeho shape, pokud existuje) z prostoru "celý originál" do prostoru
  * "obrázek po CropBordersTransformation" - viz [CropBordersTransformation.cropFractionsFor]
  * a komentář u [BubbleOverlayLayer]. */
-private fun TranslatedBlock.remapForCrop(crop: CropFractions): TranslatedBlock {
-    val spanX = (1f - crop.leftF - crop.rightF).coerceAtLeast(0.01f)
-    val spanY = (1f - crop.topF - crop.bottomF).coerceAtLeast(0.01f)
-    fun remapX(f: Float) = ((f - crop.leftF) / spanX).coerceIn(0f, 1f)
-    fun remapY(f: Float) = ((f - crop.topF) / spanY).coerceIn(0f, 1f)
-    return copy(
-        leftF = remapX(leftF),
-        rightF = remapX(rightF),
-        topF = remapY(topF),
-        bottomF = remapY(bottomF),
-        shape = shape?.map { it.copy(yF = remapY(it.yF), leftF = remapX(it.leftF), rightF = remapX(it.rightF)) },
-    )
-}
+private fun TranslatedBlock.remapForCrop(crop: CropFractions): TranslatedBlock = copy(
+    leftF = crop.remapX(leftF),
+    rightF = crop.remapX(rightF),
+    topF = crop.remapY(topF),
+    bottomF = crop.remapY(bottomF),
+    shape = shape?.remapForCrop(crop),
+)
 
 @Composable
 fun BubbleOverlayLayer(
@@ -201,8 +213,10 @@ fun BubbleOverlayLayer(
     // Bloky se remapuji na prostor UZ OŘÍZNUTÉHO obrázku PŘED layoutem - tak se stejná
     // korekce automaticky projeví i do heuristické expanze (TranslationLayout.kt) a do
     // shape bodů, misto aby se muselo opravovat kazde pouziti frakci zvlast.
-    val adjustedBlocks = remember(blocks, cropBorders, pageUrl) {
-        val crop = if (cropBorders && pageUrl != null) CropBordersTransformation.cropFractionsFor(pageUrl) else null
+    val crop = remember(cropBorders, pageUrl) {
+        if (cropBorders && pageUrl != null) CropBordersTransformation.cropFractionsFor(pageUrl) else null
+    }
+    val adjustedBlocks = remember(blocks, crop) {
         if (crop == null || (crop.leftF == 0f && crop.topF == 0f && crop.rightF == 0f && crop.bottomF == 0f)) {
             blocks
         } else {
@@ -231,9 +245,20 @@ fun BubbleOverlayLayer(
             TextPatchEntryPoint::class.java,
         ).textPatchProvider()
     }
-    val patches by produceState(initialValue = emptyMap<Int, android.graphics.Bitmap>(), pageUrl, blocks) {
+    val fixes by produceState(initialValue = emptyMap<Int, BubbleOverlayFix>(), pageUrl, blocks) {
         val url = pageUrl
-        value = if (url == null) emptyMap() else patchProvider.patchesFor(url, originalPositioned)
+        value = if (url == null) {
+            emptyMap()
+        } else {
+            val result = patchProvider.patchesFor(url, originalPositioned)
+            // Autoritativní záznam "jak se stránka doopravdy vykreslila" - na rozdíl od
+            // kind="page" diagnostiky překladu tady známe výsledky záplat a recovery,
+            // takže skip=módy odpovídají skutečné obrazovce (viz TranslationDiagnostics).
+            withContext(Dispatchers.IO) {
+                TranslationDiagnostics.recordRender(context, url, pageIndex, originalPositioned, result)
+            }
+            result
+        }
     }
     // Vlastní font uživatele (viz CustomFontRepository, item 15) - stejný EntryPoint důvod
     // jako u patchProvider výš. Null = žádný nastavený/stažený, render zůstává na vestavěné
@@ -246,22 +271,61 @@ fun BubbleOverlayLayer(
     }
     val customFontFile by customFontRepository.activeFontFile.collectAsStateWithLifecycle(initialValue = null)
     positioned.forEachIndexed { bubbleIndex, pos ->
+        val fix = fixes[bubbleIndex]
+        // Obnovený obrys (viz recoverBubble v TextPatchProvider) je spočítaný nad
+        // ORIGINÁLNÍ, neořízlou bitmapou - pro vykreslení se remapuje do oříznutého
+        // prostoru stejně jako bloky (viz remapForCrop). Počítá se PŘED render gate,
+        // protože právě výsledek recovery rozhoduje o lettering-na-kresbě (viz níž).
+        val recoveredShape = fix?.recovered?.shape?.let { shape ->
+            if (crop == null) shape else shape.remapForCrop(crop)
+        }
+        // Lettering přímo v malbě (titulkové captiony, ručně kreslené nápisy): žádný obrys
+        // bubliny z OCR ani znovunalezený a pestré pozadí kolem textu. Takový blok se SMÍ
+        // překreslit - ale jedině záplatou, která smaže právě tahy původního písma a zbytek
+        // kresby nechá (viz buildTextPatch); překlad se napíše barvou původního písma (viz
+        // BubbleOverlayFix.textArgb), takže výsledek vypadá jako lettering, ne nálepka.
+        // Bez záplaty (bitmapa se nenačetla / obrovský box / recovery místo ní našla obrys)
+        // by tu ležela pevná výplň = placka přes malbu, jakou uživatel odmítl u "THE BATTLE
+        // OF SEKIGAHARA" - proto radši přeskočíme a originál zůstane nedotčený.
+        val isArtLettering = pos.block.shape == null && !pos.block.bgUniform && recoveredShape == null
+        val skipArtLettering = isArtLettering && fix?.patch == null
         // isUntranslated = model vrátil UNTRANSLATED_MARKER (nečitelné OCR) - stejně jako u
         // SFX bublin appka radši nic nekreslí a nechá prosvítat originál, než aby ukázala
         // doslovný anglický placeholder tam, kde měl být český text (viz TranslateRepository).
         // Blok bez jediného písmene (samotná tečka/uvozovka) nemá co překládat a vykreslit ho jde
         // jen špatně - viz [hasTranslatableLetters]. Originál prosvítá, interpunkce tedy zůstane
         // přesně tam, kam ji nakreslil autor.
-        if (!pos.block.isSfx && !pos.block.isUntranslated && hasTranslatableLetters(pos.block.displayText)) {
+        // hasLeakedToken: poslední obrana před vykreslením placeholderu (__g8__, ⟦JIYU_PROTECT_n⟧,
+        // [UNTRANSLATED]) - gate v repozitáři takový blok označí untranslated, ale cache zapsaná
+        // starou verzí nebo ruční edit by ho mohla přinést bez flagu. Přeskočit = originál zůstane.
+        if (!pos.block.isSfx && !pos.block.isArtText && !pos.block.isUntranslated && !skipArtLettering &&
+            hasTranslatableLetters(pos.block.displayText) && !hasLeakedToken(pos.block.displayText)) {
+            // Blok s obnoveným obrysem se vykreslí přesně jako bublina s tvarem z OCR:
+            // box = obalový obdélník obrysu (žádná heuristická expanze mimo bublinu),
+            // výplň/záplata se ořízne konturou a text se sází do vepsaného obdélníku.
+            val effPos = if (recoveredShape != null) {
+                pos.copy(
+                    leftF = recoveredShape.minOf { it.leftF },
+                    topF = recoveredShape.first().yF,
+                    rightF = recoveredShape.maxOf { it.rightF },
+                    maxBottomF = recoveredShape.last().yF,
+                    minTopF = recoveredShape.first().yF,
+                )
+            } else {
+                pos
+            }
             TranslationOverlay(
-                pos = pos,
+                pos = effPos,
                 imageRect = imageRect,
                 textScale = textScale,
                 isFlipped = "$pageIndex:$bubbleIndex" in flippedBubbles,
                 // Klíčem je pozice v `positioned` - stejně, jako je klíčuje TextPatchProvider.
                 // Dřív se dohledávalo přes blocks.indexOf(pos.block), jenže dva shodné bloky
                 // jsou si podle data class rovny a druhý z nich pak dostal cizí záplatu.
-                patch = patches[bubbleIndex],
+                patch = fix?.patch,
+                patchTextArgb = fix?.textArgb,
+                recoveredShape = recoveredShape,
+                recoveredBgArgb = fix?.recovered?.interiorArgb,
                 customFontFile = customFontFile,
                 onTap = { onToggleFlip(pageIndex, bubbleIndex) },
                 onLongPress = {
@@ -269,7 +333,7 @@ fun BubbleOverlayLayer(
                 },
             )
         } else {
-            logBubbleSkipped(pos.block.originalText, pos.block.isSfx, pos.block.isUntranslated, hasTranslatableLetters(pos.block.displayText))
+            logBubbleSkipped(pos.block.originalText, pos.block.isSfx, pos.block.isUntranslated, hasTranslatableLetters(pos.block.displayText), pos.block.isArtText, hasLeakedToken(pos.block.displayText), skipArtLettering)
         }
     }
 }
@@ -280,8 +344,8 @@ fun BubbleOverlayLayer(
  * `adb logcat -s BubbleSkip` u nahlášeného "zmizelo YAH!" ukáže, jestli appka bublinu
  * schválně přeskočila (a proč), nebo se ztratila až při vykreslení (viz [logTinyBubbleBox]).
  */
-private fun logBubbleSkipped(originalText: String, isSfx: Boolean, isUntranslated: Boolean, hasLetters: Boolean) {
-    val reason = bubbleSkipReason(isSfx, isUntranslated, hasLetters)
+private fun logBubbleSkipped(originalText: String, isSfx: Boolean, isUntranslated: Boolean, hasLetters: Boolean, isArtText: Boolean = false, leakedToken: Boolean = false, artLettering: Boolean = false) {
+    val reason = bubbleSkipReason(isSfx, isUntranslated, hasLetters, isArtText, leakedToken, artLettering)
     if (reason != null) {
         if (BuildConfig.DEBUG) Log.d("BubbleSkip", "reason=$reason original=\"$originalText\"")
     }
@@ -329,6 +393,24 @@ fun TranslationOverlay(
     isFlipped: Boolean = false,
     /** Záplata pozadí pro bublinu na kresbě; null = kreslí se jednolitá výplň jako dosud. */
     patch: android.graphics.Bitmap? = null,
+    /**
+     * Jádrová barva původního písma ze záplaty (viz BubbleOverlayFix.textArgb). Když je
+     * k dispozici, překlad se kreslí JÍ místo černé/bílé podle jasu pozadí - lettering
+     * na kresbě tak drží styl originálu (bílý caption s tmavým lemem -> bílá čeština
+     * s tmavým obrysem). Platí jen pro cestu se záplatou.
+     */
+    patchTextArgb: Int? = null,
+    /**
+     * Obrys bubliny znovunalezený při vykreslení (viz recoverBubble v BubbleRecovery.kt) -
+     * záchrana pro bloky, kde selhala detekce tvaru při OCR. Chová se úplně stejně jako
+     * obrys z OCR: ořez konturou, sazba do vepsaného obdélníku, nulový bleed.
+     */
+    recoveredShape: List<BubbleShapePoint>? = null,
+    /**
+     * Barva interiéru znovunalezené bubliny - přesnější důkaz než navzorkovaný prstenec
+     * kolem OCR boxu, který u přetékající bubliny ležel částečně mimo ni.
+     */
+    recoveredBgArgb: Int? = null,
     /** Vlastní font uživatele (viz CustomFontRepository); null = vestavěná sada podle typu bubliny. */
     customFontFile: java.io.File? = null,
     onTap: () -> Unit = {},
@@ -352,7 +434,20 @@ fun TranslationOverlay(
     // pixely stránky, a ty musí sedět 1:1 (viz [patchPlan]). Rozšířit box o bleed by je
     // posunulo, a posunutý zbytek původního tahu je vidět víc než seam, kterému bleed
     // předchází - u výplně jednou barvou navíc žádný barevný seam nevzniká.
-    val bleed = if (pos.block.shape != null || patch != null) 0.dp else TRANSLATION_BOX_BLEED
+    //
+    // Obrys pro vykreslení = obrys z OCR, případně obrys znovunalezený při vykreslení
+    // (viz recoverBubble) - pro render je to totéž, jen pochází z jiného místa pipeline.
+    val shape = pos.block.shape ?: recoveredShape
+    val bleed = if (shape != null || patch != null) 0.dp else TRANSLATION_BOX_BLEED
+    // U víceřádkových bloků (bez tvaru/záplaty) se svislý bleed zvětší o JEDEN řádek
+    // originálu nahoru i dolů - OCR box víceřádkového textu občas ořízne vrchní/spodní
+    // glyfy o chlup, nebo sloučený blok nezahrnuje krajní řádek, a originál pak prosvítá
+    // těsně nad/pod výplní (audit Vagabondu: "MATA-HACHI'S BEEN" nad překladem). Řádek
+    // navíc je bezpečný: výplň je jednolitá barva bubliny, takže přesah vypadá jako
+    // součást bubliny, ne jako cizí nálepka. Cap 24dp = pojistka u obrích titulků.
+    val bleedY = if (bleed > 0.dp && pos.block.lineCount > 1 && pos.block.nativeLineHeightF > 0f) {
+        bleed + (pos.block.nativeLineHeightF * imageRect.height).dp.coerceAtMost(24.dp)
+    } else bleed
     // Jediný zdroj pravdy pro "jak velký kus stránky bublina zakryje" - stejnou funkci
     // používá TextPatchProvider, aby se obojí nemohlo rozejít.
     val box = renderBoxRect(pos)
@@ -360,7 +455,7 @@ fun TranslationOverlay(
     // pricte se AZ TADY, na koncovou vypoctenou pozici, takze nezasahuje do zadneho z vypoctu
     // vys (bleed, shape-clip, atd.) - jen posune uz hotovy box o kus stranou/dolu/nahoru.
     val left = (imageRect.left + imageRect.width * box.leftF).dp - bleed + pos.block.offsetXDp.dp
-    val top  = (imageRect.top + imageRect.height * box.topF).dp - bleed + pos.block.offsetYDp.dp
+    val top  = (imageRect.top + imageRect.height * box.topF).dp - bleedY + pos.block.offsetYDp.dp
     val w    = (imageRect.width * (box.rightF - box.leftF)).dp.coerceAtLeast(0.dp) + bleed * 2
     // maxBottomF je HORNÍ LIMIT růstu (může sahat až k dalšímu prvku na stránce, klidně přes
     // spoustu prázdného pozadí) - použít ho jako MINIMUM by box nutilo vyplnit i prázdný
@@ -371,19 +466,35 @@ fun TranslationOverlay(
     // maxBottomF, protože jednolitá výplň plynule splyne s bublinou a pokrývá celou oblast,
     // ne jen písmena. U textu přes kresbu naopak zůstáváme na vlastním OCR rozsahu, aby
     // záplata/pozadí nezakrývalo víc kresby, než je nutné.
-    val effectiveMinBottomF = if (pos.block.shape != null || pos.block.bgUniform) pos.maxBottomF else pos.block.bottomF
-    val minH = (imageRect.height * (effectiveMinBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
-    val maxH = (imageRect.height * (pos.maxBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleed * 2
+    val effectiveMinBottomF = if (shape != null || pos.block.bgUniform) pos.maxBottomF else pos.block.bottomF
+    val minH = (imageRect.height * (effectiveMinBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleedY * 2
+    val maxH = (imageRect.height * (pos.maxBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleedY * 2
     if (isSuspiciouslyTinyBubbleBox(w.value, maxH.value)) {
-        logTinyBubbleBox(pos.block.originalText, w.value, minH.value, maxH.value, pos.block.shape != null)
+        logTinyBubbleBox(pos.block.originalText, w.value, minH.value, maxH.value, shape != null)
     }
-    val clipShape = pos.block.shape?.let { BubbleClipShape(it, pos.minTopF, pos.maxBottomF) } ?: RoundedCornerShape(3.dp)
+    val clipShape = shape?.let { BubbleClipShape(it, pos.minTopF, pos.maxBottomF) } ?: RoundedCornerShape(3.dp)
     // Svislý gradient (horní/dolní polovina vzorkovaného prstence, viz OcrEngine.sampleBackgroundColor)
     // místo jednolité barvy - obě strany se "přichytí" na bílou/černou nezávisle (snapBubbleBg),
     // takže obyčejné bubliny zůstávají plnou barvou stejně jako dřív, gradient se projeví jen
     // u barevných/stínovaných bublin, kde má reálný podklad.
-    val snappedBgTop = snapBubbleBg(pos.block.bgColorArgb)
-    val snappedBgBottom = snapBubbleBg(pos.block.bgColorBottomArgb)
+    //
+    // U obnovené bubliny se místo prstence použije barva interiéru pod textem - prstenec
+    // kolem přetékajícího boxu vzorkoval okraj panelu a vracel špatnou barvu (přesně ta
+    // chyba, kvůli které obrys selhal).
+    val snappedBgTop = snapBubbleBg(recoveredBgArgb ?: pos.block.bgColorArgb)
+    val snappedBgBottom = snapBubbleBg(recoveredBgArgb ?: pos.block.bgColorBottomArgb)
+    // U záplaty se barva textu rozhoduje podle SKUTEČNĚ vykreslených pixelů záplaty, ne podle
+    // navzorkovaného prstence - ten zachytí tmavou kresbu mimo bublinu a "jas pozadí" pak
+    // vybere bílé písmo pro světlou záplatu (nahlášený nečitelný "bílý text na bílé záplate").
+    // Bez záplaty se pozadí kreslí přímo vzorkovanou barvou, takže prstenec stačí.
+    val textBgArgb = remember(patch, snappedBgTop, snappedBgBottom) {
+        if (patch == null) {
+            averageArgb(snappedBgTop, snappedBgBottom)
+        } else {
+            patchMeanArgb(patch::getPixel, patch.width, patch.height)
+                ?: averageArgb(snappedBgTop, snappedBgBottom)
+        }
+    }
     // tidyStrandedPunctuation: mezera před koncovou tečkou nabízí zalamovači zlom, po kterém
     // tečka zůstane sama na řádku - viz [tidyStrandedPunctuation] a nahlášené "ODLÉTÁME" + tečka.
     // tidyFrenchStyleSpacing: model si někdy plete interpunkční styl se zdrojovým jazykem a
@@ -402,7 +513,7 @@ fun TranslationOverlay(
     // řádku, které dřív působilo překrývající se řádky (viz uživatelská zpětná vazba).
     // Padding uvnitř plochy - obrys bubliny bývá nakreslený "tlustou" linkou a text nalepený
     // těsně na ni vypadá špatně i když technicky nepřetéká.
-    val inscribed = pos.block.shape?.let { largestInscribedRect(it) }
+    val inscribed = shape?.let { largestInscribedRect(it) }
     val textAreaWidth = inscribed
         ?.let { (imageRect.width * it.widthF * INSCRIBED_TEXT_AREA_FACTOR).dp }
         ?: w
@@ -511,9 +622,11 @@ fun TranslationOverlay(
             ) { flipped ->
                 AutoFitTranslatedText(
                     text = if (flipped) pos.block.originalText else displayText,
-                    // Volba barvy textu (podle jasu) potřebuje JEDNU barvu, ne gradient -
-                    // průměr obou stran je dost přesný odhad pro čitelnost přes celou bublinu.
-                    bgColorArgb = averageArgb(snappedBgTop, snappedBgBottom),
+                    // Volba barvy textu (podle jasu) potřebuje JEDNU barvu - u záplaty
+                    // z jejích skutečných pixelů, jinak průměr obou stran gradientu.
+                    bgColorArgb = textBgArgb,
+                    // U záplaty držíme barvu písma originálu - viz [patchTextArgb].
+                    textArgbOverride = if (patch != null) patchTextArgb else null,
                     boxWidth = textAreaWidth,
                     maxHeight = contentMaxHeight,
                     // Šířka VNĚJŠÍHO boxu - text se do ní musí vejít bez ohledu na to, jak
@@ -523,7 +636,7 @@ fun TranslationOverlay(
                     bubbleType = pos.block.bubbleType,
                     offsetX = textOffsetX,
                     offsetY = textOffsetY,
-                    shape = pos.block.shape,
+                    shape = shape,
                     shapeCenterF = inscribed?.let { (it.leftF + it.rightF) / 2f },
                     // Svislé těžiště SKUTEČNÉ textové plochy. Obalový obdélník obrysu zahrnuje
                     // i ocásek bubliny, takže jeho střed leží mimo lalok a text se od středu
@@ -637,6 +750,12 @@ private fun AutoFitTranslatedText(
     nativeLineHeightF: Float = 0f,
     /** Text originálu - rozhoduje, jestli se výška OCR boxu čte jako verzálky, nebo smíšený text. */
     originalText: String = "",
+    /**
+     * Barva původního písma ze záplaty (viz BubbleOverlayFix.textArgb). Nastavená přepíše
+     * volbu černá/bílá podle jasu pozadí - překlad lettering-na-kresbě tak drží vizuální
+     * styl originálu; obrys se zvolí kontrastní k této barvě.
+     */
+    textArgbOverride: Int? = null,
     /** Vlastní font uživatele (viz CustomFontRepository) - když je nastavený, nahradí vestavěnou sadu pro VŠECHNY typy bublin (jeden font, ne čtyři řezy). */
     customFontFile: java.io.File? = null,
 ) {
@@ -676,10 +795,24 @@ private fun AutoFitTranslatedText(
     // Vzorkovaná barva pozadí bubliny může být i tmavá (stínovaný/černý shout box) - černý text
     // na černém pozadí by byl nečitelný, proto volíme barvu textu (a opačnou barvu obrysu)
     // podle jasu (luminance) pozadí, ne napevno.
+    //
+    // Výjimka: u záplaty na kresbě známe barvu PŮVODNÍHO písma (textArgbOverride) - překlad
+    // drží její odstín, aby lettering vypadal jako součást malby (bílý caption zůstane
+    // bílý i na světlém sněhu). Obrys se volí kontrastní K TEXTU, ne k pozadí: bílé písmo
+    // dostane tmavý lem přesně jako původní caption lettering.
     val bg = Color(bgColorArgb)
     val luminance = 0.299f * bg.red + 0.587f * bg.green + 0.114f * bg.blue
-    val textColor = if (luminance < 0.5f) Color.White else Color.Black
-    val strokeColor = if (luminance < 0.5f) Color.Black else Color.White
+    val textColor: Color
+    val strokeColor: Color
+    if (textArgbOverride != null) {
+        val tc = Color(textArgbOverride)
+        val textLum = 0.299f * tc.red + 0.587f * tc.green + 0.114f * tc.blue
+        textColor = tc
+        strokeColor = if (textLum > 0.5f) Color.Black else Color.White
+    } else {
+        textColor = if (luminance < 0.5f) Color.White else Color.Black
+        strokeColor = if (luminance < 0.5f) Color.Black else Color.White
+    }
 
     // Kolik místa dostane SKUTEČNÝ Text composable: šířka vnějšího Boxu minus jeho vodorovný
     // padding. Obě sazební cesty (tvarová i obdélníková) musí počítat s tímhle číslem, ne s
@@ -795,6 +928,7 @@ private fun AutoFitTranslatedText(
                 fontFamily = fontFamily,
                 textColor = textColor,
                 strokeColor = strokeColor,
+                preWrapped = true,
             )
         }
         return
@@ -809,6 +943,49 @@ private fun AutoFitTranslatedText(
     ).coerceAtLeast(1)
     val maxHeightPx = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
 
+    // Měření jednoho kandidátního textu při daném písmu - sdílené mezi [fitFontSizeToBox]
+    // (hledání velikosti) a nouzovým [truncateToFit] (hledání zkráceného textu, co se vejde).
+    val measureBlock: (String, Float, Float) -> TextMeasurement = measureBlock@{ measuredText, fontSp, maxWidthPx ->
+        // Rezerva na obrys (viz StrokedTranslatedText/STROKE_WIDTH_FACTOR) - obrys se
+        // kreslí kolem stejného textu ve stejné velikosti, takže vizuálně "vykousne"
+        // trochu místa navíc kolem glyphů. Bez rezervy by fitter vybral velikost, co
+        // se vejde jen do samotné výplně (Fill), a obrys by pak u okrajů bubliny přetekl.
+        val strokeReservePx = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
+        val style = TextStyle(
+            fontSize = fontSp.sp,
+            lineHeight = (fontSp * 1.25f).sp,
+            fontFamily = fontFamily,
+        )
+        val constraintWidth = (maxWidthPx - strokeReservePx).toInt().coerceAtLeast(1)
+        val measured = textMeasurer.measure(text = measuredText, style = style, constraints = Constraints(maxWidth = constraintWidth))
+        val lines = (0 until measured.lineCount).map { i ->
+            LineMetrics(
+                widthPx = measured.getLineRight(i) - measured.getLineLeft(i),
+                topPx = measured.getLineTop(i),
+                bottomPx = measured.getLineBottom(i),
+            )
+        }
+        // Nejdelší NEDĚLITELNÝ úsek měřený BEZ šířkového omezení - jinak by ho Compose
+        // sám zalomil a naměřená šířka by byla vždycky menší než limit, takže by
+        // kontrola v fitFontSizeToBox nikdy nic nezachytila. Tohle je jediná obrana
+        // proti tomu, aby se slovo rozsekalo uprostřed po písmenech ("KDYBYCH" ->
+        // "KDYB"/"YCH", viz uživatelská zpětná vazba).
+        //
+        // longestIndivisibleRunWidthPx měří po ÚSECÍCH mezi soft hyphen zlomy, ne po
+        // celých slovech - slovo s rozdělovníkem (viz SoftHyphenation) NENÍ atomické,
+        // i když neobsahuje mezeru. Bez tohohle rozdělení se dřív měřila šířka CELÉHO
+        // slova i s rozdělovníkem, a když se ani tak nevešla, fitter se vzdal a Compose
+        // vlastní nouzový zlom slovo rozsekl JINDE, než kam rozdělovník ukazoval
+        // (nahlášeno: "Pante­rí" (platný zlom 5+2 písmen) vykresleno jako "PANTER"/"Í").
+        val longestWordWidthPx = longestIndivisibleRunWidthPx(measuredText) { segment ->
+            textMeasurer.measure(text = segment, style = style, softWrap = false).size.width.toFloat()
+        }
+        TextMeasurement(
+            totalHeightPx = measured.size.height + strokeReservePx,
+            lines = lines,
+            longestWordWidthPx = longestWordWidthPx + strokeReservePx,
+        )
+    }
     val fitResult = remember(text, widthPx, maxHeightPx, maxFontSp, fontFamily, preferredFontSp) {
         fitFontSizeToBox(
             minFontSp = minFontSp,
@@ -816,49 +993,20 @@ private fun AutoFitTranslatedText(
             boxWidthPx = widthPx.toFloat(),
             maxHeightPx = maxHeightPx.toFloat(),
             preferredFontSp = preferredFontSp,
-            measure = { fontSp, maxWidthPx ->
-                // Rezerva na obrys (viz StrokedTranslatedText/STROKE_WIDTH_FACTOR) - obrys se
-                // kreslí kolem stejného textu ve stejné velikosti, takže vizuálně "vykousne"
-                // trochu místa navíc kolem glyphů. Bez rezervy by fitter vybral velikost, co
-                // se vejde jen do samotné výplně (Fill), a obrys by pak u okrajů bubliny přetekl.
-                val strokeReservePx = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
-                val style = TextStyle(
-                    fontSize = fontSp.sp,
-                    lineHeight = (fontSp * 1.25f).sp,
-                    fontFamily = fontFamily,
-                )
-                val constraintWidth = (maxWidthPx - strokeReservePx).toInt().coerceAtLeast(1)
-                val measured = textMeasurer.measure(text = text, style = style, constraints = Constraints(maxWidth = constraintWidth))
-                val lines = (0 until measured.lineCount).map { i ->
-                    LineMetrics(
-                        widthPx = measured.getLineRight(i) - measured.getLineLeft(i),
-                        topPx = measured.getLineTop(i),
-                        bottomPx = measured.getLineBottom(i),
-                    )
-                }
-                // Nejdelší NEDĚLITELNÝ úsek měřený BEZ šířkového omezení - jinak by ho Compose
-                // sám zalomil a naměřená šířka by byla vždycky menší než limit, takže by
-                // kontrola v fitFontSizeToBox nikdy nic nezachytila. Tohle je jediná obrana
-                // proti tomu, aby se slovo rozsekalo uprostřed po písmenech ("KDYBYCH" ->
-                // "KDYB"/"YCH", viz uživatelská zpětná vazba).
-                //
-                // longestIndivisibleRunWidthPx měří po ÚSECÍCH mezi soft hyphen zlomy, ne po
-                // celých slovech - slovo s rozdělovníkem (viz SoftHyphenation) NENÍ atomické,
-                // i když neobsahuje mezeru. Bez tohohle rozdělení se dřív měřila šířka CELÉHO
-                // slova i s rozdělovníkem, a když se ani tak nevešla, fitter se vzdal a Compose
-                // vlastní nouzový zlom slovo rozsekl JINDE, než kam rozdělovník ukazoval
-                // (nahlášeno: "Pante­rí" (platný zlom 5+2 písmen) vykresleno jako "PANTER"/"Í").
-                val longestWordWidthPx = longestIndivisibleRunWidthPx(text) { segment ->
-                    textMeasurer.measure(text = segment, style = style, softWrap = false).size.width.toFloat()
-                }
-                TextMeasurement(
-                    totalHeightPx = measured.size.height + strokeReservePx,
-                    lines = lines,
-                    longestWordWidthPx = longestWordWidthPx + strokeReservePx,
-                )
-            },
+            measure = { fontSp, maxWidthPx -> measureBlock(text, fontSp, maxWidthPx) },
             onCapProbe = ::logNativeFontCap,
         )
+    }
+
+    // Nouzový post-řez (audit: "TO JSEM NEMYSL." uříznuté klipou uprostřed glyfu) - když
+    // se ani na podlaze nevejde, zkrátit slova od konce s výpustkou místo viditelně
+    // useknutého řádku. Celý originál je pořád o klepnutí daleko (flip na originál).
+    val fittedText = remember(text, fitResult.fontSp, widthPx, maxHeightPx) {
+        truncateToFit(text) { candidate ->
+            val m = measureBlock(candidate, fitResult.fontSp, widthPx.toFloat())
+            m.totalHeightPx <= maxHeightPx.toFloat() &&
+                m.longestWordWidthPx <= widthPx.toFloat() + 0.5f
+        }
     }
 
     Box(
@@ -866,7 +1014,7 @@ private fun AutoFitTranslatedText(
         contentAlignment = Alignment.Center,
     ) {
         StrokedTranslatedText(
-            text = text,
+            text = fittedText,
             fontSp = fitResult.fontSp,
             fontFamily = fontFamily,
             textColor = textColor,
@@ -899,14 +1047,24 @@ private fun StrokedTranslatedText(
     fontFamily: FontFamily,
     textColor: Color,
     strokeColor: Color,
+    preWrapped: Boolean = false,
 ) {
     val density = LocalDensity.current
     val strokeWidthPx = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
 
-    Box(contentAlignment = Alignment.Center) {
+    // preWrapped: řádky už zalomila tvarová sazba ([fitTextToShape]) podle šířky bubliny v dané výšce. Compose je
+    // nesmí zalamovat podruhé - stačí, aby byl řádek o pixel širší než přidělený box (rozdíl měření vs. vykreslení,
+    // obrys), a slovo se rozseklo uprostřed po písmenech ("POSLEDNÍC"/"H", "UPRCHLÍK"/"Ů"). softWrap = false +
+    // neomezená šířka nechá řádek dopadnout přesně tak, jak byl navržen; obrys bubliny stejně ořezává BubbleClipShape.
+    val wrapModifier = if (preWrapped) Modifier.wrapContentWidth(unbounded = true) else Modifier
+    val softWrap = !preWrapped
+
+    Box(modifier = wrapModifier, contentAlignment = Alignment.Center) {
         Text(
             text = text,
             textAlign = TextAlign.Center,
+            softWrap = softWrap,
+            overflow = TextOverflow.Visible,
             style = TextStyle(
                 color = strokeColor,
                 fontSize = fontSp.sp,
@@ -918,6 +1076,8 @@ private fun StrokedTranslatedText(
         Text(
             text = text,
             color = textColor,
+            softWrap = softWrap,
+            overflow = TextOverflow.Visible,
             fontSize = fontSp.sp,
             lineHeight = (fontSp * 1.25f).sp,
             fontFamily = fontFamily,

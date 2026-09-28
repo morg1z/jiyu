@@ -28,86 +28,23 @@ class CropBordersTransformation(private val pageUrl: String) : Transformation {
         val h = input.height
         if (w < 20 || h < 20) return input
 
-        val bounds = detectContentBounds(input)
-        if (bounds == null) {
+        val fractions = detectContentFractions(input)
+        if (fractions == null) {
             cropFractions.remove(pageUrl)
             return input
         }
-        val (left, top, right, bottom) = bounds
+        cropFractions[pageUrl] = fractions
 
-        cropFractions[pageUrl] = CropFractions(
-            leftF = left / w.toFloat(),
-            topF = top / h.toFloat(),
-            rightF = (w - 1 - right) / w.toFloat(),
-            bottomF = (h - 1 - bottom) / h.toFloat(),
-        )
-
+        val left = (fractions.leftF * w).toInt()
+        val top = (fractions.topF * h).toInt()
+        val right = w - 1 - (fractions.rightF * w).toInt()
+        val bottom = h - 1 - (fractions.bottomF * h).toInt()
         val cropW = (right - left + 1).coerceAtLeast(1)
         val cropH = (bottom - top + 1).coerceAtLeast(1)
         return Bitmap.createBitmap(input, left, top, cropW, cropH)
     }
 
     private data class ContentBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
-
-    /** null = žádný významný okraj k oříznutí (bitmapa se vrátí beze změny). */
-    private fun detectContentBounds(input: Bitmap): ContentBounds? {
-        val w = input.width
-        val h = input.height
-
-        // Detect border color from 4 corners (average)
-        val corners = listOf(
-            input.getPixel(0, 0),
-            input.getPixel(w - 1, 0),
-            input.getPixel(0, h - 1),
-            input.getPixel(w - 1, h - 1),
-        )
-        val borderR = corners.sumOf { Color.red(it) }   / 4
-        val borderG = corners.sumOf { Color.green(it) } / 4
-        val borderB = corners.sumOf { Color.blue(it) }  / 4
-
-        fun isBorder(pixel: Int): Boolean {
-            return abs(Color.red(pixel) - borderR) +
-                   abs(Color.green(pixel) - borderG) +
-                   abs(Color.blue(pixel) - borderB) < 40
-        }
-
-        // Step size for sampling (faster on large bitmaps)
-        val stepX = maxOf(1, w / 30)
-        val stepY = maxOf(1, h / 30)
-
-        var top = 0
-        outer@ for (y in 0 until h) {
-            for (x in 0 until w step stepX) {
-                if (!isBorder(input.getPixel(x, y))) { top = y; break@outer }
-            }
-        }
-        var bottom = h - 1
-        outer@ for (y in h - 1 downTo 0) {
-            for (x in 0 until w step stepX) {
-                if (!isBorder(input.getPixel(x, y))) { bottom = y; break@outer }
-            }
-        }
-        var left = 0
-        outer@ for (x in 0 until w) {
-            for (y in 0 until h step stepY) {
-                if (!isBorder(input.getPixel(x, y))) { left = x; break@outer }
-            }
-        }
-        var right = w - 1
-        outer@ for (x in w - 1 downTo 0) {
-            for (y in 0 until h step stepY) {
-                if (!isBorder(input.getPixel(x, y))) { right = x; break@outer }
-            }
-        }
-
-        // Only crop if the border is at least 1% of the image dimension
-        val minCrop = minOf(w, h) / 100
-        val noSignificantCrop = top < minCrop && left < minCrop &&
-            (w - 1 - right) < minCrop && (h - 1 - bottom) < minCrop
-        if (noSignificantCrop) return null
-
-        return ContentBounds(left, top, right, bottom)
-    }
 
     companion object {
         // Ohraničené (LRU) - dřív rostlo o záznam na každou kdy zobrazenou stránku po celý život procesu.
@@ -118,5 +55,89 @@ class CropBordersTransformation(private val pageUrl: String) : Transformation {
          * ještě nenačtena). Volá se z [TranslationLayer.kt] až PO úspěšném načtení obrázku, kdy
          * už tahle transformace doběhla. */
         fun cropFractionsFor(pageUrl: String): CropFractions? = cropFractions[pageUrl]
+
+        /** Zápis frakcí z jiné cesty než `transform` - řezané stránky ([com.haise.jiyu.util.PageSlicer])
+         * ořez řeší přímo ve zdrojových souřadnicích řezů, ale overlay potřebuje frakce stejně. */
+        fun recordCropFractions(pageUrl: String, fractions: CropFractions?) {
+            if (fractions == null) cropFractions.remove(pageUrl) else cropFractions[pageUrl] = fractions
+        }
+
+        /**
+         * Detekce ořezu na libovolné bitmapě (klidně vzorkované - frakce jsou měřítkově
+         * invariantní). Používá `transform` i [com.haise.jiyu.util.PageSlicer] při plánování
+         * řezů vysokých stránek.
+         */
+        fun detectContentFractions(input: Bitmap): CropFractions? {
+            val w = input.width
+            val h = input.height
+            if (w < 20 || h < 20) return null
+            val bounds = detectContentBounds(input) ?: return null
+            return CropFractions(
+                leftF = bounds.left / w.toFloat(),
+                topF = bounds.top / h.toFloat(),
+                rightF = (w - 1 - bounds.right) / w.toFloat(),
+                bottomF = (h - 1 - bounds.bottom) / h.toFloat(),
+            )
+        }
+
+        /** null = žádný významný okraj k oříznutí (bitmapa se vrátí beze změny). */
+        private fun detectContentBounds(input: Bitmap): ContentBounds? {
+            val w = input.width
+            val h = input.height
+
+            // Detect border color from 4 corners (average)
+            val corners = listOf(
+                input.getPixel(0, 0),
+                input.getPixel(w - 1, 0),
+                input.getPixel(0, h - 1),
+                input.getPixel(w - 1, h - 1),
+            )
+            val borderR = corners.sumOf { Color.red(it) }   / 4
+            val borderG = corners.sumOf { Color.green(it) } / 4
+            val borderB = corners.sumOf { Color.blue(it) }  / 4
+
+            fun isBorder(pixel: Int): Boolean {
+                return abs(Color.red(pixel) - borderR) +
+                       abs(Color.green(pixel) - borderG) +
+                       abs(Color.blue(pixel) - borderB) < 40
+            }
+
+            // Step size for sampling (faster on large bitmaps)
+            val stepX = maxOf(1, w / 30)
+            val stepY = maxOf(1, h / 30)
+
+            var top = 0
+            outer@ for (y in 0 until h) {
+                for (x in 0 until w step stepX) {
+                    if (!isBorder(input.getPixel(x, y))) { top = y; break@outer }
+                }
+            }
+            var bottom = h - 1
+            outer@ for (y in h - 1 downTo 0) {
+                for (x in 0 until w step stepX) {
+                    if (!isBorder(input.getPixel(x, y))) { bottom = y; break@outer }
+                }
+            }
+            var left = 0
+            outer@ for (x in 0 until w) {
+                for (y in 0 until h step stepY) {
+                    if (!isBorder(input.getPixel(x, y))) { left = x; break@outer }
+                }
+            }
+            var right = w - 1
+            outer@ for (x in w - 1 downTo 0) {
+                for (y in 0 until h step stepY) {
+                    if (!isBorder(input.getPixel(x, y))) { right = x; break@outer }
+                }
+            }
+
+            // Only crop if the border is at least 1% of the image dimension
+            val minCrop = minOf(w, h) / 100
+            val noSignificantCrop = top < minCrop && left < minCrop &&
+                (w - 1 - right) < minCrop && (h - 1 - bottom) < minCrop
+            if (noSignificantCrop) return null
+
+            return ContentBounds(left, top, right, bottom)
+        }
     }
 }

@@ -72,11 +72,11 @@ class DemonicScansSource @Inject constructor(
      * POST tela s genres[]/status/orderby + GET stranky - overeno zive, stranka
      * 2 vraci jine tituly nez stranka 1 filtrovaneho vysledku).
      */
-    private fun postAdvancedSearch(page: Int, genres: List<String>, sortBy: String): String {
+    private fun postAdvancedSearch(page: Int, genres: List<String>, sortBy: String, status: String? = null): String {
         val url = if (page > 1) "$base/advanced.php?list=$page" else "$base/advanced.php"
         val formBuilder = FormBody.Builder()
         genres.forEach { formBuilder.add("genres[]", it) }
-        formBuilder.add("status", "all")
+        formBuilder.add("status", status?.takeIf { it in ADVANCED_STATUSES } ?: "all")
         formBuilder.add("orderby", if (sortBy == "latest") "ID DESC" else "VIEWS DESC")
         formBuilder.add("submit", "Search")
         val req = Request.Builder().url(url)
@@ -132,9 +132,13 @@ class DemonicScansSource @Inject constructor(
      * ekvivalent "výchozího procházení"), "Nejnovější" na lastupdates.php (feed
      * aktualizací kapitol, odpovídá skutečnému významu "latest").
      */
+    // /advanced.php status select nabizi jen ongoing/completed (a "all") - hiatus web nema.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() = listOf("ongoing", "completed")
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (filter.genres.isNotEmpty() || filter.status != null) {
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy, filter.status)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             val path = if (filter.sortBy == "latest") "lastupdates.php" else "translationlist.php"
@@ -144,11 +148,11 @@ class DemonicScansSource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        // /advanced.php nema textove pole pro nazev - kdyz je vybrany zanr, chovame
-        // se stejne jako vzorovy MadaraSource ("Vzor B") a prepneme na zanrovy archiv
-        // misto textoveho hledani (web samotny kombinaci nazev+zanr nenabizi).
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        // /advanced.php nema textove pole pro nazev - kdyz je vybrany zanr ci stav,
+        // chovame se stejne jako vzorovy MadaraSource ("Vzor B") a prepneme na
+        // filtrovany archiv misto textoveho hledani (web kombinaci nenabizi).
+        if (filter.genres.isNotEmpty() || filter.status != null) {
+            return@withContext try { parseAdvancedCards(postAdvancedSearch(page, filter.genres, filter.sortBy, filter.status)) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // /search.php nemá stránkování (je to živý autocomplete endpoint) - druhá a
         // další stránka by jen zopakovala stejný výsledek, radši ukončit scrollování.
@@ -305,5 +309,8 @@ class DemonicScansSource @Inject constructor(
     companion object {
         /** Bezpečný strop - běžný minimální GL_MAX_TEXTURE_SIZE napříč zařízeními je 4096. */
         private const val MAX_SLICE_HEIGHT = 4000
+
+        // Hodnoty status= v POST tele /advanced.php (select na webu nabizi all/ongoing/completed).
+        private val ADVANCED_STATUSES = setOf("ongoing", "completed")
     }
 }

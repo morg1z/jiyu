@@ -5,6 +5,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.parseChapterNumber
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -36,7 +37,9 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override val id = "weloma"
     override val name = "WeLoMa"
+    override val language = "ja" // "Read Manga Raw" - japonske raw kapitoly (overeno zive)
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
     private val base = "https://weloma.net"
 
     private fun get(url: String): String {
@@ -56,7 +59,34 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
+    // Zanrove odkazy "/l/{id}" jsou na homepage v sekci "Genres" a poznavaci
+    // znacka je atribut data-title="Genre {nazev}" - autori/artisti sdili stejny
+    // "/l/" prefix, ale jejich odkazy data-title="Genre" nemaji, takze se
+    // nepleteji. Archiv "/l/{id}?page=N" strankuje stejne jako manga-list.
+    // Vice zanru najednou web nepodporuje - pri vice vybranych se pouzije prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            Jsoup.parse(get("$base/")).select("a[data-title^=Genre]").mapNotNull { a ->
+                val tagId = a.attr("href").substringAfter("/l/").trim('/').ifBlank { return@mapNotNull null }
+                val label = a.attr("data-title").removePrefix("Genre").trim()
+                    .ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
+                FilterTag(id = tagId, label = label)
+            }.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                val doc = Jsoup.parse(get("$base/l/${filter.genres.first()}?page=$page"))
+                doc.select("div.thumb-item-flow").mapNotNull(::parseCard)
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        }
         // "last_update" overeno zive - jiny poradek nez "views". Ostatni vyzkousene
         // nazvy ("latest"/"update"/"new") web nerozezna a tise spadne na stejny
         // (abecedni odzadu) fallback jako neplatna hodnota - jen "last_update" funguje.
@@ -68,6 +98,7 @@ class WeLoMaSource @Inject constructor(private val client: OkHttpClient) : Manga
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val doc = Jsoup.parse(get("$base/manga-list.html?name=$q&page=$page"))

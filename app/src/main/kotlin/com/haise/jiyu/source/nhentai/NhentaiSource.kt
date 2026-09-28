@@ -45,34 +45,49 @@ class NhentaiSource @Inject constructor(
     private val imgBase   = "https://i.nhentai.net"
     private val thumbBase = "https://t.nhentai.net"
 
-    // Plna "tag" taxonomie ma desetitisice polozek (nevhodne pro dropdown), ale
-    // /api/v2/tags/{tag_type} umoznuje i hrubsi "category" (3 polozky - doujinshi/
-    // manga/misc) a "language" (~desitka jazyku) - overeno zive, ze /api/v2/search
-    // s query="category:manga" resp. "language:english" skutecne filtruje vypis
-    // (jine "id" nez bez filtru i nez u jine kategorie/jazyka).
+    // /api/v2/tags/{tag_type}: "category" (3 polozky), "language" (~desitka)
+    // a "tag" - plna tagova taxonomie ~4700 polozek, strankovana po 120 a
+    // razena podle poctu pouziti (overeno zive: strana 1 = big breasts,
+    // sole female, group...). Tahame jen TAG_TOP_PAGES nejuzitecnejsich stranek
+    // - dlouhy ocas tagu s pouzitim <10k stejne nikoho nezajima a kazda dalsi
+    // stranka je dalsi request. Query syntax "tag:slug" funguje v /api/v2/search
+    // stejne jako "category:manga"/"language:english" (overeno zive).
     override val supportsTagFilter: Boolean get() = true
 
     @Volatile private var cachedTags: List<FilterTag>? = null
 
-    private fun fetchTagType(tagType: String): List<FilterTag> {
-        val json = fetch("$apiBase/tags/$tagType")
-        val result = json.optJSONArray("result") ?: return emptyList()
-        return (0 until result.length()).mapNotNull { i ->
-            val obj = result.getJSONObject(i)
-            val slug = obj.optString("slug").ifBlank { return@mapNotNull null }
-            val name = obj.optString("name").ifBlank { return@mapNotNull null }
-            FilterTag(id = "$tagType:$slug", label = "$name (${tagType})")
+    private fun fetchTagType(tagType: String, pages: Int = 1): List<FilterTag> {
+        val out = mutableListOf<FilterTag>()
+        for (page in 1..pages) {
+            val json = fetch("$apiBase/tags/$tagType?page=$page")
+            val result = json.optJSONArray("result") ?: break
+            for (i in 0 until result.length()) {
+                val obj = result.getJSONObject(i)
+                val slug = obj.optString("slug").ifBlank { continue }
+                val name = obj.optString("name").ifBlank { continue }
+                // "tag" je vychozi typ - suffix jen u vedlejsich, at seznam ctu jako na webu.
+                val label = if (tagType == "tag") name else "$name (${tagType})"
+                out += FilterTag(id = "$tagType:$slug", label = label)
+            }
+            if (result.length() == 0) break
         }
+        return out
     }
 
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
         cachedTags?.let { return@withContext it }
         try {
-            val tags = fetchTagType("category") + fetchTagType("language")
+            val tags = (fetchTagType("category") + fetchTagType("language") +
+                fetchTagType("tag", TAG_TOP_PAGES)).distinctBy { it.id }
             cachedTags = tags
             tags
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
+
+    // Obecny browse "/galleries?page=N" razeni neumi (vzdy chronologicky) -
+    // sort parametr se uplatni jen v zanrovych dotazech (sortParam), takze
+    // prepinac popular/latest by na hlavnim vypisu nic nedelal (audit).
+    override val supportsSortOrder: Boolean get() = false
 
     private fun sortParam(sortBy: String) = if (sortBy == "latest") "date" else "popular"
 
@@ -110,10 +125,11 @@ class NhentaiSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val genre = filter.genres.firstOrNull()
-        if (genre != null) {
+        // nhentai query syntax umi vic tagu najednou ("tag:a tag:b" = AND) - drive
+        // se aplikoval jen prvni vybrany, coz filtr znevaznoval.
+        if (filter.genres.isNotEmpty()) {
             return@withContext try {
-                val q = URLEncoder.encode(genre, "UTF-8")
+                val q = URLEncoder.encode(filter.genres.joinToString(" "), "UTF-8")
                 parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
@@ -128,10 +144,10 @@ class NhentaiSource @Inject constructor(
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val genre = filter.genres.firstOrNull()
-        if (genre != null) {
+        if (filter.genres.isNotEmpty()) {
             return@withContext try {
-                val combined = if (query.isNotBlank()) "${query.trim()} $genre" else genre
+                val tagQuery = filter.genres.joinToString(" ")
+                val combined = if (query.isNotBlank()) "${query.trim()} $tagQuery" else tagQuery
                 val q = URLEncoder.encode(combined, "UTF-8")
                 parseList(fetch("$apiBase/search?query=$q&sort=${sortParam(filter.sortBy)}&page=$page"))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
@@ -198,5 +214,12 @@ class NhentaiSource @Inject constructor(
                 Page(i, url, url)
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    private companion object {
+        /** Kolik stranek /api/v2/tags/tag tahat do pickru (120 tagu/strana, razeno
+         * podle poctu pouziti) - 3 stranky = 360 nejcastejsich tagu, zbytek je
+         * long-tail, ktery v chipovem pickeru nikoho nezajima. */
+        const val TAG_TOP_PAGES = 3
     }
 }

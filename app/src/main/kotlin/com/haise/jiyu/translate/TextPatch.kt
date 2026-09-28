@@ -40,6 +40,11 @@ import kotlin.math.min
  * @param textLeft/textTop/textRight/textBottom oblast, kde se smí hledat písmo (OCR box);
  *   výchozí -1 znamená "celá záplata", jako to bylo dřív
  * @param bgArgb navzorkované pozadí - použije se jen jako záchrana, když nelze dopočítat nic
+ * @param meanTextArgbOut volitelný výstup velikosti 1: doplní se do něj JÁDROVÁ barva
+ *   původního písma (viz [coreTextArgb]) - render ji použije pro překlad, aby lettering
+ *   na kresbě držel barvu originálu (bílý caption s tmavým lemem -> bílá čeština s tmavým
+ *   obrysem, ne černý text vybíraný podle jasu světlého podkladu). Bez textových pixelů
+ *   se do něj zapíše 0 (= transparentní, nenastalo).
  * @return ARGB pixely oblasti, řádek po řádku; prázdné pole pro prázdnou oblast
  */
 internal fun buildTextPatch(
@@ -55,6 +60,7 @@ internal fun buildTextPatch(
     textTop: Int = -1,
     textRight: Int = -1,
     textBottom: Int = -1,
+    meanTextArgbOut: IntArray? = null,
 ): IntArray {
     val x0 = left.coerceIn(0, imageWidth)
     val y0 = top.coerceIn(0, imageHeight)
@@ -96,15 +102,74 @@ internal fun buildTextPatch(
     // Lepší než nic a nikdy to nespadne.
     if (isText.all { it }) return IntArray(w * h) { bgArgb or OPAQUE }
 
+    if (meanTextArgbOut != null && meanTextArgbOut.isNotEmpty()) {
+        meanTextArgbOut[0] = coreTextArgb(pixels, luminance, isText)
+    }
+
     fillFromNeighbours(pixels, isText, w, h)
     return pixels
 }
 
 /**
+ * Odhad barvy PÍSMA z maskovaných pixelů - pro překlad vykreslený přes záplatu, aby držel
+ * vizuální styl originálu (viz parametr meanTextArgbOut u [buildTextPatch]).
+ *
+ * Prostý průměr by u comiksového lettering "světlé jádro + tmavý obrys" spadl do šedé a
+ * překlad by nevypadal jako originál. Proto se z textových pixelů vybere jen ta polovina,
+ * která leží na STRANĚ OPAČNÉ k pozadí - světlý caption na tmavé/průměrné kresbě vrátí
+ * barvu jádra (skoro bílou), tmavý nápis na světlé vrátí inkoust. Obrys se tak přirozeně
+ * vyloučí: je to ta část masky, která jasově sedí blíž k pozadí.
+ *
+ * Vrací 0, když maska žádné textové pixely nemá.
+ */
+private fun coreTextArgb(pixels: IntArray, luminance: IntArray, isText: BooleanArray): Int {
+    var bgSum = 0L
+    var bgCount = 0L
+    var minTextLum = Int.MAX_VALUE
+    var maxTextLum = Int.MIN_VALUE
+    for (i in pixels.indices) {
+        if (isText[i]) {
+            val l = luminance[i]
+            if (l < minTextLum) minTextLum = l
+            if (l > maxTextLum) maxTextLum = l
+        } else {
+            bgSum += luminance[i]
+            bgCount++
+        }
+    }
+    if (bgCount == 0L || minTextLum > maxTextLum) return 0
+    val bgLum = (bgSum / bgCount).toInt()
+    // Písmo je extrém OD pozadí - vezmeme vzdálenější konec (jádro tahu), průměrujeme jen
+    // pixely za hranicí mezi ním a pozadím, čímž odpadne protilehlý obrys.
+    val lightCore = (maxTextLum - bgLum) >= (bgLum - minTextLum)
+    val edge = if (lightCore) maxTextLum else minTextLum
+    val threshold = (edge + bgLum) / 2
+    var r = 0L
+    var g = 0L
+    var b = 0L
+    var n = 0L
+    for (i in pixels.indices) {
+        if (!isText[i]) continue
+        val l = luminance[i]
+        if ((lightCore && l <= threshold) || (!lightCore && l >= threshold)) continue
+        val c = pixels[i]
+        r += (c shr 16) and 0xFF
+        g += (c shr 8) and 0xFF
+        b += c and 0xFF
+        n++
+    }
+    if (n == 0L) return 0
+    return OPAQUE or ((r / n).toInt() shl 16) or ((g / n).toInt() shl 8) or (b / n).toInt()
+}
+
+/**
  * Adaptivní prahování: pixel je text, když se jeho jas dost liší od průměru okolního okna.
  * Chytá tmavé písmo na světlém i světlé na tmavém, protože se porovnává absolutní rozdíl.
+ *
+ * internal (ne private): sdílí ho i [recoverBubble], který maskou oddělí tahy písmen od
+ * skutečné barvy interiéru bubliny - viz tam.
  */
-private fun markTextPixels(luminance: IntArray, w: Int, h: Int): BooleanArray {
+internal fun markTextPixels(luminance: IntArray, w: Int, h: Int): BooleanArray {
     val integral = LongArray((w + 1) * (h + 1))
     for (y in 0 until h) {
         var rowSum = 0L
@@ -180,7 +245,7 @@ private fun restrictToTextRegion(
 }
 
 /** Rozšíří masku o [radius] pixelů - zachytí antialiasový lem, který by jinak zůstal jako duch. */
-private fun dilate(mask: BooleanArray, w: Int, h: Int, radius: Int) {
+internal fun dilate(mask: BooleanArray, w: Int, h: Int, radius: Int) {
     repeat(radius) {
         val previous = mask.copyOf()
         for (y in 0 until h) {
@@ -234,7 +299,7 @@ private fun fillFromNeighbours(pixels: IntArray, isText: BooleanArray, w: Int, h
     }
 }
 
-private fun luminanceOf(c: Int): Int {
+internal fun luminanceOf(c: Int): Int {
     val r = (c shr 16) and 0xFF
     val g = (c shr 8) and 0xFF
     val b = c and 0xFF

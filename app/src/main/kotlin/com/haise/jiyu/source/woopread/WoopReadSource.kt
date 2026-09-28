@@ -5,6 +5,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -14,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -40,7 +43,10 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
     override val name = "WoopRead"
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
     private val base = "https://woopread.com"
+
+    @Volatile private var cachedTags: List<FilterTag>? = null
 
     private fun getRaw(url: String): String {
         val req = Request.Builder().url(url)
@@ -69,18 +75,78 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
                 SManga(sourceId = id, url = "$base$href", title = title, coverUrl = coverFromSrcSet(img), contentType = "NOVEL")
             }
 
+    // "/api/genres" vraci prostou JSON radu nazvu zanru. Server-side filtr
+    // neexistuje ("/api/novels" zadny zanrovy parametr nebere, "/search?genres="
+    // ignoruje), proto se filtruje lokalne pres "/api/novels" - cely katalog
+    // je ~83 titulu, takze se stahne par stranek JSONu.
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        try {
+            val arr = JSONArray(getRaw("$base/api/genres"))
+            val tags = (0 until arr.length())
+                .mapNotNull { arr.optString(it).trim().ifBlank { null } }
+                .sorted()
+                .map { FilterTag(id = it, label = it) }
+            cachedTags = tags
+            tags
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    private fun novelFromJson(o: JSONObject): SManga? {
+        val slug = o.optString("slug").trim().ifBlank { return null }
+        val title = o.optString("title").trim().ifBlank { return null }
+        return SManga(
+            sourceId = id,
+            url = "$base/series/$slug",
+            title = title,
+            coverUrl = o.optString("cover").trim().ifBlank { null },
+            genres = o.optJSONArray("genres")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optString(it).trim().ifBlank { null } }
+            } ?: emptyList(),
+            contentType = "NOVEL",
+        )
+    }
+
+    private fun fetchAllNovels(): List<SManga> {
+        val out = mutableListOf<SManga>()
+        var page = 1
+        while (page <= 10) {
+            val arr = JSONObject(getRaw("$base/api/novels?page=$page").ifBlank { "{}" })
+                .optJSONArray("novels") ?: break
+            if (arr.length() == 0) break
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { novelFromJson(it) }?.let(out::add)
+            if (arr.length() < 20) break
+            page++
+        }
+        return out.distinctBy { it.url }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         // Puvodne vzdy "New" (tedy fakticky poradek pro "Nejnovejsi" bez ohledu na
         // vybranou zalozku) - "Popular" overeno zive jako odlisna, spravna hodnota
         // pro "Populární".
         val sortBy = if (filter.sortBy == "latest") "New" else "Popular"
-        try { parseList(get("$base/browse?sortBy=$sortBy&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        try {
+            if (filter.genres.isEmpty()) {
+                parseList(get("$base/browse?sortBy=$sortBy&page=$page"))
+            } else {
+                // Lokalni filtr nad celym katalogem; vse vracime na prvni strane.
+                // Razeni se ignoruje - "/api/novels" zadny sort parametr nebere
+                // (vychozi = podle views, coz odpovida "popular").
+                if (page > 1) emptyList() else fetchAllNovels()
+                    .filter { it.genres.containsAll(filter.genres) }
+            }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/search?q=$q&page=$page"))
+            val results = parseList(get("$base/search?q=$q&page=$page"))
+            if (filter.genres.isEmpty() || results.isEmpty()) results else {
+                val genresByUrl = fetchAllNovels().associate { it.url to it.genres }
+                results.filter { genresByUrl[it.url]?.containsAll(filter.genres) == true }
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

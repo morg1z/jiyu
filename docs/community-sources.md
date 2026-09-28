@@ -98,3 +98,77 @@ a weby s jiným markupem, než jaký šablony čekají. Zdroje s vlastním parse
 | ShadowCeviri | tr | COMICS |  | zeistmanga | shadowceviri.blogspot.com | OK |
 | WolfScanBr | pt | MANGA |  | zeistmanga | wolfscanbr.blogspot.com | OK |
 | XsanoManga | ar | MANGA |  | zeistmanga | www.xsano-manga.com | OK |
+
+# Novelové zdroje (audit `jiyu_novel_sources_audit_2026-09-20.xlsx`)
+
+Novelové weby přidané přes `NovelCommunitySources` — opět jen údaje o webu nad sdílenými
+šablonami (Madara NOVEL, LightNovelWP, ReadWN, ReadNovelFull, IFreedom, FreeWebNovel,
+NovelCool, WP REST, Ranobes). Každý byl před přidáním ověřen živě (výpis, žánrový archiv,
+seznam kapitol, text kapitoly). Loga se neřeší — UI je odvozuje z `homepageUrl` (favicon).
+
+Filtr = žánrový filtr, který web reálně podporuje (`supportsTagFilter`/`getAvailableTags`).
+U webů bez viditelné žánrové taxonomie se filtr sám vypne (prázdný seznam tagů).
+
+Záměrně vynecháno: foxaholic.com + novelnice.com (Cloudflare Turnstile — neřešitelné
+pro OkHttp, viz SourceManager), dragontea.ink (už je jako MANGA zdroj), daoist.quest
+(hijacknutý spam), bllate.org (placené kapitoly za CSRF tickety — porušuje free-only),
+penguin-squad.com + kdtnovels.net (Next.js/React SPA — žádný server-renderovaný markup),
+hangulplanet/mtl-novel/wordexcerpt/araznovel (audit chybně označil za Madara),
+novel-lucky.com (mrtvé), cherrymist.cafe (Fictioneer — neověřené), e-kitaplar.com +
+re-library.com (WP REST model nesedí), knoxt.space (blokovaná odpověď).
+
+| Zdroj | Jazyk | Engine | Doména | Žánrový filtr |
+|---|---|---|---|---|
+| ArNovel | ar | madara | ar-no.com | ano |
+| Riwyat | ar | madara (child-theme nhv) | cenele.com | ano |
+| Citrus Aurora | en | madara | citrusaurora.com | ano |
+| Etude Translations | en | madara | etudetranslations.com | ano |
+| Hiraeth Translation | en | madara | hiraethtranslation.com | ano |
+| LightNovelHeaven | en | madara | lightnovelheaven.com | ano |
+| Noice Translations | en | madara | noicetranslations.com | ano |
+| Novel Short | en | madara | novel-short.com | ano |
+| Novel PDF | th | madara | novelpdf.xyz | ano |
+| SleepyTranslations | en | madara | sleepytranslations.com | – |
+| SonicMTL | en | madara | sonicmtl.com | ano |
+| TranslatinOtaku | en | madara | translatinotaku.net | ano |
+| MeioNovel | id | madara | meionovels.com | ano |
+| ~~Vanovel~~ | id | madara | vanovel.com | ODSTRANĚNO 2026-09-23 — /novel/ → /novels-type/, archiv prázdný |
+| ~~WBNovel~~ | id | madara | wbnovel.com | ODSTRANĚNO 2026-09-23 — celý katalog jen 5 titulů |
+| TurkceLightNovels | tr | madara | turkcelightnovels.com | – |
+| WebNovelOku | tr | madara | webnoveloku.com | ano |
+| Kol Novel | ar | lightnovelwp | kolnovel.com | ano |
+| ~~Novels Paradise~~ | ar | lightnovelwp | novelsparadise.site | ODSTRANĚNO 2026-09-23 — web vrací 403 |
+| BlumeVerse | en | lightnovelwp | blume-verse.com | ano |
+| DobyNovels | en | lightnovelwp | dobynovels.com | ano |
+| Hyacinth in Bloom | en | lightnovelwp | hyacinthbloom.com | ano |
+| Lazy Girl Translations | en | lightnovelwp | lazygirltranslations.com | ano |
+| Translation Weaver | en | lightnovelwp | transweaver.com | ano |
+| TC & Sega | es | lightnovelwp | teamchmantranslations.com | ano |
+| Namevt | tr | lightnovelwp | namevt.com | ano |
+| FanNovel (FanMTL) | en | readwn | fanmtl.com | ano |
+| Wuxia Space | en | readwn | wuxiaspot.com | ano |
+| ReadNovelFull | en | readnovelfull | readnovelfull.com | ano |
+| AllNovelFull (Novgo) | en | freewebnovel | novgo.net | ano (search JS-only) |
+| NovelCool (RU) | ru | novelcool | ru.novelcool.com | ano |
+| Svobodny Mir Ranobe | ru | ifreedom | ifreedom.su | ano (VIP kapitoly se filtrují) |
+| Bookhamster | ru | ifreedom | bookhamster.ru | ano |
+| Ranobes.com | ru | ranobescom | ranobes.com | ano |
+| ~~Peach Puff Translations~~ | en | wprest | peachpuff.in | ODSTRANĚNO 2026-09-23 — doména mrtvá |
+| ~~Novel7s~~ | en | wprest | novel7s.com | ODSTRANĚNO 2026-09-23 — NovelTells promo web, ne čtecí tituly |
+| Hasu Translations | es | wprest | hasutl.wordpress.com | – |
+| Oasis Translations | es | wprest | oasistranslations.wordpress.com | – |
+
+## Samostatné zdroje mimo šablony
+
+| Zdroj | Jazyk | Typ | Doména | Poznámka |
+|---|---|---|---|---|
+| ComicK Art | en | MANGA/MANHWA/MANHUA | comick.art | Neoficiální mirror ComicK (`ComicKArtSource`, id `comickart`). Na rozdíl od oficiálního api.comick.dev reálně servíruje stránky kapitol (`#sv-data` JSON → cdn1.comicknew.pictures). Vlastní DB — `hid` se nesdílí s api.comick.dev, sdílený je jen `slug`. Filtry: žánry/tagy (`/api/metadata`), řazení popular/latest/rating/title, cursor paginace. Ověřeno živě 2026-09-23 bez CF výzvy. |
+
+## Novela — agregovaný režim (AppMode.NOVEL)
+
+Třetí režim appky vedle `SOURCES` a `COMICK` (výběr v Nastavení → Zdroje, nebo v onboardingu). Sjednocený katalog **všech** NOVEL zdrojů najednou — na rozdíl od ComicK režimu tu neexistuje centrální katalog s referenční evidencí kapitol, takže se agreguje přímo to, co zdroje samy nabídnou.
+
+- **Feed**: `NovelHomeViewModel` stáhne `getPopular(1)` ze všech viditelných `contentType == NOVEL` zdrojů (semafor 6, timeout 15 s/zdroj, `InteractiveChallengePolicy.noSolve`), merge přes `normalizeMangaTitle` → `mergeNovelEntries`. Reprezentant karty = kopie s nejlepším rankem v rámci svého zdroje; řazení nejlepší rank → počet zdrojů.
+- **Hledání**: stejný sweep přes `repository.search` + merge.
+- **Otevření titulu**: `NovelResolverScreen` → `NovelResolver` prohledá VŠECHNY NOVEL zdroje (všechny jazyky — záměrně bez `includeInGlobalSearch` filtru, ten drží jen obecné globální hledání rychlé; adult zdroje vynechány). Kandidáti se streamují; finální řazení `rankNovelCandidates` = oblíbený∧kapitoly > anglický∧kapitoly > počet kapitol. Early-exit jen na oblíbeném zdroji s kapitolami.
+- Vybraná kopie se otevře přes `repository.openPreview` → nativní detail (žádný browser), kapitoly/čtečka fungují normálně přes `MangaSource`.

@@ -25,6 +25,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import com.haise.jiyu.source.SourceRateLimitedException
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.source.interceptor.ComixImageInterceptor
 import com.haise.jiyu.source.interceptor.DomainOverrideInterceptor
 import com.haise.jiyu.source.interceptor.CacheLimitInterceptor
 import com.haise.jiyu.source.interceptor.DomainOverrides
@@ -61,6 +62,7 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
@@ -104,6 +106,16 @@ annotation class LlmHttpClient
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class TranslateProxyHttpClient
+
+/**
+ * Zapnutí DNS-over-HTTPS (výchozí zapnuto) - čtou ho klienti na vlákně OkHttp, proto
+ * jen `@Volatile` příznak jako u [com.haise.jiyu.source.interceptor.ImageProxyConfig].
+ */
+@Singleton
+class DnsOverHttpsConfig @Inject constructor() {
+    @Volatile
+    var enabled: Boolean = true
+}
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -149,7 +161,9 @@ private class ThrottleInterceptor(private val maxConcurrentPerHost: Int = 5) : I
  * Coil sdílí tenhle stejný OkHttpClient. Referer se nastaví jen když ho
  * request ještě nemá (aby to nerozbilo zdroje, které si ho nastavují samy).
  */
-private val hotlinkReferers = mapOf(
+// internal (ne private) - LiveSourceSmokeTest je potrebuje pro věrnou repliku
+// HotlinkRefererInterceptor, jinak jsou 403 na hotlink-CDN falešné WARNy.
+internal val hotlinkReferers = mapOf(
     "webtoon-phinf.pstatic.net" to "https://www.webtoons.com/",
     "comicbookplus.com" to "https://comicbookplus.com/",
     "cdn.readdetectiveconan.com" to "https://mangapill.com/",
@@ -166,7 +180,7 @@ private val hotlinkReferers = mapOf(
 // Hitomi.La serví thumbnaily (tn.*) i plné stránky (w1.*/w2.*/…) na
 // libovolně pojmenovaných subdoménách gold-usergeneratedcontent.net -
 // match je proto podle přípony domény, ne přesného hostu.
-private val hotlinkRefererSuffixes = mapOf(
+internal val hotlinkRefererSuffixes = mapOf(
     "gold-usergeneratedcontent.net" to "https://hitomi.la/",
     // MangaTown obrazky bezi na ruznych CDN subdomenach mangahere sit (zjcdn.mangahere.org,
     // fmcdn.mangahere.com, ...) - suffix match pokryje obe TLD varianty.
@@ -178,13 +192,19 @@ private val hotlinkRefererSuffixes = mapOf(
     // MangaDoom servi obrazky na nahodne pojmenovanych subdomenach redirectto.cc
     // (napr. 9giiu0g54k8c.redirectto.cc) - suffix match pokryje vsechny varianty.
     "redirectto.cc" to "https://manga-doom.com/",
+    // comix.to CDN (static.comix.to apod.) - pokryje hlavni domenu i subdomeny.
+    "comix.to" to "https://comix.to/",
+    // ComicKArt CDN (cdn1/cdn2/n1.comicknew.pictures) - obalky i stranky kapitol
+    // vraci 403 bez Refereru na comick.art (overeno zive 2026-09-27: bez nej 403,
+    // s nim 200). Suffix match pokryje vsechny cislovane subdomeny.
+    "comicknew.pictures" to "https://comick.art/",
 )
 
 // MangaK servi obrazky na rx.{nahodne-slovo}.org - CELA druha uroven domeny
 // (ne jen subdomena) se meni chapter od chapteru (rx.qvzrg.org, rx.resmk.org, ...),
 // takze ani presny host, ani prípona nefunguje spolehlive. Spolecny je jen prefix
 // "rx." - match je proto podle zacatku hostu.
-private val hotlinkRefererPrefixes = mapOf(
+internal val hotlinkRefererPrefixes = mapOf(
     "rx." to "https://mangak.io/",
 )
 
@@ -224,6 +244,28 @@ private val chromeLikeConnectionSpec = ConnectionSpec.Builder(ConnectionSpec.MOD
     )
     .build()
 
+/**
+ * Přilepí WebView-cookie jen na reader-cdn.globalcomix.com (JEDINÝ obrázkový host, co ji potřebuje):
+ * `/v1/readV3` vrátí Set-Cookie `gc_reader_auth` (JWT, path-scoped `/r/{releaseKey}/`), kterou
+ * hlavní klient uloží do CookieManageru přes WebViewCookieInterceptor. Obecný WebViewCookieInterceptor
+ * sem nepatří - dotaz na CookieManager u každého ze stovek obrázků je drahý (viz komentář výše).
+ */
+private class GlobalComixCdnCookieInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        if (request.url.host != "reader-cdn.globalcomix.com" || request.header("Cookie") != null) {
+            return chain.proceed(request)
+        }
+        val cookie = try {
+            com.haise.jiyu.source.interceptor.AndroidSharedCookieStore.cookiesFor(request.url.toString())
+        } catch (_: Throwable) { null }
+        return chain.proceed(
+            if (cookie.isNullOrBlank()) request
+            else request.newBuilder().header("Cookie", cookie).build()
+        )
+    }
+}
+
 private class HotlinkRefererInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -254,7 +296,9 @@ internal fun parseRetryAfterMs(header: String): Long? {
     // jinak vratila zaporny cas. Dnesnimu jedinemu volajicimu (Throwable.toFriendlyMessage,
     // ktery uz zapor/nulu bere stejne) na tom nezalezi, ale je to levna pojistka proti
     // budoucimu volajicimu, co by tenhle predpoklad necekane porusil.
-    header.toLongOrNull()?.let { return (it * 1000).coerceAtLeast(0) }
+    // coerceAtMost pred *1000 - obrovsky Retry-After (napr. "9999999999999") by pretekl
+    // Long na zaporne cislo a coerceAtLeast(0) z nej udelal 0 ms ("necekej vubec").
+    header.toLongOrNull()?.let { return (it.coerceAtMost(Long.MAX_VALUE / 1000) * 1000).coerceAtLeast(0) }
     return try {
         (ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
             .toInstant().toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0)
@@ -298,7 +342,9 @@ private object CloudflareDoh : Dns {
 
     // Odpovědi se drží v paměti pár minut: každý nový hostitel (web, CDN obálek, CDN stránek) jinak stál jeden dotaz
     // na cloudflare-dns.com (desítky až stovky ms) i tehdy, když už ho appka před chvílí překládala.
-    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
+    // LRU misto ConcurrentHashMap+clear() - naplneni drive vymazalo CELU cache na nulu
+    // (vsechny hosty se pretre prekladal); tady vypadava jen nejdle nepouzita (audit).
+    private val cache = com.haise.jiyu.util.boundedLruMap<String, Pair<List<InetAddress>, Long>>(MAX_CACHED_HOSTS)
 
     // Když DoH selže (typicky zablokované 1.1.1.1 na síti), každý další dotaz by čekal až 5 s na timeout, než se
     // spadne na systémové DNS. Po selhání se DoH na chvíli vypne a rovnou se použije systémové DNS.
@@ -317,7 +363,6 @@ private object CloudflareDoh : Dns {
                 Dns.SYSTEM.lookup(hostname)
             }
         }
-        if (cache.size >= MAX_CACHED_HOSTS) cache.clear()
         cache[hostname] = addresses to now + DNS_CACHE_TTL_MS
         return addresses
     }
@@ -333,6 +378,17 @@ private object CloudflareDoh : Dns {
     }
 }
 
+/**
+ * DNS resolvent přepínatelný za běhu (viz [DnsOverHttpsConfig] a přepínač v Nastavení zdrojů):
+ * zapnuto = Cloudflare DoH, vypnuto = systémové DNS (hodí se tam, kde je 1.1.1.1 sama
+ * zablokovaná, nebo při diagnoze, jestli problém je v DNS). Rozhodnutí se vyhodnocuje při
+ * KAŽDÉM dotazu, takže přepínač platí okamžitě i pro už postavené klienty.
+ */
+private class ToggleableDns(private val config: DnsOverHttpsConfig) : Dns {
+    override fun lookup(hostname: String): List<InetAddress> =
+        if (config.enabled) CloudflareDoh.lookup(hostname) else Dns.SYSTEM.lookup(hostname)
+}
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -346,6 +402,7 @@ object AppModule {
         networkMonitor: NetworkMonitor,
         slowdown: SourceSlowdown,
         proxyConfig: NetworkProxyConfig,
+        dohConfig: DnsOverHttpsConfig,
     ): OkHttpClient = OkHttpClient.Builder()
         .proxySelector(proxyConfig.selector)
         .proxyAuthenticator(proxyConfig.authenticator)
@@ -358,7 +415,13 @@ object AppModule {
         // Read timeout zůstává 30 s - pomalá mobilní síť může data posílat pomalu, ale průběžně.
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .dns(CloudflareDoh)
+        // callTimeout: host posilajici data "po kapkach" pod hranici readTimeoutu by bez
+        // celkoveho stropu drzel ThrottleInterceptor permit i dispatcher vlakno donekonecna
+        // (audit - 5 pomalych odpovedi = mrtvy host pro celou appku). 150 s protoze uvnitr
+        // retezce muze bezet Cloudflare solve (silent ~18 s + interaktivni dialog az ~90 s)
+        // + samotne cteni 30 s.
+        .callTimeout(150, TimeUnit.SECONDS)
+        .dns(ToggleableDns(dohConfig))
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(DomainOverrideInterceptor(domainOverrides))
         .addInterceptor(NoNetworkInterceptor { networkMonitor.isOnline })
@@ -384,6 +447,7 @@ object AppModule {
         slowdown: SourceSlowdown,
         imageProxyConfig: ImageProxyConfig,
         proxyConfig: NetworkProxyConfig,
+        dohConfig: DnsOverHttpsConfig,
     ): OkHttpClient = OkHttpClient.Builder()
         .proxySelector(proxyConfig.selector)
         .proxyAuthenticator(proxyConfig.authenticator)
@@ -401,7 +465,7 @@ object AppModule {
         // bez dat), tenhle strop je jen pojistka proti pomalému, ale živému stahování.
         .callTimeout(120, TimeUnit.SECONDS)
         .connectionPool(okhttp3.ConnectionPool(32, 5, TimeUnit.MINUTES))
-        .dns(CloudflareDoh)
+        .dns(ToggleableDns(dohConfig))
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
         .addInterceptor(DomainOverrideInterceptor(domainOverrides))
         .addInterceptor(NoNetworkInterceptor { networkMonitor.isOnline })
@@ -412,8 +476,14 @@ object AppModule {
         .addInterceptor(ImageProxyInterceptor(imageProxyConfig))
         // Bez WebViewCookieInterceptor: obrázky (desítky obálek a log najednou) nepotřebují session cookies a dotaz
         // na CookieManager je při stovkách požadavků zbytečně drahý. Hotlink ochrany řeší Referer.
+        // Výjimka: reader-cdn.globalcomix.com - stránky GlobalComix vyžadují JWT cookie gc_reader_auth,
+        // kterou /v1/readV3 uložil do CookieManageru scoped na /r/{key}/ (viz GlobalComixSource).
+        .addInterceptor(GlobalComixCdnCookieInterceptor())
         .addInterceptor(RateLimitInterceptor(slowdown))
         .addInterceptor(HotlinkRefererInterceptor())
+        // comix.to stranky kapitol: desifrovani x-enc-* XORu a 5x5 dlaždic podle response
+        // hlavicek (vlastni hlavicky zadne jine CDN nenosi, takze ostatni obrazky prochazi beze zmeny).
+        .addInterceptor(ComixImageInterceptor())
         // Obrázky Cloudflare výzvy NEŘEŠÍ (žádný WebView/dialog/zámek hostitele) - jen použijí už získanou clearance
         // a jinak rychle selžou; jinak by čekající obrázek držel vlákno a slot hostitele a zdržel obálky i loga.
         .addInterceptor(ImageCloudflareInterceptor(cloudflare))
@@ -425,12 +495,18 @@ object AppModule {
     @Provides
     @Singleton
     @TranslateProxyHttpClient
-    fun provideTranslateProxyHttpClient(): OkHttpClient = OkHttpClient.Builder()
+    fun provideTranslateProxyHttpClient(
+        networkMonitor: NetworkMonitor,
+        dohConfig: DnsOverHttpsConfig,
+    ): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .callTimeout(150, TimeUnit.SECONDS)
-        .dns(CloudflareDoh)
+        .dns(ToggleableDns(dohConfig))
         .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
+        // Offline = selhat hned, ne až po 30s connect timeoutu - překlad bez sítě stejně
+        // nemá šanci a čekání jen zdržuje fallback na další provider.
+        .addInterceptor(NoNetworkInterceptor { networkMonitor.isOnline })
         .build()
 
     @Provides
@@ -439,6 +515,11 @@ object AppModule {
     fun provideLlmHttpClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        // Celkový strop jednoho volání: readTimeout hlídá jen ticho MEZI bajty - lokální
+        // model streamující "po kapkách" by bez něj visel neomezeně. NoNetworkInterceptor
+        // sem záměrně nepatří - BYOK endpoint bývá na LAN, kde "bez internetu" neznamená
+        // nedostupný server.
+        .callTimeout(180, TimeUnit.SECONDS)
         .build()
 
     @Provides
@@ -458,6 +539,11 @@ object AppModule {
     @Singleton
     fun provideDataStore(@ApplicationContext context: Context): DataStore<Preferences> =
         context.settingsDataStore
+
+    @Provides
+    @Singleton
+    fun provideComixPageRunner(impl: com.haise.jiyu.source.comix.ComixWebViewRunner):
+        com.haise.jiyu.source.comix.ComixPageRunner = impl
 
     @Provides fun provideMangaDao(db: AppDatabase): MangaDao = db.mangaDao()
     @Provides fun provideChapterDao(db: AppDatabase): ChapterDao = db.chapterDao()

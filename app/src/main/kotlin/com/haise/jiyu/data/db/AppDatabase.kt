@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -362,6 +362,16 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_discoveredAt` ON `chapter` (`discoveredAt`)")
             }
         }
+        val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // propagateReadProgressToLinkedChapters běží při KAŽDÉM otočení stránky a filtruje
+                // WHERE fallbackChapterId=? bez indexu = full scan tabulky kapitol na stránku (audit).
+                // deleteOlderThan v translated_* tabulkách dělal totéž na createdAt.
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chapter_fallbackChapterId` ON `chapter` (`fallbackChapterId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_translated_page_createdAt` ON `translated_page` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_translated_novel_createdAt` ON `translated_novel` (`createdAt`)")
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -405,6 +415,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_36_37,
             MIGRATION_37_38,
             MIGRATION_38_39,
+            MIGRATION_39_40,
         )
     }
 }

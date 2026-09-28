@@ -67,7 +67,7 @@ class ChapterDownloadWorker @AssistedInject constructor(
     // se kazdy downloadBytes() mohl interne az 3x preopakovat (kazdy pokus az 60s) PRED
     // tim, nez vubec vyhodi vyjimku, a pak by WorkManageruv vlastni retry (runAttemptCount)
     // zopakoval CELOU kapitolu znovu - vrstvene az 3x3 pokusy na jednu spatnou stranku.
-    @ImageHttpClient private val client: OkHttpClient,
+    @param:ImageHttpClient private val client: OkHttpClient,
 ) : CoroutineWorker(context, params) {
 
     // Na pozadí se nikdy neukazuje interaktivní výzva Cloudflare (viz InteractiveChallengePolicy).
@@ -75,9 +75,15 @@ class ChapterDownloadWorker @AssistedInject constructor(
 
     private suspend fun runDownload(): Result {
         val chapterEntityId = inputData.getString(KEY_CHAPTER_ENTITY_ID) ?: return Result.failure()
-        val sourceId = inputData.getString(KEY_SOURCE_ID) ?: return Result.failure()
-        val chapterUrl = inputData.getString(KEY_CHAPTER_URL) ?: return Result.failure()
-        val mangaUrl = inputData.getString(KEY_MANGA_URL) ?: return Result.failure()
+        val sourceId = inputData.getString(KEY_SOURCE_ID)
+        val chapterUrl = inputData.getString(KEY_CHAPTER_URL)
+        val mangaUrl = inputData.getString(KEY_MANGA_URL)
+        // Poskozeny vstup (starsi verze fronty, mazani behem enqueue) - bez nastaveni stavu
+        // by kapitola zustala viset v DOWNLOADING donekonecna (audit).
+        if (sourceId == null || chapterUrl == null || mangaUrl == null) {
+            repository.setDownloadStatus(chapterEntityId, DownloadStatus.ERROR)
+            return Result.failure()
+        }
 
         val parallelLimit = settings.parallelDownloads.first().coerceIn(1, 5)
         val semaphore = getSemaphore(parallelLimit)
@@ -152,12 +158,17 @@ class ChapterDownloadWorker @AssistedInject constructor(
                     pages.mapIndexed { index, page ->
                         async {
                             pageSemaphore.withPermit {
-                                val imageUrl = page.imageUrl ?: page.url
+                                // Zdroje s líným resolverem (MangaHome chapterfun, FanFox...)
+                                // vrací v Page.url neobrazovou virtuální adresu - skutečnou
+                                // URL dorozluší getImageUrl až teď, jinak by se do souboru
+                                // uložil HTML/JS kód místo obrázku (nalezeno v auditu).
+                                val imageUrl = page.imageUrl
+                                    ?: repository.resolvePageImageUrl(sourceId, page)
                                 // Příponu/scramble lze určit čistě z URL bez síťového volání - umožňuje
                                 // zjistit cílové jméno souboru PŘED stahováním a přeskočit stránky, které
                                 // už jsou z předchozího (přerušeného) pokusu na disku hotové.
                                 val scramble = ScrambledImageUrl.parse(imageUrl)
-                                val extension = if (scramble != null) "jpg" else imageUrl.substringBefore('?').substringAfterLast('.', "jpg").take(4)
+                                val extension = if (scramble != null) "jpg" else imageUrl.substringBefore('#').substringBefore('?').substringAfterLast('.', "jpg").take(4)
                                 val fileName = "%03d.%s".format(index, extension)
 
                                 if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
@@ -232,7 +243,9 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 // stejně jako dřív. Strop 3 sedí se stejným vzorem v SyncWorker.
                 // Limit zdroje (429, SourceRateLimitedException - od opravy polykani vyjimek ve zdrojich
                 // se sem dostane, dřív zdroj vrátil prázdný seznam stránek) je taky přechodný.
-                if ((e is java.io.IOException || e is com.haise.jiyu.source.SourceRateLimitedException) && runAttemptCount < 3) {
+                // SourceRateLimitedException je IOException - prvni kontrola staci
+                // (druha vetev `e is ...` kvuli retryAfterMs zustava nize).
+                if (e is java.io.IOException && runAttemptCount < 3) {
                     repository.setDownloadStatus(chapterEntityId, DownloadStatus.DOWNLOADING)
                     // Web řekl, jak dlouho počkat (Retry-After) - vyčká se aspoň tak, ne jen pevných 30 s backoffu
                     // WorkManageru, který by limit znovu narazil. Delší čekání než 5 min se nedrží ve workeru.
@@ -250,14 +263,21 @@ class ChapterDownloadWorker @AssistedInject constructor(
     }
 
     private fun notifyDone(chapterId: String) {
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+        // runCatching: zamitnute POST_NOTIFICATIONS (Android 13+) vyhodi SecurityException -
+        // bez tohohle by propadla do catch doWork() a prepsala spravny stav DOWNLOADED na
+        // ERROR (a Result.failure), i kdyz stranky jsou v poradku na disku. Notifikace je
+        // bonus, ne podminka uspechu stahovani. Kanal CHANNEL_DOWNLOADS (drive CHANNEL_ID =
+        // kanal novych kapitol) - jinak by "stazeno" neslo vypnout zvlast.
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_DOWNLOADS)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(applicationContext.getString(R.string.download_notification_done_title))
             .setContentText(applicationContext.getString(R.string.download_notification_done_text))
             .setAutoCancel(true)
             .build()
-        applicationContext.getSystemService(NotificationManager::class.java)
-            .notify(chapterId.hashCode(), notification)
+        runCatching {
+            applicationContext.getSystemService(NotificationManager::class.java)
+                .notify(chapterId.hashCode(), notification)
+        }
     }
 
     private suspend fun notifyFailed(chapterId: String, error: Exception) {
@@ -277,8 +297,11 @@ class ChapterDownloadWorker @AssistedInject constructor(
             .setContentText(applicationContext.getString(R.string.download_notification_failed_text, chapterName, reason))
             .setAutoCancel(true)
             .build()
-        applicationContext.getSystemService(NotificationManager::class.java)
-            .notify(chapterId.hashCode() xor 0x2000, notification)
+        // runCatching - viz notifyDone: zamitnute opravneni nesmi zabijet worker.
+        runCatching {
+            applicationContext.getSystemService(NotificationManager::class.java)
+                .notify(chapterId.hashCode() xor 0x2000, notification)
+        }
     }
 
     /**
@@ -302,14 +325,19 @@ class ChapterDownloadWorker @AssistedInject constructor(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        cont.resumeWithException(java.io.IOException("Stažení selhalo (${response.code}): $url"))
+                        if (!cont.isCancelled) {
+                            cont.resumeWithException(java.io.IOException("Stažení selhalo (${response.code}): $url"))
+                        }
                         return@use
                     }
                     val bytes = response.body?.bytes()
+                    // Vsechny resumy hlidat isCancelled - zruseni mezi dokoncenim site a
+                    // resumem by jinak hodilo IllegalStateException MIMO cancel vetev
+                    // (audit) a kapitola by padla do ERROR misto cisteho storna.
                     if (bytes == null) {
-                        cont.resumeWithException(java.io.IOException("Prázdná odpověď: $url"))
+                        if (!cont.isCancelled) cont.resumeWithException(java.io.IOException("Prázdná odpověď: $url"))
                     } else {
-                        cont.resume(bytes)
+                        if (!cont.isCancelled) cont.resume(bytes)
                     }
                 }
             } catch (e: java.io.IOException) {
@@ -325,8 +353,10 @@ class ChapterDownloadWorker @AssistedInject constructor(
      * jinak by se na disk uložil nečitelný zpřeházený obrázek.
      */
     private fun descrambleToJpeg(bytes: ByteArray, grid: Int, seed: Long): ByteArray {
+        // IOException misto IllegalStateException - usekly/poskozeny download je prechodna
+        // chyba a ma dostat retry stejne jako sitovy vypadek, ne trvale ERROR (audit).
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: throw IllegalStateException("Nepodařilo se dekódovat obrázek pro rozskládání dlaždic")
+            ?: throw java.io.IOException("Nepodařilo se dekódovat obrázek pro rozskládání dlaždic")
         val descrambled = TileScrambleBitmap.descramble(bitmap, grid, seed)
         val output = ByteArrayOutputStream()
         descrambled.compress(Bitmap.CompressFormat.JPEG, 92, output)

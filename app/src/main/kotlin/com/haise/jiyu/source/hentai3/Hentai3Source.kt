@@ -3,6 +3,7 @@ package com.haise.jiyu.source.hentai3
 import com.haise.jiyu.util.lazySrc
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -39,6 +40,7 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
     override val name = "3Hentai"
     override val isAdult = true
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
 
     private val base = "https://3hentai.net"
 
@@ -61,7 +63,42 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
         }
 
+    // Tagovy index "/tags" (strankovany, odkazy jako absolutni "/tags/{slug}") a
+    // archivy "/tags/{slug}?page=N" - overeno zive. Slug nese i suffix typu tagu
+    // ("-female"/"-male" apod.) - pouziva se cely, jak ho web generuje. Vice tagu
+    // najednou web nepodporuje - pri vice vybranych se pouzije prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val out = mutableListOf<FilterTag>()
+            var p = 1
+            while (p <= 60) {
+                val links = fetchDocument("$base/tags?page=$p").select("a[href*=/tags/]")
+                if (links.isEmpty()) break
+                links.forEach { a ->
+                    val slug = a.attr("href").substringAfter("/tags/").trim('/').ifBlank { return@forEach }
+                    val label = a.text().trim().ifBlank { return@forEach }
+                    out += FilterTag(id = slug, label = label)
+                }
+                p++
+            }
+            out.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Web "?page=N" ignoruje - stranka 2 vraci bajtove identicky obsah jako
+        // stranka 1 (audit DUP, overeno zive na /language/english i /search).
+        if (page > 1) return@withContext emptyList()
+        if (filter.genres.isNotEmpty()) {
+            return@withContext try {
+                parseGalleryList(fetchDocument("$base/tags/${filter.genres.first()}?page=$page"))
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        }
         // Bez parametru je vychozi razeni podle data (nejnovejsi) - "Popularni:" je
         // tu jen bocni widget s vlastnim sort=popular (navic 24h/7d varianty, ktere
         // appka nepouziva). Overeno zive: oba dotazy vraci skutecne odlisne seznamy.
@@ -72,7 +109,9 @@ class Hentai3Source @Inject constructor(private val client: OkHttpClient) : Mang
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
         if (query.isBlank()) return@withContext getPopular(page, filter)
+        if (page > 1) return@withContext emptyList() // "?page=" ignorovan - viz getPopular
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseGalleryList(fetchDocument("$base/search?q=$q&page=$page"))

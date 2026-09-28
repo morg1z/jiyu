@@ -90,6 +90,25 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="jiyu" android:host="manga" />
             </intent-filter>
+            <!-- Deep link do čtečky: jiyu://reader?chapterId=xxx (notifikace "nová
+                 kapitola", CoverWidget). Bez filtru by implicitní VIEW intent
+                 (QR, jiná appka) neresolvol - navDeepLink v Compose NavGraph se
+                 do manifestu NEGENERUJE (to umí jen XML nav grafy). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="jiyu" android:host="reader" />
+            </intent-filter>
+            <!-- Reset hesla: odkaz z e-mailu jiyu://auth#access_token=…&type=recovery
+                 (redirectUrl v resetPasswordForEmail; musí být povolený v Supabase
+                 Authentication → URL Configuration → Redirect URLs). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="jiyu" android:host="auth" />
+            </intent-filter>
         </activity>
 
         <activity

@@ -50,13 +50,23 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // Hodnoty <option> ze /search formulare (overeno zive): publishing,
+    // finished, "on hiatus", discontinued, "not yet published". Appka nabizi
+    // jen ongoing/completed/hiatus.
+    private fun statusParam(status: String?): String = when (status) {
+        "ongoing" -> "publishing"
+        "completed" -> "finished"
+        "hiatus" -> "on+hiatus"
+        else -> ""
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        // Genre checkbox filtr (/search) ma prednost pred specialnim "latest" pruchodem
-        // pres /mangas/new, ktery zadny filtr genre nepodporuje.
-        if (filter.genres.isNotEmpty()) {
+        // Genre/status filtr (/search) ma prednost pred specialnim "latest" pruchodem
+        // pres /mangas/new, ktery zadny filtr nepodporuje.
+        if (filter.genres.isNotEmpty() || filter.status != null) {
             val genreParams = filter.genres.joinToString("") { "&genre=${URLEncoder.encode(it, "UTF-8")}" }
             return@withContext try {
-                parseList(get("$base/search?q=&type=manga&status=&page=$page$genreParams"))
+                parseList(get("$base/search?q=&type=manga&status=${statusParam(filter.status)}&page=$page$genreParams"))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // overeno zive: /mangas/new (nove pridane tituly) je razeni odlisne od
@@ -74,7 +84,7 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val genreParams = filter.genres.joinToString("") { "&genre=${URLEncoder.encode(it, "UTF-8")}" }
-            parseList(get("$base/search?q=$q&page=$page$genreParams"))
+            parseList(get("$base/search?q=$q&status=${statusParam(filter.status)}&page=$page$genreParams"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -84,6 +94,10 @@ class MangapillSource @Inject constructor(private val client: OkHttpClient) : Ma
     // filtrovane vysledky pro Isekai prokazatelne odlisne od vychoziho vypisu).
 
     override val supportsTagFilter: Boolean get() = true
+
+    // /search?status= aplikuje filtr server-side (overeno zive: publishing vs
+    // finished vraci odlisne vysledky).
+    override val supportsStatusFilter: Boolean get() = true
 
     @Volatile private var cachedTags: List<FilterTag>? = null
 

@@ -12,7 +12,6 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -40,27 +39,19 @@ class Manga18fxSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val isAdult = true
     override val homepageUrl get() = base
 
-    // http, ne https - viz network_security_config.xml pro duvod (nekonzistentni
-    // TLS handshake na Androidu, web funguje spolehlive pres obycejne HTTP).
-    private val base = "http://manga18fx.com"
-
-    // Sdileny klient ma connectionSpecs omezene jen na TLS varianty (kvuli
-    // Chrome-like TLS fingerringu pro ostatni zdroje) - bez ConnectionSpec.CLEARTEXT
-    // v seznamu OkHttp odmitne JAKYKOLIV http:// pozadavek s "CLEARTEXT communication
-    // not enabled for client" driv, nez se vubec podiva do network_security_config.xml
-    // (ktery uz http pro tuhle domenu spravne povoluje). Odvozeny klient jen pro
-    // tenhle zdroj, aby se sdileny klient (a jeho TLS fingerprint) pro ostatni
-    // zdroje nijak nezmenil.
-    private val cleartextClient = client.newBuilder()
-        .connectionSpecs(listOf(ConnectionSpec.CLEARTEXT, ConnectionSpec.COMPATIBLE_TLS))
-        .build()
+    // https - web prešel za Cloudflare s kompletním certifikátovým řetězcem
+    // (Google Trust Services, cross-signed GlobalSign - ověřeno 2026-09). Původní
+    // důvod pro cleartext HTTP (neúplný řetězec, Conscrypt bez AIA chasing ho
+    // neuměl dohledat) už neplatí - HTTP dnes navíc všechno jen přesměrovává
+    // (301) na HTTPS, takže cleartext klient přidával jen redirect navrchu.
+    private val base = "https://manga18fx.com"
 
     private fun fetchDocument(url: String): Document {
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .build()
-        cleartextClient.newCall(request).execute().use { response ->
+        client.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Chyba ${response.code} pri nacitani $url" }
             return Jsoup.parse(response.body?.string().orEmpty(), url)
         }

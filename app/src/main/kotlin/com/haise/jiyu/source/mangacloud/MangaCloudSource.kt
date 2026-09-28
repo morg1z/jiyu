@@ -223,6 +223,9 @@ class MangaCloudSource @Inject constructor(
     override val id = "mangacloud"
     override val name = "MangaCloud"
     override val supportsSortOrder: Boolean get() = false
+    // Zanry ("tags") jsou jen v per-manga detailu; API nema endpoint pro
+    // browsable seznam (overeno: /tags, /tag, /genres -> Conflict).
+    override val supportsTagFilter: Boolean get() = false
     override val homepageUrl get() = "https://mangacloud.org"
 
     private val apiBase = "https://api.mangacloud.org"

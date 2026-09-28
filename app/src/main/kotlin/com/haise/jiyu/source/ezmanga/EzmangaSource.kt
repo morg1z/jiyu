@@ -106,20 +106,32 @@ class EzmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
         }
     }
 
+    // /v1/series prijima status= (ONGOING|COMPLETED|HIATUS) - overeno zive:
+    // status=COMPLETED vraci jen COMPLETED, status=HIATUS jen HIATUS.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+
+    private val statusValues = mapOf(
+        "ongoing" to "ONGOING", "completed" to "COMPLETED", "hiatus" to "HIATUS",
+    )
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val genre = filter.genres.firstOrNull()
             val sort = if (filter.sortBy == "popular") "&sort=popular" else ""
             val genreParam = if (genre != null) "&genre=${URLEncoder.encode(genre, "UTF-8")}" else ""
-            parseListJson(get("$api/v1/series?page=$page$sort$genreParam"))
+            val statusParam = statusValues[filter.status]?.let { "&status=$it" }.orEmpty()
+            parseListJson(get("$api/v1/series?page=$page$sort$genreParam$statusParam"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     // "/v1/series/search" nepodporuje "genre" parametr (400) - pri fulltextovem
     // hledani se proto zanrovy filtr ignoruje, stejne jako radici parametr.
+    // Status se resi pres listing endpoint (ten ho umi).
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (query.isBlank()) return@withContext getPopular(page, filter)
+            if (query.isBlank() || filter.status != null) return@withContext getPopular(page, filter)
             val q = URLEncoder.encode(query.trim(), "UTF-8")
             parseListJson(get("$api/v1/series/search?q=$q&page=$page"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

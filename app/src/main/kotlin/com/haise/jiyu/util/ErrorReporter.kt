@@ -69,6 +69,20 @@ object ErrorReporter {
     /** Krátký popis do logu - u očekávaného šumu nechceme celý stack trace. */
     private fun Throwable.friendlyLabel(): String =
         "${this::class.simpleName}: ${message.orEmpty().take(120)}"
+
+    /**
+     * Ne-fatal stopa pro inkonzistentní stavy, které "nemají nastat", ale nejsou
+     * výjimka - nenajde se kapitola v seznamu, zvláštní přechod stavu atd.
+     * Zaloguje se (Log.w) a připne jako Crashlytics breadcrumb: při případném
+     * pozdějším crashi nebo reportu je vidět, že stav nastal a kde - jde čistě
+     * o vystopování, žádná Crashlytics issue se nevytváří.
+     */
+    fun breadcrumb(context: String, detail: String) {
+        val msg = "$context: $detail"
+        Log.w(TAG, msg)
+        if (!BuildConfig.FIREBASE_ENABLED) return
+        runCatching { Firebase.crashlytics.log(msg.take(500)) }
+    }
 }
 
 /**

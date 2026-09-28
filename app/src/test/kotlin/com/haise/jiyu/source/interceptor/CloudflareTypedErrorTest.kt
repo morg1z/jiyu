@@ -116,7 +116,7 @@ class CloudflareTypedErrorTest {
         val context = mockk<Context>(relaxed = true)
         every { context.cacheDir } returns File(System.getProperty("java.io.tmpdir"), "jiyu-order-test-cache")
         val monitor = mockk<NetworkMonitor>(relaxed = true)
-        val client = AppModule.provideOkHttpClient(context, interceptor(), DomainOverrides(), monitor, com.haise.jiyu.source.SourceSlowdown(), NetworkProxyConfig())
+        val client = AppModule.provideOkHttpClient(context, interceptor(), DomainOverrides(), monitor, com.haise.jiyu.source.SourceSlowdown(), NetworkProxyConfig(), com.haise.jiyu.di.DnsOverHttpsConfig())
 
         val names = client.interceptors.map { it.javaClass.simpleName }
         fun idx(name: String) = names.indexOf(name).also { assertTrue("$name chybí v $names", it >= 0) }

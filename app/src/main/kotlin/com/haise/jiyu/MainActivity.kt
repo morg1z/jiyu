@@ -29,6 +29,7 @@ import com.haise.jiyu.settings.ThemeOption
 import com.haise.jiyu.source.interceptor.CloudflareChallengeHost
 import com.haise.jiyu.ui.navigation.MainScreen
 import com.haise.jiyu.ui.theme.JiyuTheme
+import io.github.jan.supabase.gotrue.handleDeeplinks
 import com.haise.jiyu.update.ApkUpdateInstaller
 import com.haise.jiyu.update.UpdateProgressOverlay
 import dagger.hilt.android.AndroidEntryPoint
@@ -41,8 +42,12 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var updateInstaller: ApkUpdateInstaller
+    @Inject lateinit var supabase: io.github.jan.supabase.SupabaseClient
 
     private val _pendingDeepLink = MutableStateFlow<Intent?>(null)
+    /** jiyu://auth?… / #access_token=… - recovery odkaz z e-mailu (reset hesla). Jde mimo
+     *  navDeepLink cesty: session se musí importovat přes Supabase, ne přes mapování route. */
+    private val _pendingAuthLink = MutableStateFlow<Intent?>(null)
 
     private val notifPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -52,8 +57,10 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val uri: Uri = intent.data ?: return
-        if (uri.scheme == "jiyu" && uri.host != "anilist") {
-            _pendingDeepLink.value = intent
+        when {
+            uri.scheme != "jiyu" -> Unit
+            uri.host == "auth" -> _pendingAuthLink.value = intent
+            uri.host != "anilist" -> _pendingDeepLink.value = intent
         }
     }
 
@@ -85,12 +92,18 @@ class MainActivity : AppCompatActivity() {
         // Po rotaci/obnově (savedInstanceState != null) je intent pořád ten původní - deep link
         // by se přehrál znovu a vrátil uživatele tam, odkud už odešel.
         if (savedInstanceState == null) {
-            intent?.data?.takeIf { it.scheme == "jiyu" && it.host != "anilist" && it.host != "mal-auth" }
-                ?.let { _pendingDeepLink.value = intent }
+            intent?.data?.let { uri ->
+                when {
+                    uri.scheme != "jiyu" -> Unit
+                    uri.host == "auth" -> _pendingAuthLink.value = intent
+                    uri.host != "anilist" && uri.host != "mal-auth" -> _pendingDeepLink.value = intent
+                }
+            }
         }
 
         setContent {
             val theme by settings.theme.collectAsStateWithLifecycle(initialValue = ThemeOption.SYSTEM)
+            val accent by settings.themeAccent.collectAsStateWithLifecycle(initialValue = com.haise.jiyu.settings.AccentOption.VIOLET)
             // null = ještě načítáme; false = onboarding nutný; true = přeskočit
             val onboardingCompleted by settings.onboardingCompleted.collectAsStateWithLifecycle(initialValue = null)
             val isDark = when (theme) {
@@ -106,7 +119,7 @@ class MainActivity : AppCompatActivity() {
                 controller.isAppearanceLightNavigationBars = !isDark
             }
 
-            JiyuTheme(mode = theme) {
+            JiyuTheme(mode = theme, accentKey = accent) {
                 // Počkáme na načtení onboarding statusu — zobrazíme prázdnou plochu
                 if (onboardingCompleted != null) {
                     // Explicitni color = colorScheme.background (ne vychozi colorScheme.surface,
@@ -122,6 +135,17 @@ class MainActivity : AppCompatActivity() {
                             val i = pendingDeepLink ?: return@LaunchedEffect
                             navController.handleDeepLink(i)
                             _pendingDeepLink.value = null
+                        }
+                        val pendingAuthLink by _pendingAuthLink.collectAsStateWithLifecycle()
+                        LaunchedEffect(pendingAuthLink) {
+                            val i = pendingAuthLink ?: return@LaunchedEffect
+                            _pendingAuthLink.value = null
+                            // Recovery odkaz z e-mailu: fragment (#access_token…) nebo ?code=
+                            // (PKCE) importuje knihovna asynchronně sama; obrazovka hesla mezitím
+                            // čeká na session (handleDeeplinks nemá error callback - prošlý/škaredý
+                            // link pozná sama přes timeout čekání na přihlášení).
+                            supabase.handleDeeplinks(i)
+                            navController.navigate(com.haise.jiyu.ui.navigation.Routes.RESET_PASSWORD)
                         }
                         MainScreen(
                             navController = navController,

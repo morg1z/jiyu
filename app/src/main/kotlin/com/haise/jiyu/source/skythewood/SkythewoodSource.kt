@@ -10,6 +10,8 @@ import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -69,6 +71,7 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
     override val supportsSortOrder: Boolean get() = false
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://skythewood.blogspot.com"
 
     private fun get(url: String): String {
@@ -91,36 +94,88 @@ class SkythewoodSource @Inject constructor(private val client: OkHttpClient) : M
     private fun encodeLabel(label: String): String =
         URLEncoder.encode(label, "UTF-8").replace("+", "%20")
 
-    private fun labelToManga(label: String): SManga = SManga(
+    private fun labelToManga(label: String, cover: String?): SManga = SManga(
         sourceId = id,
         url = "$base/feeds/posts/default/-/${encodeLabel(label)}?alt=json",
         title = decodeHtmlEntities(label),
-        coverUrl = null,
+        coverUrl = cover,
     )
 
-    private fun fetchAllLabels(): List<String> {
-        val feed = JSONObject(get("$base/feeds/posts/default?alt=json&max-results=1")).optJSONObject("feed")
-        val cats = feed?.optJSONArray("category") ?: return emptyList()
-        return (0 until cats.length()).mapNotNull { i ->
+    /** Blogger thumbnail je s72 nahled - /s72-c/ -> /s400-c/ pro pouzitelny cover. */
+    private fun upgradeThumbnail(url: String): String =
+        url.replace(Regex("/s\\d+(-c)?/"), "/s400-c/")
+
+    /**
+     * Feed s max-results=150 obsahuje zaroven feed-level kategorie (vsechny
+     * stitky blogu) i entry-level thumbnaily. NEFILTROVANY feed ale Blogger
+     * tise orizava (viz komentar tridy - typicky jen ~4 polozky), takze vetsina
+     * labelu cover z nej nema. Pro chybejici labely se proto paralelne dotazeme
+     * per-label feedu (ten je spolehlivy) na prvni polozku a jeji thumbnail.
+     */
+    private suspend fun fetchSeries(): List<SManga> {
+        val feed = JSONObject(get("$base/feeds/posts/default?alt=json&max-results=150"))
+            .optJSONObject("feed") ?: return emptyList()
+        val coverByLabel = mutableMapOf<String, String>()
+        feed.optJSONArray("entry")?.let { entries ->
+            for (i in 0 until entries.length()) {
+                val e = entries.optJSONObject(i) ?: continue
+                val thumb = e.optJSONObject("media\$thumbnail")?.optString("url")
+                    ?.takeIf { it.isNotBlank() }?.let(::upgradeThumbnail) ?: continue
+                val cats = e.optJSONArray("category") ?: continue
+                for (j in 0 until cats.length()) {
+                    cats.optJSONObject(j)?.optString("term")?.trim()?.ifBlank { null }
+                        ?.let { coverByLabel.putIfAbsent(it, thumb) }
+                }
+            }
+        }
+        val cats = feed.optJSONArray("category") ?: return emptyList()
+        val labels = (0 until cats.length()).mapNotNull { i ->
             cats.optJSONObject(i)?.optString("term")?.trim()?.ifBlank { null }
         }.filter { it.lowercase() !in nonSeriesLabels }.distinct()
+
+        val missing = labels.filter { coverByLabel[it] == null }
+        if (missing.isNotEmpty()) {
+            coroutineScope {
+                missing.map { label ->
+                    label to async {
+                        runCatching {
+                            JSONObject(get("$base/feeds/posts/default/-/${encodeLabel(label)}?alt=json&max-results=1"))
+                                .optJSONObject("feed")?.optJSONArray("entry")?.optJSONObject(0)
+                                ?.optJSONObject("media\$thumbnail")?.optString("url")
+                                ?.takeIf { it.isNotBlank() }?.let(::upgradeThumbnail)
+                        }.getOrNull()
+                    }
+                }.forEach { (label, deferred) -> deferred.await()?.let { coverByLabel[label] = it } }
+            }
+        }
+        return labels.map { labelToManga(it, coverByLabel[it]) }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (page > 1) return@withContext emptyList()
-            fetchAllLabels().map { labelToManga(it) }
+            fetchSeries()
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (page > 1) return@withContext emptyList()
-            fetchAllLabels().filter { it.contains(query, ignoreCase = true) }.map { labelToManga(it) }
+            fetchSeries().filter { it.title.contains(query, ignoreCase = true) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    override suspend fun getMangaDetails(manga: SManga): SManga = manga
+    override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
+        if (!manga.coverUrl.isNullOrBlank()) return@withContext manga
+        // manga.url je label-filtrovany feed - prvni polozka nese thumbnail.
+        try {
+            val thumb = JSONObject(get("${manga.url}&max-results=1"))
+                .optJSONObject("feed")?.optJSONArray("entry")?.optJSONObject(0)
+                ?.optJSONObject("media\$thumbnail")?.optString("url")
+                ?.takeIf { it.isNotBlank() }?.let(::upgradeThumbnail)
+            if (thumb != null) manga.copy(coverUrl = thumb) else manga
+        } catch (e: Exception) { e.rethrowIfControl(); manga }
+    }
 
     private fun selfLink(entry: JSONObject): String? {
         val links = entry.optJSONArray("link") ?: return null

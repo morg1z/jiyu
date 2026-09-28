@@ -22,10 +22,25 @@ class TrackerSyncCoordinator @Inject constructor(
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
 ) {
+    /**
+     * Nejvetsi postup odeslany behem teto session per tracker+manga. Bez nej by soubezne pushy
+     * (oznacit ch10, pak ch5 - nebo dva requesty doleti v opacnem poradi) mohly na trackeru
+     * SNIZIT progress: posledni dokonceny zapis vyhrava. Guard propusti jen vyssi cislo;
+     * pri selhani push zustane "odeslano" - dalsi vyssi kapitola to dorovna (audit).
+     */
+    private val lastPushed = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
+
+    /** Vrati true, kdyz [value] je vyssi nez dosud odeslana hodnota (a tu atomicky zalozi). */
+    private fun shouldPush(key: String, value: Int): Boolean = synchronized(lastPushed) {
+        if (value > (lastPushed[key] ?: -1)) { lastPushed[key] = value; true } else false
+    }
+
     /** Odešle číslo přečtené [chapter] do všech trackerů, na které je [manga] napojená; běží souběžně. */
     suspend fun syncReadProgress(manga: MangaEntity, chapter: ChapterEntity) = coroutineScope {
-        launch { safely("reader:anilist:updateProgress") { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } }
+        if (shouldPush("anilist:${manga.id}", chapter.chapterNumber.toInt()))
+            launch { safely("reader:anilist:updateProgress") { aniListRepository.updateProgress(chapter.mangaId, manga.title, chapter.chapterNumber) } }
         manga.malId?.let { malId ->
+            if (shouldPush("mal:$malId", chapter.chapterNumber.toInt()))
             launch {
                 safely("reader:mal:updateMangaStatus") {
                     malRepository.updateMangaStatus(malId = malId, status = "reading", numChaptersRead = chapter.chapterNumber.toInt())
@@ -33,9 +48,11 @@ class TrackerSyncCoordinator @Inject constructor(
             }
         }
         manga.kitsuId?.let { kitsuId ->
+            if (shouldPush("kitsu:$kitsuId", chapter.chapterNumber.toInt()))
             launch { safely("reader:kitsu:updateProgress") { kitsuRepository.updateProgress(kitsuId, chapter.chapterNumber.toInt()) } }
         }
         manga.mangaUpdatesId?.let { seriesId ->
+            if (shouldPush("mu:$seriesId", chapter.chapterNumber.toInt()))
             launch { safely("reader:mangaupdates:updateProgress") { muRepository.updateProgress(seriesId, chapter.chapterNumber.toInt()) } }
         }
     }

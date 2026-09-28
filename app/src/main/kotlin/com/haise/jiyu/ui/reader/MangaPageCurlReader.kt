@@ -1,6 +1,10 @@
 package com.haise.jiyu.ui.reader
 
 import android.content.res.Configuration
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -9,11 +13,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,7 +41,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.haise.jiyu.translate.TranslatedBlock
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Manga/manhwa čtečka s efektem ohýbané stránky - manga obdoba [PageCurlNovelReader],
@@ -185,8 +193,20 @@ fun MangaPageCurlReader(
         val currentGroupIndex = liveGroupIndex()
         val currentIndices = groups.getOrElse(currentGroupIndex) { listOf(0) }
 
+        // Dojeti ohybu po pusteni prstu / po tapu - ekvivalent `AnimateCounter` z originalniho
+        // PlayLikeCurl dema (~300 ms; dokonceni obratu = Decelerate -> LinearOutSlowInEasing,
+        // zruseni = AccelerateDecelerate -> FastOutSlowInEasing). Animuje se jen `dragProgress`,
+        // ktery uz GL overlay/Canvas renderer normalne sleduje - `applyTurnResult` (prepnuti
+        // indexu + reset) se zavola az na KONCI animace, takze rolujici trubicka fyzicky
+        // doleti pred prezumpci obsahu stranky. Spousti se jen pro ROLL - CLASSIC zustava na
+        // drivejsim okamzitem snapu. Novy tah/zoom/jump/kapitola job prerusi.
+        val coroutineScope = rememberCoroutineScope()
+        var settleJob by remember { mutableStateOf<Job?>(null) }
+        DisposableEffect(pages) { onDispose { settleJob?.cancel() } }
+
         LaunchedEffect(jumpToPage, pages) {
             val target = jumpToPage ?: return@LaunchedEffect
+            settleJob?.cancel()
             currentSingleIndex = target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
             dragProgress = 0f
             rawDragProgress = 0f
@@ -214,6 +234,41 @@ fun MangaPageCurlReader(
             }
         }
 
+        /**
+         * Pro [CurlStyle.ROLL] nejdriv doanimuje ohyb do cilove pozice (dokonceny obrat ->
+         * trubicka odleti/stranka se rozbaluje na `+-1f`, zruseny -> zpet naplocho na `0f`) a
+         * TEPRVE pak zavola [applyTurnResult] - presne poradi originalniho dema, kde animace
+         * dobehne a az na jejim konci se prohodi bitmapy stranek. Pro CLASSIC (a na hranici
+         * kapitoly, kde se zadny ohyb nevykresluje) zustava okamzite `applyTurnResult`.
+         */
+        fun settleAndApply(result: PageTurnResult) {
+            val target = when (result) {
+                is PageTurnResult.WithinChapter ->
+                    if (result.newState.currentPageIndex > currentGroupIndex) 1f else -1f
+                is PageTurnResult.Cancelled -> 0f
+                is PageTurnResult.ChapterBoundary -> {
+                    applyTurnResult(result)
+                    return
+                }
+            }
+            if (resolvedCurlStyle != CurlStyle.ROLL) {
+                applyTurnResult(result)
+                return
+            }
+            settleJob?.cancel()
+            settleJob = coroutineScope.launch {
+                animate(
+                    initialValue = dragProgress,
+                    targetValue = target,
+                    animationSpec = tween(
+                        durationMillis = 300,
+                        easing = if (target == 0f) FastOutSlowInEasing else LinearOutSlowInEasing,
+                    ),
+                ) { value, _ -> dragProgress = value }
+                applyTurnResult(result)
+            }
+        }
+
         fun tryTurn(direction: TurnDirection) {
             if (scale <= 1f) {
                 val live = PageCurlState(
@@ -222,7 +277,7 @@ fun MangaPageCurlReader(
                     dragProgress = dragProgress,
                     rawDragProgress = rawDragProgress,
                 )
-                applyTurnResult(live.onEdgeTap(direction))
+                settleAndApply(live.onEdgeTap(direction))
             }
         }
 
@@ -368,6 +423,7 @@ fun MangaPageCurlReader(
             // zustal trvale "zamrzly" na obrazovce po zbytek zoomovani.
             LaunchedEffect(scale > 1f) {
                 if (scale > 1f) {
+                    settleJob?.cancel()
                     dragProgress = 0f
                     rawDragProgress = 0f
                 }
@@ -395,6 +451,10 @@ fun MangaPageCurlReader(
                                     detectDragGestures(
                                         onDrag = { change, dragAmount ->
                                             change.consume()
+                                            // Preruseni beziciho dojeti (settle) - uzivatel
+                                            // popadl stranku uprostred animace, tak tah zase
+                                            // ridi primo prstem z aktualniho dragProgress.
+                                            settleJob?.cancel()
                                             val delta = (if (reverseLayout) -dragAmount.x else dragAmount.x) / widthPx
                                             val live = PageCurlState(
                                                 currentPageIndex = liveGroupIndex(),
@@ -417,13 +477,14 @@ fun MangaPageCurlReader(
                                                 dragProgress = dragProgress,
                                                 rawDragProgress = rawDragProgress,
                                             )
-                                            applyTurnResult(live.onDragEnd())
+                                            settleAndApply(live.onDragEnd())
                                         },
                                         onDragCancel = {
                                             // Fix Important 5 - gesture node muze byt zrusen
                                             // uprostred tahu (napr. prevzeti ukazatele jinym
                                             // gesture-nodem pri prechodu do pinch-zoomu) - bez
                                             // resetu by curl overlay zustal zamrzly.
+                                            settleJob?.cancel()
                                             dragProgress = 0f
                                             rawDragProgress = 0f
                                         },
@@ -482,36 +543,41 @@ fun MangaPageCurlReader(
                     },
             ) {
                 val bitmap = currentBitmap
-                if (bitmap != null && dragProgress != 0f) {
-                    if (resolvedCurlStyle == CurlStyle.ROLL) {
-                        // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Rizeno stejnym
-                        // `dragProgress`, jen dragProgress>0f = tazeni na DALSI stranku ("forward").
+                if (resolvedCurlStyle == CurlStyle.ROLL) {
+                    // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Rizeno stejnym
+                    // `dragProgress`, jen dragProgress>0f = tazeni na DALSI stranku ("forward").
+                    // Surface je mountnuty PERMANENTNE (stejne jako PageSurfaceView v originalnim
+                    // PlayLikeCurl) - EGL init trva ~200-500 ms a mount az pri `dragProgress != 0f`
+                    // znamenal, ze cela 300ms doanimace doběhla driv, nez GL vykreslil prvni frame
+                    // = zadny efekt, jen skok stranky. V klidu renderer jen cisti na transparent
+                    // (prosvita ziva stranka pod nim) a drzi textury pred-nahrane.
+                    if (bitmap != null) {
                         com.haise.jiyu.ui.reader.glcurl.GLPageCurlView(
                             currentBitmap = bitmap,
                             prevBitmap = prevBitmap,
                             nextBitmap = nextBitmap,
                             forward = dragProgress > 0f,
                             progress = kotlin.math.abs(dragProgress),
+                            // RTL (`reverseLayout`, bezne pro mangu): ohyb se zrcadli, aby
+                            // odpovidal fyzicke strane tahu - "dalsi" se tam tahne doprava a
+                            // stranka se musi loupout zleva, ne zprava jako v LTR.
+                            mirrored = reverseLayout,
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga) se
-                            // strana, ze ktere se stranka odvaluje, zrcadli, aby odpovidala fyzicke
-                            // strane, na ktere uzivatel gesto skutecne provadi.
-                            val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
-                            val geometry = computePageCurlGeometry(
-                                pageWidth = widthPx, pageHeight = heightPx,
-                                turningFromRight = curlFromRight,
-                                progress = kotlin.math.abs(dragProgress),
-                                style = resolvedCurlStyle,
-                            )
-                            if (resolvedCurlStyle == CurlStyle.WAVE) {
-                                drawWaveCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
-                            } else {
-                                drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
-                            }
-                        }
+                    }
+                } else if (bitmap != null && dragProgress != 0f) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Fix Important 9 - v RTL (`reverseLayout == true`, bezne pro manga) se
+                        // strana, ze ktere se stranka odvaluje, zrcadli, aby odpovidala fyzicke
+                        // strane, na ktere uzivatel gesto skutecne provadi.
+                        val curlFromRight = if (reverseLayout) dragProgress < 0f else dragProgress > 0f
+                        val geometry = computePageCurlGeometry(
+                            pageWidth = widthPx, pageHeight = heightPx,
+                            turningFromRight = curlFromRight,
+                            progress = kotlin.math.abs(dragProgress),
+                            style = resolvedCurlStyle,
+                        )
+                        drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                     }
                 }
             }

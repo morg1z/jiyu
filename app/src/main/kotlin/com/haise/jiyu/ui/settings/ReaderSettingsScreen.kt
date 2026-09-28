@@ -76,6 +76,7 @@ fun ReaderSettingsScreen(
     val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsStateWithLifecycle()
     val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsStateWithLifecycle()
     val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsStateWithLifecycle()
+    val prefetchPagesWifiOnly by viewModel.prefetchPagesWifiOnly.collectAsStateWithLifecycle()
     val cropBorders        by viewModel.cropBorders.collectAsStateWithLifecycle()
     val pageScale          by viewModel.pageScale.collectAsStateWithLifecycle()
     val keepScreenOn       by viewModel.keepScreenOn.collectAsStateWithLifecycle()
@@ -266,8 +267,6 @@ fun ReaderSettingsScreen(
                         listOf(
                             CurlStyleSetting.CLASSIC to stringResource(R.string.settings_reader_curl_style_classic),
                             CurlStyleSetting.ROLL to stringResource(R.string.settings_reader_curl_style_roll),
-                            CurlStyleSetting.CYLINDER to stringResource(R.string.settings_reader_curl_style_cylinder),
-                            CurlStyleSetting.WAVE to stringResource(R.string.settings_reader_curl_style_wave),
                         ).forEach { (value, label) ->
                             GlassRadioRow(label = label, selected = curlStyle == value, onClick = { viewModel.setCurlStyle(value) })
                         }
@@ -300,6 +299,13 @@ fun ReaderSettingsScreen(
                             onCheckedChange = { viewModel.setPreloadNextChapterWifiOnly(it) },
                         )
                     }
+
+                    SettingsToggleRow(
+                        title = stringResource(R.string.settings_reader_prefetch_pages_wifi_title),
+                        description = stringResource(R.string.settings_reader_prefetch_pages_wifi_desc),
+                        checked = prefetchPagesWifiOnly,
+                        onCheckedChange = { viewModel.setPrefetchPagesWifiOnly(it) },
+                    )
                 }
 
                 Spacer(Modifier.height(12.dp))

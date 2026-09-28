@@ -44,6 +44,7 @@ class OrionScansSource @Inject constructor(private val client: OkHttpClient) : M
     override val name = "Orion Scans"
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://orion-scans.com"
 
     private fun get(url: String): String {

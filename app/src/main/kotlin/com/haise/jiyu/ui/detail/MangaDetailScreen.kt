@@ -147,6 +147,10 @@ fun MangaDetailScreen(
     val readingStatus    by viewModel.readingStatus.collectAsStateWithLifecycle()
     val isFavorite       by viewModel.isFavorite.collectAsStateWithLifecycle()
     val pendingLibraryAdd by viewModel.pendingLibraryAdd.collectAsStateWithLifecycle()
+    val relinkOffered    by viewModel.relinkOffered.collectAsStateWithLifecycle()
+    val relinkSearching  by viewModel.relinkSearching.collectAsStateWithLifecycle()
+    val relinkCandidates by viewModel.relinkCandidates.collectAsStateWithLifecycle()
+    val relinkApplied    by viewModel.relinkApplied.collectAsStateWithLifecycle()
     val chapterFilter       by viewModel.chapterFilter.collectAsStateWithLifecycle()
     val statusFilter        by viewModel.statusFilter.collectAsStateWithLifecycle()
     val selectedScanlator   by viewModel.selectedScanlator.collectAsStateWithLifecycle()
@@ -193,6 +197,11 @@ fun MangaDetailScreen(
     var showCoverFullscreen by remember { mutableStateOf(false) }
     var showCoverGallery by remember { mutableStateOf(false) }
     var showRecommendations by remember { mutableStateOf(false) }
+    var showRelinkSheet by remember { mutableStateOf(false) }
+    // Kandidat cekajici na potvrzeni presunu - relink nikdy nebezi jen na tap v seznamu
+    // (cross-source shoda nazvu je slabsi dukaz identity nez stejny web, viz
+    // MangaRepository.relinkMangaToSource).
+    var relinkConfirm by remember { mutableStateOf<com.haise.jiyu.source.RelinkCandidate?>(null) }
     // Kdyz je null, fullscreen dialog ukazuje puvodni manga.coverUrl - nastavi se jen kdyz
     // uzivatel v galerii klepne na jinou obalku.
     var selectedCoverUrl by remember { mutableStateOf<String?>(null) }
@@ -222,6 +231,16 @@ fun MangaDetailScreen(
 
     LaunchedEffect(manga?.id, manga?.sourceId) {
         if (manga?.sourceId == "comick" && comments.isEmpty()) viewModel.loadMoreComments()
+    }
+
+    // Uspesny presun na jiny zdroj - zavrit sheet/dialog a potvrdit v snackbaru.
+    LaunchedEffect(relinkApplied) {
+        relinkApplied?.let { name ->
+            showRelinkSheet = false
+            relinkConfirm = null
+            snackbarHostState.showSnackbar(context.getString(R.string.detail_relink_applied, name))
+            viewModel.consumeRelinkApplied()
+        }
     }
 
     Scaffold(
@@ -460,7 +479,7 @@ fun MangaDetailScreen(
                                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                                 modifier = Modifier.fillMaxSize(),
                                             ) {
-                                                items(coverGallery.orEmpty()) { cover ->
+                                                items(coverGallery.orEmpty(), key = { it.imageUrl }) { cover ->
                                                     Column {
                                                         Box(
                                                             modifier = Modifier
@@ -590,6 +609,44 @@ fun MangaDetailScreen(
                                     modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
+                        }
+                    }
+                }
+
+                // ── Nabídka přesunu na jiný zdroj (refresh i same-source recovery
+                // selhaly - mrtvá doména, zaniklý web). Nikdy se nepřesouvá automaticky -
+                // banner jen otevře sheet s kandidáty, sám přesun potvrzuje uživatel.
+                if (relinkOffered) {
+                    item(key = "relink_offer") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NightBlue)
+                                .border(1.dp, Violet.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    showRelinkSheet = true
+                                    viewModel.startRelinkSearch()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Icon(TablerIcons.SwitchHorizontal, contentDescription = null, tint = Violet, modifier = Modifier.size(18.dp))
+                            Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                Text(
+                                    text = stringResource(R.string.detail_relink_offer_title),
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    text = stringResource(R.string.detail_relink_offer_body),
+                                    color = TextSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            Icon(TablerIcons.ChevronRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -929,7 +986,7 @@ fun MangaDetailScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        items(filters) { (key, label) ->
+                        items(filters, key = { it.first }) { (key, label) ->
                             val isSelected = statusFilter == key
                             Box(
                                 modifier = Modifier
@@ -964,7 +1021,7 @@ fun MangaDetailScreen(
                                     Text(stringResource(R.string.detail_all_groups), color = if (selectedScanlator == null) Cyan else TextSecondary, fontSize = 10.sp)
                                 }
                             }
-                            items(availableScanlators) { group ->
+                            items(availableScanlators, key = { it }) { group ->
                                 val isSelected = selectedScanlator == group
                                 Box(
                                     modifier = Modifier
@@ -981,6 +1038,26 @@ fun MangaDetailScreen(
                     }
                 }
 
+                // ── Instant-open: seznam je prazdny a zrovna se dotahuje - dat
+                // vedet, ze to neni "titul bez kapitol", ale nacitani na pozadi.
+                if (chapters.isEmpty() && isRefreshing) {
+                    item(key = "chapters_loading") {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            Text(
+                                text = stringResource(R.string.detail_chapters_loading),
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(2.dp),
+                                color = Violet,
+                                trackColor = GlowViolet.copy(alpha = 0.15f),
+                            )
+                        }
+                    }
+                }
+
                 // ── Chapter list / grid (#34) ─────────────────────────────────
                 if (chapterGridView) {
                     item {
@@ -991,7 +1068,7 @@ fun MangaDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            items(chapters) { chapter ->
+                            items(chapters, key = { it.id }) { chapter ->
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1161,6 +1238,91 @@ fun MangaDetailScreen(
             }
 
         }
+    }
+
+    if (showRelinkSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showRelinkSheet = false; viewModel.cancelRelinkSearch() },
+            sheetState = sheetState,
+            containerColor = Color(0xFF111B35),
+        ) {
+            val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.85f).dp
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = maxSheetHeight)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.detail_relink_sheet_title),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (relinkSearching) {
+                        JiyuLoadingIndicator(size = 20.dp, strokeWidth = 2.dp)
+                    }
+                }
+                // Kandidati se streamuji jeden po druhem (CrossSourceSearch.seeds) - sheet
+                // ukazuje mezivysledky hned, ne az dobehnou vsechny zdroje.
+                when {
+                    relinkCandidates.isEmpty() && relinkSearching -> Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(stringResource(R.string.detail_relink_searching), color = TextSecondary, fontSize = 13.sp)
+                    }
+                    relinkCandidates.isEmpty() -> Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(stringResource(R.string.detail_relink_empty), color = TextSecondary, fontSize = 14.sp)
+                    }
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    ) {
+                        items(relinkCandidates, key = { it.source.id }) { candidate ->
+                            RelinkCandidateCard(
+                                candidate = candidate,
+                                onClick = { relinkConfirm = candidate },
+                            )
+                        }
+                        if (relinkSearching) {
+                            item(key = "relink_searching_footer") {
+                                Text(
+                                    text = stringResource(R.string.detail_relink_searching),
+                                    color = TextSecondary.copy(alpha = 0.7f),
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    relinkConfirm?.let { candidate ->
+        AlertDialog(
+            onDismissRequest = { relinkConfirm = null },
+            containerColor = Color(0xFF111B35),
+            title = { Text(stringResource(R.string.detail_relink_confirm_title, candidate.source.name), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.detail_relink_confirm_body, candidate.manga.title), color = Color(0xFFB0BEC5), fontSize = 13.sp) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { relinkConfirm = null; viewModel.applyRelink(candidate) }) {
+                    Text(stringResource(R.string.detail_relink_confirm_action), color = GlowViolet)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { relinkConfirm = null }) {
+                    Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5))
+                }
+            },
+        )
     }
 
     pendingLibraryAdd?.let { pending ->
@@ -1342,6 +1504,81 @@ private fun LibraryDuplicateDialog(
             androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) }
         },
     )
+}
+
+/**
+ * Jedna řádka ve sheetu kandidátů pro přesun titulu na jiný zdroj (viz
+ * [com.haise.jiyu.source.CrossSourceSearch]/[MangaDetailViewModel.startRelinkSearch]).
+ * Kandidát, na kterého už ukazuje JINÁ knihovní entita ([RelinkCandidate.alreadyInLibrary]),
+ * se ukáže zatmavený a neklickatelný - přesun by narazil na duplicitní (sourceId, url),
+ * kterou [com.haise.jiyu.data.repository.MangaRepository.relinkMangaToSource] odmítne.
+ */
+@Composable
+private fun RelinkCandidateCard(
+    candidate: com.haise.jiyu.source.RelinkCandidate,
+    onClick: () -> Unit,
+) {
+    val locked = candidate.alreadyInLibrary
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(NightBlue.copy(alpha = if (locked) 0.3f else 0.6f))
+            .border(
+                1.dp,
+                if (candidate.isFavorite && !locked) Violet.copy(alpha = 0.6f) else GlowViolet.copy(alpha = 0.2f),
+                RoundedCornerShape(12.dp),
+            )
+            .clickable(enabled = !locked) { onClick() }
+            .padding(14.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    candidate.source.name,
+                    color = if (locked) TextSecondary else TextPrimary,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                )
+                if (candidate.isFavorite) {
+                    Icon(
+                        TablerIcons.Star,
+                        contentDescription = null,
+                        tint = Violet,
+                        modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                    )
+                }
+            }
+            // Titul kandidata ukazujeme vzdy - uzivatel ma pred potvrzenim videt, ze jde
+            // fakt o stejne dilo (normalizovana shoda nazvu muze chytnout i jine dilo).
+            Text(
+                text = candidate.manga.title,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = pluralStringResource(
+                    R.plurals.detail_relink_matched_chapters,
+                    candidate.matchedChapterCount,
+                    candidate.matchedChapterCount,
+                    candidate.chapters.size,
+                ),
+                color = if (candidate.matchedChapterCount > 0) GlowCyan else TextSecondary,
+                fontSize = 11.sp,
+            )
+            if (locked) {
+                Text(
+                    text = stringResource(R.string.detail_relink_already_in_library),
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
 }
 
 // ── Chapter row ───────────────────────────────────────────────────────────────

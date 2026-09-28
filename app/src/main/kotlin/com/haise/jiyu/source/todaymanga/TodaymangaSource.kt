@@ -31,6 +31,11 @@ class TodaymangaSource @Inject constructor(private val client: OkHttpClient) : M
     override val id = "todaymanga"
     override val name = "Todaymanga"
     override val homepageUrl get() = base
+    // Audit 2026-11: domena resolvuje (Cloudflare), ale origin nedpovida -
+    // kazdy request vytimeoutuje (TCP connect do CF edge, odpoved nikdy).
+    override val isBroken get() = true
+    override val brokenReason get() =
+        "todaymanga.com - DNS resolvuje, ale server nikdy neodpovi (spojeni visi do timeoutu)"
     private val base = "https://todaymanga.com"
 
     private fun get(url: String): String {

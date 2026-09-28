@@ -73,6 +73,12 @@ class MangaRawBestSourceTest {
     }
 
     @Test
+    fun `search filters the catalog locally by title`() = runTest {
+        assertEquals(1, source.search("test", 1).size)
+        assertTrue(source.search("zzz", 1).isEmpty())
+    }
+
+    @Test
     fun `getChapterList extracts chapter number from di-Nhua href pattern`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)

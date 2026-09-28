@@ -108,16 +108,38 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
         else -> "popular"
     }
 
+    // /api/v1/series prijima status= (ONGOING|COMPLETED|HIATUS) a type=
+    // (MANGA|MANHWA|MANHUA) - overeno zive: status=COMPLETED vraci jen COMPLETED,
+    // type=MANGA jen MANGA.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "MANGA", label = "Manga"),
+        FilterTag(id = "MANHWA", label = "Manhwa"),
+        FilterTag(id = "MANHUA", label = "Manhua"),
+    )
+
+    private val statusValues = mapOf(
+        "ongoing" to "ONGOING", "completed" to "COMPLETED", "hiatus" to "HIATUS",
+    )
+    private val siteTypes = setOf("MANGA", "MANHWA", "MANHUA")
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             val sb = StringBuilder("$api/series?page=$page&perPage=24&sort=${sortParam(filter.sortBy)}")
             filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+            statusValues[filter.status]?.let { sb.append("&status=").append(it) }
+            filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { sb.append("&type=").append(it) }
             parseListJson(get(sb.toString()))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.status != null || filter.comicTypes.isNotEmpty() || filter.genres.isNotEmpty()) {
+                return@withContext getPopular(page, filter)
+            }
             val q = query.trim()
             if (q.length < 2) return@withContext getPopular(page, filter)
             val url = "$api/series/search?q=${URLEncoder.encode(q, "UTF-8")}&page=$page&perPage=24"

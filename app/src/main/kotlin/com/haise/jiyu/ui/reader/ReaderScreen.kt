@@ -137,6 +137,7 @@ fun ReaderScreen(
     val controlsVisible      by viewModel.controlsVisible.collectAsStateWithLifecycle()
     val flippedBubbles       by viewModel.flippedBubbles.collectAsStateWithLifecycle()
     val webtoonSegments      by viewModel.webtoonSegments.collectAsStateWithLifecycle()
+    val webtoonAppending     by viewModel.webtoonAppendingNext.collectAsStateWithLifecycle()
 
     var showSleepTimerDialog by rememberSaveable { mutableStateOf(false) }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
@@ -367,6 +368,7 @@ fun ReaderScreen(
                 onWebtoonVisibleChapterChanged = { id, localIndex, localOffset ->
                     viewModel.onWebtoonVisibleChapterChanged(id, localIndex, localOffset)
                 },
+                webtoonAppendingNextChapter = webtoonAppending,
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = { viewModel.navigateNext() },
                 cropBorders = cropBorders,

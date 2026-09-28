@@ -58,8 +58,8 @@ internal fun cachedFontFileName(url: String): String {
  */
 @Singleton
 class CustomFontRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
-    @ImageHttpClient private val client: OkHttpClient,
+    @param:ApplicationContext private val context: Context,
+    @param:ImageHttpClient private val client: OkHttpClient,
     private val settings: SettingsRepository,
 ) {
     /** Null = žádný vlastní font (neuloženo, nebo stažený soubor mezitím zmizel). */

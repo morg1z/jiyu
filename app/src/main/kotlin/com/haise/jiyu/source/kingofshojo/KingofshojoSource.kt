@@ -84,7 +84,10 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         cachedTags?.let { return@withContext it }
         try {
             val doc = Jsoup.parse(get("$base/manga/?order=update"))
-            val tags = doc.select("ul.genre li a[href]").mapNotNull { a ->
+            // Audit 2026-10: "ul.genre" wrapper uz na strance neni - zanry jsou
+            // a[href*="/genres/"] v kartach ("Genres:" radek) i v dropdown menu
+            // (ul.dropdown-menu.genrez .genre-item).
+            val tags = doc.select("a[href*=\"/genres/\"]").mapNotNull { a ->
                 val href = a.attr("href")
                 val slug = Regex("""/genres/([^/]+)/?""").find(href)?.groupValues?.get(1) ?: return@mapNotNull null
                 val label = a.text().trim().ifBlank { return@mapNotNull null }
@@ -112,14 +115,50 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    // Archivni strankovani ("/manga/page/N/" i "/genres/slug/page/N/") web
+    // ignoruje - vraci identickou stranku 1 (audit DUP, overeno zive). Oproti
+    // tomu WP search "/page/N/?s=" strankuje spravne.
     private fun genreArchiveUrl(slug: String, page: Int) =
         if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
+
+    // /manga/?status=&type= filtruje (overeno zive: status=on-going 41 / status=end
+    // 41 / vychozi 81; type=manhwa|manhua|manga tri ruzne sady). Na taxonomie
+    // archivu /genres/{slug}/ tyto parametry web neaplikuje - zanr ma prednost.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+    )
+
+    private val statusSlugs = mapOf(
+        "ongoing" to "on-going",
+        "completed" to "end",
+        "hiatus" to "on-hold",
+        "cancelled" to "canceled",
+    )
+
+    private fun mangaFilterUrl(filter: MangaFilter, page: Int): String = buildString {
+        append("$base/manga/")
+        if (page > 1) append("page/").append(page).append('/')
+        append("?order=update")
+        statusSlugs[filter.status]?.let { append("&status=").append(it) }
+        filter.comicTypes.firstOrNull()?.let { append("&type=").append(it) }
+    }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (filter.genres.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
                 return@withContext parseGenreArchive(get(genreArchiveUrl(filter.genres.first(), page)))
             }
+            if (filter.status != null || filter.comicTypes.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseList(get(mangaFilterUrl(filter, page)))
+            }
+            if (page > 1) return@withContext emptyList()
             val url = if (page <= 1) "$base/manga/?order=update" else "$base/manga/page/$page/?order=update"
             parseList(get(url))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
@@ -128,7 +167,12 @@ class KingofshojoSource @Inject constructor(private val client: OkHttpClient) : 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (filter.genres.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
                 return@withContext parseGenreArchive(get(genreArchiveUrl(filter.genres.first(), page)))
+            }
+            if (filter.status != null || filter.comicTypes.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseList(get(mangaFilterUrl(filter, page)))
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/page/$page/?s=$q"))

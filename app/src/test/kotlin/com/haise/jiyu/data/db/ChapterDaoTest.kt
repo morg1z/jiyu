@@ -96,6 +96,7 @@ class ChapterDaoTest {
         dao.relink(
             oldId = "old-id",
             newId = "new-id",
+            newSourceId = "test",
             newUrl = "https://new.example.com/ch5",
             newName = "Chapter 5 (renamed)",
             dateUpload = 123456L,
@@ -145,6 +146,71 @@ class ChapterDaoTest {
         assertEquals(true, better.isFallbackSource)
         assertNull(better.fallbackChapterId)
     }
+    @Test
+    fun `updateProgress persists verifiedPageCount only when a real page count is provided`() = runTest {
+        dao.insertNewOnly(listOf(chapter("ch-1")))
+
+        // Čtečka zná skutečný počet vykreslených stránek - zapíše ho jako online ověření.
+        dao.updateProgress("ch-1", read = false, lastPageRead = 4, lastReadAt = 1000L, pageCount = 12)
+        var result = dao.getById("ch-1")!!
+        assertEquals(12, result.verifiedPageCount)
+        assertEquals(4, result.lastPageRead)
+        assertEquals(false, result.read)
+
+        // Ruční označení (pageCount = 0) verifiedPageCount nemění - jinak by "označit
+        // přečtené" z detailu přepsalo známý počet stránek nulou.
+        dao.updateProgress("ch-1", read = true, lastPageRead = 0, lastReadAt = 0L)
+        result = dao.getById("ch-1")!!
+        assertEquals(12, result.verifiedPageCount)
+        assertEquals(true, result.read)
+    }
+
+    @Test
+    fun `propagateProgressToFallbackParents copies reader progress to the linked comick chapter`() = runTest {
+        dao.insertNewOnly(listOf(chapter("comick-ch", chapterNumber = 12f)))
+        dao.insertNewOnly(listOf(chapter("resolved-ch", chapterNumber = 12f)))
+        dao.insertNewOnly(listOf(chapter("other-ch", chapterNumber = 7f)))
+        dao.setFallbackTarget("comick-ch", "resolved-ch")
+
+        // Rozčteno uprostřed - rodič dostane pozici, ale zůstane nepřečtený.
+        dao.propagateProgressToFallbackParents("resolved-ch", read = false, lastPageRead = 5, lastReadAt = 100L, pageCount = 30)
+        var parent = dao.getById("comick-ch")!!
+        assertEquals(false, parent.read)
+        assertEquals(5, parent.lastPageRead)
+        assertEquals(30, parent.verifiedPageCount)
+
+        // Dočteno - rodič se označí přečtený (dřív se to stalo hned při výběru zdroje).
+        dao.propagateProgressToFallbackParents("resolved-ch", read = true, lastPageRead = 29, lastReadAt = 200L, pageCount = 30)
+        parent = dao.getById("comick-ch")!!
+        assertEquals(true, parent.read)
+        assertEquals(29, parent.lastPageRead)
+
+        // read se nikdy nesníží - pozdější zápis s read=false dočtené nerozbije.
+        dao.propagateProgressToFallbackParents("resolved-ch", read = false, lastPageRead = 3, lastReadAt = 300L, pageCount = 30)
+        parent = dao.getById("comick-ch")!!
+        assertEquals(true, parent.read)
+
+        // Kapitoly bez linku se propagace netýká.
+        val other = dao.getById("other-ch")!!
+        assertEquals(false, other.read)
+        assertEquals(0, other.lastPageRead)
+    }
+
+    @Test
+    fun `setFallbackTarget relinks the redirect and clears it on null`() = runTest {
+        dao.insertNewOnly(listOf(chapter("comick-ch"), chapter("r1"), chapter("r2")))
+
+        dao.setFallbackTarget("comick-ch", "r1")
+        assertEquals("r1", dao.getById("comick-ch")!!.fallbackChapterId)
+
+        // Pozdější výběr jiného zdroje link prostě přepíše.
+        dao.setFallbackTarget("comick-ch", "r2")
+        assertEquals("r2", dao.getById("comick-ch")!!.fallbackChapterId)
+
+        dao.setFallbackTarget("comick-ch", null)
+        assertNull(dao.getById("comick-ch")!!.fallbackChapterId)
+    }
+
     @Test
     fun `chapters without a parsed number are counted individually, numbered duplicates still merge`() = runTest {
         dao.upsertAll(

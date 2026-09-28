@@ -38,10 +38,18 @@ class MangackSourceTest {
         </body></html>
     """.trimIndent()
 
+    // Realna struktura ctecky (audit 2026-09): .entry-content > div.separator > img,
+    // obrazky na externim CDN (aktualne cdn.black-clover.org, drive i.imgur.com).
     private val readerHtml = """
         <html><body>
-        <div class="wp-block-image"><figure class="aligncenter"><img decoding="async" src="https://i.imgur.com/abc123.jpeg" alt=""/></figure></div>
-        <div class="wp-block-image"><figure class="aligncenter"><img decoding="async" src="https://i.imgur.com/def456.jpeg" alt=""/></figure></div>
+        <div class="entry-content">
+            <div class="separator" style="clear: both; text-align: center;">
+                <img decoding="async" class="aligncenter" src="https://cdn.black-clover.org/file/mookitosh/test-series/chapter-1/1.webp" alt="Test Series chapter 1"/>
+            </div>
+            <div class="separator" style="clear: both; text-align: center;">
+                <img decoding="async" class="aligncenter" src="https://cdn.black-clover.org/file/mookitosh/test-series/chapter-1/2.webp" alt="Test Series chapter 1"/>
+            </div>
+        </div>
         </body></html>
     """.trimIndent()
 
@@ -95,12 +103,12 @@ class MangackSourceTest {
     }
 
     @Test
-    fun `getPageList reads direct imgur URLs`() = runTest {
+    fun `getPageList reads chapter images regardless of CDN host`() = runTest {
         val manga = source.getPopular(1).first()
         val chapters = source.getChapterList(manga)
         val pages = source.getPageList(chapters[1])
         assertEquals(2, pages.size)
-        assertEquals("https://i.imgur.com/abc123.jpeg", pages[0].url)
+        assertEquals("https://cdn.black-clover.org/file/mookitosh/test-series/chapter-1/1.webp", pages[0].url)
     }
 
     @Test

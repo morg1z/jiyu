@@ -3,6 +3,7 @@ package com.haise.jiyu.source.hdoujin
 import com.haise.jiyu.util.lazySrc
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -49,7 +50,9 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     private fun parseGalleryList(doc: Document): List<SManga> =
         doc.select("div.story-card").mapNotNull { card ->
-            val a = card.selectFirst("a.card-title[href^=/en/]") ?: return@mapNotNull null
+            // URL schema se zmenilo /en/ -> /n/ (audit 2026-10) - bereme oboji.
+            val a = card.selectFirst("a.card-title[href^=\"/n/\"], a.card-title[href^=\"/en/\"]")
+                ?: return@mapNotNull null
             val url = a.absUrl("href").ifBlank { return@mapNotNull null }
             val title = a.text().trim().ifBlank { a.attr("title").trim() }.ifBlank { return@mapNotNull null }
             val cover = card.selectFirst("img.cover-img")?.attr("src")?.trim()?.ifBlank { null }
@@ -58,18 +61,65 @@ class HDoujinSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            try { parseGalleryList(fetchDocument("$base/?page=$page")) }
-            catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            // "?page=N" web ignoruje - stranka 2 vraci identicky obsah jako
+            // stranka 1 (audit DUP, overeno zive).
+            if (page > 1) return@withContext emptyList()
+            // Tag stranky /tag/{id}/{slug} vraci stejne story-card listing (overeno live).
+            val tag = filter.genres.firstOrNull()
+            try {
+                val url = if (tag != null) "$base/tag/$tag" else "$base/?page=$page"
+                parseGalleryList(fetchDocument(url))
+            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (page > 1) return@withContext emptyList() // "?page=" ignorovan - viz getPopular
+            val tag = filter.genres.firstOrNull()
+            if (tag != null) {
+                // Tag stranka query parametr nepodporuje - textovy dotaz
+                // dofilitrujeme na klientu pres titulky.
+                val base = getPopular(page, filter)
+                return@withContext if (query.isBlank()) base
+                else base.filter { it.title.contains(query.trim(), ignoreCase = true) }
+            }
             if (query.isBlank()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")
                 parseGalleryList(fetchDocument("$base/?q=$q&page=$page"))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
+
+    /**
+     * Web nema tag index (/tags 404) - ale kazda gallery karta nese sve tag
+     * badges (a.tag-badge[data-tax=tag], href="/tag/{id}/{slug}"). Jedna
+     * listova stranka poskytne ~140 unikatnich tagu, takze tagy sklizime
+     * z homepage a jedne popularni tag stranky.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        val acc = linkedMapOf<String, String>() // path ("44/group") -> label
+        for (url in TAG_SEED_PAGES) {
+            try {
+                Jsoup.parse(fetchHtml(url), url)
+                    .select("a.tag-badge[data-tax=tag]")
+                    .forEach { a ->
+                        val path = a.attr("href").trim().removePrefix("/tag/").trim('/')
+                        if (path.isNotBlank()) acc.putIfAbsent(path, a.text().trim().ifBlank { path })
+                    }
+            } catch (e: Exception) { e.rethrowIfControl() }
+            if (acc.size >= 120) break
+        }
+        acc.map { (path, label) -> FilterTag(id = path, label = label) }
+            .sortedBy { it.label.lowercase() }
+    }
+
+    private companion object {
+        val TAG_SEED_PAGES = listOf(
+            "https://hdoujin.com/tag/44/group",
+            "https://hdoujin.com/tag/17/glasses",
+            "https://hdoujin.com/",
+        )
+    }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {

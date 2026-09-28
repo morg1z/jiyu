@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.woopread
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -41,6 +42,17 @@ class WoopReadSourceTest {
         </body></html>
     """.trimIndent()
 
+    // "/api/genres" = prosta rada nazvu; "/api/novels?page=N" = 20/stranku,
+    // zanrovy parametr server nebere, filtruje se lokalne.
+    private val genresJson = """["Comedy","Drama","Fantasy"]"""
+
+    private val novelsJson = """
+        {"novels":[
+          {"id":"1","title":"Test Novel","slug":"test-novel","cover":"https://imgcdn.example.com/cover.jpg","genres":["Comedy","Drama"]},
+          {"id":"2","title":"Other Novel","slug":"other-novel","cover":"https://imgcdn.example.com/cover2.jpg","genres":["Fantasy"]}
+        ],"totalCount":2}
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -48,6 +60,10 @@ class WoopReadSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path == "/api/genres" -> MockResponse().setBody(genresJson)
+                    path.startsWith("/api/novels") -> MockResponse().setBody(
+                        if (path.endsWith("page=1")) novelsJson else """{"novels":[],"totalCount":2}"""
+                    )
                     path.contains("/chapter-") -> MockResponse().setBody(chapterHtml)
                     path == "/series/test-novel" -> MockResponse().setBody(detailHtml)
                     path.startsWith("/browse") || path.startsWith("/search") -> MockResponse().setBody(listHtml)
@@ -109,6 +125,26 @@ class WoopReadSourceTest {
         assertEquals(1, pages.size)
         assertEquals("novel://text", pages[0].imageUrl)
         assertEquals("First paragraph.\n\nSecond paragraph.", pages[0].url)
+    }
+
+    @Test
+    fun `getAvailableTags reads the genres API`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(listOf("Comedy", "Drama", "Fantasy"), tags.map { it.id })
+    }
+
+    @Test
+    fun `getPopular with a selected genre filters the novels API locally`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("Comedy")))
+        assertEquals(listOf("Test Novel"), result.map { it.title })
+        assertTrue(source.getPopular(2, MangaFilter(genres = listOf("Comedy"))).isEmpty())
+    }
+
+    @Test
+    fun `search with a selected genre filters search results by catalog genres`() = runTest {
+        val result = source.search("test", 1, MangaFilter(genres = listOf("Comedy")))
+        assertEquals(listOf("Test Novel"), result.map { it.title })
+        assertTrue(source.search("test", 1, MangaFilter(genres = listOf("Fantasy"))).isEmpty())
     }
 
     @Test

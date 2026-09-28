@@ -12,6 +12,7 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -74,14 +75,63 @@ class MangaFireSource @Inject constructor(
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // /api/titles prijima dale types[]= (manga|manhwa|manhua|other), statuses[]=
+    // (releasing|finished|on_hiatus|discontinued|not_yet_released),
+    // demographics[]= (<id> z filter-options) a order[<pole>]=asc|desc
+    // (title|score|created_at|chapter_updated_at|year) - vse overeno zive
+    // probe testem (kazdy parametr vraci vyrazne jinou sadu).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+        FilterTag(id = "other", label = "Other"),
+    )
+    override val availableDemographics: List<FilterTag> get() = listOf(
+        FilterTag(id = "268918", label = "Shounen"),
+        FilterTag(id = "268917", label = "Shoujo"),
+        FilterTag(id = "268920", label = "Seinen"),
+        FilterTag(id = "268919", label = "Josei"),
+    )
+    override val supportsSortDirection: Boolean get() = true
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "rating", "title")
+
+    private val statusValues = mapOf(
+        "ongoing" to "releasing", "completed" to "finished",
+        "hiatus" to "on_hiatus", "cancelled" to "discontinued",
+    )
+    private val siteTypes = setOf("manga", "manhwa", "manhua", "other")
+    private val siteDemos = setOf("268917", "268918", "268919", "268920")
+
+    /** UI sortBy id -> order[] pole v API (dir z filter.sortAscending). */
+    private val sortFields = mapOf(
+        "popular" to "score", "latest" to "chapter_updated_at",
+        "rating" to "score", "title" to "title",
+    )
+
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
         filter.genres.forEach { append("&genres_in[]=$it") }
+        statusValues[filter.status]?.let { append("&statuses[]=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }
+            ?.let { append("&types[]=").append(it) }
+        filter.demographic.firstOrNull()?.takeIf { it in siteDemos }
+            ?.let { append("&demographics[]=").append(it) }
     }
 
+    private val vrfSigner = MangaFireVrfSigner()
+
     private fun get(url: String): String {
-        val req = Request.Builder().url(url)
+        // API vyzaduje "vrf" podpis query (jinak 403 "Missing token") - viz
+        // MangaFireVrfSigner. Podepisuje se path + serazene query parametry.
+        val builder = Request.Builder()
+        url.toHttpUrlOrNull()?.let { builder.url(vrfSigner.sign(it)) } ?: builder.url(url)
+        val req = builder
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Referer", "$base/")
+            .header("Accept", "application/json")
+            .header("X-Requested-With", "XMLHttpRequest")
             .build()
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
@@ -105,8 +155,17 @@ class MangaFireSource @Inject constructor(
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            // Vychozi "popular" vypis = puvodni hot feed (trending + posledni
+            // aktualizace); pri jinem razeni nebo aktivnich filtrech presne
+            // order[<pole>]=<smer> na plnem katalogu.
+            val defaultFeed = filter.status == null && filter.comicTypes.isEmpty() &&
+                filter.demographic.isEmpty() && filter.genres.isEmpty() &&
+                filter.sortBy == "popular" && !filter.sortAscending
+            val orderField = if (defaultFeed) "chapter_updated_at" else sortFields[filter.sortBy] ?: "score"
+            val orderDir = if (filter.sortAscending) "asc" else "desc"
+            val hot = if (defaultFeed) "&hot=1" else ""
             val url = buildString {
-                append("$apiBase/titles?content_rating[]=safe&content_rating[]=suggestive&order[chapter_updated_at]=desc&hot=1&page=$page&limit=30")
+                append("$apiBase/titles?content_rating[]=safe&content_rating[]=suggestive&order[$orderField]=$orderDir&page=$page&limit=30$hot")
                 appendGenreFilter(filter)
             }
             parseList(get(url))
@@ -117,8 +176,12 @@ class MangaFireSource @Inject constructor(
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query, "UTF-8")
+            // /api/titles kombinuje keyword= s order[] i ostatnimi filtry
+            // (stejny endpoint jako listing) - parita s getPopular.
+            val orderField = sortFields[filter.sortBy] ?: "score"
+            val orderDir = if (filter.sortAscending) "asc" else "desc"
             val url = buildString {
-                append("$apiBase/titles?keyword=$q&content_rating[]=safe&content_rating[]=suggestive&page=$page&limit=30")
+                append("$apiBase/titles?keyword=$q&content_rating[]=safe&content_rating[]=suggestive&order[$orderField]=$orderDir&page=$page&limit=30")
                 appendGenreFilter(filter)
             }
             parseList(get(url))

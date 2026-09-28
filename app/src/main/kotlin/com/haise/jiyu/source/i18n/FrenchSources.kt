@@ -142,6 +142,10 @@ class AnimeSamaSource @Inject constructor(private val client: OkHttpClient) : Ma
     // stranky), proto se stejne jako u Madary pouziva jen prvni vybrany zanr.
     override val supportsTagFilter: Boolean get() = true
 
+    // Katalog razeni vzdy fixne na "sort=vues" - web zadne jine serazeni listing
+    // neumi (audit: latest == popular), prepinac v UI by nic nedelal.
+    override val supportsSortOrder: Boolean get() = false
+
     @Volatile private var cachedTags: List<FilterTag>? = null
 
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
@@ -249,6 +253,10 @@ class ScanVFSource @Inject constructor(private val client: OkHttpClient) : Manga
     // selektory (.manga-poster/.bsx/.novel-item) uz nikde v HTML neexistuji, proto
     // appka vzdy vracela prazdny seznam. Karta: div.media > div.media-left a.thumbnail
     // (obalka obrazku) + div.media-body h5.media-heading a.chart-title (nazev+odkaz).
+    // Listing ma fixni "sort=views" - web jine razeni vypisu neumi (audit:
+    // latest == popular), prepinac razeni v UI by byl dekorace.
+    override val supportsSortOrder: Boolean get() = false
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
             return@withContext try { parseMediaList(Jsoup.parse(get(filterListUrl(filter.genres.first(), page)))) }
@@ -267,9 +275,21 @@ class ScanVFSource @Inject constructor(private val client: OkHttpClient) : Manga
             return@withContext try { parseMediaList(Jsoup.parse(get(filterListUrl(filter.genres.first(), page)))) }
             catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
+        // Web nema server-side fulltext stranku - "/?s=" vraci jen layout bez
+        // vysledku (audit 2026-10). Existuje ale JSON autocomplete endpoint
+        // "/search?query=X" -> {"suggestions":[{"value":nazev,"data":slug}]}
+        // (jQuery autocomplete plugin, overeno zive).
+        if (page > 1) return@withContext emptyList()
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            parseMediaList(Jsoup.parse(get("$base/?s=$q")))
+            val q = URLEncoder.encode(query.trim(), "UTF-8")
+            val json = org.json.JSONObject(get("$base/search?query=$q"))
+            val suggestions = json.optJSONArray("suggestions") ?: return@withContext emptyList()
+            (0 until suggestions.length()).mapNotNull { i ->
+                val s = suggestions.getJSONObject(i)
+                val slug = s.optString("data").ifBlank { null } ?: return@mapNotNull null
+                val title = s.optString("value").ifBlank { null } ?: return@mapNotNull null
+                SManga(sourceId = id, url = "$base/$slug", title = title, coverUrl = null)
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

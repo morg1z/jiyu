@@ -72,8 +72,33 @@ class VioletScansSource @Inject constructor(private val client: OkHttpClient) : 
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Filtracni formular na /comics (Themesia layout) prijima status=
+    // ongoing|completed|hiatus a type= manga|manhwa|manhua|comic|novel - overeno
+    // zive. Na /genres/{slug}/ archivu se tyto parametry neaplikuji - zanr ma
+    // prednost (stejne jako na webu).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+        FilterTag(id = "comic", label = "Comic"),
+        FilterTag(id = "novel", label = "Novel"),
+    )
+
+    private val siteStatuses = setOf("ongoing", "completed", "hiatus")
+    private val siteTypes = setOf("manga", "manhwa", "manhua", "comic", "novel")
+
     private fun genreUrl(slug: String, page: Int): String =
         if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/?page=$page"
+
+    private fun comicsUrl(page: Int, filter: MangaFilter): String = buildString {
+        append("$base/comics/?order=").append(if (filter.sortBy == "latest") "update" else "popular")
+        append("&page=").append(page)
+        filter.status?.takeIf { it in siteStatuses }?.let { append("&status=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { append("&type=").append(it) }
+    }
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -103,8 +128,7 @@ class VioletScansSource @Inject constructor(private val client: OkHttpClient) : 
             val url = if (genre != null) {
                 genreUrl(genre, page)
             } else {
-                val order = if (filter.sortBy == "latest") "update" else "popular"
-                "$base/comics/?order=$order&page=$page"
+                comicsUrl(page, filter)
             }
             parseList(get(url))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
@@ -115,6 +139,8 @@ class VioletScansSource @Inject constructor(private val client: OkHttpClient) : 
             val genre = filter.genres.firstOrNull()
             val url = if (genre != null) {
                 genreUrl(genre, page)
+            } else if (filter.status != null || filter.comicTypes.isNotEmpty()) {
+                comicsUrl(page, filter)
             } else {
                 if (page > 1) return@withContext emptyList()
                 val q = URLEncoder.encode(query, "UTF-8")

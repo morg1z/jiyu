@@ -4,6 +4,7 @@ import com.haise.jiyu.util.resolveSourceUrl
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.util.novelText
 
 import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
@@ -22,13 +23,41 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
+class FreeWebNovelSource @Inject constructor(client: OkHttpClient) : FreeWebNovelEngine(
+    client = client,
+    id = "freewebnovel",
+    name = "FreeWebNovel",
+    base = "https://freewebnovel.com",
+    inGlobalSearch = true,
+)
 
-    override val id = "freewebnovel"
-    override val name = "FreeWebNovel"
+/**
+ * Sdílený engine pro weby na "FreeWebNovel" šabloně (freewebnovel.com, novgo.net):
+ * karty `div.li` s `h3.tit a`, žánry `/genre/{Name}`, seznam kapitol `ul#idData li a.con`.
+ * Novgo má jiné cesty výpisů (`/most-popular`, `?page=N`) a JS-only hledání -
+ * proto jsou cesty a chování parametrizované.
+ */
+open class FreeWebNovelEngine(
+    private val client: OkHttpClient,
+    override val id: String,
+    override val name: String,
+    private val base: String,
+    private val inGlobalSearch: Boolean = false,
+    /** Cesta populárního výpisu (fwn "sort/most-popular", novgo "most-popular"). */
+    private val popularPath: String = "sort/most-popular",
+    private val latestPath: String = "sort/latest-release",
+    /** Paginace: "path" = `/{cesta}/{N}` (fwn), "query" = `/{cesta}?page=N` (novgo). */
+    private val pageStyle: String = "path",
+    /** Web bez server-side hledání (novgo - jen JS widget) - search vrací prázdné. */
+    private val searchSupported: Boolean = true,
+    /** Selektor textu kapitoly (fwn "div#article", novgo "div#chapter-content"). */
+    private val contentSelector: String = "div#article",
+) : MangaSource {
+
     override val contentType = "NOVEL"
     override val homepageUrl get() = base
-    private val base = "https://freewebnovel.com"
+    override val includeInGlobalSearch get() = inGlobalSearch
+    override val availableSorts get() = setOf("popular", "latest")
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
@@ -73,8 +102,12 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun genreUrl(slug: String, page: Int) =
-        if (page > 1) "$base/genre/$slug/$page" else "$base/genre/$slug"
+    private fun paged(path: String, page: Int): String = when (pageStyle) {
+        "query" -> "$base/$path" + if (page > 1) "?page=$page" else ""
+        else -> "$base/$path" + if (page > 1) "/$page" else ""
+    }
+
+    private fun genreUrl(slug: String, page: Int) = paged("genre/$slug", page)
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
@@ -83,11 +116,8 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
             }
-            // "/sort/latest-release" pro Nejnovejsi overeno zive (uplne jina sada titulu
-            // nez "/sort/most-popular").
-            val sortPath = if (filter.sortBy == "latest") "latest-release" else "most-popular"
-            val url = if (page > 1) "$base/sort/$sortPath/$page" else "$base/sort/$sortPath"
-            parseListing(Jsoup.parse(get(url)))
+            val path = if (filter.sortBy == "latest") latestPath else popularPath
+            parseListing(Jsoup.parse(get(paged(path, page))))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -96,8 +126,12 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseListing(Jsoup.parse(get(genreUrl(filter.genres.first(), page))))
             }
+            if (!searchSupported) return@withContext emptyList()
+            // "/search?searchkey=" je JS-only shell (vysledky se dokresluji az
+            // za behu) - server-rendered vysledky se stejnym "div.li" markupem
+            // vraci az advanced search GET "/search-adv?keyword=&apply=1".
             val q = URLEncoder.encode(query, "UTF-8")
-            parseListing(Jsoup.parse(get("$base/search?searchkey=$q")))
+            parseListing(Jsoup.parse(get("$base/search-adv?keyword=$q&apply=1")))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -130,7 +164,9 @@ class FreeWebNovelSource @Inject constructor(private val client: OkHttpClient) :
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            val text = doc.selectFirst("div#article")?.text()?.trim() ?: ""
+            val content = doc.selectFirst(contentSelector) ?: return@withContext emptyList()
+            content.select("script, style, iframe, ins, .adsbygoogle").remove()
+            val text = content.novelText().ifBlank { content.text().trim() }
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }

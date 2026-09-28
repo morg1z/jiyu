@@ -31,6 +31,9 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
     override val id = "luacomic"
     override val name = "Lua Comic"
     override val supportsSortOrder: Boolean get() = false
+    // api.luacomic.org nema zadny genre/tag endpoint (overeno /genre,
+    // /genre/query, /tag -> Cannot GET; param `genre=` v /query se ignoruje).
+    override val supportsTagFilter: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://luacomic.org"
     private val apiBase = "https://api.luacomic.org"
@@ -100,7 +103,10 @@ class LuaComicSource @Inject constructor(private val client: OkHttpClient) : Man
         try {
             val mangaSlug = chapter.mangaUrl.substringAfter('/')
             val html = get("$base/series/$mangaSlug/${chapter.url}")
-            Regex("""https://media\.luacomic\.org/[^"'\\]+\.(?:webp|jpg|jpeg|png)\.jpg""")
+            // Stranky lezi pod uploads/series/{slug}/{uuid}/page_NNN.webp - filtr
+            // na "/series/" v ceste odfiltruje thumbnaily/UI assety ze stejneho CDN
+            // (driv koncily na ".webp.jpg" - audit 2026-11: suffix .jpg web odstranil).
+            Regex("""https://media\.luacomic\.org/[^"'\\]+/series/[^"'\\]+\.(?:webp|jpg|jpeg|png)""")
                 .findAll(html)
                 .map { it.value }
                 .distinct()

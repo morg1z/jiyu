@@ -29,10 +29,14 @@ import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.repository.chapterMatchKey
 import com.haise.jiyu.download.DownloadQueue
+import com.haise.jiyu.source.CrossSourceSearch
+import com.haise.jiyu.source.RelinkCandidate
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.comick.ComicKSource
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import com.haise.jiyu.source.comick.ComicKComment
 import com.haise.jiyu.source.comick.ComicKRecommendation
 import com.haise.jiyu.source.comick.SCover
@@ -76,6 +80,7 @@ class MangaDetailViewModel @Inject constructor(
     private val sourceManager: SourceManager,
     private val comicKSource: ComicKSource,
     private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
+    private val crossSourceSearch: CrossSourceSearch,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -87,24 +92,62 @@ class MangaDetailViewModel @Inject constructor(
                 if (online && _errorMessage.value != null && !_isRefreshing.value) refreshChapters()
             }
         }
-        // ComicK detail endpoint doplňuje popis/stav/žánry/demographic/anime/final chapter,
-        // které se v rychlém výpisu (getPopular/search) nikdy neposílají - dotáhneme je jednou
-        // potichu na pozadí hned při prvním otevření titulu, aby uživatel neplatil "cenu"
-        // ručního pull-to-refreshe jen proto, aby viděl základní metadata. Fire-and-forget:
-        // refreshMangaDetails() sám ignoruje síťové chyby, žádný loading indikátor se tu
-        // nezobrazuje - ale DB čtení/zápis (observeMangaById().first{}, mangaDao uvnitř
-        // repository) tím pokryté nejsou, proto try/catch + e.report() i tady.
-        // description.isNullOrBlank() slouží jako "ještě neobohaceno" signál, aby se tohle
-        // nespouštělo znovu při každém otevření detailu, jen dokud titul opravdu čeká na obohacení.
+        // Detail endpoint doplňuje popis/stav/žánry/contentType (a u ComicK i demographic/anime/
+        // final chapter), které se v rychlém výpisu (getPopular/search) neposílají - listingové
+        // SManga.contentType navíc defaultuje na "MANGA" (nebo site-wide odhad zdroje), takže bez
+        // obohacení by detail hlásil "Manga" i u manhwy. Dotáhneme je jednou potichu na pozadí
+        // hned při prvním otevření titulu, aby uživatel neplatil "cenu" ručního pull-to-refreshe
+        // jen proto, aby viděl základní metadata. Fire-and-forget: refreshMangaDetails() sám
+        // ignoruje síťové chyby, žádný loading indikátor se tu nezobrazuje - ale DB čtení/zápis
+        // (observeMangaById().first{}, mangaDao uvnitř repository) tím pokryté nejsou, proto
+        // try/catch + e.report() i tady. description.isNullOrBlank() slouží jako "ještě
+        // neobohaceno" signál, aby se tohle nespouštělo znovu při každém otevření detailu.
+        // noSolve: u Cloudflare-chráněného zdroje kosmetický refresh nesmí sám od sebe
+        // vytáhnout interaktivní výzvu - tu dostane až vědomý pull-to-refresh.
         viewModelScope.launch {
             try {
                 val current = repository.observeMangaById(mangaId).first { it != null }
-                if (current?.sourceId == "comick" && current.description.isNullOrBlank()) {
+                if (current != null && current.description.isNullOrBlank() && networkMonitor.isOnline) {
                     val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status, contentType = current.contentType)
-                    repository.refreshMangaDetails(mangaId, sManga)
+                    InteractiveChallengePolicy.noSolve {
+                        repository.refreshMangaDetails(mangaId, sManga)
+                    }
                 }
             } catch (e: Exception) {
-                e.report("detail:autoRefreshComick")
+                e.report("detail:autoRefreshDetails")
+            }
+        }
+        // Instant-open: tap-to-detail cesty volají registerPreview() (jen upsert
+        // metadat) a navigují hned - seznam kapitol se dotáhne až tady, až je
+        // obrazovka vidět. Prázdný první stav v DB = ještě nenačtené -> stáhnout
+        // kapitoly na pozadí. Volá se přímo repository.refreshChapters (jako dřív
+        // openPreview), NE refreshChapters() tady nahoře - ten by navíc spustil
+        // refreshMangaDetails(force=true), což by duplikovalo auto-details blok
+        // výše. Detaily zůstávají na něm, tady jde jen o kapitoly. Titul, co už
+        // kapitoly v DB má, se netrefí - ukáže se okamžitě z cache. Běží jednou za
+        // život VM, takže se zacyklit nemůže ani u titulu s opravdu 0 kapitolami.
+        // Pozor: `manga` se tu NESMÍ použít - deklaruje se až za init blokem a
+        // viewModelScope (Main.immediate) pouští tělo launch hned při konstrukci,
+        // kdy ještě není inicializovaný (NPE). Proto observeMangaById primo,
+        // stejne jako auto-details blok výše.
+        viewModelScope.launch {
+            val entity = repository.observeMangaById(mangaId).first { it != null } ?: return@launch
+            if (repository.observeChapters(mangaId).first().isNotEmpty()) return@launch
+            if (!networkMonitor.isOnline) {
+                _errorMessage.value = appContext.getString(R.string.detail_error_no_internet)
+                return@launch
+            }
+            _isRefreshing.value = true
+            try {
+                val sManga = SManga(entity.sourceId, entity.url, entity.title, entity.coverUrl, entity.description, entity.status, contentType = entity.contentType)
+                repository.refreshChapters(mangaId, sManga)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
+                _errorAction.value = e.toErrorAction()
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }
@@ -209,7 +252,7 @@ class MangaDetailViewModel @Inject constructor(
         _openingRecommendation.value = true
         viewModelScope.launch {
             try {
-                val id = repository.openPreview(target)
+                val id = repository.registerPreview(target)
                 onOpened(id)
             } catch (e: Exception) {
                 e.report("detail:openRecommendation")
@@ -271,7 +314,11 @@ class MangaDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Continue tlačítko ─────────────────────────────────────────────────────
-    val continueChapter: StateFlow<ChapterEntity?> = combine(manga, chapters) { m, chs ->
+    // Pozor na _rawChapters (NE filtrovaný `chapters`): aktivni text/status/scanlator
+    // filtr by jinak schoval lastReadChapterId z hlediska a "Pokracovat" skocilo na
+    // minByOrNull FILTROVANEHO seznamu - tj. na uplne jinou kapitolu, nebo zmizelo
+    // uplne (audit - hlaseny "Spatne pokracovani pri zapnutem filtru").
+    val continueChapter: StateFlow<ChapterEntity?> = combine(manga, _rawChapters) { m, chs ->
         if (chs.isEmpty()) return@combine null
         val lastId = m?.lastReadChapterId
         if (lastId != null) {
@@ -282,7 +329,7 @@ class MangaDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── První nepřečtená kapitola (#33) ───────────────────────────────────────
-    val firstUnreadChapter: StateFlow<ChapterEntity?> = chapters.map { chs ->
+    val firstUnreadChapter: StateFlow<ChapterEntity?> = _rawChapters.map { chs ->
         chs.filter { !it.read }.minByOrNull { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -724,6 +771,7 @@ class MangaDetailViewModel @Inject constructor(
             _isRefreshing.value = true
             _errorMessage.value = null
             _errorAction.value = null
+            _relinkOffered.value = false
             try {
                 val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status, contentType = current.contentType)
                 repository.refreshChapters(mangaId, sManga)
@@ -753,6 +801,9 @@ class MangaDetailViewModel @Inject constructor(
                 } else {
                     _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
                     _errorAction.value = e.toErrorAction()
+                    // Refresh selhal i po same-source recovery -> nabídni přesun na jiný zdroj
+                    // (mrtvá doména = UnknownHost/timeout, ne jen 404 - proto bez rozdílu chyby).
+                    if (current.sourceId != "comick") _relinkOffered.value = true
                 }
             } finally {
                 _isRefreshing.value = false
@@ -857,6 +908,108 @@ class MangaDetailViewModel @Inject constructor(
     }
 
     fun clearError() { _errorMessage.value = null }
+
+    // ── Relink na jiný zdroj ────────────────────────────────────────────────────
+    // Nabídka se ukáže po selhání refreshe (mrtvá doména/zdroj nedá 404, ale
+    // UnknownHost/timeout - proto flag nestaví jen isNotFoundError větev). ComicK je
+    // metadatový katalog bez vlastních stránek - přesouvat ho jinam nemá význam.
+    private val _relinkOffered = MutableStateFlow(false)
+    val relinkOffered: StateFlow<Boolean> = _relinkOffered.asStateFlow()
+
+    private val _relinkSearching = MutableStateFlow(false)
+    val relinkSearching: StateFlow<Boolean> = _relinkSearching.asStateFlow()
+
+    private val _relinkCandidates = MutableStateFlow<List<RelinkCandidate>>(emptyList())
+    val relinkCandidates: StateFlow<List<RelinkCandidate>> = _relinkCandidates.asStateFlow()
+
+    /** Název cílového zdroje po úspěšném přesunu - screen na to zavře sheet a ukáže potvrzení. */
+    private val _relinkApplied = MutableStateFlow<String?>(null)
+    val relinkApplied: StateFlow<String?> = _relinkApplied.asStateFlow()
+
+    private var relinkJob: Job? = null
+
+    fun startRelinkSearch() {
+        val m = manga.value ?: return
+        // origin muze byt null - zdroj mohl z appky zmizet uplne (CrossSourceSearch pak
+        // konzervativne preskoci jazykovy filtr a adult zdroje vylouci, viz jeho doc).
+        val origin = sourceManager.getByIdSync(m.sourceId)
+        if (relinkJob?.isActive == true) return
+        _relinkCandidates.value = emptyList()
+        _relinkSearching.value = true
+        relinkJob = viewModelScope.launch {
+            val favorites = settings.favoriteSourceIds.first()
+            // Párovací klíče VŠECH uložených kapitol (ne filtrovaného výpisu z UI).
+            val knownNumbers = _rawChapters.first()
+                .filter { !it.isFallbackSource }
+                .mapTo(HashSet()) { chapterMatchKey(it.chapterNumber) }
+            try {
+                crossSourceSearch.seeds(m, origin).collect { seed ->
+                    val collision = repository.getMangaBySourceAndUrl(seed.source.id, seed.manga.url)
+                        ?.takeIf { it.id != mangaId } != null
+                    val matched = seed.chapters.count { chapterMatchKey(it.chapterNumber) in knownNumbers }
+                    _relinkCandidates.value = (_relinkCandidates.value + RelinkCandidate(
+                        source = seed.source,
+                        manga = seed.manga,
+                        chapters = seed.chapters,
+                        matchedChapterCount = matched,
+                        isFavorite = seed.source.id in favorites,
+                        alreadyInLibrary = collision,
+                    )).sortedWith(compareBy({ it.alreadyInLibrary }, { -it.matchedChapterCount }, { !it.isFavorite }))
+                }
+            } finally {
+                _relinkSearching.value = false
+            }
+        }
+    }
+
+    fun cancelRelinkSearch() {
+        relinkJob?.cancel()
+        _relinkSearching.value = false
+    }
+
+    fun applyRelink(candidate: RelinkCandidate) {
+        if (candidate.alreadyInLibrary) return
+        viewModelScope.launch {
+            relinkJob?.cancel()
+            _relinkSearching.value = false
+            val ok = try {
+                repository.relinkMangaToSource(mangaId, candidate.manga, candidate.chapters)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:relink")
+                false
+            }
+            if (ok) {
+                _relinkOffered.value = false
+                _relinkCandidates.value = emptyList()
+                _relinkApplied.value = candidate.source.name
+                // refreshChapters() čte `manga.value` - ten se po změně sourceId dozvedi az
+                // s dalsi emisi z observeMangaById, takze by mohl jet stale na MRTVY zdroj
+                // (a znovu nabidnout relink). Refresh běží proto na čerstvé entitě z DB.
+                _isRefreshing.value = true
+                try {
+                    val fresh = repository.getManga(mangaId)
+                    if (fresh != null) {
+                        val sManga = SManga(fresh.sourceId, fresh.url, fresh.title, fresh.coverUrl, fresh.description, fresh.status, contentType = fresh.contentType)
+                        repository.refreshChapters(mangaId, sManga)
+                        repository.refreshMangaDetails(mangaId, sManga)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = appContext.getString(R.string.detail_error_refresh_failed, e.toFriendlyMessage())
+                    _errorAction.value = e.toErrorAction()
+                } finally {
+                    _isRefreshing.value = false
+                }
+            } else {
+                _errorMessage.value = appContext.getString(R.string.detail_relink_failed)
+            }
+        }
+    }
+
+    fun consumeRelinkApplied() { _relinkApplied.value = null }
 
     fun setReaderDirection(direction: String?) {
         viewModelScope.launch { repository.setMangaReaderDirection(mangaId, direction) }

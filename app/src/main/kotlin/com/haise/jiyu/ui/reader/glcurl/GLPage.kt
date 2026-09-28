@@ -23,6 +23,13 @@ open class GLPage {
     var curlCirclePosition: Float = GRID.toFloat()
     var isActive: Boolean = false
 
+    /** Zrcadlení směru ohybu pro RTL čtečku (`reverseLayout`): u `true` se deformace zrcadlí
+     * horizontálně - front se loupe z LEVÉHO okraje a trubička jede doprava, left se rozbaluje
+     * z pravého okraje. Pozice vertexů se počítá jako přesné zrcadlení přeházeného sloupce,
+     * texturovací souřadnice zůstávají per-column (`u = col/GRID`), takže obsah stránky
+     * zůstává čitelný - zrcadlí se jen geometrie ohybu, ne obrázek. */
+    var mirrored: Boolean = false
+
     private var bitmap: Bitmap? = null
     private var needsTextureUpdate = false
     private val textures = IntArray(1)
@@ -117,13 +124,22 @@ open class GLPage {
         }
     }
 
-    private var drawVertexBuffer: FloatBuffer? = null
-
-    fun draw(gl: GL10) {
+    /**
+     * Jen nahraje čekající bitmapu do GL textury, bez vykreslení meshe - renderer to volá
+     * v idle stavu (progress == 0), aby byly textury připravené ještě před prvním framem
+     * tahu (GL surface je mountnutý permanentně, viz GLPageCurlView).
+     */
+    fun syncTexture(gl: GL10) {
         if (needsTextureUpdate) {
             needsTextureUpdate = false
             loadTexture(gl)
         }
+    }
+
+    private var drawVertexBuffer: FloatBuffer? = null
+
+    fun draw(gl: GL10) {
+        syncTexture(gl)
         calculateVerticesCoords()
 
         // Buffer se alokuje jednou a jen se přeplňuje - dřív se každý snímek (60 fps × 3 stránky)

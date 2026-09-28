@@ -5,6 +5,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -60,6 +61,7 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
     override val name = "Nyx Scans"
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
     private val base = "https://nyxscans.com"
     private val api = "https://api.nyxscans.com"
 
@@ -92,17 +94,67 @@ class NyxScansSource @Inject constructor(private val client: OkHttpClient) : Man
         return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { mangaFromJson(it) } }
     }
 
+    // Zanry: "GET /api/genres" vraci [{id,name,color}] - ale zadny query parametr
+    // pro server-side filtrovani podle zanru na /api/posts se nepotvrdil
+    // (genreIds/genres/genreId/genre vraci identicke, nefiltrovane sady - overeno
+    // zive). Kazdy post v listingu ale nese "genres":[{id,name}] primo v JSON,
+    // takze se filtruje LOKALNE: FilterTag.id = nazev zanru a getPopular pri
+    // vybranych zanrech skenuje katalog a sbira tituly, co maji VSECHNY z nich
+    // (AND - jako faceted filter), dokud nema dost pro pozadovanou stranku
+    // (strop 40 serverovych stranek).
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val arr = JSONArray(get("$api/api/genres"))
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val name = o.optString("name").trim().ifBlank { return@mapNotNull null }
+                FilterTag(id = name, label = name)
+            }.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
+    private suspend fun fetchPostsPage(p: Int, searchTerm: String?): List<SManga> {
+        val suffix = if (searchTerm.isNullOrBlank()) "" else "&searchTerm=" + URLEncoder.encode(searchTerm.trim(), "UTF-8")
+        return parseListJson(get("$api/api/posts?page=$p&perPage=20$suffix"))
+    }
+
+    private suspend fun fetchFilteredByGenres(page: Int, wanted: Set<String>, searchTerm: String?): List<SManga> {
+        val perPage = 20
+        val needed = page * perPage
+        val matched = mutableListOf<SManga>()
+        var p = 1
+        var scanned = 0
+        while (matched.size < needed && scanned < 40) {
+            val items = fetchPostsPage(p, searchTerm)
+            if (items.isEmpty()) break
+            matched += items.filter { m -> m.genres.containsAll(wanted) }
+            p++
+            scanned++
+        }
+        return matched.drop((page - 1) * perPage).take(perPage)
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            parseListJson(get("$api/api/posts?page=$page&perPage=20"))
+            if (filter.genres.isNotEmpty()) {
+                return@withContext fetchFilteredByGenres(page, filter.genres.toSet(), null)
+            }
+            fetchPostsPage(page, null)
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext fetchFilteredByGenres(page, filter.genres.toSet(), query.ifBlank { null })
+            }
             if (query.isBlank()) return@withContext getPopular(page, filter)
-            val q = URLEncoder.encode(query.trim(), "UTF-8")
-            parseListJson(get("$api/api/posts?page=$page&perPage=20&searchTerm=$q"))
+            fetchPostsPage(page, query.trim())
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

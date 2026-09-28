@@ -324,7 +324,7 @@ class ComicKChapterResolverTest {
     }
 
     @Test
-    fun `a pornographic ComicK title still includes non-adult sources alongside isAdult ones`() = runTest {
+    fun `a pornographic ComicK title searches only adult sources plus the comickart mirror`() = runTest {
         coEvery { comicKSource.getTitleInfo("u1") } returns ComicKTitleInfo(emptyList(), "pornographic")
         val matchA = SManga(sourceId = "src-normal", url = "u1", title = "Solo Leveling", coverUrl = null)
         val matchB = SManga(sourceId = "src-adult", url = "u2", title = "Solo Leveling", coverUrl = null)
@@ -334,7 +334,34 @@ class ComicKChapterResolverTest {
 
         val result = resolver.findCandidates("comick-id-15", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
 
-        assertEquals(2, result.size)
+        // Potvrzeny 18+ titul se prohledava VYHRADNE v adult zdrojich (+ comick.art
+        // mirror jako soucast 18+ sady) - ne-adult zdroj se nesmi objevit mezi
+        // kandidaty, i kdyby nazev sedel.
+        assertEquals(listOf("src-adult"), result.map { it.source.id })
+    }
+
+    @Test
+    fun `an adult ComicK title includes the comickart source even though it is not marked isAdult`() = runTest {
+        coEvery { comicKSource.getTitleInfo("u1") } returns ComicKTitleInfo(emptyList(), "erotica")
+        val match = SManga(sourceId = "comickart", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val mirrorSource = FakeSource("comickart", "ComicK Art", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)))
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(mirrorSource)
+
+        val result = resolver.findCandidates("comick-id-16", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(listOf("comickart"), result.map { it.source.id })
+    }
+
+    @Test
+    fun `when fetching title info fails, non-adult sources are still searched too (unknown rating searches everything)`() = runTest {
+        coEvery { comicKSource.getTitleInfo("u1") } throws RuntimeException("network down")
+        val match = SManga(sourceId = "src-normal", url = "u1", title = "Solo Leveling", coverUrl = null)
+        val normalSource = FakeSource("src-normal", "Normal Site", "MANHWA", searchResults = listOf(match), chapters = listOf(chapter(1f)))
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(normalSource)
+
+        val result = resolver.findCandidates("comick-id-17", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(listOf("src-normal"), result.map { it.source.id })
     }
 
     @Test
@@ -389,6 +416,96 @@ class ComicKChapterResolverTest {
 
         assertEquals(1f, result.single().minChapterNumber)
         assertEquals(40.5f, result.single().maxChapterNumber)
+    }
+
+    // ── fáze 0: comick.art mirror (sdílený slug probe) ───────────────────────
+
+    @Test
+    fun `comickart mirror is probed directly by slug and emits an isDirectMirror candidate even without a title match`() = runTest {
+        // Mirror se nehledá přes search() - slug z ComicK manga.url se zkusi primo
+        // (searchResults schvalne prazdne: kandidat MUSI prijit ze slug probe).
+        val mirror = FakeSource(
+            "comickart", "ComicK Art", "MANGA",
+            searchResults = emptyList(),
+            chapters = listOf(chapter(1f), chapter(2f), chapter(150f)),
+        )
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(mirror)
+
+        val result = resolver.findCandidates(
+            "comick-id-mirror", "https://api.comick.dev/comic/00-solo-leveling",
+            "Solo Leveling", "MANHWA", requestedChapterNumber = 150f,
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("comickart", result[0].source.id)
+        assertTrue(result[0].isDirectMirror)
+        assertTrue(result[0].hasRequestedChapter)
+        assertEquals("https://comick.art/comic/00-solo-leveling", result[0].manga.url)
+    }
+
+    @Test
+    fun `a mirror probe with no chapters yields no candidate`() = runTest {
+        val mirror = FakeSource(
+            "comickart", "ComicK Art", "MANGA",
+            searchResults = emptyList(), chapters = emptyList(),
+        )
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(mirror)
+
+        val result = resolver.findCandidates(
+            "comick-id-mirror-empty", "https://api.comick.dev/comic/missing-title",
+            "Missing Title", "MANHWA", requestedChapterNumber = null,
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `a mirror probe failure still lets the normal title-search sweep find the source`() = runTest {
+        // Mirror nema titul pod ComicK slugem (probe dostane prazdne kapitoly),
+        // ale pod jinym slugem ho mit muze - sweep ho pak najde normalne pres nazev.
+        val match = SManga(sourceId = "comickart", url = "https://comick.art/comic/other-slug", title = "Solo Leveling", coverUrl = null)
+        val mirror = object : MangaSource {
+            override val id = "comickart"
+            override val name = "ComicK Art"
+            override val contentType = "MANGA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter) = listOf(match)
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            // Probe ptá se na slug "00-solo-leveling" (z ComicK url) → prázdné;
+            // sweep match "other-slug" → kapitoly má.
+            override suspend fun getChapterList(manga: SManga) =
+                if (manga.url.endsWith("00-solo-leveling")) emptyList() else listOf(chapter(1f))
+            override suspend fun getPageList(chapter: SChapter) = emptyList<com.haise.jiyu.source.Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(mirror)
+
+        val result = resolver.findCandidates(
+            "comick-id-mirror-fallback", "https://api.comick.dev/comic/00-solo-leveling",
+            "Solo Leveling", "MANHWA", requestedChapterNumber = null,
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("comickart", result[0].source.id)
+        assertTrue(!result[0].isDirectMirror) // nalezeno title-searchelem, ne slug probem
+    }
+
+    @Test
+    fun `the mirror source is never emitted twice when both probe and sweep match`() = runTest {
+        val match = SManga(sourceId = "comickart", url = "https://comick.art/comic/00-solo-leveling", title = "Solo Leveling", coverUrl = null)
+        val mirror = FakeSource(
+            "comickart", "ComicK Art", "MANGA",
+            searchResults = listOf(match),
+            chapters = listOf(chapter(1f), chapter(2f)),
+        )
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(mirror)
+
+        val result = resolver.findCandidates(
+            "comick-id-mirror-dedupe", "https://api.comick.dev/comic/00-solo-leveling",
+            "Solo Leveling", "MANHWA", requestedChapterNumber = null,
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("comickart", result[0].source.id)
     }
 
     private fun chapter(number: Float) = SChapter(

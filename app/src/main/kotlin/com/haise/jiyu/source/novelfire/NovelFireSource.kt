@@ -22,8 +22,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Novel Fire (novelfire.net) - server-rendered custom web. Kapitoly
- * jsou na samostatne strance "{book}/chapters" (stovky az tisice
+ * Novel Fire (driv novelfire.net, dnes novelphoenix.com) - server-rendered
+ * custom web. Web se prestěhoval: novelfire.net stranky kapitol vraceji JS
+ * redirect na novelphoenix.com a detail URL se zmenily z "/book/{slug}" na
+ * "/novel/{slug}" (audit 2026-09). Markup karet/kapitol/#content je identicky.
+ * Kapitoly jsou na samostatne strance "{novel}/chapters" (stovky az tisice
  * kapitol, strankovano po 100), text kapitoly primo v `#content`.
  */
 @Singleton
@@ -33,13 +36,25 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val name = "Novel Fire"
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
-    private val base = "https://novelfire.net"
+    private val base = "https://novelphoenix.com"
 
-    private fun get(url: String): String {
-        val req = Request.Builder().url(url)
-            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
-            .build()
-        return client.newCall(req).execute().use { it.bodyOrThrow(url) }
+    private fun get(url: String, ua: String = SourceHttp.USER_AGENT_DESKTOP): String {
+        // Web aktivne rate-limituje (429) - napr. pruchod 23 stranek kapitol
+        // za sebou. Jednou pockat a zkusit znovu je levnejsi nez hazet.
+        var lastCode = 0
+        repeat(2) { attempt ->
+            val req = Request.Builder().url(url)
+                .header("User-Agent", ua)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) return resp.body?.string().orEmpty()
+                lastCode = resp.code
+                val retryable = resp.code == 429 || resp.code in 500..599
+                if (!retryable || attempt == 1) resp.bodyOrThrow(url)
+            }
+            Thread.sleep(1200)
+        }
+        throw java.io.IOException("HTTP $lastCode při načítání $url")
     }
 
     private fun parseList(html: String): List<SManga> {
@@ -86,29 +101,56 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun genreUrl(slug: String, page: Int, sortBy: String): String {
+    // Web filtruje status dvema cestami: v zanrove ceste jako segment
+    // "status-all|status-ongoing|status-completed" a na /search jako query
+    // "status=0|1" (0=Ongoing, 1=Completed) - oboji overeno zive, ruzne sady.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed")
+
+    private val statusValues = mapOf("ongoing" to "ongoing", "completed" to "completed")
+    private val queryValues = mapOf("ongoing" to "0", "completed" to "1")
+    private val sortValues = mapOf(
+        "latest" to "date", "popular" to "rank-top", "rating" to "rating-score-top",
+    )
+
+    private fun genreUrl(slug: String, page: Int, sortBy: String, status: String? = null): String {
         val sortSegment = if (sortBy == "latest") "sort-new" else "sort-popular"
-        return "$base/genre-$slug/$sortSegment/status-all/all-novel?page=$page"
+        val statusSegment = statusValues[status] ?: "all"
+        return "$base/genre-$slug/$sortSegment/status-$statusSegment/all-novel?page=$page"
+    }
+
+    private fun searchUrl(filter: MangaFilter, page: Int, query: String? = null): String {
+        val sort = sortValues[filter.sortBy] ?: "date"
+        val sb = StringBuilder("$base/search?sort=$sort&page=$page")
+        queryValues[filter.status]?.let { sb.append("&status=").append(it) }
+        query?.takeIf { it.isNotBlank() }?.let { sb.append("&keyword=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy, filter.status))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
-        // /ranking (Popularni) pouziva jiny sablonovy layout (h2.title) nez
-        // /latest-release-novels (h4.novel-title) - parseList uz oboje umi
-        // (fallback na "h2.title a"), overeno zivě jako prokazatelne jine tituly.
+        if (filter.status != null) {
+            return@withContext try { parseList(get(searchUrl(filter, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        }
+        // /ranking je pevny top-100 bez strankovani ("?page=N" web ignoruje a
+        // vraci znovu p1 - audit DUP), takze pro popular existuje jen stranka 1.
+        // /latest-release-novels paginuje korektne (p1/p2/p3 s rozdilnymi tituly).
+        if (filter.sortBy != "latest" && page > 1) return@withContext emptyList()
+        // /ranking pouziva layout s h2.title, /latest-release-novels h4.novel-title -
+        // parseList uz oboje umi (fallback na "h2.title a").
         val path = if (filter.sortBy == "latest") "latest-release-novels" else "ranking"
         try { parseList(get("$base/$path?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            return@withContext try { parseList(get(genreUrl(filter.genres.first(), page, filter.sortBy, filter.status))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/search?keyword=$q&page=$page"))
+            parseList(get(searchUrl(filter, page, query)))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -133,8 +175,18 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
             val chapters = mutableListOf<SChapter>()
             var page = 1
             while (page < 300) {
-                val doc = Jsoup.parse(get("$base${manga.url}/chapters?page=$page"))
-                val rows = doc.select("ul.chapter-list li a")
+                val url = "$base${manga.url}/chapters?page=$page"
+                var doc = try { Jsoup.parse(get(url)) } catch (e: Exception) { e.rethrowIfControl(); null }
+                var rows = doc?.select("ul.chapter-list li a").orEmpty()
+                if (doc == null || (rows.isEmpty() && page == 1)) {
+                    // /chapters je za Cloudflare obcas blokovana podle TLS/UA
+                    // fingerprintu (audit: desktop OkHttp dostal 403/challenge,
+                    // curl i mobilni UA prochazi) - na p1 jednou zkusime
+                    // mobilni UA, az pak se vzdat.
+                    doc = try { Jsoup.parse(get(url, SourceHttp.USER_AGENT_ANDROID)) }
+                        catch (e: Exception) { e.rethrowIfControl(); break }
+                    rows = doc.select("ul.chapter-list li a")
+                }
                 if (rows.isEmpty()) break
                 rows.forEach { a ->
                     val href = a.attr("href")
@@ -169,8 +221,18 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            val text = doc.selectFirst("div#content")?.text()?.trim().orEmpty()
+            val url = resolveSourceUrl(base, chapter.url)
+            var text = try {
+                Jsoup.parse(get(url)).selectFirst("div#content")?.text()?.trim().orEmpty()
+            } catch (e: Exception) { e.rethrowIfControl(); "" }
+            if (text.isBlank()) {
+                // Stejny CF fallback jako getChapterList - challenge stranka se
+                // sparsuje, ale #content v ni neni, takze vysledek je prazdny.
+                text = try {
+                    Jsoup.parse(get(url, SourceHttp.USER_AGENT_ANDROID))
+                        .selectFirst("div#content")?.text()?.trim().orEmpty()
+                } catch (e: Exception) { e.rethrowIfControl(); "" }
+            }
             if (text.isBlank()) emptyList() else listOf(Page(0, text, "novel://text"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }

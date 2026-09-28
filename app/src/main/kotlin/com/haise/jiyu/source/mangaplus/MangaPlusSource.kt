@@ -50,6 +50,7 @@ class MangaPlusSource @Inject constructor(
     override val id = "mangaplus"
     override val name = "MANGA Plus"
     override val homepageUrl get() = "https://mangaplus.shueisha.co.jp"
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
 
     private val apiBase = "https://jumpg-api.tokyo-cdn.com/api"
     private val appVersion = 237
@@ -129,6 +130,8 @@ class MangaPlusSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // API vraci cely katalog najednou - zadne strankovani (audit DUP).
+        if (page > 1) return@withContext emptyList()
         try {
             if (filter.sortBy == "latest") {
                 // title_list/updated vraci "Updates" feed (tituly serazene podle casu

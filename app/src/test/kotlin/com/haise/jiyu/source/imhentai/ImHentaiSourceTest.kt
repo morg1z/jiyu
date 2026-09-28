@@ -43,8 +43,11 @@ class ImHentaiSourceTest {
             <li><span class='tags_text'>Tags:</span> <a class='tag  btn btn-primary' href='/tag/shotacon/'>shotacon<span class='badge'>110953</span></a></li>
             <li><span class='tags_text'>Artists:</span> <a class='tag  btn btn-primary' href='/artist/sky/'>sky<span class='badge'>155</span></a></li>
             <li><span class='tags_text'>Category:</span> <a class='tag  btn btn-primary' href='/category/doujinshi/'>doujinshi<span class='badge'>528218</span></a></li>
-            <li class="pages">Pages: 3</li>
+            <li class="pages">Pages: 5</li>
         </ul>
+        <!-- Realne se na strance galerie renderuje jen prvnich ~10 gthumb
+             (audit 2026-11: Pages: 1425, ale 10 thumb divu) - proto getPageList
+             cte li.pages a ne pocet thumbu. -->
         <div id="append_thumbs">
             <div class="gallery_th"><div class="gthumb"><a href="/view/1714318/1/"><img class="lazy" src="data:x" data-src="https://m11.imhentai.xxx/032/mtsf5q6a30/1t.jpg" /></a></div></div>
             <div class="gallery_th"><div class="gthumb"><a href="/view/1714318/2/"><img class="lazy" src="data:x" data-src="https://m11.imhentai.xxx/032/mtsf5q6a30/2t.jpg" /></a></div></div>
@@ -103,12 +106,14 @@ class ImHentaiSourceTest {
     }
 
     @Test
-    fun `getPageList builds view URLs from thumbnail count`() = runTest {
+    fun `getPageList uses declared Pages count, not rendered thumbnails`() = runTest {
         val manga = source.getPopular(1).first()
         val chapter = source.getChapterList(manga).first()
         val pages = source.getPageList(chapter)
-        assertEquals(3, pages.size)
+        // Fixture: Pages: 5, ale jen 3 gthumb divy - realne chovani webu.
+        assertEquals(5, pages.size)
         assertEquals("https://imhentai.xxx/view/1714318/1/", pages[0].url)
+        assertEquals("https://imhentai.xxx/view/1714318/5/", pages[4].url)
     }
 
     @Test

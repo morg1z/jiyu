@@ -64,11 +64,67 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
         contentType = "MANHWA",
     )
 
+    // /search SSR prijima status= (ongoing|completed|hiatus|cancelled), type=
+    // (manga|manhwa|manhua), demographic= (shounen|shoujo|seinen|josei,
+    // __group_boy__/__group_girl__), genres= (slug) a sort= (best_match|latest|
+    // newest|popular|rating|views*|chapters|alphabetical - "alphabetical" a
+    // "best_match" vraci prazdno bez q, proto se nevystavuji). Overeno zive:
+    // status=completed -> 24/24 completed, type=manhwa -> 24/24 manhwa,
+    // demographic=seinen meni sadu, kombinace status+type+genres+sort funguje.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+    )
+    override val availableDemographics: List<FilterTag> get() = listOf(
+        FilterTag(id = "shounen", label = "Shounen"),
+        FilterTag(id = "shoujo", label = "Shoujo"),
+        FilterTag(id = "seinen", label = "Seinen"),
+        FilterTag(id = "josei", label = "Josei"),
+        FilterTag(id = "__group_boy__", label = "Boy (Shounen + Seinen)"),
+        FilterTag(id = "__group_girl__", label = "Girl (Shoujo + Josei)"),
+    )
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "rating")
+
+    private val statusValues = setOf("ongoing", "completed", "hiatus", "cancelled")
+    private val siteTypes = setOf("manga", "manhwa", "manhua")
+    private val demoValues = setOf("shounen", "shoujo", "seinen", "josei", "__group_boy__", "__group_girl__")
+    private val sortValues = mapOf(
+        "popular" to "popular", "latest" to "latest", "rating" to "rating",
+    )
+
+    private fun hasSearchFilters(filter: MangaFilter) =
+        filter.genres.isNotEmpty() || filter.status != null ||
+            filter.comicTypes.isNotEmpty() || filter.demographic.isNotEmpty() ||
+            filter.sortBy == "rating"
+
+    /** /search SSR endpoint - jediny, kde web kombinuje vsechny filtry najednou. */
+    private fun searchList(query: String, page: Int, filter: MangaFilter): List<SManga> {
+        val url = buildString {
+            append("$base/search?page=").append(page)
+            if (query.isNotBlank()) append("&q=").append(URLEncoder.encode(query, "UTF-8"))
+            filter.genres.firstOrNull()?.let { append("&genres=").append(URLEncoder.encode(it, "UTF-8")) }
+            filter.status?.takeIf { it in statusValues }?.let { append("&status=").append(it) }
+            filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { append("&type=").append(it) }
+            filter.demographic.firstOrNull()?.takeIf { it in demoValues }?.let { append("&demographic=").append(it) }
+            sortValues[filter.sortBy]?.let { append("&sort=").append(it) }
+        }
+        val props = pageProps(nextData(get(url)) ?: return emptyList())
+        val items = props.getJSONArray("ssrItems")
+        return (0 until items.length()).map { itemToManga(items.getJSONObject(it)) }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
+            if (filter.genres.size == 1 && filter.status == null &&
+                filter.comicTypes.isEmpty() && filter.demographic.isEmpty()
+            ) {
                 return@withContext parseGenreArchive(filter.genres.first(), page)
             }
+            if (hasSearchFilters(filter)) return@withContext searchList("", page, filter)
             // Puvodni kod vzdy cetl /latest, i pro "Popularni" - web ale ma i samostatnou
             // /popular cestu se stejnym __NEXT_DATA__ tvarem (overeno zive, jine tituly).
             val path = if (filter.sortBy == "latest") "latest" else "popular"
@@ -80,8 +136,8 @@ class ComizySource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
-                return@withContext parseGenreArchive(filter.genres.first(), page)
+            if (hasSearchFilters(filter)) {
+                return@withContext searchList(query, page, filter)
             }
             val q = URLEncoder.encode(query, "UTF-8")
             val props = pageProps(nextData(get("$base/search?q=$q&page=$page")) ?: return@withContext emptyList())

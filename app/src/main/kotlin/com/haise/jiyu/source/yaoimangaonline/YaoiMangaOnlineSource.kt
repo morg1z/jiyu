@@ -2,6 +2,7 @@ package com.haise.jiyu.source.yaoimangaonline
 
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -44,6 +45,7 @@ class YaoiMangaOnlineSource @Inject constructor(
     override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
     private val base = "https://yaoimangaonline.com"
     private val apiBase = "$base/wp-json/wp/v2/posts"
 
@@ -108,9 +110,36 @@ class YaoiMangaOnlineSource @Inject constructor(
         return if (arr.length() > 0) arr.getJSONObject(0) else null
     }
 
+    // WP REST "/wp-json/wp/v2/tags" je (stejne jako posts endpoint) volne dostupny
+    // a strankovany - FilterTag.id = numericke tag id, filtrovani pres "&tags={id}".
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val out = mutableListOf<FilterTag>()
+            var p = 1
+            while (p <= 10) {
+                val arr = JSONArray(get("$base/wp-json/wp/v2/tags?per_page=100&page=$p&orderby=count&order=desc&_fields=id,name"))
+                for (i in 0 until arr.length()) {
+                    val t = arr.optJSONObject(i) ?: continue
+                    val tagId = t.optInt("id").takeIf { it > 0 }?.toString() ?: continue
+                    val label = decode(t.optString("name")).trim().ifBlank { continue }
+                    out += FilterTag(id = tagId, label = label)
+                }
+                if (arr.length() < 100) break
+                p++
+            }
+            out.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            fetchPostList("$apiBase?per_page=20&page=$page&_embed=wp:featuredmedia,wp:term")
+            val tagParam = filter.genres.joinToString(",") { it }.let { if (it.isBlank()) "" else "&tags=$it" }
+            fetchPostList("$apiBase?per_page=20&page=$page&_embed=wp:featuredmedia,wp:term$tagParam")
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -118,7 +147,8 @@ class YaoiMangaOnlineSource @Inject constructor(
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
             val q = URLEncoder.encode(query.trim(), "UTF-8")
-            fetchPostList("$apiBase?search=$q&per_page=20&page=$page&_embed=wp:featuredmedia,wp:term")
+            val tagParam = filter.genres.joinToString(",") { it }.let { if (it.isBlank()) "" else "&tags=$it" }
+            fetchPostList("$apiBase?search=$q&per_page=20&page=$page&_embed=wp:featuredmedia,wp:term$tagParam")
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

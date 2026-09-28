@@ -49,6 +49,9 @@ class MangaDexSource @Inject constructor(
     private val coverBase = "https://uploads.mangadex.org/covers"
 
     override val supportsTagFilter: Boolean get() = true
+    // API umí &status[]= a &year= - jediný zdroj, kde jsou tyhle filtry ověřené.
+    override val supportsStatusFilter: Boolean get() = true
+    override val supportsYearFilter: Boolean get() = true
 
     // /manga/tag je staticky seznam (~90 polozek), ktery se pri behu appky nemeni -
     // stacit ho dotahnout jednou a v pameti sdilet mezi vsemi otevrenimi Filtru.

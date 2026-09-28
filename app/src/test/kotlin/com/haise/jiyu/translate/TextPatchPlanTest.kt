@@ -40,10 +40,10 @@ class TextPatchPlanTest {
     )
 
     /** Kruhová bublina - obrys je mnohem vyšší i širší než OCR box textu uvnitř. */
-    private fun circleShape(): List<BubbleShapePoint> = (0..10).map { i ->
+    private fun circleShape(centerX: Float = 0.40f): List<BubbleShapePoint> = (0..10).map { i ->
         val yF = 0.34f + 0.18f * i / 10f
         val half = 0.16f * kotlin.math.sin(Math.PI * i / 10.0).toFloat().coerceAtLeast(0.02f)
-        BubbleShapePoint(yF = yF, leftF = 0.40f - half, rightF = 0.40f + half)
+        BubbleShapePoint(yF = yF, leftF = centerX - half, rightF = centerX + half)
     }
 
     @Test
@@ -68,9 +68,12 @@ class TextPatchPlanTest {
     }
 
     @Test
-    fun `text lying on artwork still gets a patch`() {
-        // Kvůli čemu záplata vznikla: text bez bubliny, přímo přes kresbu. Tam jednolitá
-        // výplň dělá placku a záplata je jediná cesta.
+    fun `lettering drawn directly onto artwork must get a patch - it is the only clean redraw`() {
+        // Od pravidla `art_lettering` (viz BubbleOverlayLayer): text bez obrysu bubliny na
+        // pestré kresbě se překresluje VÝHRADNĚ záplatou - smaže tahy původního písma,
+        // zbytek malby zůstane, překlad se napíše barvou originálu. Bez záplaty by tam
+        // ležela pevná výplň = placka (nahlášené "THE BATTLE OF SEKIGAHARA" na akvarelu),
+        // proto render takový blok přeskočí - záplata je pro něj jediná cesta na obrazovku.
         val positioned = layoutTranslationBlocks(listOf(block(shape = null)))
 
         assertEquals(1, patchPlan(positioned).size)
@@ -78,7 +81,7 @@ class TextPatchPlanTest {
 
     @Test
     fun `the patch is computed over the box that will be painted, not over the OCR box`() {
-        val b = block(shape = null)
+        val b = block(shape = circleShape())
         val positioned = layoutTranslationBlocks(listOf(b))
         val pos = positioned.single()
         val rect = patchPlan(positioned).getValue(0)
@@ -125,8 +128,8 @@ class TextPatchPlanTest {
         // Dřív se záplata dohledávala přes blocks.indexOf(block). Dva shodné bloky (stejný
         // text i souřadnice po zaokrouhlení) jsou si podle data class rovny, takže indexOf
         // vrátil pořád ten první a druhá bublina dostala cizí záplatu.
-        val a = block(left = 0.10f, right = 0.30f)
-        val b = block(left = 0.60f, right = 0.80f)
+        val a = block(left = 0.10f, right = 0.30f, shape = circleShape(0.25f))
+        val b = block(left = 0.60f, right = 0.80f, shape = circleShape(0.70f))
         val positioned = layoutTranslationBlocks(listOf(a, b))
         val plan = patchPlan(positioned)
 

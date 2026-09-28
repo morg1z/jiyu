@@ -107,30 +107,29 @@ fun SourcesSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                // ── Režim appky (Klasický vs. ComicK agregovaný) ──────────────
+                // ── Režim appky (ComicK / Novela agregované režimy) ──────────
+                // Dva toggly ve stejné sekci; režimy se vzájemně vylučují -
+                // zapnutí jednoho vypne druhý, oba vypnuté = klasické zdroje
+                // (AppMode.SOURCES).
                 SettingsSection(title = stringResource(R.string.settings_sources_mode_section_title)) {
-                    val isComicKMode = appMode == AppMode.COMICK
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .toggleable(
-                                value = isComicKMode,
-                                role = Role.Switch,
-                                onValueChange = { viewModel.setAppMode(if (it) AppMode.COMICK else AppMode.SOURCES) },
-                            )
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.settings_sources_mode_toggle_title), color = TextPrimary, fontSize = 14.sp)
-                            Text(stringResource(R.string.settings_sources_mode_toggle_desc), color = TextSecondary, fontSize = 11.sp)
-                        }
-                        Switch(
-                            checked = isComicKMode,
-                            onCheckedChange = null,
-                            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
-                        )
-                    }
+                    AggregatedModeToggle(
+                        title = stringResource(R.string.settings_sources_mode_comick_title),
+                        description = stringResource(R.string.settings_sources_mode_comick_desc),
+                        checked = appMode == AppMode.COMICK,
+                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.COMICK else AppMode.SOURCES) },
+                    )
+                    AggregatedModeToggle(
+                        title = stringResource(R.string.settings_sources_mode_novel_title),
+                        description = stringResource(R.string.settings_sources_mode_novel_desc),
+                        checked = appMode == AppMode.NOVEL,
+                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.NOVEL else AppMode.SOURCES) },
+                    )
+                    AggregatedModeToggle(
+                        title = stringResource(R.string.settings_sources_mode_comic_title),
+                        description = stringResource(R.string.settings_sources_mode_comic_desc),
+                        checked = appMode == AppMode.COMIC,
+                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.COMIC else AppMode.SOURCES) },
+                    )
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -359,11 +358,42 @@ fun SourcesSettingsScreen(
                 ImageProxySection(viewModel)
 
                 Spacer(Modifier.height(12.dp))
+                DnsOverHttpsSection(viewModel)
+
+                Spacer(Modifier.height(12.dp))
                 NetworkProxySection(viewModel)
 
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 Spacer(Modifier.height(40.dp + navBottom))
             }
         }
+    }
+}
+
+/** Řádek se switchem pro agregovaný režim (ComicK / Novela) - stejný vzor jako
+ * adult toggle níže v souboru. */
+@Composable
+private fun AggregatedModeToggle(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, fontSize = 14.sp)
+            Text(description, color = TextSecondary, fontSize = 11.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(checkedThumbColor = GlowViolet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+        )
     }
 }

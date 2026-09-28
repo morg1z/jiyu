@@ -55,7 +55,9 @@ class CloudflareInterceptor @Inject constructor(
      * i kdyz clearance jeste realne plati).
      */
     private data class CachedClearance(val cookies: String, val expiresAt: Long)
-    private val clearanceCache = ConcurrentHashMap<String, CachedClearance>()
+    // Vsechny per-host mapy omezene LRU - scrapeovana stranka muze vnutit requesty na
+    // libovolne hosty a bez stropu by se cache neomezene nafukovaly (audit).
+    private val clearanceCache = com.haise.jiyu.util.boundedLruMap<String, CachedClearance>(MAX_HOSTS)
     private val clearanceTtlMs = TimeUnit.HOURS.toMillis(2)
 
     /**
@@ -66,11 +68,11 @@ class CloudflareInterceptor @Inject constructor(
      * znovu a znovu hned po zavreni predchoziho, prakticky bez moznosti appku
      * pouzivat. Po vyprseni cooldownu se zkusi znovu (treba uz block pominul).
      */
-    private val failureCache = ConcurrentHashMap<String, Long>()
+    private val failureCache = com.haise.jiyu.util.boundedLruMap<String, Long>(MAX_HOSTS)
     private val failureCooldownMs = TimeUnit.MINUTES.toMillis(10)
 
     /** Soubezne pozadavky na stejny host cekaji na JEDNO reseni, ne kazdy spousti vlastni WebView/dialog. */
-    private val hostLocks = ConcurrentHashMap<String, Any>()
+    private val hostLocks = com.haise.jiyu.util.boundedLruMap<String, Any>(MAX_HOSTS)
 
     /**
      * Kdyz appka na pozadi souběžně prohledává desitky zdrojů najednou (ComicKChapterResolver -
@@ -115,7 +117,12 @@ class CloudflareInterceptor @Inject constructor(
         ioScope.launch {
             try {
                 val obj = JSONObject()
-                clearanceCache.forEach { (host, c) ->
+                // Snapshot pod zamkem mapy - synchronizedMap nema atomickou iteraci
+                // jako ConcurrentHashMap a soubezny put by mohl hodit CME (audit).
+                val entries = synchronized(clearanceCache) {
+                    clearanceCache.entries.map { it.key to it.value }
+                }
+                entries.forEach { (host, c) ->
                     obj.put(host, JSONObject().put("cookies", c.cookies).put("expiresAt", c.expiresAt))
                 }
                 dataStore.edit { it[SettingsKeys.CLOUDFLARE_CLEARANCE_CACHE] = obj.toString() }
@@ -135,6 +142,9 @@ class CloudflareInterceptor @Inject constructor(
 
         val response = chain.proceed(requestToTry)
         if (!isCloudflareBlocked(response)) return response
+        // Zaznamenat host pro proaktivni warm-up - i kdyz je pozadavek v noSolve kontextu
+        // (intercept sem pak uz nedojde, takze jedina sance se naucit host je tady).
+        recordProtectedHost(host)
         val unsolvable = isUnsolvableWafBlock(response)
         // 403 s JSON tělem = brána na API endpointu (např. "Missing token"), ne stránka s výzvou: řešit se má na
         // hlavní stránce webu (tam se cookie získá), ne načítáním samotného API v neviditelném WebView.
@@ -149,7 +159,10 @@ class CloudflareInterceptor @Inject constructor(
 
         if (isInFailureCooldown(host)) throw CloudflareProtectedException(host, request.url.toString())
 
-        val lock = hostLocks.getOrPut(host) { Any() }
+        // getOrPut pod zamkem MAPY - boundedLruMap (synchronizedMap) nema atomicke
+        // getOrPut jako ConcurrentHashMap; bez nej by dve vlakna mohla ziskat ruzne
+        // zamky pro stejny host a spustit paralelni reseni (audit).
+        val lock = synchronized(hostLocks) { hostLocks.getOrPut(host) { Any() } }
         synchronized(lock) {
             // Mezitim uz mohlo jine (souběžné) vlakno pro tenhle host uspet nebo
             // selhat - pokud ano, staci pouzit vysledek, ne spoustet dalsi WebView/dialog.
@@ -173,8 +186,10 @@ class CloudflareInterceptor @Inject constructor(
                 CloudflareChallengeBridge.awaitUserSolve(url, host, timeoutSeconds = AUTO_SOLVE_WAIT_SECONDS, isCancelled = isCancelled)
             } else {
                 // Na pozadí (nebo bez obrazovky) jen tichý pokus - vyřeší bezinterakční "Managed Challenge".
+                // Fallback na awaitUserSolve jen kdyz UI skutecne sbira vyzvy - jinak by tu vlakno
+                // zbytecne stalo cely timeout (nikdo pending neslucha, viz hasUi).
                 solveCloudflareSynchronously(url, host, isCancelled)
-                    ?: if (interactive) {
+                    ?: if (interactive && CloudflareChallengeBridge.hasUi) {
                         CloudflareChallengeBridge.awaitUserSolve(url, host, timeoutSeconds = AUTO_SOLVE_WAIT_SECONDS, isCancelled = isCancelled)
                     } else {
                         null
@@ -221,6 +236,8 @@ class CloudflareInterceptor @Inject constructor(
         val cached = clearanceCache[host]?.takeIf { it.expiresAt > System.currentTimeMillis() }
         val response = chain.proceed(if (cached != null) request.withClearance(cached.cookies) else request)
         if (!isCloudflareBlocked(response)) return response
+        // I obrazkove CDN hosty (fmcdn.mfcdn.net apod.) se uci - warm-up pak ziska clearance i pro ne.
+        recordProtectedHost(host)
         val unsolvable = isUnsolvableWafBlock(response)
         response.close()
         val url = request.url.toString()
@@ -232,19 +249,62 @@ class CloudflareInterceptor @Inject constructor(
      * neúspěchu, zkusí tiché řešení a pak ukáže viditelný dialog. Vrací `true`, když se povedlo získat clearance
      * cookies (další požadavek na host ji použije; kdyby přesto nestačila, projde normální cestou znovu).
      */
-    suspend fun solveNow(url: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun solveNow(url: String): Boolean = solve(url, waitForUiWhenSilentFails = true)
+
+    /**
+     * Proaktivní warm-up na pozadí (viz [CloudflareWarmup]). Na rozdíl od [solveNow] po selhání tichého
+     * detached WebView NEČEKÁ na UI výzvu - bez UI by `awaitUserSolve` jen zablokoval vlákno na cely
+     * timeout (žádný sběrač [CloudflareChallengeBridge.pending] neexistuje). Turnstile hosty bez UI
+     * se nechají selhat a warm-up je doběhne, až se UI objeví (poslouchá [CloudflareChallengeBridge.uiActive]).
+     */
+    suspend fun solveForWarmup(url: String): Boolean = solve(url, waitForUiWhenSilentFails = false)
+
+    /** Má host platnou clearance v cache (neexpirovana)? Warm-up tak preskoci uz vyresene domeny. */
+    fun hasValidClearance(host: String): Boolean {
+        persistedCacheLoaded
+        return clearanceCache[host]?.expiresAt?.let { it > System.currentTimeMillis() } == true
+    }
+
+    /**
+     * Poznamena host jako Cloudflare-chraneny do sdilene sady pro [CloudflareWarmup] (persistuje se do
+     * DataStore). Volano z vlakna site - zapis se deleguje na [ioScope], aby nikdy neblokoval request.
+     * In-memory dedup ([recordedHosts]) zabrani tomu, aby davka obrazku na CF hostu psala do
+     * DataStore pro kazdy request zvlast.
+     */
+    private val recordedHosts = com.haise.jiyu.util.boundedLruMap<String, Boolean>(MAX_HOSTS)
+
+    private fun recordProtectedHost(host: String) {
+        // On-demand reseni tohoto konkretniho hosta na pozadi (throttle je uvnitr kicku) -
+        // i kdyz tenhle request selze, dalsi uz projdou s cerstvou clearance.
+        CloudflareWarmup.kick(host)
+        if (recordedHosts.put(host, true) == true) return
+        ioScope.launch {
+            try {
+                dataStore.edit { prefs ->
+                    val json = prefs[SettingsKeys.CLOUDFLARE_WARMUP_HOSTS]
+                    prefs[SettingsKeys.CLOUDFLARE_WARMUP_HOSTS] = mergeWarmupHost(json, host)
+                }
+            } catch (_: Exception) { /* zaznam je jen proaktivni optimalizace */ }
+        }
+    }
+
+    private suspend fun solve(url: String, waitForUiWhenSilentFails: Boolean): Boolean = withContext(Dispatchers.IO) {
         val host = try { url.toHttpUrl().host } catch (_: IllegalArgumentException) { return@withContext false }
         failureCache.remove(host)
         clearanceCache.remove(host)
         CloudflareCookies.clear(url)
-        val lock = hostLocks.getOrPut(host) { Any() }
+        val lock = synchronized(hostLocks) { hostLocks.getOrPut(host) { Any() } }
         val cookies = synchronized(lock) {
             // Ruční řešení běží v popředí: stejně jako v interceptoru jde rovnou přes připojený WebView v dialogu.
             if (CloudflareChallengeBridge.hasUi) {
                 CloudflareChallengeBridge.awaitUserSolve(url, host, timeoutSeconds = AUTO_SOLVE_WAIT_SECONDS)
             } else {
                 solveCloudflareSynchronously(url, host) { false }
-                    ?: CloudflareChallengeBridge.awaitUserSolve(url, host, timeoutSeconds = AUTO_SOLVE_WAIT_SECONDS)
+                    ?: if (waitForUiWhenSilentFails) {
+                        CloudflareChallengeBridge.awaitUserSolve(url, host, timeoutSeconds = AUTO_SOLVE_WAIT_SECONDS)
+                    } else {
+                        null
+                    }
             }
         }
         if (cookies == null) return@withContext false
@@ -274,10 +334,14 @@ class CloudflareInterceptor @Inject constructor(
         var result: String? = null
         val latch = CountDownLatch(1)
         val engineUserAgent = CloudflareUserAgent.value(context)
+        // Referenci na WebView drzime mimo post lambdu, aby ho po cancelu slo bezpecne
+        // znicit i mimo postovane handlery (poll runnable jinak bezel az do 15s timeoutu).
+        val webViewRef = java.util.concurrent.atomic.AtomicReference<WebView?>()
 
         mainHandler.post {
             lateinit var webView: WebView
             webView = WebView(context).apply {
+                webViewRef.set(this)
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -334,7 +398,11 @@ class CloudflareInterceptor @Inject constructor(
                     }
 
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                        return !request.url.host.orEmpty().contains(host)
+                        // Presny host nebo jeho subdomena - drive `host.contains(host)` povolilo
+                        // i evil-a.to / a.to.attacker.com (audit): challenge stranka pak mohla
+                        // navigovat skryte WebView na cizi domenu a cist tam jeho cookies.
+                        val reqHost = request.url.host.orEmpty()
+                        return !(reqHost == host || reqHost.endsWith(".$host"))
                     }
                 }
                 CookieManager.getInstance().setAcceptCookie(true)
@@ -357,7 +425,17 @@ class CloudflareInterceptor @Inject constructor(
         // per-host permit držely až 18 s zbytečně.
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(18)
         while (System.nanoTime() < deadline && !latch.await(250, TimeUnit.MILLISECONDS)) {
-            if (isCancelled()) return null
+            if (isCancelled()) {
+                // Bez countDown+destroy by poll runnable na WebView bezel az do sveho 15s
+                // timeoutu - zombie WebView a drzene prostredky i po navratu (audit).
+                mainHandler.post {
+                    if (latch.count > 0L) {
+                        latch.countDown()
+                        runCatching { webViewRef.get()?.destroy() }
+                    }
+                }
+                return null
+            }
         }
         return result
     }
@@ -383,15 +461,29 @@ class CloudflareInterceptor @Inject constructor(
 /** Jak dlouho interceptor čeká na automatické (neviditelné) řešení výzvy; o něco déle než pokus v [CloudflareChallengeHost]. */
 private const val AUTO_SOLVE_WAIT_SECONDS = 25L
 
+/** Strop per-host map (clearance/failure/locks/recorded) - viz clearanceCache. */
+private const val MAX_HOSTS = 256
+
 internal fun isCloudflareBlocked(response: Response): Boolean {
     if (response.code in listOf(403, 503)) {
         if (response.header("cf-mitigated")?.contains("challenge", ignoreCase = true) == true) return true
+        // Hard WAF block ("you have been blocked") neni resitelna vyzva, ale porad jde o
+        // blokaci - patri do typed-error vetve (CloudflareBlockedException), ne do passthrough.
+        if (isUnsolvableWafBlock(response)) return true
         val body = response.peekBody(8 * 1024).string()
         if (body.contains("cf-browser-verification") ||
             body.contains("challenge-running") ||
             body.contains("jschl_vc") ||
             body.contains("cf_clearance") ||
-            (response.header("Server")?.contains("cloudflare") == true && response.code == 403)
+            body.contains("challenge-platform") ||
+            // Fallback "Server: cloudflare + 403" - ale jen kdyz telo vypada jako
+            // resitelna challenge STRANKA. Drive stacily hlavicky samotne a JAKAKOLI
+            // obycejna 403 (WAF hard block, geo-block, spatny Referer na CDN za CF edge)
+            // spustila cele solve-flow vcetne interaktivniho WebView dialogu (audit).
+            (response.header("Server")?.contains("cloudflare") == true && response.code == 403 &&
+                (body.contains("challenge", ignoreCase = true) ||
+                    body.contains("just a moment", ignoreCase = true) ||
+                    body.contains("turnstile", ignoreCase = true)))
         ) return true
     }
     // Nektere sity (napr. BatCave) maji nad Cloudflare vlastni JS+PoW branu na urovni

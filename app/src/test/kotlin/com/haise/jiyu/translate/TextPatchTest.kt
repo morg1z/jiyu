@@ -293,6 +293,49 @@ class TextPatchTest {
         assertEquals("z tahu zůstalo $leftover bílých pixelů mimo hlášený OCR box", 0, leftover)
     }
 
+    // -- Jádrová barva písma (meanTextArgbOut) ------------------------------------------
+    // Překlad se nad záplatou kreslí barvou originálu, ne černou/bílou podle pozadí - jinak
+    // by bílý caption na světlé kresbě vylezl černě a nevypadal jako součást malby.
+
+    @Test
+    fun `the reported text colour is the light core of an outlined caption, not its dark edge`() {
+        // Bílé jádro s černým lemem na pestré kresbě: prostý průměr masky by spadl do šedé,
+        // jádrová barva musí vyjít světlá.
+        val w = 240
+        val h = 36
+        val rows = captionOnArtwork(w, h, strokeWidth = 9)
+        val out = IntArray(1)
+        buildTextPatch(sourceOf(rows), w, h, 0, 0, w, h, bgArgb = red, meanTextArgbOut = out)
+
+        val lum = (0.299 * ((out[0] shr 16) and 0xFF) + 0.587 * ((out[0] shr 8) and 0xFF) + 0.114 * (out[0] and 0xFF))
+        assertTrue("jádro bílého captionu má vyjít světlé, vyšlo ${lum.toInt()}", lum > 180.0)
+    }
+
+    @Test
+    fun `the reported text colour of a dark title is dark`() {
+        // Opačná polarita: černý nápis na světlé kresbě má vyjít tmavě, ne smíchaně.
+        val w = 60
+        val h = 40
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x -> if (x in 28..33) black else argb(235, 230, 220) }
+        }
+        val out = IntArray(1)
+        buildTextPatch(sourceOf(rows), w, h, 0, 0, w, h, bgArgb = white, meanTextArgbOut = out)
+
+        val lum = (0.299 * ((out[0] shr 16) and 0xFF) + 0.587 * ((out[0] shr 8) and 0xFF) + 0.114 * (out[0] and 0xFF))
+        assertTrue("jádro černého nápisu má vyjít tmavé, vyšlo ${lum.toInt()}", lum < 75.0)
+    }
+
+    @Test
+    fun `no text pixels means no reported colour`() {
+        // Jednolitá oblast bez písma - volající se podle nuly pozná, že barva není.
+        val rows = grid(12, 12, argb(120, 140, 160))
+        val out = IntArray(1)
+        buildTextPatch(sourceOf(rows), 12, 12, 0, 0, 12, 12, bgArgb = white, meanTextArgbOut = out)
+
+        assertEquals("bez textových pixelů se hlásí 0", 0, out[0])
+    }
+
     @Test
     fun `the tolerance around the OCR box does not reach into unrelated artwork`() {
         // Pojistka: lem kolem textové oblasti se počítá z její VELIKOSTI, takže u malého boxu

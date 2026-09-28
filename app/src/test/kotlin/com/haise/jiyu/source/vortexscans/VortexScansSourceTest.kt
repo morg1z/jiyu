@@ -13,9 +13,10 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * postId a artist se na detailni strance vytahuji regexem z hydration-props
- * (viz komentar v VortexScansSource.kt), proto fixture obsahuje jejich
- * HTML-entity-escapovanou podobu presne tak, jak je vraci realny web.
+ * Artist se na detailni strance vytahuje regexem z hydration-props (viz
+ * komentar v VortexScansSource.kt), proto detail fixture obsahuje jeho
+ * HTML-entity-escapovanou podobu presne tak, jak ji vraci realny web.
+ * Kapitoly/stranky kopiruji aktualni server-renderovany markup webu.
  */
 class VortexScansSourceTest {
 
@@ -38,13 +39,19 @@ class VortexScansSourceTest {
         </body></html>
     """.trimIndent()
 
-    private val chaptersJson = """
-        { "post": { "chapters": [ {"slug": "chapter-1", "number": 1, "title": ""} ] } }
+    // Kapitoly jsou server-renderovane na ?tab=chapters jako odkazy
+    // "/series/{slug}/chapter-{n}" (realny web, postId/API se uz nepouziva).
+    private val chaptersHtml = """
+        <html><body>
+        <a href="/series/test-series/chapter-1">Chapter 1</a>
+        </body></html>
     """.trimIndent()
 
     private val pagesHtml = """
         <html><body>
-        <figure><meta itemprop="image" content="https://cdn.example.com/test/1/01.jpg" /></figure>
+        <img src="https://storage.vortexscans.org//upload/series/test-series/abc123/01.webp" />
+        <img src="https://storage.vortexscans.org//upload/series/featured/9/cover.png" />
+        <img src="https://storage.vortexscans.org//upload/series/test-series/abc123/02.webp" />
         </body></html>
     """.trimIndent()
 
@@ -57,7 +64,7 @@ class VortexScansSourceTest {
                 return when {
                     path.startsWith("/series/?page=") -> MockResponse().setBody(listHtml)
                     path == "/series/test-series" -> MockResponse().setBody(detailHtml)
-                    path.startsWith("/api/chapters") -> MockResponse().setBody(chaptersJson)
+                    path == "/series/test-series?tab=chapters" -> MockResponse().setBody(chaptersHtml)
                     path == "/series/test-series/chapter-1" -> MockResponse().setBody(pagesHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
@@ -111,8 +118,10 @@ class VortexScansSourceTest {
         assertEquals("/series/test-series/chapter-1", chapters[0].url)
 
         val pages = source.getPageList(chapters[0])
-        assertEquals(1, pages.size)
-        assertEquals("https://cdn.example.com/test/1/01.jpg", pages[0].url)
+        // jen 01/02.webp - featured cover se filtruje
+        assertEquals(2, pages.size)
+        assertEquals("https://storage.vortexscans.org//upload/series/test-series/abc123/01.webp", pages[0].url)
+        assertEquals("https://storage.vortexscans.org//upload/series/test-series/abc123/02.webp", pages[1].url)
     }
 
     @Test

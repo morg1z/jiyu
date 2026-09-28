@@ -33,6 +33,9 @@ class NhentaiSourceTest {
     // volanim API (viz komentar v NhentaiSource.kt).
     private val galleriesListJson = """{ "result": [ $listItemJson ] }"""
     private val searchJson = """{ "result": [ $listItemJson ] }"""
+    private val categoryTagsJson = """{ "result": [ {"id":1,"type":"category","name":"manga","slug":"manga","count":100} ] }"""
+    private val languageTagsJson = """{ "result": [ {"id":2,"type":"language","name":"english","slug":"english","count":100} ] }"""
+    private val tagTagsJson = """{ "result": [ {"id":3,"type":"tag","name":"big breasts","slug":"big-breasts","count":235000} ] }"""
 
     private val galleryDetailJson = """
         {
@@ -59,6 +62,9 @@ class NhentaiSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path.startsWith("/api/v2/tags/category") -> MockResponse().setBody(categoryTagsJson)
+                    path.startsWith("/api/v2/tags/language") -> MockResponse().setBody(languageTagsJson)
+                    path.startsWith("/api/v2/tags/tag") -> MockResponse().setBody(tagTagsJson)
                     path.startsWith("/api/v2/search") -> MockResponse().setBody(searchJson)
                     path.startsWith("/api/v2/galleries/999") -> MockResponse().setBody(galleryDetailJson)
                     path.startsWith("/api/v2/galleries?") -> MockResponse().setBody(galleriesListJson)
@@ -126,6 +132,26 @@ class NhentaiSourceTest {
         val chapters = source.getChapterList(manga)
         assertEquals(1, chapters.size)
         assertEquals(1f, chapters[0].chapterNumber)
+    }
+
+    @Test
+    fun `getAvailableTags exposes the real tag taxonomy next to category and language`() = runTest {
+        val tags = source.getAvailableTags()
+
+        assertTrue(tags.any { it.id == "tag:big-breasts" && it.label == "big breasts" })
+        assertTrue(tags.any { it.id == "category:manga" && it.label == "manga (category)" })
+        assertTrue(tags.any { it.id == "language:english" && it.label == "english (language)" })
+    }
+
+    @Test
+    fun `genre filter combines multiple selected tags into an AND query`() = runTest {
+        // Driv se aplikoval jen prvni vybrany tag - nhentai query syntax ale umi
+        // "tag:a tag:b" (AND), coz je presne to, co uzivatel v pickeru oznaci.
+        source.getPopular(1, com.haise.jiyu.source.MangaFilter(genres = listOf("tag:big-breasts", "language:english")))
+
+        val request = server.takeRequest()
+        assertTrue(request.path!!.startsWith("/api/v2/search"))
+        assertEquals("tag:big-breasts language:english", request.requestUrl!!.queryParameter("query"))
     }
 
     @Test

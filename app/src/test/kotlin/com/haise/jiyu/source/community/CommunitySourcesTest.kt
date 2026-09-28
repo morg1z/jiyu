@@ -42,9 +42,15 @@ class CommunitySourcesTest {
 
     @Test
     fun `sources offer tag filter and title sorting`() {
-        assertTrue(sources.all { it.supportsTagFilter })
-        // Blogger feed (ZeistManga) umí řadit jen podle data vydání.
-        assertTrue(sources.filter { it !is ZeistMangaSource }.all { "title" in it.availableSorts })
+        // Tag filtr se deklaruje jen u webů, které taxonomii skutečně vystavují
+        // (audit 2026-10: řada webů má /search/ = 404, tagy se tam neparsují).
+        assertTrue(sources.any { it.supportsTagFilter })
+        // Blogger feed (ZeistManga) umí řadit jen podle data vydání; weby bez
+        // funkčního řazení mají supportsSortOrder = false a sort nabídku neslibují.
+        assertTrue(
+            sources.filter { it !is ZeistMangaSource && it.supportsSortOrder }
+                .all { "title" in it.availableSorts },
+        )
         assertTrue(sources.filterIsInstance<ZeistMangaSource>().all { it.availableSorts == setOf("latest") })
     }
 }

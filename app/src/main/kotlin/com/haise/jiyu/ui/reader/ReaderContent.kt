@@ -106,6 +106,7 @@ fun ReaderContent(
     webtoonSegments: List<WebtoonSegment> = emptyList(),
     onNeedMoreWebtoonSegments: () -> Unit = {},
     onWebtoonVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
+    webtoonAppendingNextChapter: Boolean = false,
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
@@ -133,27 +134,10 @@ fun ReaderContent(
     var showGlossarySheet by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
-    // Přednačtení stránek do Coil cache
-    val preloadContext = androidx.compose.ui.platform.LocalContext.current
-    val preloadHandles = remember { mutableListOf<coil.request.Disposable>() }
-    // Po odchodu ze čtečky se rozběhnuté přednačítání ruší (nedrží sloty hostitele pro obálky ve výpisu).
-    DisposableEffect(Unit) {
-        onDispose { preloadHandles.forEach { it.dispose() }; preloadHandles.clear() }
-    }
-    LaunchedEffect(currentPage, pages) {
-        if (pages.isEmpty()) return@LaunchedEffect
-        (currentPage + 1..currentPage + 3).mapNotNull { pages.getOrNull(it) }
-            .filter { !it.startsWith("file://") }
-            .forEach { url ->
-                // Stejny Referer/descramble jako hlavni zobrazovaci cesta (RetryableAsyncImage) -
-                // jinak preload stahne stranku pod JINYM cache klicem (Referer je soucasti OkHttp
-                // cache klice) a Coil ji pri skutecnem zobrazeni stahne (a rozskladane dlazdice
-                // descrambluje) uplne znovu, cimz preload jen zdvojnasobi provoz misto usetreni.
-                val req = buildPageImageRequest(preloadContext, url, referer)
-                preloadHandles += coil.Coil.imageLoader(preloadContext).enqueue(req)
-            }
-        preloadHandles.removeAll { it.isDisposed }
-    }
+    // Přednačítání stránek řeší ReaderViewModel.prefetchPagesFrom (jedno místo, stejný
+    // cache klíč včetně cropBorders). Druhá paralelní fronta tady stahovala stejné
+    // stránky znovu - Coil běžící requesty nekoalescuje, takže se per-host fronta
+    // plnila duplicitami a viditelná stránka na ně čekala.
 
     // Jas obrazovky; -1f = systémový výchozí (okno se nezmění dokud uživatel nepohne sliderem).
     // rememberSaveable - jinak by se rotace obrazovky (config change) vrátila na systémový jas.
@@ -207,6 +191,7 @@ fun ReaderContent(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                isAppendingNextChapter = webtoonAppendingNextChapter,
                 referer = referer,
             )
         } else if (pageCurlEnabled) {

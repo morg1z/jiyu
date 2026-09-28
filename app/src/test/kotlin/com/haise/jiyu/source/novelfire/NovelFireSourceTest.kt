@@ -81,7 +81,7 @@ class NovelFireSourceTest {
         val result = source.getPopular(1)
         assertEquals(1, result.size)
         assertEquals("Test Series", result[0].title)
-        assertEquals("https://novelfire.net/server-1/test.jpg", result[0].coverUrl)
+        assertEquals("https://novelphoenix.com/server-1/test.jpg", result[0].coverUrl)
         assertEquals("NOVEL", result[0].contentType)
     }
 

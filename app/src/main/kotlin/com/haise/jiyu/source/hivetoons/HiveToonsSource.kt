@@ -1,7 +1,5 @@
 package com.haise.jiyu.source.hivetoons
 
-import com.haise.jiyu.util.toSourcePath
-import com.haise.jiyu.util.absoluteMediaUrl
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
@@ -18,22 +16,31 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * HiveToons (hivetoons.org) - nastupce Hive Scans (hivescans.com), ktery
- * mezitim kompletne prepsali (Astro + schema.org microdata misto Madara).
- * Vetsina poli se da spolehlive vytahnout pres itemProp atributy
- * (schema.org/CreativeWork), ktere jsou stabilnejsi nez Tailwind trida.
+ * HiveToons (hivetoons.org) - nastupce Hive Scans (hivescans.com).
  *
- * Web nema server-rendered fulltextove hledani (vyhledavaci pole nema
- * `name` atribut, filtruje se jen JS-em na klientovi) - search proto
- * stahne prvni stranku archivu a filtruje nazvy lokalne, stejny vzor jako
- * [com.haise.jiyu.source.hachirumi.HachirumiSource].
+ * 2026-10 audit: frontend hivetoons.org je mrtvy (307 redirect smycka na sebe
+ * sama), ale backend `api.hivetoons.org` zije a obsluhuje kompletni data -
+ * cely zdroj proto bezi ciste pres JSON API (drive se kombinovalo scrapovani
+ * HTML frontendu + API pro zanry):
+ *
+ *  - GET /api/posts?page=N&perPage=M            vypis (max ~200/str., ~313 titulu)
+ *  - GET /api/posts?slug={slug}                detail titulu (genres, status, rating)
+ *  - GET /api/genres                           plocha taxonomie (~95 zanru)
+ *  - GET /api/genres/{slug}/posts?page=N       zanrovy filtr
+ *  - GET /api/chapters?postId={id}             seznam kapitol
+ *  - GET /api/chapter?chapterId={id}           stranky kapitoly (images[].url/order)
+ *
+ * API nepodporuje server-side fulltext ani razeni (vsechny sort/search parametry
+ * jsou ignorovany - overeno zive), proto se search i "latest" razeni resi lokalne
+ * nad stazenym katalogem (je maly, cele se vejde do 2 requestu).
  */
 @Singleton
 class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -43,50 +50,88 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
     override val contentType: String get() = "MANHWA"
     override val homepageUrl get() = base
     private val base = "https://hivetoons.org"
-    // Web bezi na sdilene "vcomics" Astro sablone, ktera browse/genre stranky
-    // (hivetoons.org/genre/{slug}) renderuje az na klientovi - misto scrapovani
-    // prazdneho HTML skeletu se proto genre filtrovani resi primo pres JSON API
-    // backend appky (viz komentar u SourceManager - "hivetoons -> api.hivetoons.org"),
-    // ktery si stejny klientsky JS sam vola (endpoint najit reverse-engineeringem
-    // JS bundlu /_vcomics/*.js - `${API}/api/genres/${encodeURIComponent(slug)}/posts`).
     private val apiBase = "https://api.hivetoons.org"
 
-    private fun get(url: String): Document {
-        val req = Request.Builder().url(url)
-            .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
-            .build()
-        val html = client.newCall(req).execute().use { it.bodyOrThrow(url) }
-        return Jsoup.parse(html)
-    }
-
-    private fun getJson(url: String): JSONObject {
+    private fun getBody(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "application/json")
             .build()
-        val body = client.newCall(req).execute().use { it.bodyOrThrow(url) }
-        return JSONObject(body)
+        return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
-    private fun parseList(doc: Document): List<SManga> =
-        doc.select("a[href^=\"/series/\"][title]").mapNotNull { el ->
-            val href = el.attr("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val title = el.attr("title").trim().ifBlank { return@mapNotNull null }
-            val cover = el.selectFirst("img")?.attr("src")?.let { absoluteMediaUrl(base, it) }
-            SManga(sourceId = id, url = base + href, title = title, coverUrl = cover, contentType = "MANHWA")
-        }
-            // Kazda karta ma DVA <a href="/series/..." title="..."> odkazy na stejnou
-            // mangu - obalku a nazev pod ni - oba sedi na selektor vyse. Bez deduplikace
-            // vznikne v seznamu duplicitni "url", coz spadne LazyVerticalGrid v
-            // SourceBrowseScreen ("Key ... was already used") - overeno padem na realnem
-            // telefonu. distinctBy nechava PRVNI vyskyt, coz je prave ten s obalkovym
-            // <img> (druhy - textovy odkaz na nazev - obalku nema).
-            .distinctBy { it.url }
+    private fun getJson(url: String): JSONObject = JSONObject(getBody(url))
 
-    // Live overeno: /api/genres vraci malou (95 polozek), plochou taxonomii bez
-    // vlastniho "slug" pole - klientsky JS si slug odvozuje jako
-    // encodeURIComponent(name.toLowerCase()) (viz komentar u apiBase), stejny vzorec
-    // pouzivame tady. FilterTag.id proto nese puvodni (nezakodovany) nazev zanru.
+    // ─── parsovani post objektu ──────────────────────────────────────────────
+
+    private fun contentTypeOf(post: JSONObject): String {
+        val isNovel = post.optBoolean("isNovel", false)
+        return when {
+            isNovel -> "NOVEL"
+            post.optString("seriesType").equals("MANHUA", ignoreCase = true) -> "MANHUA"
+            post.optString("seriesType").equals("MANGA", ignoreCase = true) -> "MANGA"
+            else -> "MANHWA"
+        }
+    }
+
+    private fun postToSManga(post: JSONObject): SManga? {
+        val slug = post.optString("slug").ifBlank { return null }
+        val title = post.optString("postTitle").trim().ifBlank { return null }
+        val cover = post.optString("featuredImage").ifBlank { null }
+        return SManga(
+            sourceId = id,
+            url = "$base/series/$slug",
+            title = title,
+            coverUrl = cover,
+            contentType = contentTypeOf(post),
+        )
+    }
+
+    private fun parsePosts(json: JSONObject): List<SManga> {
+        val posts = json.optJSONArray("posts") ?: return emptyList()
+        return (0 until posts.length()).mapNotNull { i -> posts.optJSONObject(i)?.let(::postToSManga) }
+    }
+
+    // Vychozi API feed je uz razeny podle lastChapterAddedAt desc = "latest" je
+    // identicky s "popular" (audit 2026-10) - prepinac razeni nema smysl.
+    override val supportsSortOrder: Boolean get() = false
+
+    // /api/query prijima seriesStatus= (ONGOING|COMPLETED|HIATUS|DROPPED) a
+    // seriesType= (MANGA|MANHWA|MANHUA|NOVEL) a kombinuje je s genre={jmeno} -
+    // overeno zive. /api/posts tyto parametry ignoruje.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "MANGA", label = "Manga"),
+        FilterTag(id = "MANHWA", label = "Manhwa"),
+        FilterTag(id = "MANHUA", label = "Manhua"),
+        FilterTag(id = "NOVEL", label = "Novel"),
+    )
+
+    private val statusValues = mapOf(
+        "ongoing" to "ONGOING", "completed" to "COMPLETED",
+        "hiatus" to "HIATUS", "cancelled" to "DROPPED",
+    )
+    private val siteTypes = setOf("MANGA", "MANHWA", "MANHUA", "NOVEL")
+
+    private fun hasExtraFilters(filter: MangaFilter): Boolean =
+        filter.status != null || filter.comicTypes.isNotEmpty()
+
+    /** /api/query - podporuje genre={jmeno} + seriesStatus + seriesType dohromady. */
+    private fun queryList(page: Int, filter: MangaFilter): List<SManga> {
+        val sb = StringBuilder("$apiBase/api/query?page=$page&perPage=24")
+        filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+        statusValues[filter.status]?.let { sb.append("&seriesStatus=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { sb.append("&seriesType=").append(it) }
+        return try { parsePosts(getJson(sb.toString())) }
+        catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    // ─── tagy ────────────────────────────────────────────────────────────────
+
+    // /api/genres vraci plochou taxonomii bez "slug" pole - klientsky JS si slug
+    // odvozuje jako encodeURIComponent(name.toLowerCase()), stejny vzorec tady.
     override val supportsTagFilter: Boolean get() = true
 
     @Volatile private var cachedTags: List<FilterTag>? = null
@@ -94,15 +139,10 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
         cachedTags?.let { return@withContext it }
         try {
-            val req = Request.Builder().url("$apiBase/api/genres")
-                .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
-                .header("Accept", "application/json")
-                .build()
-            val body = client.newCall(req).execute().use { it.bodyOrThrow("$apiBase/api/genres") }
-            val arr = JSONArray(body)
+            val arr = JSONArray(getBody("$apiBase/api/genres"))
             val tags = (0 until arr.length()).mapNotNull { i ->
-                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
-                val name = obj.optString("name").trim().ifBlank { null } ?: return@mapNotNull null
+                val name = arr.optJSONObject(i)?.optString("name")?.trim()?.ifBlank { null }
+                    ?: return@mapNotNull null
                 FilterTag(id = name, label = name)
             }
             cachedTags = tags
@@ -113,104 +153,116 @@ class HiveToonsSource @Inject constructor(private val client: OkHttpClient) : Ma
     private fun genreSlug(name: String): String =
         URLEncoder.encode(name.lowercase(), "UTF-8").replace("+", "%20")
 
-    private fun parseGenrePosts(json: JSONObject): List<SManga> {
-        val posts = json.optJSONArray("posts") ?: return emptyList()
-        return (0 until posts.length()).mapNotNull { i ->
-            val post = posts.optJSONObject(i) ?: return@mapNotNull null
-            val slug = post.optString("slug").ifBlank { return@mapNotNull null }
-            val title = post.optString("postTitle").trim().ifBlank { return@mapNotNull null }
-            val cover = post.optString("featuredImage").ifBlank { null }
-            val seriesType = post.optString("seriesType")
-            val isNovel = post.optBoolean("isNovel", false)
-            val contentType = when {
-                isNovel -> "NOVEL"
-                seriesType.equals("MANHUA", ignoreCase = true) -> "MANHUA"
-                seriesType.equals("MANGA", ignoreCase = true) -> "MANGA"
-                else -> "MANHWA"
-            }
-            SManga(sourceId = id, url = "$base/series/$slug", title = title, coverUrl = cover, contentType = contentType)
+    // ─── listing / search ────────────────────────────────────────────────────
+
+    private fun genrePosts(page: Int, genre: String): List<SManga> = try {
+        parsePosts(getJson("$apiBase/api/genres/${genreSlug(genre)}/posts?page=$page&perPage=20&filter="))
+    } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+
+    /** Cely katalog (~313 titulu) ve 2 requestech - pro search a latest razeni. */
+    private fun catalog(): List<JSONObject> {
+        val first = getJson("$apiBase/api/posts?page=1&perPage=200")
+        val posts = first.optJSONArray("posts") ?: return emptyList()
+        val total = first.optInt("totalCount", posts.length())
+        val out = (0 until posts.length()).mapNotNull { posts.optJSONObject(it) }.toMutableList()
+        if (out.size < total) {
+            val rest = getJson("$apiBase/api/posts?page=2&perPage=200").optJSONArray("posts")
+            if (rest != null) for (i in 0 until rest.length()) rest.optJSONObject(i)?.let(out::add)
         }
+        return out
     }
 
+    private val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+
+    /** "2026-09-24T01:25:45.893Z" -> millis; neparsovatelnne = 0. */
+    private fun parseDate(raw: String?): Long = runCatching {
+        isoDate.parse(raw.orEmpty().substringBefore('.').substringBefore('Z'))?.time ?: 0L
+    }.getOrDefault(0L)
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try {
-                parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
-            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
-        }
-        // Bez koncoveho lomitka web posle 301 na "http://..." (ne https) - Android to
-        // spravne odmitne jako cleartext (viz network_security_config.xml) a appka pak
-        // tise skonci na prazdnem seznamu. Overeno logem site pripojeni na realnem
-        // telefonu. S lomitkem uz web odpovi rovnou 200, zadne presmerovani.
+        if (hasExtraFilters(filter)) return@withContext queryList(page, filter)
+        filter.genres.firstOrNull()?.let { return@withContext genrePosts(page, it) }
         try {
-            // "/latest-updates" ma overene jinou (skutecne cerstvejsi) razeni nez archiv
-            // "/series/" - live diff titulu od #2 potvrdil odlisne poradi. Stranka ale
-            // nema funkcni ?page= pagination (page 2 vraci identicky obsah jako page 1),
-            // proto pro page>1 vracime prazdny seznam misto duplicit.
             if (filter.sortBy == "latest") {
-                if (page > 1) emptyList() else parseList(get("$base/latest-updates"))
-            } else {
-                parseList(get("$base/series/?page=$page"))
+                // API razeni ignoruje - "latest" = lokalni sort podle lastChapterAddedAt.
+                val all = catalog().sortedByDescending {
+                    parseDate(it.optString("lastChapterAddedAt"))
+                }.mapNotNull(::postToSManga)
+                return@withContext all.drop((page - 1) * 24).take(24)
             }
+            parsePosts(getJson("$apiBase/api/posts?page=$page&perPage=24"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try {
-                parseGenrePosts(getJson("$apiBase/api/genres/${genreSlug(filter.genres.first())}/posts?page=$page&perPage=20&filter="))
-            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
-        }
-        if (page > 1) return@withContext emptyList()
+        if (hasExtraFilters(filter)) return@withContext queryList(page, filter)
+        filter.genres.firstOrNull()?.let { return@withContext genrePosts(page, it) }
+        if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
-            parseList(get("$base/series/")).filter { it.title.contains(query, ignoreCase = true) }
+            catalog().filter {
+                it.optString("postTitle").contains(query, ignoreCase = true) ||
+                    it.optString("alternativeTitles").contains(query, ignoreCase = true)
+            }.mapNotNull(::postToSManga).drop((page - 1) * 24).take(24)
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // ─── detail / kapitoly / stranky ─────────────────────────────────────────
+
+    private fun slugOf(manga: SManga) = manga.url.substringAfterLast("/")
+
+    /** post JSON pres slug lookup + interni id pro chapters endpoint. */
+    private fun fetchPost(slug: String): JSONObject? =
+        getJson("$apiBase/api/posts?slug=${URLEncoder.encode(slug, "UTF-8")}")
+            .optJSONArray("posts")?.optJSONObject(0)
+
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val doc = get(manga.url)
-            val status = doc.select("h1").firstOrNull { it.text().trim().equals("Status", ignoreCase = true) }
-                ?.parent()?.selectFirst("p")?.text()?.trim()
+            val post = fetchPost(slugOf(manga)) ?: return@withContext manga
+            val genres = post.optJSONArray("genres")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name")?.trim()?.ifBlank { null } }
+            } ?: emptyList()
             manga.copy(
-                title = doc.selectFirst("h1[itemprop=name]")?.text()?.trim() ?: manga.title,
-                coverUrl = doc.selectFirst("img[itemprop=image]")?.attr("src")?.let { absoluteMediaUrl(base, it) } ?: manga.coverUrl,
-                description = doc.selectFirst("div[itemprop=description]")?.text()?.trim(),
-                genres = doc.select("a[itemprop=genre]").map { it.text().trim() }.filter { it.isNotBlank() },
-                status = status,
-                contentType = "MANHWA",
+                title = post.optString("postTitle").trim().ifBlank { manga.title },
+                coverUrl = post.optString("featuredImage").ifBlank { manga.coverUrl },
+                genres = genres,
+                status = post.optString("seriesStatus").lowercase().ifBlank { null },
+                contentType = contentTypeOf(post),
             )
         } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val relPath = toSourcePath(base, manga.url)
-            val doc = get(manga.url)
-            doc.select("a[href^=\"$relPath/chapter-\"]").mapNotNull { a ->
-                val href = a.attr("href")
-                val num = Regex("""/chapter-(\d+(?:\.\d+)?)$""").find(href)?.groupValues?.get(1)?.toFloatOrNull()
-                    ?: return@mapNotNull null
-                href to num
-            }.distinctBy { it.first }.map { (href, num) ->
-                SChapter(
-                    sourceId = id,
-                    mangaUrl = manga.url,
-                    url = base + href,
-                    name = "Chapter ${if (num == num.toInt().toFloat()) num.toInt().toString() else num.toString()}",
-                    chapterNumber = num,
-                    dateUpload = 0L,
-                )
+            val postId = fetchPost(slugOf(manga))?.optLong("id", -1)?.takeIf { it >= 0 }
+                ?: return@withContext emptyList()
+            val chapters = getJson("$apiBase/api/chapters?postId=$postId")
+                .optJSONObject("post")?.optJSONArray("chapters") ?: return@withContext emptyList()
+            (0 until chapters.length()).mapNotNull { i ->
+                val c = chapters.optJSONObject(i) ?: return@mapNotNull null
+                // Zamcene kapitoly (coin/unlock) preskocit - pages by stejne nevratily obsah.
+                if (c.optBoolean("isLocked") || !c.optBoolean("isAccessible", true)) return@mapNotNull null
+                val cid = c.optLong("id", -1).takeIf { it >= 0 } ?: return@mapNotNull null
+                val num = c.optDouble("number", 0.0).toFloat()
+                val date = parseDate(c.optString("createdAt"))
+                val name = c.optString("title").trim().ifBlank {
+                    "Chapter ${if (num == num.toInt().toFloat()) num.toInt().toString() else num.toString()}"
+                }
+                SChapter(sourceId = id, mangaUrl = manga.url, url = cid.toString(),
+                    name = name, chapterNumber = num, dateUpload = date)
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            get(chapter.url).select("img[data-reader-page-image]").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
-                Page(i, url, url)
-            }
+            val images = getJson("$apiBase/api/chapter?chapterId=${chapter.url}")
+                .optJSONObject("chapter")?.optJSONArray("images") ?: return@withContext emptyList()
+            (0 until images.length()).mapNotNull { i ->
+                val img = images.optJSONObject(i) ?: return@mapNotNull null
+                val url = img.optString("url").ifBlank { return@mapNotNull null }
+                Page(img.optInt("order", i), url, url)
+            }.sortedBy { it.index }.mapIndexed { i, p -> p.copy(index = i) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

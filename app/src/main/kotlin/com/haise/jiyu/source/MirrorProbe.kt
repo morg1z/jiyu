@@ -40,7 +40,11 @@ class MirrorProbe @Inject constructor(private val client: OkHttpClient) {
         val newHost = DomainOverrides.canonicalHost(finalUrl.host)
         val oldHost = DomainOverrides.canonicalHost(original.host)
         if (newHost == oldHost || isIpAddress(newHost)) return@withContext null
-        MirrorCandidate(sourceId, newHost, autoApply = sameBrand(oldHost, newHost))
+        // autoApply VZDY false (drive sameBrand): "znacka" je jen prvni label domeny -
+        // utocnik by stacilo registrovat brand-cokoliv.tld, server zdroje redirectnul na nej a
+        // DomainOverrides.hostMap by se bez optani uzivatele prepisoval na cizi domenu, kam by
+        // pak letely vsechny pozadavky vcetne hlavicek (audit). Potvrzeni vzdy na uzivateli.
+        MirrorCandidate(sourceId, newHost, autoApply = false)
     }
 
     companion object {

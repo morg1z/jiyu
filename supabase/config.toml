@@ -1,0 +1,47 @@
+project_id = "unanujppbymtbnyhbmsa"
+
+# Auth - POZOR: `supabase config push` posílá i DEFAULTY za pole, která tu
+# nejsou (nečistá PATCH) - proto je tu celá sekce vypsaná podle skutečného
+# remote stavu (odčteno z `config push` diffu 2026-09-24).
+#
+# additional_redirect_urls: povolené redirect targety pro auth e-maily
+# (potvrzení registrace, reset hesla, magic link). "jiyu://**" pokrývá
+# jiyu://auth (reset hesla - viz AuthRepository.resetPassword) i budoucí
+# auth deep-linky appky. Bez záznamu tady Supabase odmítne link do mailu
+# vygenerovat (fallback na site_url = web, který appka nezvládne).
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["jiyu://**"]
+jwt_expiry = 3600
+external_url = "http://127.0.0.1:54321/auth/v1"
+jwt_issuer = "http://127.0.0.1:54321/auth/v1"
+enable_refresh_token_rotation = true
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.mfa.phone]
+enroll_enabled = false
+verify_enabled = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = false
+max_frequency = "1m0s"
+otp_length = 8
+otp_expiry = 3600
+
+# Edge funkce - nastavení se uplatní při `supabase functions deploy`.
+# verify_jwt: požadavek MUSÍ nést platný Supabase JWT (anon nebo user session);
+# bez něj gateway odmítne 401 ještě před vstupem do funkce. Appka posílá anon
+# klíč vždy (Authorization + apikey), takže nic nerozbije - jen se odfiltrují
+# čistě anonymní volání, která by jinak mohla čerpat globální denní kvótu.
+[functions.translate-proxy]
+verify_jwt = true

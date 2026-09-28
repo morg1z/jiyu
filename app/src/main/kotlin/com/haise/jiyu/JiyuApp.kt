@@ -66,8 +66,17 @@ class JiyuApp : Application(), Configuration.Provider {
     /** Příznak úsporného režimu obrázků - aktualizuje se z nastavení (viz [onCreate]). */
     @Inject lateinit var imageProxyConfig: com.haise.jiyu.source.interceptor.ImageProxyConfig
 
+    /** Příznak DNS-over-HTTPS - aktualizuje se z nastavení (viz [onCreate]). */
+    @Inject lateinit var dohConfig: com.haise.jiyu.di.DnsOverHttpsConfig
+
+    /** Region-decode řezů extrémně vysokých stránek - viz komponenty ImageLoaderu níž. */
+    @Inject lateinit var pageSlicer: com.haise.jiyu.util.PageSlicer
+
     /** Paměťová cache výsledků ze zdrojů - při tlaku na paměť se uvolňuje (viz [onTrimMemory]). */
     @Inject lateinit var sourceContentCache: com.haise.jiyu.data.repository.SourceContentCache
+
+    /** Proaktivni reseni Cloudflare vyzv na pozadi - viz [com.haise.jiyu.source.interceptor.CloudflareWarmup]. */
+    @Inject lateinit var cloudflareWarmup: com.haise.jiyu.source.interceptor.CloudflareWarmup
 
     /**
      * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
@@ -106,21 +115,39 @@ class JiyuApp : Application(), Configuration.Provider {
                 .diskCache {
                     DiskCache.Builder()
                         .directory(cacheDir.resolve("image_cache"))
-                        .maxSizeBytes(256L * 1024 * 1024)
+                        // 512 MB (driv 256): prefetched kapitoly stranek musi prezit dlouho
+                        // dost, aby se "dalsi kapitola" otevirala z disku bez site; 256 MB
+                        // se pri ~5-15 MB na kapitolu protacelo prilis rychle a vraceni se
+                        // na drivjsi kapitolu znamenalo znovu-stazeni.
+                        .maxSizeBytes(512L * 1024 * 1024)
                         .build()
                 }
                 .okHttpClient(imageHttpClient)
                 .crossfade(true)
                 .respectCacheHeaders(false)
-                .components { add(MangaPlusImageFetcher.Factory(imageHttpClient)) }
+                .components {
+                    add(MangaPlusImageFetcher.Factory(imageHttpClient))
+                    // Stránky zdrojů s líným resolvováním (MangaHome, FanFox...) -
+                    // jejich Page.url není obrázek, resolvuje se přes getImageUrl.
+                    add(com.haise.jiyu.source.LazyPageFetcher.Factory(imageHttpClient, mangaRepository))
+                    // Řezy extrémně vysokých stránek (>8192 px) - dekódují se přes
+                    // BitmapRegionDecoder per-řez, celá bitmapa se nikdy nematerializuje
+                    // (OOM + GPU texture limit - viz PageSlicer).
+                    add(com.haise.jiyu.source.PageSliceFetcher.Factory(pageSlicer))
+                }
                 .build()
         )
 
-        proxyRepository.bind(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()))
+        proxyRepository.bind(appScope)
 
         // Úsporný režim obrázků: interceptor čte jen volatile příznak, nastavení ho sem přenáší.
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()).launch {
+        appScope.launch {
             settings.imageProxyEnabled.collect { imageProxyConfig.enabled = it }
+        }
+
+        // DNS-over-HTTPS přepínač - stejný vzor jako imageProxyConfig výš.
+        appScope.launch {
+            settings.dnsOverHttpsEnabled.collect { dohConfig.enabled = it }
         }
 
         // User-Agent skutečného WebView (viz CloudflareUserAgent) se zjistí předem na hlavním vlákně, ať ho interceptor
@@ -135,6 +162,11 @@ class JiyuApp : Application(), Configuration.Provider {
         evictOldTranslationCache()
         resetStuckDownloads()
         resumeBackgroundSyncIfSignedIn()
+        // Cloudflare warm-up: na pozadi si pred-resi vyzvy znamych CF webu (detached WebView;
+        // Turnstile hosty dobehne pres neviditelny auto-tap, az se objevi UI). Bez nej by prvni
+        // request na CF zdroj stal ~5-18 s a hromadne operace (globalni hledani, stahovani)
+        // na CF hostech vzdycky selhaly.
+        cloudflareWarmup.start()
     }
 
     /**
@@ -150,10 +182,15 @@ class JiyuApp : Application(), Configuration.Provider {
      * proto se stav sleduje, ne čte jednorázově při startu. Výchozí hodnota je false, takže
      * než dorazí první hodnota z DataStore, nic se neodesílá.
      */
+    // Jeden sdileny scope pro vsechny pomocne corutiny aplikace - drive se pro kazdy
+    // bind/collect vytvarel zvlastni throwaway CoroutineScope+SupervisorJob (audit).
+    // Zije cely proces appky (aktivity v nem nebezi, takze cancel neni potreba).
+    private val appScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
     private fun initFirebase() {
         if (!BuildConfig.FIREBASE_ENABLED) return
 
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        appScope.launch {
             settings.crashReporting.collect { consented ->
                 val enabled = consented && !BuildConfig.DEBUG
                 Firebase.crashlytics.setCrashlyticsCollectionEnabled(enabled)
@@ -182,7 +219,7 @@ class JiyuApp : Application(), Configuration.Provider {
     }
 
     private fun evictOldTranslationCache() {
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        appScope.launch {
             val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
             translatedPageDao.deleteOlderThan(cutoff)
             // Novely se dřív neuklízely vůbec - byly jediná část cache, která rostla donekonečna.
@@ -205,7 +242,7 @@ class JiyuApp : Application(), Configuration.Provider {
      * uvědomělý mechanismus používaný jinde).
      */
     private fun resetStuckDownloads() {
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        appScope.launch {
             runCatching { mangaRepository.resetActiveDownloads() }
                 .onFailure { it.report("download:resetStuckDownloads") }
         }
@@ -229,7 +266,7 @@ class JiyuApp : Application(), Configuration.Provider {
     private fun scheduleChapterUpdates() {
         // KEEP: už naplánovaná práce (s intervalem z nastavení) se nemění; uložený interval se použije
         // jen tam, kde plán chybí (čerstvá instalace, smazaná WorkManager DB) - dřív tam byla natvrdo 12 h.
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        appScope.launch {
             val hours = runCatching { settings.updateIntervalHours.first() }.getOrDefault(ChapterUpdateScheduler.DEFAULT_INTERVAL_HOURS)
             ChapterUpdateScheduler.schedule(this@JiyuApp, hours.coerceAtLeast(1L))
         }

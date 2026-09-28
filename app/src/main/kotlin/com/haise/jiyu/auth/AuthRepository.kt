@@ -68,7 +68,18 @@ class AuthRepository @Inject constructor(private val supabase: SupabaseClient) {
         }
     }
 
+    /**
+     * Odkaz v e-mailu míří na `jiyu://auth` (musí být povolený v Supabase → Authentication →
+     * URL Configuration → Redirect URLs, jinak GoTrue redirect ignoruje a použije site_url).
+     * Deep link chytí MainActivity → handleDeeplinks importuje recovery session →
+     * ResetPasswordScreen pak zavolá [updatePassword].
+     */
     suspend fun resetPassword(email: String) {
-        supabase.auth.resetPasswordForEmail(email)
+        supabase.auth.resetPasswordForEmail(email, redirectUrl = "jiyu://auth")
+    }
+
+    /** Nastaví nové heslo v rámci recovery session (po handleDeeplinks je uživatel přihlášený). */
+    suspend fun updatePassword(newPassword: String) {
+        supabase.auth.modifyUser { password = newPassword }
     }
 }

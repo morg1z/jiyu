@@ -41,6 +41,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
     override val name = "Utoon"
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val root = "https://www.utoon.us"
     private val base = "$root/en"
     private val ajaxUrl = "$root/wp-admin/admin-ajax.php"

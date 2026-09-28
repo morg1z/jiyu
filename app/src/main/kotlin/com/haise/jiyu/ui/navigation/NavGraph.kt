@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.haise.jiyu.ui.account.AccountScreen
+import com.haise.jiyu.ui.account.ResetPasswordScreen
 import com.haise.jiyu.ui.browse.BrowseScreen
 import com.haise.jiyu.ui.browse.SourceBrowseScreen
 import com.haise.jiyu.ui.comickhome.ComicKBrowseScreen
@@ -23,6 +24,10 @@ import com.haise.jiyu.ui.library.LibraryScreen
 import com.haise.jiyu.ui.library.LibrarySection
 import com.haise.jiyu.ui.library.LibrarySectionScreen
 import com.haise.jiyu.ui.library.MyListScreen
+import com.haise.jiyu.ui.novelhome.NovelHomeScreen
+import com.haise.jiyu.ui.comichome.ComicHomeScreen
+import com.haise.jiyu.ui.comicresolver.ComicResolverScreen
+import com.haise.jiyu.ui.novelresolver.NovelResolverScreen
 import com.haise.jiyu.ui.onboarding.OnboardingScreen
 import com.haise.jiyu.ui.qr.MangaQrScreen
 import com.haise.jiyu.ui.reader.ReaderScreen
@@ -60,6 +65,7 @@ internal object Routes {
     const val HISTORY       = "history"
     const val CATALOG       = "catalog"
     const val ACCOUNT       = "account"
+    const val RESET_PASSWORD = "reset_password"
     const val GLOBAL_SEARCH = "global_search?q={q}"
     const val STATS         = "stats"
     const val LIBRARY_SECTION = "library_section/{section}"
@@ -72,6 +78,10 @@ internal object Routes {
     const val COMICK_HOME = "comick_home"
     const val COMICK_SECTION = "comick_section/{section}?window={window}&title={title}"
     const val COMICK_BROWSE = "comick_browse"
+    const val NOVEL_HOME = "novel_home"
+    const val NOVEL_RESOLVER = "novel_resolver/{title}"
+    const val COMIC_HOME = "comic_home"
+    const val COMIC_RESOLVER = "comic_resolver/{title}"
 
     // ── Podstránky Nastavení (kategorie) ─────────────────────────────────
     const val SETTINGS_APPEARANCE   = "settings_appearance"
@@ -99,8 +109,12 @@ internal object Routes {
      * jinou cestu (source_browse/comick) - jinak by se rozbilo zvýraznění aktivní
      * záložky, které porovnává přesnou shodu cesty.
      */
-    fun browseRoute(appMode: String): String =
-        if (appMode == com.haise.jiyu.settings.AppMode.COMICK) COMICK_HOME else BROWSE
+    fun browseRoute(appMode: String): String = when (appMode) {
+        com.haise.jiyu.settings.AppMode.COMICK -> COMICK_HOME
+        com.haise.jiyu.settings.AppMode.NOVEL  -> NOVEL_HOME
+        com.haise.jiyu.settings.AppMode.COMIC  -> COMIC_HOME
+        else -> BROWSE
+    }
     fun reader(chapterId: String, incognito: Boolean = false) =
         "reader/${android.net.Uri.encode(chapterId)}?incognito=$incognito"
     fun sourceResolver(chapterId: String, incognito: Boolean = false) =
@@ -109,6 +123,10 @@ internal object Routes {
         "group/${android.net.Uri.encode(slug)}?title=${android.net.Uri.encode(title)}"
     fun comickSection(section: String, window: String?, title: String) =
         "comick_section/${android.net.Uri.encode(section)}?window=${android.net.Uri.encode(window ?: "")}&title=${android.net.Uri.encode(title)}"
+    fun novelResolver(title: String) =
+        "novel_resolver/${android.net.Uri.encode(title)}"
+    fun comicResolver(title: String) =
+        "comic_resolver/${android.net.Uri.encode(title)}"
     fun globalSearch(query: String? = null) =
         if (query.isNullOrBlank()) "global_search?q=" else "global_search?q=${android.net.Uri.encode(query)}"
     fun qr(mangaId: String, mangaTitle: String) =
@@ -310,6 +328,50 @@ fun JiyuNavGraph(
             )
         }
 
+        // ── Novela: agregovaný režim pro novelové zdroje ────────────────────
+        composable(Routes.NOVEL_HOME) {
+            NovelHomeScreen(
+                onOpenTitle = { title -> navController.navigate(Routes.novelResolver(title)) },
+            )
+        }
+
+        // ── Komiks: agregovaný režim pro komiksové zdroje ───────────────────
+        composable(Routes.COMIC_HOME) {
+            ComicHomeScreen(
+                onOpenTitle = { title -> navController.navigate(Routes.comicResolver(title)) },
+            )
+        }
+
+        composable(
+            route = Routes.COMIC_RESOLVER,
+            arguments = listOf(navArgument("title") { type = NavType.StringType }),
+        ) {
+            ComicResolverScreen(
+                onBack = { navController.popBackStack() },
+                onOpenManga = { mangaId ->
+                    navController.navigate(Routes.detail(mangaId)) {
+                        popUpTo(Routes.COMIC_RESOLVER) { inclusive = true }
+                    }
+                },
+                onSearchManually = { query -> navController.navigate(Routes.globalSearch(query)) },
+            )
+        }
+
+        composable(
+            route = Routes.NOVEL_RESOLVER,
+            arguments = listOf(navArgument("title") { type = NavType.StringType }),
+        ) {
+            NovelResolverScreen(
+                onBack = { navController.popBackStack() },
+                onOpenManga = { mangaId ->
+                    navController.navigate(Routes.detail(mangaId)) {
+                        popUpTo(Routes.NOVEL_RESOLVER) { inclusive = true }
+                    }
+                },
+                onSearchManually = { query -> navController.navigate(Routes.globalSearch(query)) },
+            )
+        }
+
         composable(Routes.COMICK_BROWSE) {
             ComicKBrowseScreen(
                 onBack = { navController.popBackStack() },
@@ -388,6 +450,16 @@ fun JiyuNavGraph(
             AccountScreen(onBack = { navController.popBackStack() })
         }
 
+        // Cíl odkazu z resetovacího e-mailu (jiyu://auth → handleDeeplinks v MainActivity).
+        composable(Routes.RESET_PASSWORD) {
+            ResetPasswordScreen(onDone = {
+                // Návrat na Účet (ne zpět v historii - před tím nemusí být, link přichází zvenčí)
+                navController.navigate(Routes.ACCOUNT) {
+                    popUpTo(Routes.LIBRARY)
+                }
+            })
+        }
+
         composable(Routes.CATALOG) {
             SourceCatalogScreen(onBack = { navController.popBackStack() })
         }
@@ -416,7 +488,9 @@ fun JiyuNavGraph(
         }
 
         composable(Routes.STATS) {
-            ExtendedStatsScreen(onBack = { navController.popBackStack() })
+            ExtendedStatsScreen(
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(Routes.CUSTOM_CSS) {

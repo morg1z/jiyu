@@ -2,6 +2,7 @@ package com.haise.jiyu.source.hentaipaw
 
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -42,6 +43,7 @@ class HentaiPawSource @Inject constructor(
     override val supportsSortOrder: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
 
     private val base = "https://hentaipaw.com"
 
@@ -64,14 +66,49 @@ class HentaiPawSource @Inject constructor(
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
         }.distinctBy { it.url }
 
+    // Tagovy index "/tags?page=N" (100 tagu/strana, odkazy "/tags/{numericId}",
+    // nazev v "title" atributu - cisty text obsahuje i pocet galerii). Vedle ciselnych
+    // ID tam je i specialni "/tags/popular" odkaz - ten se preskakuje. Archiv
+    // "/tags/{id}?page=N" vraci stejne galerii karty jako homepage. Vice tagu
+    // najednou web nepodporuje - pri vice vybranych se pouzije prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val out = mutableListOf<FilterTag>()
+            var p = 1
+            while (p <= 30) {
+                val pageTags = fetchDocument("$base/tags?page=$p").select("a[href^=/tags/]").mapNotNull { a ->
+                    val tagId = a.attr("href").substringAfter("/tags/").trim('/')
+                    if (!tagId.all { it.isDigit() } || tagId.isBlank()) return@mapNotNull null
+                    val label = a.attr("title").trim().ifBlank { a.text().trim() }.ifBlank { return@mapNotNull null }
+                    FilterTag(id = tagId, label = label)
+                }
+                if (pageTags.isEmpty()) break
+                out += pageTags
+                p++
+            }
+            out.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext try {
+                    parseGalleryList(fetchDocument("$base/tags/${filter.genres.first()}?page=$page"))
+                } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            }
             try { parseGalleryList(fetchDocument("$base/?page=$page")) }
             catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
             if (query.isBlank()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")

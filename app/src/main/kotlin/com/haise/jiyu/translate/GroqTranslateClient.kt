@@ -93,6 +93,7 @@ class GroqTranslateClient @Inject constructor(
         provider: String = "groq",
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
+        onModel: (String?) -> Unit = {},
     ): List<String> = translateViaProxy(
         texts = texts,
         targetLanguage = targetLanguage,
@@ -102,6 +103,7 @@ class GroqTranslateClient @Inject constructor(
         provider = provider,
         mangaContext = mangaContext,
         previousLines = previousLines,
+        onModel = onModel,
     )
 
     /**
@@ -129,6 +131,7 @@ class GroqTranslateClient @Inject constructor(
         provider: String = "groq",
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
+        onModel: (String?) -> Unit = {},
     ): List<String> = translateViaProxy(
         texts = paragraphs,
         targetLanguage = targetLanguage,
@@ -138,6 +141,7 @@ class GroqTranslateClient @Inject constructor(
         provider = provider,
         mangaContext = mangaContext,
         previousLines = previousLines,
+        onModel = onModel,
     )
 
     /**
@@ -153,6 +157,7 @@ class GroqTranslateClient @Inject constructor(
         provider: String = "groq",
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
+        onModel: (String?) -> Unit = {},
     ): List<String> = withContext(Dispatchers.IO) {
         if (!isConfigured || texts.isEmpty()) return@withContext emptyList()
         // Provider odstavený z předchozí dávky se přeskočí bez requestu - viz [ProviderHealth].
@@ -216,8 +221,14 @@ class GroqTranslateClient @Inject constructor(
                         return@executeCancellable null
                     }
                     val arr = json.optJSONArray("translations") ?: return@executeCancellable null
+                    // "model" hlásí proxy od verze s interním fallbackem na slabší model -
+                    // viz komentář v GeminiTranslateClient.executeOnce. Bez pole je null.
+                    val usedModel = json.optString("model").takeIf { it.isNotBlank() }
                     List(arr.length()) { arr.getString(it) }.also {
-                        if (it.isNotEmpty()) providerHealth.markHealthy(provider)
+                        if (it.isNotEmpty()) {
+                            providerHealth.markHealthy(provider)
+                            onModel(usedModel)
+                        }
                     }
                 }
                 if (result != null) return@withContext result

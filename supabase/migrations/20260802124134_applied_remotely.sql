@@ -1,0 +1,3 @@
+-- Aplikovano primo na vzdaleny projekt (dashboard/CLI) pred verzovanim migraci v repu.
+-- Obsah je zachycen v supabase/schema.sql; tenhle soubor jen srovna lokalni historii
+-- se vzdalenou, aby 'supabase db push' fungoval.

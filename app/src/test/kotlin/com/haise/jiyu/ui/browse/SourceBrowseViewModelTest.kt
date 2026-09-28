@@ -293,7 +293,7 @@ class SourceBrowseViewModelTest {
     @Test
     fun `opening the same manga twice in a row does not fire two requests`() = runTest(dispatcher) {
         coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
-        coEvery { repository.openPreview(any()) } returns "manga-1"
+        coEvery { repository.registerPreview(any()) } returns "manga-1"
 
         val vm = viewModel()
         advanceUntilIdle()
@@ -301,13 +301,13 @@ class SourceBrowseViewModelTest {
         vm.openManga(manga(1)) {}
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { repository.openPreview(any()) }
+        coVerify(exactly = 1) { repository.registerPreview(any()) }
     }
 
     @Test
     fun `a failed open surfaces its own error without wiping the loaded grid`() = runTest(dispatcher) {
         coEvery { repository.getPopular("src", 1, any(), any()) } returns fullPage()
-        coEvery { repository.openPreview(any()) } throws RuntimeException("nope")
+        coEvery { repository.registerPreview(any()) } throws RuntimeException("nope")
 
         val vm = viewModel()
         advanceUntilIdle()

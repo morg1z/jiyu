@@ -51,6 +51,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +82,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.haise.jiyu.R
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.ui.theme.Accent
@@ -118,6 +121,22 @@ fun BrowseScreen(
     var searchBySourceName by rememberSaveable { mutableStateOf(false) }
 
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // Eager prefetch faviconu vsech zdroju do Coil disk cache. Karty se v lazy
+    // mrizce komponuji az pri scrollu do view - bez predstahu se loga nacitala
+    // postupne "skokove", jak se scroluje (nahlaseno). Favicony jsou par kilobytu
+    // na zdroj, Coil enqueue si paralelitu rid sam (cca 4 requesty). Set brani
+    // duplicitum pri zmene seznamu (oblibene, filtry recompose ridi tentyz seznam).
+    val context = LocalContext.current
+    val prefetchedLogos = remember { mutableSetOf<String>() }
+    LaunchedEffect(sources) {
+        sources.forEach { source ->
+            val url = source.homepageUrl?.let(::faviconUrlFor)
+            if (url != null && prefetchedLogos.add(url)) {
+                context.imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+            }
+        }
+    }
 
     // Hlavička (nadpis, přepínač hledání, vyhledávací pole, oba řádky filtrů i oblíbené
     // zdroje) je SOUČÁSTÍ mřížky, ne pruh nad ní. Dřív stála mimo a zůstávala přilepená

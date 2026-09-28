@@ -289,7 +289,7 @@ fun MangaDetailInfoScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                items(relatedManga) { related ->
+                                items(relatedManga, key = { it.sourceId + it.url }) { related ->
                                     RelatedMangaCard(
                                         manga = related,
                                         onClick = { onOpenManga("${related.sourceId}::${related.url}") },

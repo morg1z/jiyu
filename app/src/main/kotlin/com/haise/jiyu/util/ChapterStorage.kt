@@ -90,16 +90,20 @@ object ChapterStorage {
     fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray): Boolean {
         val tempName = "$fileName.tmp"
         if (isSaf(dirPath)) {
-            val dir = DocumentFile.fromSingleUri(context, Uri.parse(dirPath)) ?: return false
+            val dir = DocumentFile.fromTreeUri(context, Uri.parse(dirPath)) ?: return false
             val mime = when (fileName.substringAfterLast('.', "").lowercase()) {
                 "png" -> "image/png"
                 "webp" -> "image/webp"
                 "gif" -> "image/gif"
                 else -> "image/jpeg"
             }
-            // Osirely .tmp z minuleho preruseneho pokusu smazat predem, jinak by createFile
-            // vytvorilo "fileName.tmp (1)" duplikat misto prepsani.
-            dir.findFile(tempName)?.delete()
+            // Osirele .tmp z minulych prerusenych pokusu smazat predem - vcetne duplikatu
+            // "fileName.tmp (1)" z drivejsich crashu, ktere by se jinak kupily donekonecna
+            // a listPageUrls je driv mohlo vydat za stranky (audit).
+            dir.listFiles().forEach { f ->
+                val n = f.name ?: return@forEach
+                if (n == tempName || n.startsWith(tempName)) f.delete()
+            }
             val tempFile = dir.createFile(mime, tempName) ?: return false
             val written = context.contentResolver.openOutputStream(tempFile.uri)?.use { it.write(bytes) } != null
             if (!written) {
@@ -118,7 +122,7 @@ object ChapterStorage {
     fun pageExists(context: Context, dirPath: String, fileName: String): Boolean {
         return try {
             if (isSaf(dirPath)) {
-                val file = DocumentFile.fromSingleUri(context, Uri.parse(dirPath))?.findFile(fileName)
+                val file = DocumentFile.fromTreeUri(context, Uri.parse(dirPath))?.findFile(fileName)
                 file != null && file.exists() && file.length() > 0
             } else {
                 val file = File(dirPath, fileName)
@@ -151,15 +155,15 @@ object ChapterStorage {
      * nějaký osiřelý zůstal ležet z přerušeného pokusu před touhle opravou. */
     fun listPageUrls(context: Context, dirPath: String): List<String> {
         return if (isSaf(dirPath)) {
-            DocumentFile.fromSingleUri(context, Uri.parse(dirPath))
+            DocumentFile.fromTreeUri(context, Uri.parse(dirPath))
                 ?.listFiles()
-                ?.filter { it.name?.endsWith(".cbz") != true && it.name?.endsWith(".tmp") != true }
+                ?.filter { it.name?.endsWith(".cbz") != true && it.name?.contains(".tmp") != true }
                 ?.sortedBy { it.name ?: "" }
                 ?.map { it.uri.toString() }
                 ?: emptyList()
         } else {
             File(dirPath).listFiles()
-                ?.filter { !it.name.endsWith(".tmp") }
+                ?.filter { !it.name.contains(".tmp") }
                 ?.sortedBy { it.name }
                 ?.map { "file://${it.absolutePath}" }
                 ?: emptyList()
@@ -170,7 +174,7 @@ object ChapterStorage {
     fun createCbz(context: Context, dirPath: String, cbzBaseName: String) {
         val safeName = sanitizeFileName(cbzBaseName)
         if (isSaf(dirPath)) {
-            val dir = DocumentFile.fromSingleUri(context, Uri.parse(dirPath)) ?: return
+            val dir = DocumentFile.fromTreeUri(context, Uri.parse(dirPath)) ?: return
             val cbzFile = dir.createFile("application/vnd.comicbook+zip", "$safeName.cbz") ?: return
             context.contentResolver.openOutputStream(cbzFile.uri)?.use { out ->
                 ZipOutputStream(BufferedOutputStream(out)).use { zip ->
@@ -201,7 +205,7 @@ object ChapterStorage {
     fun sizeBytes(context: Context, dirPath: String): Long {
         return try {
             if (isSaf(dirPath)) {
-                DocumentFile.fromSingleUri(context, Uri.parse(dirPath))
+                DocumentFile.fromTreeUri(context, Uri.parse(dirPath))
                     ?.listFiles()
                     ?.sumOf { it.length() }
                     ?: 0L
@@ -214,7 +218,7 @@ object ChapterStorage {
     fun deleteRecursively(context: Context, dirPath: String) {
         try {
             if (isSaf(dirPath)) {
-                DocumentFile.fromSingleUri(context, Uri.parse(dirPath))?.delete()
+                DocumentFile.fromTreeUri(context, Uri.parse(dirPath))?.delete()
             } else {
                 File(dirPath).deleteRecursively()
             }

@@ -53,6 +53,14 @@ data class TranslatedBlock(
     val bgColorArgb: Int = DEFAULT_BUBBLE_BG_ARGB,
     val bgColorBottomArgb: Int = bgColorArgb,
     val isSfx: Boolean = false,
+    /**
+     * Titulkový/logo art-text: model vrátil text skoro totožný s OCR originálem (liší se
+     * jen poškozením/diakritikou) - audit Vagabondu: "Vagakond" → "Vagabond" renderoval
+     * obyčejný box přes ručně kreslené logo. Taková bublina se překladem nezískala nic
+     * nového a overlay by jen degradoval originální lettering → render ji přeskočí
+     * (sdílený predikát [bubbleSkipReason] = "art_text").
+     */
+    val isArtText: Boolean = false,
     val lineCount: Int = 1,
     val shape: List<BubbleShapePoint>? = null,
     val bubbleType: BubbleType = BubbleType.SPEECH,

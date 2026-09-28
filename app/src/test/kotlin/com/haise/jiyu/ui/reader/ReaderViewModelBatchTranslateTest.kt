@@ -92,6 +92,9 @@ class ReaderViewModelBatchTranslateTest {
         every { settings.targetLanguage } returns flowOf("Czech")
         every { translateRepository.isApiKeyConfigured } returns true
         every { context.getString(any()) } returns "chybova-hlaska"
+        // Room keš je v testech prázdná - bez stubu ji relaxed mockk naplní syntetickými
+        // bloky a preloadCachedTranslations by je pak nasypal do translatedPages.
+        coEvery { translateRepository.getCachedPage(any(), any(), any(), any(), any()) } returns null
     }
 
     @After
@@ -253,6 +256,111 @@ class ReaderViewModelBatchTranslateTest {
         assertFalse(
             "stary batchTranslating flag nesmi zustat viset a blokovat preklad nove kapitoly",
             vm.batchTranslating.value,
+        )
+    }
+
+    @Test
+    fun `scrolling into the next webtoon segment lets the previous chapter's batch finish safely in background`() = runBlocking {
+        // "Nekonecne cteni" prepina aktivni kapitolu pres
+        // onWebtoonVisibleChapterChanged, ne pres loadChapter. Puvodne tahle cesta
+        // volala cancelActiveTranslation() - to zabilo rozjete "Prelozit vse" jen proto,
+        // ze uzivatel doscrolloval do napojene kapitoly (audit Vagabond ch2). Dnes se
+        // batch NECHAVA DOBEHNOUT na pozadi - jeho zapis je bezpecny pres chapterId
+        // guard v putTranslatedPage (pozdni onPageReady dopadne do per-chapter mapy
+        // pod spravne chapterId, ne do plochy mapy nove kapitoly).
+        val chapter2 = ChapterEntity(
+            id = "ch2", mangaId = "m1", sourceId = "src", url = "/ch2",
+            name = "Chapter 2", chapterNumber = 2f, dateUpload = 0L, pageCount = 1,
+        )
+        coEvery { repository.getChapter("ch2") } returns chapter2
+        // allChapters jsou DESC (nejnovejsi napred) - appendNextWebtoonSegment bere allChapters[idx-1].
+        coEvery { repository.getAllChapters("m1") } returns listOf(chapter2, chapter)
+        coEvery { repository.getChapterPages("src", "/ch2", any()) } returns listOf(
+            com.haise.jiyu.source.Page(0, "q1.jpg", "q1.jpg"),
+        )
+        every { settings.infiniteScrollEnabled } returns flowOf(true)
+
+        // Preklad kapitoly 1 zaseknuty na gate; po uvolneni zavola onPageReady I PRES zruseni
+        // jobu - simuluje callback, ktery se stihl naplanovat driv, nez cancel dosel (job uz
+        // je mrtvy, ale kod callbacku se jeste vykona). Ochranu ma zajistit chapterId guard
+        // v putTranslatedPage, ne jen samotny cancel.
+        val ch1Gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery {
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
+        } coAnswers {
+            try {
+                ch1Gate.await()
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // Job byl zrusen, ale naplany callback se stejne jeste vykona.
+            }
+            @Suppress("UNCHECKED_CAST")
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            onPageReady(0, listOf(block("STARY PREKLAD Z KAPITOLY 1")))
+        }
+
+        val vm = viewModel()
+        // appendNextWebtoonSegment bezi na Dispatchers.IO (realne vlakno) - pockat na segment.
+        vm.appendNextWebtoonSegment()
+        kotlinx.coroutines.withTimeout(5_000) {
+            while (vm.webtoonSegments.value.none { it.chapterId == "ch2" }) kotlinx.coroutines.delay(10)
+        }
+
+        vm.translateAllPages()
+        assertTrue("preklad kapitoly 1 bezi na pozadi", vm.batchTranslating.value)
+
+        vm.onWebtoonVisibleChapterChanged("ch2", 0, 0)
+        ch1Gate.complete(Unit)
+        // Gate otevreny -> batch ch1 normalne dobehne na pozadi (zadny cancel) a jeho
+        // finally _batchTranslating shodi; pozdni zapis dopadne jen do per-chapter mapy.
+        kotlinx.coroutines.withTimeout(5_000) {
+            while (vm.batchTranslating.value) kotlinx.coroutines.delay(10)
+        }
+
+        assertEquals("ch2", vm.currentChapterId.value)
+        assertFalse(
+            "dobehnuty batch stary kapitoly nesmi blokovat preklad nove kapitoly",
+            vm.batchTranslating.value,
+        )
+        assertTrue(
+            "pozdni zapis stareho jobu nesmi dopadnout do plochy mapy nove kapitoly",
+            vm.translatedPages.value.values.none { pages -> pages.any { it.translatedText == "STARY PREKLAD Z KAPITOLY 1" } },
+        )
+        // Per-chapter mapa je klicovana spravne - vysledek kapitoly 1 tam zustat muze,
+        // WebtoonReader ho pri scrollu zpatky spravne priradi zpet k jejimu segmentu.
+        assertEquals(
+            "STARY PREKLAD Z KAPITOLY 1",
+            vm.translatedPagesByChapter.value["ch1"]?.get(0)?.first()?.translatedText,
+        )
+    }
+
+    @Test
+    fun `scrolling back to a translated webtoon segment restores its flat translatedPages`() = runBlocking {
+        val chapter2 = ChapterEntity(
+            id = "ch2", mangaId = "m1", sourceId = "src", url = "/ch2",
+            name = "Chapter 2", chapterNumber = 2f, dateUpload = 0L, pageCount = 1,
+        )
+        coEvery { repository.getChapter("ch2") } returns chapter2
+        coEvery { repository.getAllChapters("m1") } returns listOf(chapter2, chapter)
+        coEvery { repository.getChapterPages("src", "/ch2", any()) } returns listOf(
+            com.haise.jiyu.source.Page(0, "q1.jpg", "q1.jpg"),
+        )
+        every { settings.infiniteScrollEnabled } returns flowOf(true)
+        stubTranslateChapter(0 to listOf(block("Ahoj")), 1 to listOf(block("Svete")))
+
+        val vm = viewModel()
+        vm.translateAllPages()
+        vm.appendNextWebtoonSegment()
+        kotlinx.coroutines.withTimeout(5_000) {
+            while (vm.webtoonSegments.value.none { it.chapterId == "ch2" }) kotlinx.coroutines.delay(10)
+        }
+
+        vm.onWebtoonVisibleChapterChanged("ch2", 0, 0)
+        assertTrue("plocha mapa kapitoly 2 je prazdna", vm.translatedPages.value.isEmpty())
+
+        vm.onWebtoonVisibleChapterChanged("ch1", 0, 0)
+        assertEquals(
+            "navratem k segmentu kapitoly 1 se jeji preklady maji obnovit i do plochy mapy",
+            "Ahoj", vm.translatedPages.value[0]?.first()?.translatedText,
         )
     }
 

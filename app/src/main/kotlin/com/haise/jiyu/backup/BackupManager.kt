@@ -50,6 +50,9 @@ class BackupManager @Inject constructor(
          * v [restoreFromJson].
          */
         const val BACKUP_VERSION = 5
+
+        /** Strop velikosti importované zálohy - viz importFromUri. */
+        internal const val MAX_BACKUP_FILE_BYTES = 512L * 1024 * 1024
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
@@ -266,6 +269,15 @@ class BackupManager @Inject constructor(
 
     suspend fun importFromUri(uri: Uri): Result<ImportStats> = withContext(Dispatchers.IO) {
         runCatching {
+            // Parser (org.json) drží celý dokument v paměti - patologicky velký soubor by
+            // appku shodil na OOM ještě před parsováním (audit). Záloha knihovny reálně
+            // nepřesáhne desítky MB, strop je pojistka, ne funkční limit.
+            val sizeBytes = context.contentResolver.query(
+                uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null,
+            )?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L } ?: -1L
+            require(sizeBytes < 0 || sizeBytes <= MAX_BACKUP_FILE_BYTES) {
+                "Soubor zálohy je příliš velký (${sizeBytes / (1024 * 1024)} MB)."
+            }
             val json = context.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
                 ?: error(context.getString(R.string.backup_error_open_input))
             restoreFromJson(json)

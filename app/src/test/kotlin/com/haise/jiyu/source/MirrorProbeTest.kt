@@ -35,9 +35,11 @@ class MirrorProbeTest {
         }).build()
 
     @Test
-    fun `redirect to the same brand is applied automatically`() = runBlocking {
+    fun `redirect to the same brand is still only suggested (no auto-apply)`() = runBlocking {
+        // Zmena chovani (audit): same-brand redirect se pozna, ale autoApply zustava
+        // false - pouziti nove domeny potvrdzuje az uzivatel v UI akci.
         val c = MirrorProbe(client("https://www.site.net/")).detect("src", "https://site.com/")
-        assertEquals(MirrorCandidate("src", "site.net", autoApply = true), c)
+        assertEquals(MirrorCandidate("src", "site.net", autoApply = false), c)
     }
 
     @Test
@@ -76,11 +78,17 @@ class MirrorProbeTest {
     }
 
     @Test
-    fun `a connection failure with a same-brand redirect stores the override`() = runBlocking {
+    fun `a connection failure with a same-brand redirect is suggested but never auto-applied`() = runBlocking {
+        // Zmena chovani (audit): ani same-brand redirect se NIKDY neaplikuje bez ptani -
+        // "znacka" (prvni label) by utocnik na site.com dokazal podvrhnout jako site.net
+        // a presmerovat cely provoz zdroje. Jen navrh, zapis override provede az UI akce.
         val settings = mockk<SettingsRepository>(relaxed = true)
         val h = handler(MirrorProbe(client("https://site.net/")), settings)
-        assertEquals(MirrorResolution.Applied("site.net"), h.resolveConnectionError("src", UnknownHostException("x")))
-        coVerify { settings.setSourceDomainOverride("src", "site.net") }
+        assertEquals(
+            MirrorResolution.Suggested(ErrorAction.UseNewDomain("src", "site.net")),
+            h.resolveConnectionError("src", UnknownHostException("x")),
+        )
+        coVerify(exactly = 0) { settings.setSourceDomainOverride(any(), any()) }
     }
 
     @Test
@@ -101,6 +109,9 @@ class MirrorProbeTest {
         assertEquals(MirrorResolution.None, h.resolveConnectionError("src", RuntimeException("parse")))
         assertEquals(MirrorResolution.None, h.resolveConnectionError("src", IOException("HTTP 500")))
         // ... ale i obalená příčina se pozná
-        assertEquals(MirrorResolution.Applied("site.net"), h.resolveConnectionError("src", RuntimeException("w", UnknownHostException("x"))))
+        assertEquals(
+            MirrorResolution.Suggested(ErrorAction.UseNewDomain("src", "site.net")),
+            h.resolveConnectionError("src", RuntimeException("w", UnknownHostException("x"))),
+        )
     }
 }

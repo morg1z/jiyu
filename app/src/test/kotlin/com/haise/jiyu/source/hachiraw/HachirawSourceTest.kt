@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hachiraw
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -30,6 +31,18 @@ class HachirawSourceTest {
         </body></html>
     """.trimIndent()
 
+    // Homepage nese kategorie v navigaci ("/category/{id}/").
+    private val homeHtml = """
+        <html><body>
+        <nav>
+            <a href="/category/6/">Action</a>
+            <a href="/category/12/">Fantasy</a>
+            <a href="/manga-test-series/">Some Manga</a>
+        </nav>
+        $listHtml
+        </body></html>
+    """.trimIndent()
+
     private val detailHtml = """
         <html><body>
         <h1 class="entry-title">Test Series</h1>
@@ -56,7 +69,9 @@ class HachirawSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
-                    path == "/" || path.startsWith("/?") -> MockResponse().setBody(listHtml)
+                    path == "/" -> MockResponse().setBody(homeHtml)
+                    path.startsWith("/?") -> MockResponse().setBody(listHtml)
+                    path.startsWith("/category/") -> MockResponse().setBody(listHtml)
                     path.startsWith("/page/") -> MockResponse().setBody(listHtml)
                     path == "/manga-test-series/" -> MockResponse().setBody(detailHtml)
                     path == "/chapter/1/1/" -> MockResponse().setBody(pagesHtml)
@@ -113,6 +128,22 @@ class HachirawSourceTest {
         val pages = source.getPageList(chapters[1])
         assertEquals(2, pages.size)
         assertEquals("https://cdn.example.com/p0.jpg", pages[0].url)
+    }
+
+    @Test
+    fun `getAvailableTags reads numeric category links from the homepage nav`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("6", tags[0].id)
+        assertEquals("Action", tags[0].label)
+        assertEquals("12", tags[1].id)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the category archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("12")))
+        assertEquals(1, result.size)
+        assertEquals("Test Series", result[0].title)
     }
 
     @Test

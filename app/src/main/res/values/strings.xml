@@ -112,6 +112,16 @@
 
     <!-- Settings: Vzhled -->
     <string name="settings_appearance_theme_title">Téma</string>
+    <string name="settings_appearance_accent_title">Barva aplikace</string>
+    <string name="accent_violet">Fialová</string>
+    <string name="accent_blue">Modrá</string>
+    <string name="accent_teal">Tyrkysová</string>
+    <string name="accent_green">Zelená</string>
+    <string name="accent_orange">Oranžová</string>
+    <string name="accent_pink">Růžová</string>
+    <string name="accent_red">Červená</string>
+    <string name="accent_amber">Jantarová</string>
+    <string name="accent_custom">Vlastní</string>
     <string name="settings_appearance_theme_system">Systémové</string>
     <string name="settings_appearance_theme_light">Světlé</string>
     <string name="settings_appearance_theme_dark">Tmavé</string>
@@ -199,6 +209,11 @@
     <string name="settings_reader_preload_manga_desc">Po přeložení aktuální kapitoly se na pozadí stáhne a přeloží i další — stojí to víc dat a baterie než u light novel</string>
     <string name="settings_reader_preload_manga_wifi_title">Jen na WiFi</string>
     <string name="settings_reader_preload_manga_wifi_desc">Vypni, pokud chceš přednačítání i na mobilních datech</string>
+    <string name="settings_reader_prefetch_pages_wifi_title">Předstahovat stránky jen na WiFi</string>
+    <string name="settings_reader_prefetch_pages_wifi_desc">Na mobilních datech se předstahuje jen další stránka místo celé kapitoly — šetří to 5–15 MB na kapitolu</string>
+    <string name="settings_doh_section_title">Překlad adres (DNS)</string>
+    <string name="settings_doh_title">DNS přes HTTPS (Cloudflare)</string>
+    <string name="settings_doh_desc">Pomáhá, když ISP nebo router DNS zdroje blokuje či zpomaluje. Vypni, pokud je 1.1.1.1 na tvé síti zablokovaná, nebo při diagnoze DNS problémů.</string>
     <string name="settings_reader_crop_borders_title">Ořez bílých okrajů</string>
     <string name="settings_reader_crop_borders_desc">Automaticky odstraní prázdné okraje stránek</string>
     <string name="settings_reader_keep_screen_on_title">Udržet obrazovku zapnutou</string>
@@ -207,8 +222,6 @@
     <string name="settings_reader_volume_keys_desc">Tlačítka hl. + / hl. − přepínají stránky</string>
     <string name="settings_reader_curl_style_classic">Klasické otáčení</string>
     <string name="settings_reader_curl_style_roll">Srolování stránky</string>
-    <string name="settings_reader_curl_style_cylinder">Silný svitek</string>
-    <string name="settings_reader_curl_style_wave">Mořská vlna</string>
     <string name="settings_reader_skip_read_title">Přeskakovat přečtené kapitoly</string>
     <string name="settings_reader_skip_read_desc">Navigace přeskočí kapitoly označené jako přečtené</string>
     <string name="settings_reader_theme_title">Téma čtečky</string>
@@ -477,6 +490,36 @@
     <string name="resolver_opening">Otevírám…</string>
     <string name="resolver_chapter_missing_after_select">Tenhle zdroj nakonec danou kapitolu nemá.</string>
 
+    <!-- Novela - agregovaný režim pro novelové zdroje -->
+    <string name="novel_home_title">Novela</string>
+    <string name="novel_home_subtitle">Sjednocený katalog všech novelových zdrojů</string>
+    <string name="novel_home_search_hint">Hledat novelu napříč zdroji…</string>
+    <string name="novel_home_loading">Sjednocuji novelové katalogy…</string>
+    <string name="novel_home_empty">Nic tu není.</string>
+    <string name="novel_home_retry">Zkusit znovu</string>
+    <string name="novel_home_tab_catalog">Katalog</string>
+    <string name="novel_home_updates_loading">Zjišťuji poslední kapitoly…</string>
+    <string name="comic_home_title">Komiks</string>
+    <string name="comic_home_search_hint">Hledat komiks napříč zdroji…</string>
+    <string name="comic_home_loading">Sjednocuji komiksové katalogy…</string>
+    <string name="comic_home_empty">Nic tu není.</string>
+    <string name="comic_home_tab_catalog">Katalog</string>
+    <string name="comic_home_updates_loading">Zjišťuji poslední čísla…</string>
+    <string name="comic_resolver_title">Komiks</string>
+    <string name="novel_resolver_title">Novela</string>
+    <string name="settings_sources_mode_sources_title">Zdroje jednotlivě</string>
+    <string name="settings_sources_mode_sources_desc">Vybíráš a procházíš zdroje samostatně - manga, novely i komiksy.</string>
+    <string name="settings_sources_mode_comick_title">ComicK</string>
+    <string name="settings_sources_mode_comick_desc">Jeden katalog mangy, manhwy a manhuy s překladatelskými skupinami jako na ComicK.</string>
+    <string name="settings_sources_mode_novel_title">Novela</string>
+    <string name="settings_sources_mode_novel_desc">Sjednocený katalog všech novelových zdrojů - titul se otevře na zdroju s nejlepší dostupnou kopií.</string>
+    <string name="settings_sources_mode_comic_title">Komiks</string>
+    <string name="settings_sources_mode_comic_desc">Sjednocený katalog všech komiksových zdrojů - titul se otevře na zdroju s nejlepší dostupnou kopií.</string>
+    <string name="onb_mode_novel_title">Agregovaný styl (Novela)</string>
+    <string name="onb_mode_novel_desc">Sjednocený katalog všech novelových zdrojů - titul se otevře na zdroju s nejlepší dostupnou kopií.</string>
+    <string name="onb_mode_comic_title">Agregovaný styl (Komiks)</string>
+    <string name="onb_mode_comic_desc">Sjednocený katalog všech komiksových zdrojů - titul se otevře na zdroju s nejlepší dostupnou kopií.</string>
+
     <!-- Stránka skupiny zdrojů -->
     <string name="group_screen_loading">Načítám skupinu…</string>
     <string name="group_screen_load_failed">Nepodařilo se načíst skupinu.</string>
@@ -489,6 +532,7 @@
     <string name="comick_home_tab_updates">Aktualizace</string>
     <string name="comick_home_recently_added">Nově přidané</string>
     <string name="comick_home_completed">Dokončené</string>
+    <string name="aggregate_section_longest">Nejdelší série</string>
     <string name="comick_home_popular_new">Nové oblíbené</string>
     <string name="comick_home_most_recent_popular">Aktuálně oblíbené</string>
     <string name="comick_home_recent_reviews">Nedávné recenze</string>
@@ -564,7 +608,19 @@
     <string name="detail_mark_as_unread">Označit jako nepřečtené</string>
     <string name="detail_mark_as_read">Označit jako přečtené</string>
     <string name="detail_error_no_internet">Nejsi připojen k internetu</string>
+    <string name="detail_chapters_loading">Načítám kapitoly…</string>
     <string name="detail_error_refresh_failed">Aktualizace selhala: %1$s</string>
+    <string name="detail_relink_offer_title">Zdroj neodpovídá</string>
+    <string name="detail_relink_offer_body">Stejný titul zkus najít na jiném zdroji</string>
+    <string name="detail_relink_sheet_title">Přesunout na jiný zdroj</string>
+    <string name="detail_relink_searching">Prohledávám ostatní zdroje…</string>
+    <string name="detail_relink_empty">Stejný titul se na jiném zdroji nenašel.</string>
+    <string name="detail_relink_already_in_library">Tenhle titul z tohoto zdroje už v knihovně máš</string>
+    <string name="detail_relink_confirm_title">Přesunout na %1$s?</string>
+    <string name="detail_relink_confirm_body">Titul „%1$s" se přepne na nový zdroj. Uložené kapitoly se přemapují podle čísla — přečtené, stažené i přeložené zůstane zachované. Ověř, že jde o stejné dílo.</string>
+    <string name="detail_relink_confirm_action">Přesunout</string>
+    <string name="detail_relink_applied">Titul přesunut na %1$s</string>
+    <string name="detail_relink_failed">Přesun na jiný zdroj se nepovedl</string>
 
     <!-- Detail mangy: podstránka Detaily -->
     <string name="detail_info_title_fallback">Detaily</string>
@@ -736,6 +792,7 @@
     <string name="reader_reset_chapter_desc">Znovu načíst kapitolu</string>
     <string name="webtoon_chapter_boundary_finished">Konec: %1$s</string>
     <string name="webtoon_chapter_boundary_next">Další: %1$s</string>
+    <string name="webtoon_loading_next_chapter">Načítám další kapitolu…</string>
     <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
     <string name="reader_incognito_off_desc">Vypnout inkognito</string>
     <string name="reader_incognito_on_desc">Inkognito</string>
@@ -829,6 +886,7 @@
     <string name="source_browse_status_ongoing">Vychází</string>
     <string name="source_browse_status_completed">Dokončeno</string>
     <string name="source_browse_status_hiatus">Přerušeno</string>
+    <string name="source_browse_status_cancelled">Zrušeno</string>
     <string name="source_browse_sort_rating">Hodnocení</string>
     <string name="source_browse_sort_title">Název</string>
     <string name="source_browse_status_label">Stav vydávání</string>
@@ -839,10 +897,21 @@
     <string name="source_browse_apply">Použít</string>
     <string name="source_browse_tags_label">Tagy</string>
     <string name="source_browse_tags_none">Žádné</string>
+    <string name="source_browse_tags_pick">Vybrat tagy…</string>
     <string name="source_browse_tags_selected_count">Vybráno: %1$d</string>
     <string name="source_browse_tags_search_placeholder">Začněte psát název žánru</string>
     <string name="source_browse_tags_empty">Zdroj žádné tagy nenabízí</string>
     <string name="source_browse_tags_load_failed">Tagy se nepodařilo načíst</string>
+    <string name="source_browse_tags_exclude_hint">Klepni = zahrnout, klepni znovu = vyloučit, klepni potřetí = zrušit</string>
+    <string name="source_browse_section_genres">Žánry</string>
+    <string name="source_browse_section_tags">Tagy</string>
+    <string name="source_browse_demographic_label">Demografická skupina</string>
+    <string name="source_browse_type_label">Typ</string>
+    <string name="source_browse_min_chapters_label">Min. počet kapitol</string>
+    <string name="source_browse_min_chapters_placeholder">např. 50</string>
+    <string name="source_browse_created_label">Přidáno</string>
+    <string name="source_browse_sort_asc">↑ Vzestupně</string>
+    <string name="source_browse_sort_desc">↓ Sestupně</string>
 
     <!-- Globální vyhledávání -->
     <string name="search_title">Globální vyhledávání</string>
@@ -877,6 +946,14 @@
     <string name="account_have_account">Již mám účet</string>
     <string name="account_new_account">Nový účet</string>
     <string name="account_forgot_password">Zapomenuté heslo</string>
+    <string name="account_reset_title">Nové heslo</string>
+    <string name="account_reset_subtitle">Zadej nové heslo pro svůj účet.</string>
+    <string name="account_new_password">Nové heslo</string>
+    <string name="account_confirm_password">Heslo znovu</string>
+    <string name="account_passwords_mismatch">Hesla se neshodují</string>
+    <string name="account_set_password">Nastavit heslo</string>
+    <string name="account_password_changed">Heslo změněno</string>
+    <string name="account_reset_expired">Odkaz pro reset už neplatí – požádej o nový.</string>
     <string name="account_avatar_desc_named">Profilový obrázek %1$s</string>
     <string name="account_avatar_desc">Profilový obrázek</string>
     <string name="account_default_username">Uživatel</string>
@@ -887,6 +964,7 @@
     <string name="account_sign_out">Odhlásit se</string>
     <string name="account_error_unsupported_credential">Nepodporovaný typ přihlášení</string>
     <string name="account_error_login_generic">Chyba přihlášení</string>
+    <string name="account_error_google_timeout">Google přihlášení nereaguje - zkus to znovu za chvíli, nebo se přihlas přes e-mail.</string>
     <string name="account_error_no_google_account">Na telefonu nebyl nalezen žádný Google účet, nebo k němu appka nemá povolení. Zkontroluj v nastavení telefonu, že jsi přihlášený/á k Google účtu, nebo se přihlas přes e-mail.</string>
     <string name="account_sync_done">Synchronizace dokončena</string>
     <string name="account_owner_conflict_title">Knihovna patří jinému účtu</string>
@@ -948,15 +1026,24 @@
     <string name="stats_export_json">Exportovat jako JSON</string>
     <string name="stats_export_csv">Exportovat jako CSV</string>
     <string name="stats_export_error">Chyba: %1$s</string>
-    <string name="stats_chapters_label">Kapitoly</string>
-    <string name="stats_pages_label">Stránky</string>
     <string name="stats_reading_time_label">Čas čtení</string>
     <string name="stats_streak_label">Série dnů</string>
     <string name="stats_chapters_30days_title">KAPITOLY ZA 30 DNÍ</string>
     <string name="stats_no_reading_30days">Za posledních 30 dní žádné čtení</string>
+    <string name="stats_summary_title">SOUHRN</string>
+    <string name="stats_type_manga">Manga</string>
+    <string name="stats_type_manhwa">Manhwa</string>
+    <string name="stats_type_manhua">Manhua</string>
+    <string name="stats_type_novel">Novela</string>
+    <string name="stats_type_other">Ostatní</string>
+    <string name="stats_total_titles">Titulů v knihovně</string>
+    <string name="stats_total_chapters">Kapitol v knihovně</string>
+    <string name="stats_total_read_chapters">Přečteno kapitol</string>
+    <string name="stats_total_pages">Přečteno stránek</string>
+    <string name="stats_total_rated">Hodnocených titulů</string>
+    <string name="stats_last_read">Naposledy čteno</string>
+    <string name="stats_member_since">První titul přidán</string>
     <string name="stats_top_genres_title">OBLÍBENÉ ŽÁNRY</string>
-    <string name="stats_top_authors_title">OBLÍBENÍ AUTOŘI</string>
-    <string name="stats_reading_status_title">STAV ČTENÍ</string>
     <string name="stats_status_reading">Čtu</string>
     <string name="stats_status_completed">Dokončeno</string>
     <string name="stats_status_on_hold">Pozastaveno</string>
@@ -992,6 +1079,13 @@
     <string name="main_screen_tab_list">Seznam</string>
     <string name="main_screen_tab_updates">Novinky</string>
     <string name="main_screen_tab_browse">Procházet</string>
+    <string name="browse_mode_sheet_title">REŽIM PROCHÁZENÍ</string>
+    <string name="feature_tip_got_it">Rozumím</string>
+    <string name="feature_tip_once_note">Tahle nápověda se zobrazí jen jednou.</string>
+    <string name="tip_browse_title">PŘEPÍNÁNÍ REŽIMŮ PROCHÁZENÍ</string>
+    <string name="tip_browse_body">Dlouhým podržením záložky Procházet v dolní liště otevřeš přepínač režimů — můžeš procházet jednotlivé zdroje, ComicK, Novelu nebo Komiks.</string>
+    <string name="tip_comick_title">FILTRY COMICK</string>
+    <string name="tip_comick_body">Dlouhým podržením názvu ComicK v horní liště otevřeš filtry obsahu — vybereš, co se ti má a nemá zobrazovat.</string>
     <string name="main_screen_tab_history">Historie</string>
 
     <!-- Widget -->
@@ -1019,6 +1113,26 @@
         <item quantity="one">%1$d kapitola</item>
         <item quantity="few">%1$d kapitoly</item>
         <item quantity="other">%1$d kapitol</item>
+    </plurals>
+    <plurals name="novel_on_n_sources">
+        <item quantity="one">na %1$d zdroji</item>
+        <item quantity="few">na %1$d zdrojích</item>
+        <item quantity="other">na %1$d zdrojích</item>
+    </plurals>
+    <plurals name="novel_failed_sources">
+        <item quantity="one">%1$d zdroj se nepodařilo načíst</item>
+        <item quantity="few">%1$d zdroje se nepodařilo načíst</item>
+        <item quantity="other">%1$d zdrojů se nepodařilo načíst</item>
+    </plurals>
+    <plurals name="comic_on_n_sources">
+        <item quantity="one">na %1$d zdroji</item>
+        <item quantity="few">na %1$d zdrojích</item>
+        <item quantity="other">na %1$d zdrojích</item>
+    </plurals>
+    <plurals name="comic_failed_sources">
+        <item quantity="one">%1$d zdroj se nepodařilo načíst</item>
+        <item quantity="few">%1$d zdroje se nepodařilo načíst</item>
+        <item quantity="other">%1$d zdrojů se nepodařilo načíst</item>
     </plurals>
     <plurals name="downloads_manager_count_downloading">
         <item quantity="one">%1$d se stahuje</item>
@@ -1094,6 +1208,11 @@
         <item quantity="one">%1$d kapitola</item>
         <item quantity="few">%1$d kapitoly</item>
         <item quantity="other">%1$d kapitol</item>
+    </plurals>
+    <plurals name="detail_relink_matched_chapters">
+        <item quantity="one">%1$d z %2$d kapitoly se shoduje</item>
+        <item quantity="few">%1$d z %2$d kapitol se shodují</item>
+        <item quantity="other">%1$d z %2$d kapitol se shoduje</item>
     </plurals>
     <plurals name="source_browse_dup_existing">
         <item quantity="one">• %1$s (v knihovně): %2$d kapitola</item>

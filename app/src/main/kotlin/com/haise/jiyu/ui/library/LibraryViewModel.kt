@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -236,10 +237,16 @@ class LibraryViewModel @Inject constructor(
 
     fun clearRefreshError() { _refreshError.value = null }
 
+    private var refreshJob: Job? = null
+
     fun refreshLibrary() {
-        viewModelScope.launch {
+        // Re-entrancy guard - rychly opakovany pull-to-refresh by jinak spustil
+        // druhou kompletni vlnu refreshu paralelni k prvni (audit).
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
             _isRefreshing.value = true
             _refreshError.value = null
+            try {
             // Az 5 soubezne (stejny vzor jako ChapterUpdateWorker/UpdatesViewModel.refresh) -
             // drivejsi sekvencni forEach cekalo na kazdou mangu/zdroj ZVLAST, jeden pomaly/
             // Cloudflare-chraneny zdroj tak zdrzel VSECHNY ostatni po nem (uzivatel hlasil
@@ -266,7 +273,10 @@ class LibraryViewModel @Inject constructor(
                 val suffix = if (errors.size > 3) context.getString(R.string.library_refresh_error_and_more) else ""
                 _refreshError.value = context.getString(R.string.library_refresh_error, errors.take(3).joinToString(), suffix)
             }
-            _isRefreshing.value = false
+            } finally {
+                // Pri zruseni mimo vnitrni catch by isRefreshing jinak zustal viset true.
+                _isRefreshing.value = false
+            }
         }
     }
 

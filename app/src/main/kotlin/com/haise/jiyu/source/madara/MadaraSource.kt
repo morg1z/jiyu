@@ -40,7 +40,11 @@ data class MadaraSelectors(
     val description: String = "div.summary__content, div.description-summary",
     val status: String = "div.post-status .summary-content, .post-content_item .summary-content",
     val chapterList: String = "li.wp-manga-chapter",
-    val pageImage: String = "div.reading-content img, div.page-break img",
+    // Nektere Madara weby renderuji stranky do <canvas class="protected-chapter-canvas"
+    // data-page-url="..."> (obrazek se kresli JS, img vubec neni - napr. readhunters.xyz).
+    // URL stranky je v data-page-url, ktere lazySrc() umi precist.
+    val pageImage: String =
+        "div.reading-content img, div.page-break img, div.reading-content canvas[data-page-url], canvas.protected-chapter-canvas[data-page-url]",
     val novelContent: String = "div.reading-content p",
     /** null = zdroj (tenhle konkretni web) komentare k pripadne kapitole neposkytuje, nebo
      * pouziva Disqus (nescrapovatelny bez JS) - vetsina Madara webu. Nastavuje se explicitne
@@ -93,6 +97,25 @@ class MadaraSource(
     /** Vzor data kapitoly konkrétního webu (např. "dd/MM/yyyy"); zkouší se před obecným parserem. */
     private val datePattern: String? = null,
     private val inGlobalSearch: Boolean = true,
+    /** UA pro vsechny pozadavky zdroje. Nektere Madara weby za Cloudflare blokuji
+     * desktop UA interaktivni vyzvou, ale mobilni UA pusti - viz USER_AGENT_ANDROID. */
+    private val userAgent: String = BROWSER_USER_AGENT,
+    /** Nektere Madara instalace zanrovou taxonomii vubec nevystavuji (zadna
+     * /search/ stranka, zadne {tagPrefix}/ odkazy v archivu) - filtr by pak v UI
+     * ukazal prazdny seznam, takze se pro takove weby vypina konfiguraci. */
+    private val supportsTags: Boolean = true,
+    /** Nektere weby strankovani v archivu ignoruji (page=N vraci identickou
+     * stranku 1 - audit DUP) - pro ne se page>1 ukonci prazdnym vysledkem
+     * misto nekonecneho opakovani scrollu. */
+    private val hasPagination: Boolean = true,
+    /** Web "m_orderby" parametr ignoruje (latest vraci identicky obsah jako
+     * popular - audit) - pro takove se UI prepinac razeni vypina. */
+    private val supportsSorts: Boolean = true,
+    /** Filtr stavu serializace (status[] GET param madara-core vyhledavani -
+     * on-going/end/on-hold/canceled). Funguje i na webech, co status ve
+     * viditelnem formulari nemaji (madara-core ho zpracovava vzdy -
+     * overeno zive na mangaread.org 2026-10). */
+    private val supportsStatus: Boolean = true,
 ) : MangaSource {
 
     override val includeInGlobalSearch: Boolean get() = inGlobalSearch
@@ -132,12 +155,27 @@ class MadaraSource(
         // Ruzne Madara motivy formatuji datum vydani jinak - zkousi se v tomto poradi
         // (viz parseRelativeOrAbsoluteDate).
         private val ABSOLUTE_DATE_FORMATS = listOf("MMMM d, yyyy", "MMM d, yyyy", "yyyy-MM-dd", "dd/MM/yyyy")
+
+        // Interni slugy wp-manga-status taxonomie (madara-core je instaluje
+        // fixne; "end" = dokonceno, "on-hold" = pozastaveno).
+        private val MADARA_STATUS_SLUGS = mapOf(
+            "ongoing" to "on-going",
+            "completed" to "end",
+            "hiatus" to "on-hold",
+            "cancelled" to "canceled",
+        )
     }
 
     // ─── Vyhledávání & browse ────────────────────────────────────────────────
 
-    override val supportsTagFilter: Boolean get() = true
-    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+    override val supportsTagFilter: Boolean get() = supportsTags
+    override val supportsSortOrder: Boolean get() = supportsSorts
+    override val availableSorts: Set<String> get() =
+        if (supportsSorts) setOf("popular", "latest", "title") else setOf("popular")
+    override val supportsStatusFilter: Boolean get() = supportsStatus
+    // madara-core zna ctyri stavy: on-going / end / on-hold / canceled.
+    override val availableStatuses: List<String> get() =
+        if (supportsStatus) listOf("ongoing", "completed", "hiatus", "cancelled") else emptyList()
 
     // /search/ stranka je soucast madara-core pluginu (ne motivu), takze genre[]
     // checkboxy tam maji napric weby stejny HTML tvar - lisi se jen skutecne
@@ -147,11 +185,36 @@ class MadaraSource(
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
         cachedTags?.let { return@withContext it }
         try {
-            val doc = fetchDocument("$root/search/")
-            val tags = doc.select("label.genre-item").mapNotNull { label ->
-                val slug = label.selectFirst("input[name=genre[]]")?.attr("value")?.ifBlank { null } ?: return@mapNotNull null
+            // /search/ na mnoha Madara webech vubec neexistuje (404) a
+            // fetchDocument na ni haze IOException - ta by shodila i fallback
+            // na zanrove odkazy v archivu. Proto se 404 tiše propadne na null.
+            val doc = try {
+                fetchDocument("$root/search/")
+            } catch (e: Exception) { e.rethrowIfControl(); null }
+            val tags = doc?.select("label.genre-item")?.mapNotNull { label ->
+                // Nektere weby maji ve value uz percent-encoded slug (napr. arabske
+                // taxonomie) - dekodujeme, jinak by genreUrl slug znovu zakodoval
+                // na %25 a archivni stranka by vratila prazdno. No-op pro ascii.
+                val slug = label.selectFirst("input[name=genre[]]")?.attr("value")
+                    ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+                    ?.takeIf(::isSafeGenreSlug) ?: return@mapNotNull null
                 val text = label.selectFirst("span")?.text()?.trim()?.ifBlank { null } ?: return@mapNotNull null
                 FilterTag(id = slug, label = text)
+            }.orEmpty().ifEmpty {
+                // Nektere Madara weby (novelove child-themes) nemaji /search/ formular -
+                // fallback: zanrove odkazy na archivni strance /{listPath}/ a homepage
+                // (a[href*={tagPrefix}/]), pokud tam web taxonomii opravdu vystavuje.
+                listOf("$root/$listPath/", root).asSequence().flatMap { url ->
+                    try {
+                        fetchDocument(url).select("a[href*='/$tagPrefix/']").asSequence()
+                    } catch (e: Exception) { e.rethrowIfControl(); emptySequence() }
+                }.mapNotNull { a ->
+                    val slug = a.attr("href").substringAfter("/$tagPrefix/").trim('/')
+                        .substringBefore('/')
+                        .let { java.net.URLDecoder.decode(it, "UTF-8") }
+                        .takeIf(::isSafeGenreSlug) ?: return@mapNotNull null
+                    FilterTag(id = slug, label = a.text().trim().ifBlank { slug })
+                }.distinctBy { it.id }.toList()
             }
             cachedTags = tags
             tags
@@ -160,22 +223,31 @@ class MadaraSource(
 
     override suspend fun search(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            if (filter.genres.isNotEmpty()) {
-                return@withContext parseMangaList(fetchDocument(genreUrl(root, filter.genres.first(), page)))
+            if (page > 1 && !hasPagination) return@withContext emptyList()
+            // Cisty genre archiv (jeden zanr, bez dotazu a stavu) ma nejcistsi
+            // strankovani - jinak GET formular post_type=wp-manga, ktery na
+            // rozdil od archivu umi kombinovat query + N zanru + status.
+            if (filter.genres.size == 1 && query.isBlank() && filter.status == null) {
+                return@withContext fetchGenrePage(filter.genres.first(), page)
             }
-            val q = URLEncoder.encode(query, "UTF-8")
-            val url = searchUrl(root, q, page)
-            parseMangaList(fetchDocument(url))
+            if (filter.genres.isEmpty() && filter.status == null) {
+                // Bez filtru zustava instancni searchUrl override funkcni
+                // (custom weby meni cestu/pravidla hledani).
+                return@withContext parseMangaList(fetchDocument(searchUrl(root, query, page)))
+            }
+            parseMangaList(fetchDocument(getFormUrl(query, page, filter)))
         }
 
     override suspend fun getPopular(page: Int, filter: com.haise.jiyu.source.MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            // Genre archiv radi jen podle data zverejneni (zadny vlastni orderby) -
-            // pri vybranem tagu se filter.sortBy tise ignoruje, filtrovani ma prednost
-            // pred razenim. Kombinace vice tagu najednou madara-core nepodporuje (jen
-            // jeden genre per archivni stranka) - pri vice vybranych se pouzije prvni.
-            if (filter.genres.isNotEmpty()) {
-                return@withContext parseMangaList(fetchDocument(genreUrl(root, filter.genres.first(), page)))
+            if (page > 1 && !hasPagination) return@withContext emptyList()
+            // Stejne routovani jako search(): cisty jednozanr do archivu, kombinace
+            // (status / vice zanru) do GET formulare, ktery oboji umi najednou.
+            if (filter.status != null || filter.genres.size > 1) {
+                return@withContext parseMangaList(fetchDocument(getFormUrl("", page, filter)))
+            }
+            if (filter.genres.size == 1) {
+                return@withContext fetchGenrePage(filter.genres.first(), page)
             }
             val orderby = when (filter.sortBy) {
                 "latest" -> "latest"
@@ -183,7 +255,54 @@ class MadaraSource(
                 else     -> "views"
             }
             val url = popularUrl(root, page, orderby)
-            parseMangaList(fetchDocument(url))
+            try {
+                parseMangaList(fetchDocument(url))
+            } catch (e: java.io.IOException) {
+                // Na strane >1 je 404 legitimni konec katalogu (male weby nemaji
+                // dost titulu na dalsi stranu) - vratime prazdno, aby se scroll
+                // ukoncil ciste misto chyboveho stavu. Na p1 chybu propagujeme,
+                // protoze tam znamena spatny listPath.
+                if (page > 1 && e.message?.contains("404") == true) emptyList() else throw e
+            }
+        }
+
+    /** GET formular madara-core (`/?s=&post_type=wp-manga&genre[]=&status[]=`).
+     * Podporuje na rozdil od zanroveho archivu kombinaci dotazu, vice zanru
+     * a stavu zaroven. Status slugy jsou interni termy wp-manga-status
+     * taxonomie (madara-core je instaluje s fixnimi slugy). */
+    private fun getFormUrl(query: String, page: Int, filter: com.haise.jiyu.source.MangaFilter): String =
+        StringBuilder(root)
+            .apply { if (page > 1) append("/page/").append(page) }
+            .append("/?s=").append(URLEncoder.encode(query, "UTF-8"))
+            .append("&post_type=wp-manga")
+            .apply {
+                filter.genres.forEach {
+                    append("&genre[]=").append(URLEncoder.encode(it, "UTF-8"))
+                }
+                MADARA_STATUS_SLUGS[filter.status]?.let { append("&status[]=").append(it) }
+                when (filter.sortBy) {
+                    "latest" -> append("&orderby=latest")
+                    "title"  -> append("&orderby=alphabet")
+                    else     -> append("&orderby=views")
+                }
+            }
+            .toString()
+
+    /**
+     * Dekodovany slug z webu (URLDecoder nad value/href) muze obsahovat '/', '?', '#', '&'
+     * nebo mezery - v genreUrl by se vlepily do cesty a vyrobily traversing query do
+     * jine cesty na webu (audit). Pustime jen slugs bez nebezpecnych znaku (unicode
+     * taxonomie OK).
+     */
+    private fun isSafeGenreSlug(slug: String): Boolean =
+        slug.isNotBlank() && slug.none { it == '/' || it == '?' || it == '#' || it == '&' || it.isWhitespace() }
+
+    /** Zanrova archivni stranka - 404 na strane >1 znamena konec vysledku, ne chybu. */
+    private fun fetchGenrePage(slug: String, page: Int): List<SManga> =
+        if (page > 1 && !hasPagination || !isSafeGenreSlug(slug)) emptyList() else try {
+            parseMangaList(fetchDocument(genreUrl(root, slug, page)))
+        } catch (e: java.io.IOException) {
+            if (page > 1 && e.message?.contains("404") == true) emptyList() else throw e
         }
 
     /**
@@ -256,7 +375,7 @@ class MadaraSource(
                 val request = Request.Builder()
                     .url("${manga.url.trimEnd('/')}/ajax/chapters/")
                     .post(FormBody.Builder().add("action", "manga_get_chapters").build())
-                    .header("User-Agent", BROWSER_USER_AGENT)
+                    .header("User-Agent", userAgent)
                     .header("Referer", manga.url)
                     .build()
                 client.newCall(request).execute().use { response ->
@@ -276,7 +395,7 @@ class MadaraSource(
                         val request = Request.Builder()
                             .url("$root/wp-admin/admin-ajax.php")
                             .post(FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build())
-                            .header("User-Agent", BROWSER_USER_AGENT)
+                            .header("User-Agent", userAgent)
                             .header("Referer", manga.url)
                             .build()
                         client.newCall(request).execute().use { response ->
@@ -293,7 +412,17 @@ class MadaraSource(
     private fun chapterFromRow(row: Element, mangaUrl: String): SChapter? {
         // U nekterych motivu je radek kapitoly primo <a> (ne obal s vnorenym
         // odkazem) - selectFirst hleda jen potomky, takze sebe sama nenajde.
-        val link = row.takeIf { it.tagName() == "a" && it.hasAttr("href") } ?: row.selectFirst("a") ?: return null
+        // U radku "has-thumb" (napr. grabber.zone) je prvni <a> jen obal okolo
+        // <img> nahledu bez textu - selectFirst("a") by ho chytil a radek zahodil
+        // pro prazdny nazev. Proto preferujeme prvni odkaz S TEXTEM.
+        val link = row.takeIf { it.tagName() == "a" && it.hasAttr("href") }
+            ?: row.select("a").firstOrNull { it.text().isNotBlank() }
+            ?: row.selectFirst("a") ?: return null
+        // Zamcene premium kapitoly (napr. noicetranslations "coin-20 premium-block")
+        // maji href="#" - cist se nedaji a "#" resolvuje na stranku titulu, takze
+        // pageList vrati 0 stran. Radky bez skutecneho odkazu preskakujeme.
+        val rawHref = link.attr("href").trim()
+        if (rawHref.isEmpty() || rawHref == "#" || rawHref.startsWith("javascript")) return null
         val url = link.absUrl("href").ifBlank { return null }
         val name = link.text().trim().ifBlank { return null }
         val chapterNumber = parseChapterNumber(name) ?: 0f
@@ -365,7 +494,7 @@ class MadaraSource(
     private fun fetchDocument(url: String): Document {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", BROWSER_USER_AGENT)
+            .header("User-Agent", userAgent)
             .header("Referer", baseUrl)
             .build()
         client.newCall(request).execute().use { response ->

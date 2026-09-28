@@ -82,27 +82,53 @@ class ThunderscansSource @Inject constructor(private val client: OkHttpClient) :
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private fun archiveUrl(page: Int, orderby: String, genreId: String?): String {
+    // Filtracni formular na /comics (Themesia layout) prijima status=
+    // ongoing|completed|hiatus a type= manga|manhwa|manhua|comic|novel - overeno
+    // zive, kazda hodnota vraci jinou sadu karet a kombinuje se s genre[]/order.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+        FilterTag(id = "comic", label = "Comic"),
+        FilterTag(id = "novel", label = "Novel"),
+    )
+
+    private fun archiveUrl(page: Int, orderby: String, genreId: String?, filter: MangaFilter? = null): String {
         val base0 = if (page <= 1) "$base/comics/?order=$orderby" else "$base/comics/page/$page/?order=$orderby"
-        return if (genreId != null) "$base0&genre%5B%5D=$genreId" else base0
+        val sb = StringBuilder(base0)
+        if (genreId != null) sb.append("&genre%5B%5D=").append(genreId)
+        filter?.status?.takeIf { it in SITE_STATUSES }?.let { sb.append("&status=").append(it) }
+        filter?.comicTypes?.firstOrNull()?.takeIf { it in SITE_TYPES }?.let { sb.append("&type=").append(it) }
+        return sb.toString()
+    }
+
+    private val SITE_STATUSES = setOf("ongoing", "completed", "hiatus")
+    private val SITE_TYPES = setOf("manga", "manhwa", "manhua", "comic", "novel")
+
+    private fun orderbyOf(sortBy: String?) = when (sortBy) {
+        "latest", "update" -> "update"
+        "title" -> "title"
+        else -> "popular"
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Archivni "/comics/page/N/" web ignoruje - vraci identickou stranku 1
+        // (audit DUP, overeno zive). WP search "/page/N/?s=" naproti tomu funguje.
+        if (page > 1) return@withContext emptyList()
         try {
-            val orderby = when (filter.sortBy) {
-                "latest" -> "update"
-                "title"  -> "title"
-                else     -> "popular"
-            }
-            val url = archiveUrl(page, orderby, filter.genres.firstOrNull())
+            val url = archiveUrl(page, orderbyOf(filter.sortBy), filter.genres.firstOrNull(), filter)
             parseList(get(url))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
-                return@withContext parseList(get(archiveUrl(page, "popular", filter.genres.first())))
+            if (filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty()) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseList(get(archiveUrl(page, orderbyOf(filter.sortBy), filter.genres.firstOrNull(), filter)))
             }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"

@@ -124,8 +124,8 @@ internal fun <T> pickBetterAlternative(originalPageCount: Int, alternatives: Lis
         ?.first
 
 /**
- * Sdilene razeni kandidatu zdroje - oblibeny > shoda prekladatelske skupiny > ma pozadovanou
- * kapitolu > nejuplnejsi pokryti > nejblizsi kapitola.
+ * Sdilene razeni kandidatu zdroje - comick.art mirror > oblibeny > shoda prekladatelske
+ * skupiny > ma pozadovanou kapitolu > nejuplnejsi pokryti > nejblizsi kapitola.
  *
  * "Oblibeny"/"shoda skupiny" bonus plati JEN kdyz je kandidat aspon skoro kompletni (stejny
  * prah jako [isCompleteEnoughForEarlyExit], zamerne sdileny - jedna hranice "kompletnosti" v
@@ -147,7 +147,12 @@ internal fun rankCandidates(
         isCompleteEnoughForEarlyExit(c.matchedChapterCount, totalComicKChapters) &&
             coversChapterRange(c.minChapterNumber, c.maxChapterNumber, comicKRange)
     return candidates.sortedWith(
-        compareByDescending<ResolvedCandidate> { it.isFavorite && isCompleteEnough(it) }
+        // comick.art mirror (sdileny slug = stejna serie) PRVNI - uzivatelsky
+        // pozadavek: comick.art ma byt vychozi zdroj pro kazdy titul, kdyz ho ma.
+        // Nese stejne kapitoly i skupinove verze jako ComicK, takze kompletni
+        // mirror je spolehlivejsi shoda nez fuzzy title-match cehokoliv jineho.
+        compareByDescending<ResolvedCandidate> { it.isDirectMirror && isCompleteEnough(it) }
+            .thenByDescending { it.isFavorite && isCompleteEnough(it) }
             .thenByDescending { isPreferredGroup(it) && isCompleteEnough(it) }
             .thenByDescending { it.hasRequestedChapter }
             .thenByDescending { it.matchedChapterCount }
@@ -273,17 +278,19 @@ class SourceResolverViewModel @Inject constructor(
                         // vybira, zatimco jeste hleda dal na pozadi.
                         //
                         // Priorita (vsechny urovne sestupne dulezite):
-                        // 1. oblibeny zdroj
-                        // 2. zdroj STEJNE prekladatelske skupiny, jako mela otevrena kapitola
+                        // 1. comick.art mirror (stejna DB jako ComicK, sdileny slug) -
+                        //    uzivatelsky pozadavek: vychozi zdroj pro kazdy titul, kdyz ho ma
+                        // 2. oblibeny zdroj
+                        // 3. zdroj STEJNE prekladatelske skupiny, jako mela otevrena kapitola
                         //    (matchesPreferredGroup) - uzivatelsky pozadavek: kdyz napr. "Asura"
                         //    prekladala kapitolu, kterou chce cist, a appka Asuru mezi zdroji ma,
                         //    dat ji prednost pred jinym zdrojem, i kdyz ma o par kapitol vic
-                        // 3. zdroj, ktery ma presne POZADOVANOU kapitolu
-                        // 4. zdroj s nejuplnejsim pokrytim (nejvic kapitol celkem) - NENI to proste
+                        // 4. zdroj, ktery ma presne POZADOVANOU kapitolu
+                        // 5. zdroj s nejuplnejsim pokrytim (nejvic kapitol celkem) - NENI to proste
                         //    "nejvic kapitol" samo o sobe (to by mohlo sahnout po zdroji, co uz davno
                         //    skoncil daleko pred cilem, nebo zacal az pozdeji), ale az po bodech 1-3
                         //    uz to jen odlisuje kompletni zdroj od neuplneho
-                        // 5. nejmensi vzdalenost nejblizsi dostupne kapitoly od cile (kdyz ani jeden
+                        // 6. nejmensi vzdalenost nejblizsi dostupne kapitoly od cile (kdyz ani jeden
                         //    kandidat pozadovanou kapitolu nema)
                         val sorted = rankedCandidates()
                         _candidates.value = sorted
@@ -302,12 +309,15 @@ class SourceResolverViewModel @Inject constructor(
 
                         // Early-exit: uzivatelsky pozadavek - kdyz dorazi zdroj, ktery je
                         // oblibeny NEBO stejne prekladatelske skupiny jako otevirana kapitola
-                        // (Asura, Thunderscans, ...) A rovnou ma pozadovanou kapitolu, appka uz
+                        // (Asura, Thunderscans, ...) NEBO je to comick.art mirror nalezeny
+                        // primo pres sdileny slug (isDirectMirror - mirror nese stejnou DB
+                        // i skupinove verze jako ComicK, takze "shoda skupiny" je u nej
+                        // implicitni) A rovnou ma pozadovanou kapitolu, appka uz
                         // nema duvod cekat, az se prohledaji zbyvajici desitky zdroju - tohle je
-                        // uz jasna volba (nejsilnejsi 2 kriteria z razeni v onCompletion), takže
+                        // uz jasna volba (nejsilnejsi kriteria z razeni v onCompletion), takze
                         // rovnou otevre a zbytek hledani zrusi (viz searchJob).
                         if (!hasAutoResolved && candidate.hasRequestedChapter &&
-                            (candidate.isFavorite || matchesPreferredGroup(candidate)) &&
+                            (candidate.isFavorite || matchesPreferredGroup(candidate) || candidate.isDirectMirror) &&
                             isCompleteEnoughForEarlyExit(candidate.matchedChapterCount, _totalComicKChapters.value) &&
                             coversChapterRange(candidate.minChapterNumber, candidate.maxChapterNumber, comicKRange)
                         ) {
@@ -362,14 +372,23 @@ class SourceResolverViewModel @Inject constructor(
                 } else {
                     val finalChapter = resolveCompleteChapter(candidate, bestMatch, target)
                     // Realny zdroj (ktery appka jen tise pouziva na pozadi) se do knihovny
-                    // NEPRIDAVA (viz MangaRepository.openPreview) - proto se "precteno" musi
-                    // rucne propsat zpet na SKUTECNY ComicK titul (ten uzivatel ma v knihovne),
-                    // jinak by "Pokracovat ve cteni" i procenta na detailu titulu zustaly navzdy
-                    // na 0 % i po precteni desitek kapitol - viz observeContinueReading (vyzaduje
+                    // NEPRIDAVA (viz MangaRepository.openPreview) - proto se postup cteni musi
+                    // dostat zpet na SKUTECNY ComicK titul (ten uzivatel ma v knihovne), jinak by
+                    // "Pokracovat ve cteni" i procenta na detailu titulu zustaly navzdy na 0 % i
+                    // po precteni desitek kapitol - viz observeContinueReading (vyzaduje
                     // inLibrary = 1, ktere ComicK entita ma, ale resolvnuty realny zdroj nikdy).
+                    //
+                    // Nikdy tu NEOZNACUJEME kapitolu jako prectenou (drive read=true uz pri
+                    // vyberu zdroje - kapitola se pocitala jako prectena hned po otevreni, i
+                    // kdyz ji uzivatel zavrel na prvni strance; nahlaseny bug "jedna stranka =
+                    // 100 %"). Misto toho ComicK kapitolu prelinkujeme na resolved kapitolu
+                    // (fallbackChapterId) a skutecny postup/read na ni propaguje ctecka az
+                    // pri cteni (viz ReaderViewModel.processPageProgress ->
+                    // propagateReadProgressToLinkedChapters). updateLastReadChapter jen ukotvi
+                    // "Pokracovat ve cteni" na tuto ComicK kapitolu.
                     val comicKId = comicKMangaId
                     if (comicKId != null) {
-                        repository.updateReadProgress(chapterId, read = true, lastPageRead = 0, lastReadAt = System.currentTimeMillis())
+                        repository.setChapterFallbackTarget(chapterId, finalChapter.id)
                         repository.updateLastReadChapter(comicKId, chapterId)
                     }
                     _openedChapterId.value = finalChapter.id

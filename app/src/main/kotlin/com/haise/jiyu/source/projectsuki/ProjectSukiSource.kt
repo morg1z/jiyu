@@ -68,6 +68,10 @@ class ProjectSukiSource @Inject constructor(private val client: OkHttpClient) : 
     // tagu se filter.sortBy ignoruje, kombinace vice zanru neni podporovana.
     override val supportsTagFilter: Boolean get() = true
 
+    // "/browse/N" nema zadny sort parametr - web vraci vzdy stejne razeni
+    // (audit: latest == popular), prepinac v UI by nic nedelal.
+    override val supportsSortOrder: Boolean get() = false
+
     private val staticTags = listOf(
         "action", "adventure", "comedy", "doujinshi", "drama", "ecchi", "fantasy",
         "harem", "historical", "horror", "isekai", "josei", "mecha", "mystery",

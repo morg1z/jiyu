@@ -115,6 +115,65 @@ class ComicKSourceTest {
     }
 
     @Test
+    fun `comicFromJson prefers English md_title over the original-script title`() = runTest {
+        // Realny pripad z /top: "title" je japonsky, md_titles obsahuje en + ja-ro default.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setBody("""[{
+                    "title": "探索者イリアスは人見知り",
+                    "slug": "irias",
+                    "country": "jp",
+                    "md_titles": [
+                        {"title": "Seeker Irias is Shy", "lang": "en", "is_default": false},
+                        {"title": "探索者イリアスは人見知り", "lang": "ja", "is_default": false},
+                        {"title": "Tansakusha Irias wa Hitomishiri", "lang": "ja-ro", "is_default": true}
+                    ]
+                }]""")
+        }
+        assertEquals("Seeker Irias is Shy", source.getPopular(1).first().title)
+    }
+
+    @Test
+    fun `comicFromJson prefers the English default title inside md_titles`() = runTest {
+        // Realny pripad: ComicK web ukazuje oficialni EN nazev (is_default), ne fanouskovsky.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setBody("""[{
+                    "title": "Solo Farming in the Tower",
+                    "slug": "solo-farming",
+                    "country": "kr",
+                    "md_titles": [
+                        {"title": "Solo Farming in the Tower", "lang": "en", "is_default": false},
+                        {"title": "The Top Dungeon Farmer", "lang": "en", "is_default": true}
+                    ]
+                }]""")
+        }
+        assertEquals("The Top Dungeon Farmer", source.getPopular(1).first().title)
+    }
+
+    @Test
+    fun `comicFromJson falls back to the romanized default when no English title exists`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setBody("""[{
+                    "title": "俺だけ塔で農家はじめました",
+                    "slug": "ore-tower",
+                    "country": "jp",
+                    "md_titles": [
+                        {"title": "俺だけ塔で農家はじめました", "lang": "ja", "is_default": false},
+                        {"title": "Ore dake Tou de Nounka Hajimemashita", "lang": "ja-ro", "is_default": true}
+                    ]
+                }]""")
+        }
+        assertEquals("Ore dake Tou de Nounka Hajimemashita", source.getPopular(1).first().title)
+    }
+
+    @Test
+    fun `comicFromJson keeps the primary title when md_titles is absent`() = runTest {
+        assertEquals("Test Series", source.getPopular(1).first().title)
+    }
+
+    @Test
     fun `getMangaDetails re-maps contentType from the detail endpoint's country field too`() = runTest {
         val manga = source.getPopular(1).first().copy(contentType = "MANGA")
         val details = source.getMangaDetails(manga)

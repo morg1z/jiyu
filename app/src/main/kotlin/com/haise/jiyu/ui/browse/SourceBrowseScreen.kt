@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,6 +63,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +74,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -127,10 +130,12 @@ fun SourceBrowseScreen(
     val hasMore           by viewModel.hasMore.collectAsStateWithLifecycle()
     val activeFilter      by viewModel.activeFilter.collectAsStateWithLifecycle()
     val showLatest        by viewModel.showLatest.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    // rememberSaveable - rotace by jinak smazala rozpsany dotaz (audit).
+    var query by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyGridState()
     var showFilterSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
 
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -159,9 +164,23 @@ fun SourceBrowseScreen(
             onBack = onBack,
             activeFilter = activeFilter,
             onOpenFilterSheet = { showFilterSheet = true },
+            // Zdroj bez jakehokoli podporovaneho filtru - ikona Filtrovat by
+            // otevrela prazdny sheet (hlasene "filtry = proste nic").
+            showFilter = source?.let {
+                it.supportsTagFilter || it.supportsStatusFilter || it.supportsYearFilter ||
+                    it.availableSorts.size > 1
+            } ?: true,
             query = query,
-            onQueryChange = { query = it; viewModel.search(it) },
-            onSearchSubmit = { viewModel.search(query) },
+            // Hledani se spousti JEN potvrzenim (IME Search) - live debounce predtim
+            // odstartoval dotaz uz po 1-3 smazanych pismenech a pri preklopeni stavu
+            // (vysledky -> prazdne/error) se field z kompozice ztratil: klavesnice se
+            // zavrela a query se poslalo bez potvrzeni (hlaseny bug). Prazdne pole =
+            // navrat na popularni vypis, proto se search("") vola i pri vymazani.
+            onQueryChange = { query = it; if (it.isBlank()) viewModel.search("") },
+            onSearchSubmit = {
+                viewModel.search(query)
+                focusManager.clearFocus()
+            },
             showLatest = showLatest,
             onSetShowLatest = { viewModel.setShowLatest(it) },
             showSortToggle = source?.availableSorts?.containsAll(listOf("popular", "latest")) != false,
@@ -177,22 +196,50 @@ fun SourceBrowseScreen(
         // ── Results area ─────────────────────────────────────────────────────
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-        when {
-            loading && results.isEmpty() -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    headerContent()
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        JiyuLoadingIndicator()
+        // JEDEN grid pro vsechny stavy - header je vzdycky item(0) na stejne
+        // pozici kompozice, takze search field prezije preklopeni loading/error/
+        // empty <-> results. Drive byly stavy 4 ruzne vetve "when" (Column vs
+        // grid): pri prechodu Compose TextField zahodil a znovu vytvoril jinde,
+        // cimz ztratil fokus a klavesnice se zavrela uprostred psani (hlaseny bug).
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 110.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp + navBottom),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+        ) {
+            // Header musí vizuálně vyrušit mřížkový contentPadding (12dp z každé strany) -
+            // Modifier.padding() zápornou hodnotu odmítá (Compose to
+            // shodí s "Padding must be non-negative"), proto vlastní layout: změří obsah o
+            // 24dp širší, než mřížka nabízí, a posune ho o 12dp doleva.
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                Box(
+                    modifier = Modifier.layout { measurable, constraints ->
+                        val extra = 24.dp.roundToPx()
+                        val placeable = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + extra))
+                        layout(placeable.width, placeable.height) {
+                            placeable.placeRelative(-12.dp.roundToPx(), 0)
+                        }
+                    },
+                ) { headerContent() }
+            }
+
+            when {
+                loading && results.isEmpty() -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "state") {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { JiyuLoadingIndicator() }
                     }
                 }
-            }
-            error != null -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    headerContent()
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                error != null -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "state") {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(32.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp).padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
                         ) {
                             Text("( ⚠ )", fontSize = 40.sp, color = GlowViolet.copy(alpha = 0.5f))
                             Text(
@@ -240,12 +287,13 @@ fun SourceBrowseScreen(
                         }
                     }
                 }
-            }
-            results.isEmpty() -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    headerContent()
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                results.isEmpty() -> {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "state") {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
                             Text("( ˘•ω•˘ )", fontSize = 36.sp, color = GlowViolet.copy(alpha = 0.5f))
                             Text(
                                 text = stringResource(R.string.source_browse_no_results),
@@ -256,34 +304,7 @@ fun SourceBrowseScreen(
                         }
                     }
                 }
-            }
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp + navBottom),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    state = listState,
-                ) {
-                    // Header musí vizuálně vyrušit mřížkový contentPadding (12dp z každé strany) -
-                    // jinak by měl oproti loading/error/prázdnému stavu (headerContent() tam bez
-                    // obalky přímo v Column) navíc i tenhle 12dp odsazení ze čtverečku a vypadal by
-                    // "smrsklý" doprostred, i když obálky níže mají své vlastní odsazení schválně
-                    // (viz BrowseMangaCard). Modifier.padding() zápornou hodnotu odmítá (Compose to
-                    // shodí s "Padding must be non-negative"), proto vlastní layout: změří obsah o
-                    // 24dp širší, než mřížka nabízí, a posune ho o 12dp doleva.
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Box(
-                            modifier = Modifier.layout { measurable, constraints ->
-                                val extra = 24.dp.roundToPx()
-                                val placeable = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + extra))
-                                layout(placeable.width, placeable.height) {
-                                    placeable.placeRelative(-12.dp.roundToPx(), 0)
-                                }
-                            },
-                        ) { headerContent() }
-                    }
+                else -> {
                     items(results, key = { it.sourceId + it.url }) { manga ->
                         val isOpening = openingManga?.let { it.sourceId == manga.sourceId && it.url == manga.url } == true
                         BrowseMangaCard(manga = manga, isLoading = isOpening, referer = source?.homepageUrl, onClick = {
@@ -291,7 +312,7 @@ fun SourceBrowseScreen(
                         }, onCoverMissing = { viewModel.fetchCoverIfMissing(manga) })
                     }
                     if (hasMore || loading) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
                             Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 JiyuLoadingIndicator(size = 24.dp, strokeWidth = 2.dp)
                             }
@@ -325,6 +346,7 @@ private fun SourceBrowseHeader(
     onBack: () -> Unit,
     activeFilter: MangaFilter,
     onOpenFilterSheet: () -> Unit,
+    showFilter: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
     onSearchSubmit: () -> Unit,
@@ -350,22 +372,34 @@ private fun SourceBrowseHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 4.dp).weight(1f),
             )
-            IconButton(onClick = onOpenFilterSheet) {
-                Icon(
-                    imageVector = TablerIcons.Filter,
-                    contentDescription = stringResource(R.string.source_browse_filters),
-                    tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
-                )
+            if (showFilter) {
+                IconButton(onClick = onOpenFilterSheet) {
+                    Icon(
+                        imageVector = TablerIcons.Filter,
+                        contentDescription = stringResource(R.string.source_browse_filters),
+                        tint = if (activeFilter != MangaFilter()) Violet else TextSecondary,
+                    )
+                }
             }
         }
 
         // ── Hledání v rámci zdroje ────────────────────────────────────────────
+        // Search se spusti az IME Search akci (ne na kazde pismeno) - X smaze
+        // dotaz a vrati popularni vypis (vola onQueryChange("")), stejne jako
+        // u ComicK browse.
         TextField(
             value = query,
             onValueChange = onQueryChange,
             placeholder = { Text(stringResource(R.string.source_browse_search_placeholder, sourceName), color = TextSecondary) },
             singleLine = true,
             leadingIcon = { Icon(TablerIcons.Search, contentDescription = null, tint = TextSecondary) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_clear), tint = TextSecondary)
+                    }
+                }
+            },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearchSubmit() }),
             colors = TextFieldDefaults.colors(
@@ -519,19 +553,35 @@ private fun BrowseFilterSheet(
     var selectedStatus by remember { mutableStateOf(current.status) }
     var yearText by remember { mutableStateOf(current.year?.toString() ?: "") }
     var selectedSort by remember { mutableStateOf(current.sortBy) }
+    var sortAscending by remember { mutableStateOf(current.sortAscending) }
     var sortDropdownExpanded by remember { mutableStateOf(false) }
     var selectedGenres by remember { mutableStateOf(current.genres) }
+    var excludedGenres by remember { mutableStateOf(current.excludeGenres) }
+    var selectedTags by remember { mutableStateOf(current.tags) }
+    var excludedTags by remember { mutableStateOf(current.excludeTags) }
+    var selectedDemographic by remember { mutableStateOf(current.demographic) }
+    var selectedTypes by remember { mutableStateOf(current.comicTypes) }
+    var minChaptersText by remember { mutableStateOf(current.minChapters?.toString() ?: "") }
+    var selectedCreatedRange by remember { mutableStateOf(current.createdRangeDays) }
+    var createdRangeExpanded by remember { mutableStateOf(false) }
     var showTagPicker by remember { mutableStateOf(false) }
     // Labely vybranych tagu se dohledaji az kdyz uzivatel otevre picker (getAvailableTags
     // muze delat network) - do te doby se ve shrnuti zobrazi jen pocet, ne jmena.
     var selectedTagLabels by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
+    // Chipy jen pro stavy, ktere zdroj umí server-side aplikovat (viz
+    // MangaSource.availableStatuses) - napr. web bez hiatus varianty chip
+    // schova, misto aby tiše filtroval "vsechno".
     val statuses = listOf(
         null to stringResource(R.string.common_all),
         "ongoing" to stringResource(R.string.source_browse_status_ongoing),
         "completed" to stringResource(R.string.source_browse_status_completed),
         "hiatus" to stringResource(R.string.source_browse_status_hiatus),
-    )
+        "cancelled" to stringResource(R.string.source_browse_status_cancelled),
+    ).filter { it.first == null || source == null || it.first in source.availableStatuses }
+    val demographics = source?.availableDemographics.orEmpty()
+    val comicTypes = source?.availableComicTypes.orEmpty()
+    val createdRanges = source?.availableCreatedRanges.orEmpty()
     val availableSorts = source?.availableSorts
     val sorts = listOf(
         "popular" to stringResource(R.string.source_browse_popular),
@@ -556,73 +606,197 @@ private fun BrowseFilterSheet(
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            Text(stringResource(R.string.source_browse_status_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                statuses.forEach { (value, label) ->
-                    val selected = selectedStatus == value
-                    androidx.compose.material3.FilterChip(
-                        selected = selected,
-                        onClick = { selectedStatus = value },
-                        label = { Text(label, fontSize = 12.sp, color = if (selected) Violet else Color(0xFFB0BEC5)) },
-                        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                            containerColor = Color.Transparent,
-                            selectedContainerColor = Violet.copy(alpha = 0.3f),
-                            selectedLabelColor = Violet,
-                        ),
-                    )
+            // Stav vydávání ukazujeme jen u zdroje, co filtr.status skutečně
+            // aplikuje (server-side) - jinde by chipy nic nedělaly (hlášený
+            // bug: filtry zobrazují možnosti, které zdroj ignoruje).
+            if (source?.supportsStatusFilter == true) {
+                Text(stringResource(R.string.source_browse_status_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    statuses.forEach { (value, label) ->
+                        val selected = selectedStatus == value
+                        androidx.compose.material3.FilterChip(
+                            selected = selected,
+                            onClick = { selectedStatus = value },
+                            label = { Text(label, fontSize = 12.sp, color = if (selected) Violet else Color(0xFFB0BEC5)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                containerColor = Color.Transparent,
+                                selectedContainerColor = Violet.copy(alpha = 0.3f),
+                                selectedLabelColor = Violet,
+                            ),
+                        )
+                    }
                 }
+                Spacer(Modifier.height(16.dp))
             }
 
             if (source?.supportsTagFilter == true) {
-                Spacer(Modifier.height(16.dp))
                 Text(stringResource(R.string.source_browse_tags_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
                 OutlinedButton(
                     onClick = { showTagPicker = true },
                     border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
                 ) {
+                    val total = selectedGenres.size + excludedGenres.size + selectedTags.size + excludedTags.size
                     Text(
-                        if (selectedGenres.isEmpty()) stringResource(R.string.source_browse_tags_none)
-                        else stringResource(R.string.source_browse_tags_selected_count, selectedGenres.size),
+                        // "Žádné" čteno jako "žádné tagy neexistují" - ve skutečnosti
+                        // picker nabízí stovky (hlášený bug). Label tedy říká AKCI.
+                        if (total == 0) stringResource(R.string.source_browse_tags_pick)
+                        else stringResource(R.string.source_browse_tags_selected_count, total),
                         color = Color.White,
                     )
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.source_browse_year_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-            OutlinedTextField(
-                value = yearText,
-                onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) yearText = it },
-                placeholder = { Text(stringResource(R.string.source_browse_year_placeholder), color = Color(0xFFB0BEC5)) },
-                singleLine = true,
-                modifier = Modifier.width(140.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Violet,
-                    unfocusedBorderColor = Color(0xFFB0BEC5).copy(alpha = 0.3f),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    cursorColor = Violet,
-                ),
-            )
+            // Demografická skupina - jen zdroje s availableDemographics (ComicKArt).
+            if (demographics.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_demographic_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    demographics.forEach { tag ->
+                        val selected = tag.id in selectedDemographic
+                        androidx.compose.material3.FilterChip(
+                            selected = selected,
+                            onClick = {
+                                selectedDemographic = if (selected) selectedDemographic - tag.id else selectedDemographic + tag.id
+                            },
+                            label = { Text(tag.label, fontSize = 12.sp, color = if (selected) Violet else Color(0xFFB0BEC5)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                containerColor = Color.Transparent,
+                                selectedContainerColor = Violet.copy(alpha = 0.3f),
+                                selectedLabelColor = Violet,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            // Typ komiksu (země původu) - jen zdroje s availableComicTypes.
+            if (comicTypes.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_type_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    comicTypes.forEach { tag ->
+                        val selected = tag.id in selectedTypes
+                        androidx.compose.material3.FilterChip(
+                            selected = selected,
+                            onClick = {
+                                selectedTypes = if (selected) selectedTypes - tag.id else selectedTypes + tag.id
+                            },
+                            label = { Text(tag.label, fontSize = 12.sp, color = if (selected) Violet else Color(0xFFB0BEC5)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                containerColor = Color.Transparent,
+                                selectedContainerColor = Violet.copy(alpha = 0.3f),
+                                selectedLabelColor = Violet,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            // Minimální počet kapitol - jen zdroje s supportsMinChaptersFilter.
+            if (source?.supportsMinChaptersFilter == true) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_min_chapters_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                OutlinedTextField(
+                    value = minChaptersText,
+                    onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) minChaptersText = it },
+                    placeholder = { Text(stringResource(R.string.source_browse_min_chapters_placeholder), color = Color(0xFFB0BEC5)) },
+                    singleLine = true,
+                    modifier = Modifier.width(140.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Violet,
+                        unfocusedBorderColor = Color(0xFFB0BEC5).copy(alpha = 0.3f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Violet,
+                    ),
+                )
+            }
+
+            // "Přidáno před X dny" - jen zdroje s availableCreatedRanges.
+            if (createdRanges.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_created_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                Box {
+                    OutlinedButton(
+                        onClick = { createdRangeExpanded = true },
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                    ) {
+                        Text(
+                            createdRanges.firstOrNull { it.id.toIntOrNull() == selectedCreatedRange }?.label
+                                ?: stringResource(R.string.common_all),
+                            color = Color.White,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = createdRangeExpanded,
+                        onDismissRequest = { createdRangeExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.common_all)) },
+                            onClick = { selectedCreatedRange = null; createdRangeExpanded = false },
+                        )
+                        createdRanges.forEach { range ->
+                            DropdownMenuItem(
+                                text = { Text(range.label) },
+                                onClick = { selectedCreatedRange = range.id.toIntOrNull(); createdRangeExpanded = false },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (source?.supportsYearFilter == true) {
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.source_browse_year_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                OutlinedTextField(
+                    value = yearText,
+                    onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) yearText = it },
+                    placeholder = { Text(stringResource(R.string.source_browse_year_placeholder), color = Color(0xFFB0BEC5)) },
+                    singleLine = true,
+                    modifier = Modifier.width(140.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Violet,
+                        unfocusedBorderColor = Color(0xFFB0BEC5).copy(alpha = 0.3f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Violet,
+                    ),
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             if (sorts.size > 1) {
                 Text(stringResource(R.string.source_browse_sort_label), color = Color(0xFFB0BEC5), fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-                Box {
-                    OutlinedButton(
-                        onClick = { sortDropdownExpanded = true },
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
-                    ) {
-                        Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box {
+                        OutlinedButton(
+                            onClick = { sortDropdownExpanded = true },
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                        ) {
+                            Text(sorts.firstOrNull { it.first == selectedSort }?.second ?: stringResource(R.string.source_browse_popular), color = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = sortDropdownExpanded,
+                            onDismissRequest = { sortDropdownExpanded = false },
+                        ) {
+                            sorts.forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = { selectedSort = value; sortDropdownExpanded = false },
+                                )
+                            }
+                        }
                     }
-                    DropdownMenu(
-                        expanded = sortDropdownExpanded,
-                        onDismissRequest = { sortDropdownExpanded = false },
-                    ) {
-                        sorts.forEach { (value, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = { selectedSort = value; sortDropdownExpanded = false },
+                    // Směr řazení - jen zdroje s podporou asc/desc (ComicKArt order_direction).
+                    if (source?.supportsSortDirection == true) {
+                        OutlinedButton(
+                            onClick = { sortAscending = !sortAscending },
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Violet.copy(alpha = 0.5f)),
+                        ) {
+                            Text(
+                                if (sortAscending) stringResource(R.string.source_browse_sort_asc)
+                                else stringResource(R.string.source_browse_sort_desc),
+                                color = Color.White,
                             )
                         }
                     }
@@ -648,6 +822,14 @@ private fun BrowseFilterSheet(
                             year = yearText.toIntOrNull(),
                             sortBy = selectedSort,
                             genres = selectedGenres,
+                            excludeGenres = excludedGenres,
+                            tags = selectedTags,
+                            excludeTags = excludedTags,
+                            demographic = selectedDemographic,
+                            comicTypes = selectedTypes,
+                            minChapters = minChaptersText.toIntOrNull(),
+                            createdRangeDays = selectedCreatedRange,
+                            sortAscending = sortAscending,
                         ))
                     },
                     modifier = Modifier.weight(1f),
@@ -663,12 +845,16 @@ private fun BrowseFilterSheet(
         val tagSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         TagPickerSheet(
             source = source,
-            selectedIds = selectedGenres,
+            selectedIds = selectedGenres + selectedTags,
+            excludedIds = excludedGenres + excludedTags,
             knownLabels = selectedTagLabels,
             sheetState = tagSheetState,
             onDismiss = { showTagPicker = false },
-            onApply = { ids, labels ->
-                selectedGenres = ids
+            onApply = { genres, exclGenres, tags, exclTags, labels ->
+                selectedGenres = genres
+                excludedGenres = exclGenres
+                selectedTags = tags
+                excludedTags = exclTags
                 selectedTagLabels = labels
                 showTagPicker = false
             },
@@ -681,15 +867,20 @@ private fun BrowseFilterSheet(
 private fun TagPickerSheet(
     source: MangaSource,
     selectedIds: List<String>,
+    excludedIds: List<String>,
     knownLabels: Map<String, String>,
     sheetState: androidx.compose.material3.SheetState,
     onDismiss: () -> Unit,
-    onApply: (List<String>, Map<String, String>) -> Unit,
+    // (genres, excludeGenres, tags, excludeTags, labels) - split podle FilterTag.kind
+    // dela uz picker (zna allTags); u zdroju bez kindu vse spadne do "genres".
+    onApply: (List<String>, List<String>, List<String>, List<String>, Map<String, String>) -> Unit,
 ) {
     var allTags by remember { mutableStateOf<List<FilterTag>?>(null) }
     var loadFailed by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf(selectedIds.toSet()) }
+    var excluded by remember { mutableStateOf(excludedIds.toSet()) }
+    val canExclude = source.supportsExcludeTags
 
     LaunchedEffect(source.id) {
         try {
@@ -705,6 +896,9 @@ private fun TagPickerSheet(
             if (query.isBlank()) tags else tags.filter { it.label.contains(query, ignoreCase = true) }
         }
     }
+    // Sekce podle kind - zdroje bez kindu dostanou jednu plochou sekci (drivejsi chovani).
+    val genreTags by remember { derivedStateOf { filteredTags.filter { it.kind != "tag" } } }
+    val freeTags by remember { derivedStateOf { filteredTags.filter { it.kind == "tag" } } }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -726,6 +920,13 @@ private fun TagPickerSheet(
                     cursorColor = Violet,
                 ),
             )
+            if (canExclude) {
+                Text(
+                    stringResource(R.string.source_browse_tags_exclude_hint),
+                    color = Color(0xFFB0BEC5), fontSize = 11.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
 
             when {
                 allTags == null && !loadFailed -> {
@@ -741,34 +942,37 @@ private fun TagPickerSheet(
                     )
                 }
                 else -> {
+                    // off -> zahrnout -> vyloucit -> off (vzor webu); bez exclude
+                    // podpory klasicky jen toggle.
+                    fun cycle(id: String) {
+                        when {
+                            !canExclude -> selected = if (id in selected) selected - id else selected + id
+                            id in selected -> { selected -= id; excluded += id }
+                            id in excluded -> excluded -= id
+                            else -> selected += id
+                        }
+                    }
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(filteredTags, key = { it.id }) { tag ->
-                            val isSelected = tag.id in selected
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pointerInput(tag.id) {
-                                        detectTapGestures {
-                                            selected = if (isSelected) selected - tag.id else selected + tag.id
-                                        }
-                                    }
-                                    .padding(vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    tag.label,
-                                    color = if (isSelected) Violet else Color.White,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(3.dp)
-                                            .height(20.dp)
-                                            .background(Violet, RoundedCornerShape(2.dp)),
-                                    )
+                        if (genreTags.isNotEmpty() && freeTags.isNotEmpty()) {
+                            item(key = "hdr_genres") {
+                                Text(stringResource(R.string.source_browse_section_genres),
+                                    color = Color(0xFFB0BEC5), fontSize = 12.sp,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+                            }
+                        }
+                        items(genreTags, key = { "g:${it.id}" }) { tag ->
+                            TagPickerRow(tag, tag.id in selected, tag.id in excluded) { cycle(tag.id) }
+                        }
+                        if (freeTags.isNotEmpty()) {
+                            if (genreTags.isNotEmpty()) {
+                                item(key = "hdr_tags") {
+                                    Text(stringResource(R.string.source_browse_section_tags),
+                                        color = Color(0xFFB0BEC5), fontSize = 12.sp,
+                                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                                 }
+                            }
+                            items(freeTags, key = { "t:${it.id}" }) { tag ->
+                                TagPickerRow(tag, tag.id in selected, tag.id in excluded) { cycle(tag.id) }
                             }
                         }
                     }
@@ -781,7 +985,7 @@ private fun TagPickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedButton(
-                    onClick = { selected = emptySet() },
+                    onClick = { selected = emptySet(); excluded = emptySet() },
                     modifier = Modifier.weight(1f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB0BEC5).copy(alpha = 0.4f)),
                 ) {
@@ -789,8 +993,16 @@ private fun TagPickerSheet(
                 }
                 Button(
                     onClick = {
+                        val byId = allTags.orEmpty().associateBy { it.id }
+                        fun isTag(id: String) = byId[id]?.kind == "tag"
                         val labels = (allTags.orEmpty().associate { it.id to it.label }) + knownLabels
-                        onApply(selected.toList(), labels.filterKeys { it in selected })
+                        onApply(
+                            selected.filter { !isTag(it) },
+                            excluded.filter { !isTag(it) },
+                            selected.filter { isTag(it) },
+                            excluded.filter { isTag(it) },
+                            labels.filterKeys { it in selected || it in excluded },
+                        )
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Violet),
@@ -798,6 +1010,43 @@ private fun TagPickerSheet(
                     Text(stringResource(R.string.source_browse_apply))
                 }
             }
+        }
+    }
+}
+
+/** Jeden radek tag pickeru - zahrnuty (fialove) / vylouceny (cervene) / neutralni. */
+@Composable
+private fun TagPickerRow(
+    tag: FilterTag,
+    isSelected: Boolean,
+    isExcluded: Boolean,
+    onTap: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(tag.id) { detectTapGestures { onTap() } }
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            tag.label,
+            color = when {
+                isSelected -> Violet
+                isExcluded -> Color(0xFFFF5252)
+                else -> Color.White
+            },
+            fontWeight = if (isSelected || isExcluded) FontWeight.Bold else FontWeight.Normal,
+            textDecoration = if (isExcluded) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+            modifier = Modifier.weight(1f),
+        )
+        if (isSelected || isExcluded) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(20.dp)
+                    .background(if (isSelected) Violet else Color(0xFFFF5252), RoundedCornerShape(2.dp)),
+            )
         }
     }
 }

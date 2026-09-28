@@ -43,6 +43,7 @@ import javax.inject.Singleton
 class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
     override val id = "astratoons"
     override val name = "AstraToons"
+    override val language = "pt" // pt-BR web (overeno zive - html lang="pt-BR")
     override val supportsSortOrder: Boolean get() = false
     override val homepageUrl get() = base
     private val base = "https://astratoons.com"
@@ -89,8 +90,8 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (filter.genres.isNotEmpty() || filter.status != null) {
+            return@withContext try { parseComicsPageJson(get(comicsFilteredUrl(filter.genres, filter.status, filter.sortBy, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {
             parseListing(get("$base/api/comics?page=$page"))
@@ -98,8 +99,8 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try { parseComicsPageJson(get(genreFilteredUrl(filter.genres, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (filter.genres.isNotEmpty() || filter.status != null) {
+            return@withContext try { parseComicsPageJson(get(comicsFilteredUrl(filter.genres, filter.status, filter.sortBy, page))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
@@ -164,6 +165,24 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
         val arr = JSONArray(decoded)
         return (0 until arr.length()).mapNotNull { itemToSManga(arr.getJSONObject(it)) }
     }
+
+    // Server-rendered /comics stranka pre-filtruje embedovany "comics:" JSON i
+    // podle status= a sortBy= (overeno zive: ?status=completo→12 titulu,
+    // ?tags[]=acao&status=completo→11 kombinovanych). Status slugy jsou
+    // portugalske termy webu z dropdown filtru.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+
+    private fun comicsFilteredUrl(genres: List<String>, status: String?, sortBy: String, page: Int): String =
+        buildString {
+            append("$base/comics?")
+            genres.forEach { append("tags%5B%5D=").append(URLEncoder.encode(it, "UTF-8")).append('&') }
+            STATUS_SLUGS[status]?.let { append("status=").append(URLEncoder.encode(it, "UTF-8")).append('&') }
+            SORT_VALUES[sortBy]?.let { append("sortBy=").append(it).append('&') }
+            append("page=").append(page)
+        }
 
     private fun genreFilteredUrl(genres: List<String>, page: Int): String {
         val params = genres.joinToString("&") { "tags%5B%5D=" + URLEncoder.encode(it, "UTF-8") }
@@ -242,5 +261,22 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
                 Page(i, abs, abs)
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    private companion object {
+        // Portugalske slugy status= z dropdown filtru /comics (web je pt-BR;
+        // "em andamento" = probiha, "em dia" zustava mimo - nejblizsi semantika).
+        val STATUS_SLUGS = mapOf(
+            "ongoing" to "em andamento",
+            "completed" to "completo",
+            "hiatus" to "hiato",
+            "cancelled" to "cancelado",
+        )
+
+        // sortBy hodnoty dropdown filtru /comics (updated_at je vychozi webove razeni).
+        val SORT_VALUES = mapOf(
+            "latest" to "updated_at",
+            "title" to "title",
+        )
     }
 }

@@ -18,6 +18,10 @@ class DomainOverrides @Inject constructor() {
     @Volatile
     var hostMap: Map<String, String> = emptyMap()
 
+    // Posledni instance pro ciste funkce mimo DI graf (validace hostu ve zdrojich -
+    // isSourceHost nema pristup k injectovanemu singletonu). Hilt drzi jedinou instanci.
+    init { shared = this }
+
     fun resolve(host: String): String? {
         val map = hostMap
         if (map.isEmpty()) return null
@@ -25,6 +29,8 @@ class DomainOverrides @Inject constructor() {
     }
 
     companion object {
+        @Volatile internal var shared: DomainOverrides? = null
+
         private val HOST_REGEX = Regex("""^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$""")
 
         fun canonicalHost(host: String): String = host.trim().lowercase().removePrefix("www.")

@@ -102,4 +102,39 @@ class MangaDaoTest {
         assertEquals("READING", dao.getById("m1")!!.readingStatus)
         assertEquals("COMPLETED", dao.getById("m2")!!.readingStatus)
     }
+
+    @Test
+    fun `continue reading item exposes last chapter progress for the percent badge`() = runTest {
+        dao.upsert(manga("m1").copy(lastReadChapterId = "ch-1", lastReadAt = 5L))
+        db.chapterDao().insertNewOnly(listOf(
+            com.haise.jiyu.data.db.entity.ChapterEntity(
+                id = "ch-1", mangaId = "m1", sourceId = "comick", url = "u",
+                name = "Ch 12", chapterNumber = 12f, dateUpload = 0L,
+                read = false, lastPageRead = 7, verifiedPageCount = 30,
+            ),
+        ))
+
+        val item = dao.getContinueReadingForManga("m1")!!
+        assertEquals(12f, item.lastChapterNumber)
+        assertEquals(false, item.lastChapterRead)
+        assertEquals(7, item.lastPageRead)
+        // verifiedPageCount má přednost před download pageCount.
+        assertEquals(30, item.lastPageCount)
+    }
+
+    @Test
+    fun `continue reading item falls back to download pageCount when not verified`() = runTest {
+        dao.upsert(manga("m1").copy(lastReadChapterId = "ch-1", lastReadAt = 5L))
+        db.chapterDao().insertNewOnly(listOf(
+            com.haise.jiyu.data.db.entity.ChapterEntity(
+                id = "ch-1", mangaId = "m1", sourceId = "mangadex", url = "u",
+                name = "Ch 3", chapterNumber = 3f, dateUpload = 0L,
+                read = true, lastPageRead = 0, pageCount = 20,
+            ),
+        ))
+
+        val item = dao.getContinueReadingForManga("m1")!!
+        assertEquals(true, item.lastChapterRead)
+        assertEquals(20, item.lastPageCount)
+    }
 }

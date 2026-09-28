@@ -1,5 +1,9 @@
 package com.haise.jiyu.ui.reader
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -10,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +37,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * Novel čtečka s efektem ohýbané stránky ("page curl") - propojuje paginaci (Task 2), stav
@@ -92,6 +100,14 @@ fun PageCurlNovelReader(
         // `Cancelled` bez ohledu na skutecny tah - otaceni tahem by bylo kompletne
         // nefunkcni (tap zony/onEdgeTap by dal fungovaly, protoze nejdou pres tohle).
         var rawDragProgress by remember(text) { mutableStateOf(0f) }
+
+        // Dojeti ohybu po pusteni prstu / po tapu - ekvivalent `AnimateCounter` z originalniho
+        // PlayLikeCurl dema (~300 ms; dokonceni = LinearOutSlowInEasing, zruseni =
+        // FastOutSlowInEasing). Animuje se jen `dragProgress`, `applyTurnResult` az na konci -
+        // viz stejny blok v `MangaPageCurlReader`. Jen pro ROLL styl.
+        val coroutineScope = rememberCoroutineScope()
+        var settleJob by remember(text) { mutableStateOf<Job?>(null) }
+        DisposableEffect(text) { onDispose { settleJob?.cancel() } }
 
         val currentPageIndex = findPageIndexForOffset(pages, readingOffset)
         val currentPage = pages[currentPageIndex.coerceIn(pages.indices)]
@@ -193,6 +209,40 @@ fun PageCurlNovelReader(
             }
         }
 
+        /**
+         * Pro [CurlStyle.ROLL] nejdriv doanimuje ohyb do cile (dokonceny obrat -> `+-1f`,
+         * zruseny -> `0f`) a TEPRVE pak zavola [applyTurnResult] - poradi z originalniho dema,
+         * kde animace dobehne a az na jejim konci se prohodi bitmapy stranek. Pro CLASSIC a na
+         * hranici kapitoly (zadny ohyb se nekresli) zustava okamzite `applyTurnResult`.
+         */
+        fun settleAndApply(result: PageTurnResult) {
+            val target = when (result) {
+                is PageTurnResult.WithinChapter ->
+                    if (result.newState.currentPageIndex > currentPageIndex) 1f else -1f
+                is PageTurnResult.Cancelled -> 0f
+                is PageTurnResult.ChapterBoundary -> {
+                    applyTurnResult(result)
+                    return
+                }
+            }
+            if (resolvedCurlStyle != CurlStyle.ROLL) {
+                applyTurnResult(result)
+                return
+            }
+            settleJob?.cancel()
+            settleJob = coroutineScope.launch {
+                animate(
+                    initialValue = dragProgress,
+                    targetValue = target,
+                    animationSpec = tween(
+                        durationMillis = 300,
+                        easing = if (target == 0f) FastOutSlowInEasing else LinearOutSlowInEasing,
+                    ),
+                ) { value, _ -> dragProgress = value }
+                applyTurnResult(result)
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -206,6 +256,8 @@ fun PageCurlNovelReader(
                     detectDragGestures(
                         onDrag = { change, dragAmount ->
                             change.consume()
+                            // Preruseni beziciho dojeti (settle) - tah zase ridi primo prstem.
+                            settleJob?.cancel()
                             // Živě sestrojeno z aktuálních hodnot `readingOffset`/`dragProgress`
                             // při KAŽDÉM volání (ne z jednou zachyceného `val` z předchozí
                             // kompozice) - stejný princip jako předtím `var curlState by
@@ -236,12 +288,13 @@ fun PageCurlNovelReader(
                                 dragProgress = dragProgress,
                                 rawDragProgress = rawDragProgress,
                             )
-                            applyTurnResult(liveState.onDragEnd())
+                            settleAndApply(liveState.onDragEnd())
                         },
                         onDragCancel = {
                             // Fix Important 5 - kdyz je gesture node zrusen uprostred tahu
                             // (napr. system gesto/jiny gesture-node prevezme ukazatel), curl
                             // by jinak zustal trvale "zamrzly" na posledni hodnote dragProgress.
+                            settleJob?.cancel()
                             dragProgress = 0f
                             rawDragProgress = 0f
                         },
@@ -262,19 +315,21 @@ fun PageCurlNovelReader(
                                     dragProgress = dragProgress,
                                     rawDragProgress = rawDragProgress,
                                 )
-                                applyTurnResult(liveState.onEdgeTap(it))
+                                settleAndApply(liveState.onEdgeTap(it))
                             }
                         },
                     )
                 },
         ) {
             val bitmap = currentBitmap
-            if (bitmap != null && dragProgress != 0f) {
-                if (resolvedCurlStyle == CurlStyle.ROLL) {
-                    // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Novel čtečka
-                    // drží jen jednu "revealedBitmap" vrstvu (ne trvale next+prev jako manga),
-                    // takže se posílá jako next/prev podle směru - druhá zůstane null (v tom
-                    // směru je stejně skrytá za neprůhlednou aktivní/statickou stránkou).
+            if (resolvedCurlStyle == CurlStyle.ROLL) {
+                // Port karacken.curl (OpenGL) knihovny - viz GLPageCurlView. Novel čtečka
+                // drží jen jednu "revealedBitmap" vrstvu (ne trvale next+prev jako manga),
+                // takže se posílá jako next/prev podle směru - druhá zůstane null (v tom
+                // směru je stejně skrytá za neprůhlednou aktivní/statickou stránkou).
+                // Surface je mountnuty PERMANENTNE - viz stejny komentar v MangaPageCurlReader
+                // (mount az pri tahu = EGL init 200-500ms spapala celou animaci).
+                if (bitmap != null) {
                     com.haise.jiyu.ui.reader.glcurl.GLPageCurlView(
                         currentBitmap = bitmap,
                         prevBitmap = if (dragProgress < 0f) revealedBitmap else null,
@@ -283,20 +338,16 @@ fun PageCurlNovelReader(
                         progress = kotlin.math.abs(dragProgress),
                         modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val geometry = computePageCurlGeometry(
-                            pageWidth = widthPx, pageHeight = heightPx,
-                            turningFromRight = dragProgress > 0f,
-                            progress = kotlin.math.abs(dragProgress),
-                            style = resolvedCurlStyle,
-                        )
-                        if (resolvedCurlStyle == CurlStyle.WAVE) {
-                            drawWaveCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
-                        } else {
-                            drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
-                        }
-                    }
+                }
+            } else if (bitmap != null && dragProgress != 0f) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val geometry = computePageCurlGeometry(
+                        pageWidth = widthPx, pageHeight = heightPx,
+                        turningFromRight = dragProgress > 0f,
+                        progress = kotlin.math.abs(dragProgress),
+                        style = resolvedCurlStyle,
+                    )
+                    drawPageCurl(geometry = geometry, currentPageBitmap = bitmap, revealedPageBitmap = revealedBitmap)
                 }
             }
         }

@@ -17,7 +17,9 @@ portfolio/vzdělávací projekt, ne pro komerční distribuci ani veřejné publ
    jede přímo v appce přes `MangaSource` rozhraní.
 5. **Offline stahování je klíčová funkce**, ne nice-to-have. Kapitoly se
    stahují na pozadí (WorkManager) a čtou se i bez internetu.
-6. Cílová platforma: nativní Kotlin/Compose, minSdk 26. Žádný Flutter/RN switch.
+6. Cílová platforma: nativní Kotlin/Compose, minSdk 33 (AGSL `RuntimeShader`
+   v `UpdateProgressOverlay` na nižších API neexistuje — dřívě zdokumentovaných 26
+   je zastaralé). Žádný Flutter/RN switch.
 
 ## Architektura (už postavená, drž se tohoto vzoru)
 

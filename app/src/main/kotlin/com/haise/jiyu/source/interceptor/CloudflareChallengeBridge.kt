@@ -1,7 +1,10 @@
 package com.haise.jiyu.source.interceptor
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -52,6 +55,13 @@ internal object CloudflareChallengeBridge {
      */
     val hasUi: Boolean get() = _pending.subscriptionCount.value > 0
 
+    /**
+     * `true`, když UI výzvy právě sbírá (appka v popředí s [CloudflareChallengeHost]). Proaktivní warm-up
+     * (viz CloudflareWarmup) na tom poslouchá - když tichý detached pokus na Turnstile hostu selhal, jakmile
+     * se UI objeví, doběhne přes neviditelný auto-tap WebView.
+     */
+    val uiActive: Flow<Boolean> = _pending.subscriptionCount.map { it > 0 }.distinctUntilChanged()
+
     /** Vola se z pozadoveho vlakna interceptoru. Blokuje volajici vlakno - VLASTNIM latchem. */
     fun awaitUserSolve(
         url: String,
@@ -75,10 +85,15 @@ internal object CloudflareChallengeBridge {
         return state.result
     }
 
-    /** Vola se z UI vlakna, kdyz WebView najde cf_clearance nebo uzivatel dialog zavre (cookies = null). */
-    fun resolve(cookies: String?) {
-        val current = _pending.value ?: return
-        hostStates[current.id]?.let {
+    /**
+     * Vola se z UI vlakna, kdyz WebView pro KONKRETNI vyzvu najde cf_clearance nebo ji vzda
+     * (cookies = null). Ciluje na [challengeId], ne na "_pending" - WebView zustava postavat
+     * zpozdene runnable i po timeoutu vyzvy, a bez id by cookies stare vyzvy dopadly do
+     * stavu NOVE vyzvy na jinem hostu (clearance by se zapsal spatnemu zdroji - audit).
+     * Vyzva, jejiz stav uz je po timeoutu/cancelu pryc, se proste ignoruje.
+     */
+    fun resolve(challengeId: String, cookies: String?) {
+        hostStates[challengeId]?.let {
             it.result = cookies
             it.latch.countDown()
         }

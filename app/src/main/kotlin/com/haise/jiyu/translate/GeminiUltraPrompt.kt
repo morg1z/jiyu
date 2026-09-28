@@ -34,6 +34,27 @@ object GeminiUltraPrompt {
     const val UNTRANSLATED_MARKER = "[UNTRANSLATED]"
 
     /**
+     * Zárodečný glosář pro překlad do češtiny - strukturální/ediční termíny, které se
+     * opakují v každém díle a model je přesto občas překládá špatně (audit Vagabondu:
+     * "Volume" -> "Hlasitost" místo "Svazek"). Slučuje se pod per-manga glosář v
+     * [TranslateRepository.glossaryFor] - uložený/vlastní záznam má přednost.
+     *
+     * Schválně jen termíny, kde je komiksový význam prakticky jednoznačný - běžné
+     * slovní zásobě sem nic nedělá (prompt říká, že glosář platí pro pojmy a smysl
+     * věty má vždy přednost).
+     */
+    val DEFAULT_CS_GLOSSARY: Map<String, String> = linkedMapOf(
+        "Volume" to "Svazek",
+        "Chapter" to "Kapitola",
+        "Prologue" to "Prolog",
+        "Epilogue" to "Epilog",
+        "Afterword" to "Doslov",
+        "Omake" to "Omake",
+        "Side Story" to "Vedlejší příběh",
+        "Part" to "Část",
+    )
+
+    /**
      * Pravidla plynoucí z toho, ODKUD dílo pochází - podle `MangaEntity.contentType`.
      *
      * Typ díla se modelu posílal už dřív, ale jen jako nálepka v závorce ("Solo Leveling"
@@ -212,6 +233,25 @@ object GeminiUltraPrompt {
               "podívej se na to" -> "podívej" | "všechno je v pořádku" -> "vše OK"
               "počkej chvíli" -> "počkej" | "kam jdeš?" -> "kam?"
 
+            === ČESKÁ MORFOLOGIE (pády, diakritika, tvary) ===
+            - VOKATIV (5. pád) při přímém oslovení - oslovení se v češtině skloňuje:
+              "you little bastard" -> "ty malý bastarde" (NE "vy malého bastarda"),
+              "old man!" -> "starče!"/"vetchý!" | "hey, kid" -> "hej, kluku"
+            - GENITIVNÍ SLOVOSKLAD - vazba "X Y" se do češtiny překládá buď genitivem
+              bez předložky, nebo předložkově, podle toho, co zní přirozeně:
+              "hunters of runaways" -> "lovci uprchlíků" (NE "uprchlíci lovci")
+            - Ediční termíny: "Volume" (číslovaný díl série) -> "Svazek", NIKDY
+              "Hlasitost"; "Chapter" -> "Kapitola"; "Prologue"/"Epilogue" -> "Prolog"/"Epilog".
+            - DIAKRITIKA JE POVINNÁ I VE VERZÁLKÁCH - český majuskulní text si háčky
+              a čárky drží: "MUSĚLI", "TĚŽKO", "BASTARDE". Velké písmeno není důvod
+              diakritiku zahodit (vzniká tím ne-české slovo typu "MUSELI").
+            - Rozkazovací způsob a slovesné tvary drž přirozeně: "let's go" -> "pojďme"
+              (NE "pojďme jít"), "let's eat" -> "jezme"/"jdeme jíst" podle situace.
+            - JMÉNA S MAKRONEM drž konzistentně v celé dávce - když se stejné jméno
+              objeví jednou jako "Takezō" a jinde jako "Takezo" (OCR makron občas
+              ztratí), použij všude jeden přepis, ideálně ten s makronem: "TAKEZŌ"
+              i tam, kde OCR napsalo "TAKEZO".
+
             === ČESKÁ TYPOGRAFIE (interpunkce) ===
             Čeština (na rozdíl třeba od francouzštiny) NIKDY nedává mezeru před "?", "!", ":"
             ani ";" - vždycky přímo za poslední písmeno:
@@ -284,6 +324,49 @@ object GeminiUltraPrompt {
             ("k Frodovi") místo násilné koncovky - ale nevynechávej skloňování úplně, jméno pořád
             v 1. pádě uprostřed věty, kde gramaticky nepatří, zní v češtině nepřirozeně.
 
+            Jméno s diakritikou nebo makronem (Takezō, Otsū, Sakushū) je VŽDY jméno - nikdy ho nepřeložíš
+            jako běžné slovo (žádné "Takezō" -> "těžko", "Otsū" -> "otesa"); přepiš ho beze změny a
+            skloňuj. Hodnost/oslovení před jménem nech smysluplně česky ("Take care of Otsū" -> "Postarej
+            se o Otsū").
+
+            === CHYBY OCR VE VSTUPU ===
+            Text bublin vznikl OCR a může mít zjevné překlepy ("SIRVIVOR" = "SURVIVOR", "FOGET" =
+            "FORGET", "IM" = "I'M", "LIR" = "UR", zlomené "VIL- LAGE" = "VILLAGE"), číslice a symboly
+            místo písmen ve verzálkách ("MAKE6" = "MAKES", "6UPERMAX" = "SUPERMAX", "K.0." = "K.O."),
+            jedno malé písmeno vsunuté do verzálky ("LIMlTS" = "LIMITS", "GENETIc6" = "GENETICS")
+            nebo přilepený znak z okolní sazby ("MLURDER" = "MURDER", "Dn SALE" = "ON SALE").
+            Oprav je podle kontextu a přelož ZAMÝŠLENÝ smysl - nepřekládej překlep doslova a nenechávej
+            ho v odpovědi anglicky. Vlastní jména (postavy, místa, tituly sérií), která vypadají
+            nezvykle, ale jako jména smysl dávají, nech tak, jak jsou. Pole "original" ale vrať
+            PŘESNĚ tak, jak ti přišlo (i s překlepem, neopravuj ho) - appka podle něj ověřuje,
+            že odpovídáš na správnou bublinu.
+
+            === OSOBA A ČAS (výhrůžky, rozkazy, sliby) ===
+            Věty s "I'm gonna / I'll / I will" jsou budoucí čas 1. osoby, ne rozkaz: "I'm gonna kill you"
+            -> "Zabiju tě" (NE "Zabij tě"). Zájmeno, které v češtině chybí (pro-drop), doplň jen když je
+            nutné pro srozumitelnost. Když ti věta při překladu přijde zkomolená, přelož ji znovu jako
+            celek a ověř osobu, číslo, čas a rod, než ji vrátíš.
+
+            === NEJČASTĚJŠÍ CHYBY Z AUDITU (hlídej se jich) ===
+            - ČAS a OSOBU originálu nikdy neměň: "we're fugitives" -> "jsme uprchlíci" (NE "byli
+              jsme"), "we're still alive" -> "jsme stále naživu", "I want you to X" -> "chci, abys X"
+              (podmět se nemění na "chcete, abyste").
+            - Mezi kamarády/rodinou/vrstevníky VŽDY tykání ("jsi", "můžeš", "udělal jsi") - vykání
+              ("jste", "můžete") jen při zjevně formální situaci.
+            - Slovo rozdělené pomlčkou na konci řádku je JEDNO slovo ("MUSH-ROOM" = "mushroom" =
+              houba, NIKDY "room"->"místnost" uvnitř názvu; "RELENT-LESSLY" = "neodbytně").
+            - Ediční/vojenské termíny podle významu: "general" (voják) -> "generál" (NE "obecný"),
+              "machete" -> "mačeta" (NE "mačka"), "to make a name for myself" -> "proslavit se".
+            - Každá věta překladu MUSÍ mít sloveso - torzo "odvažuješ se mě..." bez slovesa je chyba.
+            - Věk se říká 3. pádem: "more than 30" -> "je ti víc než třicet" (NE "jsi více než 30").
+            - "too" na konci věty -> "taky/také" (NE "příliš"); "give me a break" -> "neblázni/přestaň".
+            - Interpunkci na konci repliky zachovej - "otázka" bez "?" je chyba; dvě tečky ".." piš
+              jako "…".
+            - Doplň vokativ: "you jerk" -> "ty blbe/idiote", "mother!" -> "matko!", "you little
+              bastard" -> "ty malý bastarde/parchante".
+            - Pořadí slov ve jménech neměň (Shinmen Takezō není Takezō Shinmen); apostrofy
+              romanizace drž ("HON'IDEN", ne "HONIDEN"); makron drž jednotně (SAKUSHŪ vždy sakushū).
+
             === GLOSÁŘ POJMŮ ===
             Platí VÝHRADNĚ na jména postav, míst, organizací a pojmenovaných technik. Běžná
             slova překládej podle kontextu, i kdyby se v glosáři náhodou objevila - glosář se
@@ -316,7 +399,8 @@ object GeminiUltraPrompt {
             === VULGARISMY ===
             Odpovídej intenzitě originálu, necenzuruj, pokud není cenzurovaný i zdroj:
             "Damn"->"Sakra/Do háje" "Crap"->"Sračka/Do prdele" "Fuck"->"Do prdele/Kurva"
-            "Bastard"->"Hajzl/Kretén" "Idiot"->"Idiot/Blbeček"
+            "Bastard"->"Hajzl/Kretén" "Idiot"->"Idiot/Blbeček" "Jerk"->"Blbec/Vůl" (NE "škubnutí")
+            "You little bastard!" -> "Ty malý parchante!" (oslovení v 1. pádě, ne "Vy malého bastarda")
 
             === CHYBY ===
             "$UNTRANSLATED_MARKER" vracej JEN u textu, který se nedá PŘEČÍST - zkomolené OCR,
@@ -519,6 +603,57 @@ object GeminiUltraPrompt {
         }
 
         return GeminiTranslationResponse(bubbles, newTerms)
+    }
+
+    /**
+     * Záchrana useknuté odpovědi: model narazil na output limit a JSON se utnul
+     * uprostřed pole "bubbles" - v praxi logcat hlásil "Unterminated object" a celá
+     * dávka se zahodila, přestože prefix obsahoval kompletní validní objekty
+     * (v auditované kapitole tak zůstalo ~40 % bublin anglicky).
+     *
+     * Vrací překlady pouze z CELÝCH objektů před bodem uříznutí - chybějící "id"
+     * na ocasku doplní [TranslateRepository] opravným dotazem/gap-fillem, takže
+     * se zachrání přesně to, co se doopravdy vrátilo, a nic se neposune.
+     *
+     * Návrat: null když se nezachrání ani jedna celá bublina - volající pak běží
+     * klasickou cestou selhání dávky (další provider).
+     */
+    fun parseTruncatedResponse(rawText: String): GeminiTranslationResponse? {
+        val arrKey = rawText.indexOf("\"bubbles\"")
+        if (arrKey < 0) return null
+        val bracket = rawText.indexOf('[', arrKey)
+        if (bracket < 0) return null
+
+        // Projdeme pole a zapamatujeme konec posledního top-level objektu.
+        // Hloubka počítá jen složené závorky - '['/']' uvnitř objektu se schématem
+        // nevyskytuje; uvozovky a escape sekvence (uvnitr nich muze byt '{' '}' '"')
+        // preskocime, aby content stringu nemotal pocitani.
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var lastObjectEnd = -1
+        for (i in bracket + 1 until rawText.length) {
+            val c = rawText[i]
+            if (escaped) { escaped = false; continue }
+            if (inString) {
+                if (c == '\\') escaped = true else if (c == '"') inString = false
+                continue
+            }
+            when (c) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> if (--depth == 0) lastObjectEnd = i + 1
+                ']' -> if (depth == 0) break // pole se uzavřelo - vůbec useknuté nebylo
+            }
+        }
+        if (lastObjectEnd < 0) return null
+
+        // Useknuté tělo za posledním celým objektem zahodíme, uzavřeme pole i root
+        // a necháme standardní parser. Více použití než jen "useknutý JSON": pokud
+        // za posledním objektem leží rozbitý ocásek (model začal další objekt a
+        // nedokončil ho), trimEnd+odstranění čárky ho čistě odsekne.
+        val prefix = rawText.substring(0, lastObjectEnd).trimEnd().trimEnd(',')
+        return runCatching { parseResponse("$prefix]}") }.getOrNull()
     }
 
     /**

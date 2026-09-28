@@ -59,11 +59,40 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         }
     }
 
+    // /search/data prijima included_status= (Ongoing|Complete|Hiatus|Canceled),
+    // included_type= (Manga|Manhua|Manhwa|OEL), order=Ascending|Descending a sort=
+    // (Best Match|Alphabet|Popularity|Recently Added|Subscribers|Latest Updates) -
+    // vsechny overene zive (kazdy meni sadu vysledku).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "Manga", label = "Manga"),
+        FilterTag(id = "Manhwa", label = "Manhwa"),
+        FilterTag(id = "Manhua", label = "Manhua"),
+        FilterTag(id = "OEL", label = "OEL"),
+    )
+    override val supportsSortDirection: Boolean get() = true
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+
+    private val statusValues = mapOf(
+        "ongoing" to "Ongoing", "completed" to "Complete",
+        "hiatus" to "Hiatus", "cancelled" to "Canceled",
+    )
+    private val siteTypes = setOf("Manga", "Manhua", "Manhwa", "OEL")
+    private val sortValues = mapOf(
+        "popular" to "Popularity", "latest" to "Latest Updates", "title" to "Alphabet",
+    )
+
     private fun searchData(query: String, page: Int, sort: String, filter: MangaFilter): String {
         val q = URLEncoder.encode(query, "UTF-8")
         val s = URLEncoder.encode(sort, "UTF-8")
+        val order = if (filter.sortAscending) "Ascending" else "Descending"
         val tags = filter.genres.joinToString("") { "&included_tag=${URLEncoder.encode(it, "UTF-8")}" }
-        return "$base/search/data?sort=$s&order=Descending&official=Any&anime=Any&adult=Any&text=$q&page=$page&display_mode=Full%20Display$tags"
+        val status = statusValues[filter.status]?.let { "&included_status=$it" }.orEmpty()
+        val type = filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }
+            ?.let { "&included_type=$it" }.orEmpty()
+        return "$base/search/data?sort=$s&order=$order&official=Any&anime=Any&adult=Any&text=$q&page=$page&display_mode=Full%20Display$tags$status$type"
     }
 
     // /search stranka (Advanced Search) obsahuje statickou sadu checkboxu "Tags" -
@@ -91,12 +120,16 @@ class WeebCentralSource @Inject constructor(private val client: OkHttpClient) : 
         // "Latest Updates" overeno zive - vraci jiny (a spravny) poradek nez "Popularity".
         // Pozor: "Latest" samotne (bez "Updates") vraci 307 presmerovani na chybovou
         // stranku - API prijima jen presne tenhle text.
-        val sort = if (filter.sortBy == "latest") "Latest Updates" else "Popularity"
+        val sort = sortValues[filter.sortBy] ?: "Popularity"
+        // "/search/data" parametr "page" ignoruje - vraci identicky listing
+        // (audit DUP, overeno zive); HTMX "load more" pouziva jiny mechanismus.
+        if (page > 1) return@withContext emptyList()
         try { parseList(get(searchData("", page, sort, filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext getPopular(page, filter)
+        if (page > 1) return@withContext emptyList()
         try { parseList(get(searchData(query, page, "Best Match", filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

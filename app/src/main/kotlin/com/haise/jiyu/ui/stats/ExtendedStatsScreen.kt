@@ -7,7 +7,6 @@ import compose.icons.tablericons.*
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,29 +45,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.haise.jiyu.R
-import com.haise.jiyu.ui.theme.GlowCyan
-import com.haise.jiyu.ui.theme.GlowViolet
+import com.haise.jiyu.ui.theme.CardBorder
 import com.haise.jiyu.ui.theme.NightBlue
+import com.haise.jiyu.ui.theme.TextMuted
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.Violet
 import com.haise.jiyu.ui.theme.glassGradient
 import com.haise.jiyu.ui.theme.screenGradient
 import com.haise.jiyu.ui.theme.titleGradient
+import com.haise.jiyu.util.relativeTimeLabel
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.util.Date
+import java.util.Locale
+
+/** Jeden řádek breakdownu ve statistikách - popisek, počet, barva tečky/segmentu. */
+private data class BreakdownItem(val label: String, val count: Int, val color: Color)
 
 @Composable
 fun ExtendedStatsScreen(
@@ -140,26 +145,78 @@ fun ExtendedStatsScreen(
             }
         }
 
+        val typeItems = breakdownItems(
+            stats.typeBreakdown,
+            listOf(
+                "MANGA"   to (stringResource(R.string.stats_type_manga) to Color(0xFF6B7280)),
+                "MANHWA"  to (stringResource(R.string.stats_type_manhwa) to Color(0xFF3B82F6)),
+                "MANHUA"  to (stringResource(R.string.stats_type_manhua) to Color(0xFFD4A017)),
+                "NOVEL"   to (stringResource(R.string.stats_type_novel) to Color(0xFFEF4444)),
+                "OTHER"   to (stringResource(R.string.stats_type_other) to TextMuted),
+            ),
+        )
+        val statusItems = breakdownItems(
+            stats.statusBreakdown,
+            listOf(
+                "READING"      to (stringResource(R.string.stats_status_reading) to Violet),
+                "COMPLETED"    to (stringResource(R.string.stats_status_completed) to Color(0xFF34D399)),
+                "ON_HOLD"      to (stringResource(R.string.stats_status_on_hold) to Color(0xFFF59E0B)),
+                "DROPPED"      to (stringResource(R.string.stats_status_dropped) to Color(0xFFEF4444)),
+                "PLAN_TO_READ" to (stringResource(R.string.stats_status_plan_to_read) to Color(0xFF60A5FA)),
+                "UNSET"        to (stringResource(R.string.stats_status_unset) to TextMuted),
+            ),
+        )
+
         LazyColumn(
             modifier = Modifier.fillMaxSize().navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatCard(icon = TablerIcons.Book, label = stringResource(R.string.stats_chapters_label), value = "${stats.chaptersRead}", modifier = Modifier.weight(1f))
-                        StatCard(icon = TablerIcons.FileText, label = stringResource(R.string.stats_pages_label), value = "${stats.pagesRead}", modifier = Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatCard(icon = TablerIcons.Clock, label = stringResource(R.string.stats_reading_time_label), value = formatTime(stats.readingTimeMs), modifier = Modifier.weight(1f))
-                        StatCard(icon = TablerIcons.Flame, label = stringResource(R.string.stats_streak_label), value = "${stats.readingStreak}", modifier = Modifier.weight(1f))
+            // ── Souhrn - dva sloupce s vertikálním skládaným pruhem + legendou,
+            // styl souhrnu účtu na ComicK (typ obsahu | stav čtení). ──────────
+            if (typeItems.isNotEmpty() || statusItems.isNotEmpty()) {
+                item {
+                    SectionHeader(title = stringResource(R.string.stats_summary_title), modifier = Modifier.padding(horizontal = 16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(glassGradient)
+                            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                    ) {
+                        BreakdownColumn(items = typeItems, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(16.dp))
+                        BreakdownColumn(items = statusItems, modifier = Modifier.weight(1f))
                     }
                 }
             }
 
+            // ── Celkové součty - prostý seznam "popisek: hodnota" jako na ComicK. ──
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    TotalRow(R.string.stats_total_titles, formatCount(stats.totalInLibrary.toLong()))
+                    TotalRow(R.string.stats_total_chapters, formatCount(stats.totalChaptersInLibrary.toLong()))
+                    TotalRow(R.string.stats_total_read_chapters, formatCount(stats.chaptersRead.toLong()))
+                    TotalRow(R.string.stats_total_pages, formatCount(stats.pagesRead))
+                    TotalRow(R.string.stats_total_rated, formatCount(stats.ratedCount.toLong()))
+                    TotalRow(R.string.stats_reading_time_label, formatTime(stats.readingTimeMs))
+                    TotalRow(R.string.stats_streak_label, formatCount(stats.readingStreak.toLong()))
+                    if (stats.lastReadAt > 0L) {
+                        TotalRow(R.string.stats_last_read, relativeTimeLabel(stats.lastReadAt))
+                    }
+                    if (stats.memberSince > 0L) {
+                        TotalRow(R.string.stats_member_since, SimpleDateFormat("d. MMMM yyyy", Locale.getDefault()).format(Date(stats.memberSince)))
+                    }
+                }
+            }
+
+            // ── Aktivita za 30 dnů (heatmapa) ────────────────────────────────
             item {
                 SectionHeader(title = stringResource(R.string.stats_chapters_30days_title), modifier = Modifier.padding(horizontal = 16.dp))
                 Box(
@@ -168,7 +225,7 @@ fun ExtendedStatsScreen(
                         .padding(horizontal = 16.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(glassGradient)
-                        .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                        .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp),
                 ) {
                     if (stats.dailyCounts.all { it.second == 0 }) {
@@ -184,6 +241,7 @@ fun ExtendedStatsScreen(
                 }
             }
 
+            // ── Oblíbené žánry - centrovaný barevný sloupec jako na ComicK ────
             if (stats.topGenres.isNotEmpty()) {
                 item {
                     SectionHeader(title = stringResource(R.string.stats_top_genres_title), modifier = Modifier.padding(horizontal = 16.dp))
@@ -193,83 +251,19 @@ fun ExtendedStatsScreen(
                             .padding(horizontal = 16.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(glassGradient)
-                            .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        val maxGenre = stats.topGenres.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
-                        stats.topGenres.forEach { (genre, count) ->
-                            HorizontalBar(
-                                icon = TablerIcons.Tag,
-                                label = genre,
-                                value = count,
-                                fraction = count.toFloat() / maxGenre,
-                                color = Brush.horizontalGradient(listOf(GlowViolet, GlowCyan)),
+                        stats.topGenres.forEachIndexed { index, (genre, count) ->
+                            Text(
+                                text = "$genre (${formatCount(count.toLong())})",
+                                color = genreColor(index),
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
                             )
                         }
-                    }
-                }
-            }
-
-            if (stats.topAuthors.isNotEmpty()) {
-                item {
-                    SectionHeader(title = stringResource(R.string.stats_top_authors_title), modifier = Modifier.padding(horizontal = 16.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(glassGradient)
-                            .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        val maxAuthor = stats.topAuthors.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
-                        stats.topAuthors.forEach { (author, count) ->
-                            HorizontalBar(
-                                icon = TablerIcons.User,
-                                label = author,
-                                value = count,
-                                fraction = count.toFloat() / maxAuthor,
-                                color = Brush.horizontalGradient(listOf(GlowCyan, GlowViolet)),
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (stats.totalInLibrary > 0 && stats.statusBreakdown.isNotEmpty()) {
-                item {
-                    SectionHeader(title = stringResource(R.string.stats_reading_status_title), modifier = Modifier.padding(horizontal = 16.dp))
-                    val statusLabels = mapOf(
-                        "READING"      to stringResource(R.string.stats_status_reading),
-                        "COMPLETED"    to stringResource(R.string.stats_status_completed),
-                        "ON_HOLD"      to stringResource(R.string.stats_status_on_hold),
-                        "DROPPED"      to stringResource(R.string.stats_status_dropped),
-                        "PLAN_TO_READ" to stringResource(R.string.stats_status_plan_to_read),
-                        "UNSET"        to stringResource(R.string.stats_status_unset),
-                    )
-                    val statusColors = mapOf(
-                        "READING"      to GlowCyan,
-                        "COMPLETED"    to Color(0xFF4FC3F7),
-                        "ON_HOLD"      to Color(0xFFFFB74D),
-                        "DROPPED"      to Color(0xFFEF5350),
-                        "PLAN_TO_READ" to GlowViolet,
-                        "UNSET"        to TextSecondary,
-                    )
-                    val segments = stats.statusBreakdown.entries
-                        .sortedByDescending { it.value }
-                        .map { (key, count) -> Triple("${statusLabels[key] ?: key} ($count)", count, statusColors[key] ?: TextSecondary) }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(glassGradient)
-                            .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                    ) {
-                        DonutChart(segments = segments)
                     }
                 }
             }
@@ -284,20 +278,73 @@ fun ExtendedStatsScreen(
     }
 }
 
+/** Mapuje DB klíče na popisky v pevném pořadí + připojí klíče, co nejsou v [order], nakonec. */
 @Composable
-private fun StatCard(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(glassGradient)
-            .border(1.dp, GlowViolet.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(icon, contentDescription = null, tint = GlowCyan, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(6.dp))
-        Text(value, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-        Text(label, color = TextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+private fun breakdownItems(
+    breakdown: Map<String, Int>,
+    order: List<Pair<String, Pair<String, Color>>>,
+): List<BreakdownItem> {
+    val ordered = order.mapNotNull { (key, labelColor) ->
+        val count = breakdown[key] ?: return@mapNotNull null
+        if (count <= 0) return@mapNotNull null
+        BreakdownItem(labelColor.first, count, labelColor.second)
+    }
+    val knownKeys = order.map { it.first }.toSet()
+    val rest = breakdown.entries
+        .filter { it.key !in knownKeys && it.value > 0 }
+        .sortedByDescending { it.value }
+        .map { BreakdownItem(it.key, it.value, TextMuted) }
+    return ordered + rest
+}
+
+/** Rozpad do vertikálního skládaného pruhu + legendy (tečka, popisek, počet) - viz ComicK souhrn. */
+@Composable
+private fun BreakdownColumn(items: List<BreakdownItem>, modifier: Modifier = Modifier) {
+    if (items.isEmpty()) return
+    Row(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .width(8.dp)
+                .height((items.size * 22).dp)
+                .clip(RoundedCornerShape(4.dp)),
+        ) {
+            items.forEach { item ->
+                Box(
+                    modifier = Modifier
+                        .weight(item.count.toFloat())
+                        .fillMaxWidth()
+                        .background(item.color),
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items.forEach { item ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(16.dp)) {
+                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(item.color))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        item.label,
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(formatCount(item.count.toLong()), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TotalRow(labelRes: Int, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(labelRes), color = TextSecondary, fontSize = 13.sp)
+        Spacer(Modifier.weight(1f))
+        Text(value, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -333,7 +380,7 @@ private fun CalendarHeatmap(data: List<Pair<String, Int>>, modifier: Modifier = 
                             .weight(1f)
                             .aspectRatio(1f)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(GlowViolet.copy(alpha = alpha)),
+                            .background(Violet.copy(alpha = alpha)),
                     )
                 }
             }
@@ -346,75 +393,17 @@ private fun CalendarHeatmap(data: List<Pair<String, Int>>, modifier: Modifier = 
     }
 }
 
-/** Prstencový graf pro poměr stavů čtení - segmenty jako (popisek, hodnota, barva). */
-@Composable
-private fun DonutChart(segments: List<Triple<String, Int, Color>>, modifier: Modifier = Modifier) {
-    val total = segments.sumOf { it.second }.coerceAtLeast(1)
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Canvas(modifier = Modifier.size(64.dp)) {
-            val strokeWidth = size.minDimension * 0.28f
-            var startAngle = -90f
-            segments.forEach { (_, value, color) ->
-                val sweep = 360f * value / total
-                if (value > 0) {
-                    drawArc(
-                        color = color,
-                        startAngle = startAngle,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
-                        size = androidx.compose.ui.geometry.Size(size.width - strokeWidth, size.height - strokeWidth),
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
-                    )
-                }
-                startAngle += sweep
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            segments.filter { it.second > 0 }.forEach { (label, _, color) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(color))
-                    Spacer(Modifier.width(6.dp))
-                    Text(label, color = TextPrimary, fontSize = 12.sp)
-                }
-            }
-        }
-    }
-}
+/** Barvy žánrů - cyklická kategoriální paleta (stejný princip jako ComicK "Favorite Genres",
+ * kde má každý žánr vlastní barvu). Indexované pozicí, takže stejný žánr má vždy stejnou barvu. */
+private val GENRE_COLORS = listOf(
+    Color(0xFF8B5CF6), Color(0xFF84CC16), Color(0xFFFACC15), Color(0xFFEF4444),
+    Color(0xFF2DD4BF), Color(0xFF4ADE80), Color(0xFF60A5FA), Color(0xFFF472B6),
+    Color(0xFFFB923C), Color(0xFFA78BFA), Color(0xFF34D399), Color(0xFFF87171),
+)
 
-@Composable
-private fun HorizontalBar(icon: ImageVector, label: String, value: Int, fraction: Float, color: Brush) {
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Icon(icon, contentDescription = null, tint = Violet, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(label, color = TextPrimary, fontSize = 13.sp)
-            }
-            Text("$value", color = TextSecondary, fontSize = 12.sp)
-        }
-        Spacer(Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(50)),
-        ) {
-            Box(modifier = Modifier.fillMaxSize().background(GlowViolet.copy(alpha = 0.1f)))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                    .height(6.dp)
-                    .background(color),
-            )
-        }
-    }
-}
+private fun genreColor(index: Int): Color = GENRE_COLORS[index % GENRE_COLORS.size]
+
+private fun formatCount(value: Long): String = NumberFormat.getIntegerInstance(Locale.getDefault()).format(value)
 
 private fun formatTime(ms: Long): String {
     val totalMin = ms / 60_000L

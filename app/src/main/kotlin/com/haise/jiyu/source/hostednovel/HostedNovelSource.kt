@@ -34,7 +34,27 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
     override val supportsSortOrder: Boolean get() = false
     override val contentType: String get() = "NOVEL"
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://hostednovel.com"
+
+    // /novels prijima status= (any|ongoing|completed|hiatus) a sort=
+    // (chapters|name|popular|release-rate) - overeno zive: completed 41 titulu,
+    // ongoing 39, hiatus 31.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableSorts: Set<String> get() = setOf("popular", "title")
+
+    private val statusValues = mapOf(
+        "ongoing" to "ongoing", "completed" to "completed", "hiatus" to "hiatus",
+    )
+    private val sortValues = mapOf("popular" to "popular", "title" to "name")
+
+    private fun novelsUrl(filter: MangaFilter): String {
+        val sort = sortValues[filter.sortBy] ?: "popular"
+        val status = statusValues[filter.status] ?: "any"
+        return "$base/novels?sort=$sort&status=$status"
+    }
 
     private fun get(url: String): Document {
         val req = Request.Builder().url(url)
@@ -61,13 +81,20 @@ class HostedNovelSource @Inject constructor(private val client: OkHttpClient) : 
             }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/novels?sort=popular&status=any&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        // "?page=" web ignoruje - archiv je jedna SSR stranka (~55 titulu), dalsi
+        // obsah tahne Vue "load more" bez odhalitelneho endpointu. Bez teto
+        // podminky by nekonecny scroll dokola pripojoval tutez stranku (audit DUP).
+        if (page > 1) return@withContext emptyList()
+        try { parseList(get(novelsUrl(filter))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext emptyList()
         try {
-            parseList(get("$base/novels?sort=name&status=any")).filter { it.title.contains(query, ignoreCase = true) }
+            // Textove hledani web server-side neumi (?search= ignoruje) -
+            // filtrujeme nazvy lokalne nad abecedne razenym vypisem.
+            val url = novelsUrl(filter.copy(sortBy = "title"))
+            parseList(get(url)).filter { it.title.contains(query, ignoreCase = true) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

@@ -75,18 +75,37 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    override val supportsYearFilter: Boolean get() = true
+
+    // /search formular ma vedle zanru i "type" radio (1=Japanese Manga ...
+    // 7=Other Manga) a "released" + "released_method" (eq/lt/gt) - overeno zive.
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "1", label = "Japanese Manga"),
+        FilterTag(id = "2", label = "Korean Manhwa"),
+        FilterTag(id = "3", label = "Chinese Manhua"),
+        FilterTag(id = "4", label = "European Manga"),
+        FilterTag(id = "5", label = "American Manga"),
+        FilterTag(id = "6", label = "HongKong Manga"),
+        FilterTag(id = "7", label = "Other Manga"),
+    )
+
     // Genre filtrovani (i vice zanru najednou) je dostupne jen pres /search formular
     // (title muze byt prazdny) - overeno zive, ze ruzne zanry vraci ruzne sady titulu
-    // a jde je kombinovat s textovym hledanim ("title=") i strankovanim ("page=").
+    // a jde je kombinovat s textovym hledanim ("title=") i strankovanim ("page="),
+    // stejne jako type= a released=/released_method=eq.
     private fun searchWithGenresUrl(query: String, page: Int, filter: MangaFilter): String {
         val q = URLEncoder.encode(query, "UTF-8")
         val genres = filter.genres.joinToString(",")
-        return "$base/search?title=$q&genres=$genres&stype=1&page=$page"
+        return buildString {
+            append("$base/search?title=$q&genres=$genres&stype=1&page=$page")
+            filter.comicTypes.firstOrNull()?.let { append("&type=$it") }
+            filter.year?.let { append("&released=$it&released_method=eq") }
+        }
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
+            if (filter.genres.isNotEmpty() || filter.comicTypes.isNotEmpty() || filter.year != null) {
                 val doc = Jsoup.parse(get(searchWithGenresUrl("", page, filter)))
                 return@withContext doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)
             }
@@ -102,7 +121,7 @@ class FanFoxSource @Inject constructor(private val client: OkHttpClient) : Manga
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
+            if (filter.genres.isNotEmpty() || filter.comicTypes.isNotEmpty() || filter.year != null) {
                 val doc = Jsoup.parse(get(searchWithGenresUrl(query, page, filter)))
                 return@withContext doc.select("p.manga-list-4-item-title > a[href]").mapNotNull(::parseCard)
             }

@@ -33,14 +33,33 @@ data class MangaFilter(
     val status: String? = null,
     val year: Int? = null,
     val sortBy: String = "popular",
-    /** Vybrané tagy/žánry (viz [MangaSource.getAvailableTags]) - obsahuje `id`
-     * z [FilterTag], ne zobrazovaný `label`. Prázdné = žádný tagový filtr. */
+    /** Vybrané žánry (viz [MangaSource.getAvailableTags], kind `genre`) - obsahuje `id`
+     * z [FilterTag], ne zobrazovaný `label`. Prázdné = žádný žánrový filtr. */
     val genres: List<String> = emptyList(),
+    /** Žánry k VYLOUČENÍ - jen zdroje s [MangaSource.supportsExcludeTags]. */
+    val excludeGenres: List<String> = emptyList(),
+    /** Volné tagy (kind `tag` z [getAvailableTags]) - zdroje, co mají vedle žánrů
+     * i fulltextovou tag taxonomii (ComicKArt ~9k tagů). */
+    val tags: List<String> = emptyList(),
+    /** Tagy k VYLOUČENÍ - opět jen s [MangaSource.supportsExcludeTags]. */
+    val excludeTags: List<String> = emptyList(),
+    /** Demografické kategorie (id z [MangaSource.availableDemographics]). */
+    val demographic: List<String> = emptyList(),
+    /** Typ komiksu země původu (id z [MangaSource.availableComicTypes] - jp/kr/cn/...). */
+    val comicTypes: List<String> = emptyList(),
+    /** Minimální počet kapitol - jen zdroje s [MangaSource.supportsMinChaptersFilter]. */
+    val minChapters: Int? = null,
+    /** "Přidáno před X dny" (id z [MangaSource.availableCreatedRanges]). */
+    val createdRangeDays: Int? = null,
+    /** Směr řazení - jen zdroje s [MangaSource.supportsSortDirection]. Výchozí desc. */
+    val sortAscending: Boolean = false,
 )
 
 /** Jeden tag/žánr tak, jak ho nabízí konkrétní zdroj - `id` je hodnota, kterou
- * zdroj sám používá v URL/query (slug, UUID...), `label` je text pro UI. */
-data class FilterTag(val id: String, val label: String)
+ * zdroj sám používá v URL/query (slug, UUID...), `label` je text pro UI.
+ * `kind` rozlišuje sekce v pickeru (`genre`/`tag`) u zdrojů, co mají obě
+ * taxonomie (ComicKArt: 84 žánrů + 9k volných tagů); null = jedna plochá sekce. */
+data class FilterTag(val id: String, val label: String, val kind: String? = null)
 
 /** Překladatelská/scan skupina u konkrétní kapitoly - `slug` je nepovinný (ne každý zdroj ho má). */
 data class SGroup(val name: String, val slug: String? = null)
@@ -97,8 +116,23 @@ interface MangaSource {
     val isAdult: Boolean get() = false
 
     /** Zdroj nabízí vlastní seznam tagů/žánrů pro filtrování (viz [getAvailableTags]).
-     * Výchozí false = appka u tohohle zdroje sekci tagů ve Filtrech vůbec nezobrazí. */
-    val supportsTagFilter: Boolean get() = false
+     * Výchozí true - `getAvailableTags()` vrací výchozím prázdný seznam, což picker
+     * zobrazí poctivě jako "zdroj žádné tagy nenabízí" (drive byl default false, takze
+     * ~100 zdroju s implementovanymi tagy picker skryvalo uplne - flag se musel znovu
+     * zapnout rucne a u kazdeho noveho zdroje se na to zapomnelo). Zdroj muze explicitne
+     * opt-outnout `= false`, kdyz sekci tagu nema smysl vubec ukazovat. */
+    val supportsTagFilter: Boolean get() = true
+
+    /**
+     * Zdroj skutečně aplikuje [MangaFilter.status] (server-side, ne klientovsky) -
+     * bez toho by filtr "Stav vydávání" jen tvrdil filtr, který nic nedělá
+     * (hlášený bug: filtry "prostě nic"). Výchozí false; opt-in u zdrojů, kde je
+     * parametr ověřený živě (MangaDex `status[]`, ...).
+     */
+    val supportsStatusFilter: Boolean get() = false
+
+    /** Zdroj skutečně aplikuje [MangaFilter.year] - stejné pravidlo jako [supportsStatusFilter]. */
+    val supportsYearFilter: Boolean get() = false
 
     /**
      * Umí zdroj vrátit "Populární" a "Nejnovější" v RŮZNÉM pořadí (viz [MangaFilter.sortBy])? `false` = obě
@@ -123,6 +157,45 @@ interface MangaSource {
 
     /** Krátké vysvětlení pro vývojáře, proč je [isBroken] `true` (co se na webu změnilo). */
     val brokenReason: String? get() = null
+
+    /**
+     * Hodnoty [MangaFilter.status], které zdroj umí server-side aplikovat -
+     * UI schová chipy pro stavy, jež zdroj neumí vyjádřit (např. web má jen
+     * "ongoing/finished" bez hiatus). Prázdný výběr ("Vše") je vždy dostupný.
+     */
+    val availableStatuses: List<String> get() = listOf("ongoing", "completed", "hiatus")
+
+    /**
+     * Zdroj umí tagy/žánry nejen ZAHRNOUT, ale i VYLOUČIT (např. ComicKArt `excludes[]`
+     * /`excluded_tags[]`) - picker pak nabídne 3-stavový výběr (vypnuto→zahrnout→vyloučit)
+     * a filtr naplní [MangaFilter.excludeGenres]/[MangaFilter.excludeTags]. Výchozí false.
+     */
+    val supportsExcludeTags: Boolean get() = false
+
+    /**
+     * Demografické kategorie pro filtrování (id = hodnota pro query param, label pro UI) -
+     * např. ComicKArt: Shounen/Josei/Seinen/Shoujo/None → `demographic[]`. Prázdné =
+     * zdroj nic takového nemá a UI sekci schová.
+     */
+    val availableDemographics: List<FilterTag> get() = emptyList()
+
+    /**
+     * Typy komiksu dle země původu (id = query hodnota, label pro UI) -
+     * např. ComicKArt: Manga(jp)/Manhwa(kr)/Manhua(cn)/Others → `country[]`.
+     */
+    val availableComicTypes: List<FilterTag> get() = emptyList()
+
+    /**
+     * Předdefinované "přidáno před X dny" volby (id = počet dnů jako string) -
+     * např. ComicKArt `time` param (3/7/30/90/180/365/730).
+     */
+    val availableCreatedRanges: List<FilterTag> get() = emptyList()
+
+    /** Zdroj aplikuje [MangaFilter.minChapters] server-side. Výchozí false. */
+    val supportsMinChaptersFilter: Boolean get() = false
+
+    /** Zdroj umí měnit směr řazení ([MangaFilter.sortAscending]). Výchozí false (vždy desc). */
+    val supportsSortDirection: Boolean get() = false
 
     /**
      * Klíče řazení ([MangaFilter.sortBy]: `popular`, `latest`, `title`, `rating`), které zdroj skutečně rozlišuje -

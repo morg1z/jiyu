@@ -81,11 +81,56 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Filter formular na /fictions/search prijima status= (ONGOING|COMPLETED|
+    // HIATUS|DROPPED|INACTIVE|STUB), type= (fanfiction|original) a orderBy=+dir=
+    // - vsechny overene zive (kazdy parametr meni sadu vysledku, kombinace
+    // status+type take).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "original", label = "Original"),
+        FilterTag(id = "fanfiction", label = "Fan Fiction"),
+    )
+    override val supportsSortDirection: Boolean get() = true
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "rating", "title")
+
+    private val statusValues = mapOf(
+        "ongoing" to "ONGOING", "completed" to "COMPLETED",
+        "hiatus" to "HIATUS", "cancelled" to "DROPPED",
+    )
+    private val sortValues = mapOf(
+        "latest" to "last_update", "popular" to "popularity",
+        "rating" to "rating", "title" to "title",
+    )
+    private val SITE_TYPES = setOf("original", "fanfiction")
+
+    private fun searchUrl(filter: MangaFilter, page: Int, query: String? = null): String {
+        val sb = StringBuilder("$base/fictions/search?page=$page")
+        filter.genres.firstOrNull()?.let { sb.append("&tagsAdd=").append(URLEncoder.encode(it, "UTF-8")) }
+        statusValues[filter.status]?.let { sb.append("&status=").append(it) }
+        filter.comicTypes.firstOrNull()?.takeIf { it in SITE_TYPES }
+            ?.let { sb.append("&type=").append(it) }
+        val orderBy = sortValues[filter.sortBy]
+        if (orderBy != null || filter.status != null || filter.comicTypes.isNotEmpty() || filter.sortAscending) {
+            sb.append("&orderBy=").append(orderBy ?: "relevance")
+                .append("&dir=").append(if (filter.sortAscending) "asc" else "desc")
+        }
+        query?.takeIf { it.isNotBlank() }?.let { sb.append("&title=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
+    }
+
+    // "title"/"rating" razeni maji jediny endpoint - /fictions/search?orderBy=.
+    // sortAscending=false je vychozi desc (= neaktivni filtr), routuje se jen
+    // naopak (uzivatel explicitne zvolil vzestupne).
+    private fun hasSearchFilters(filter: MangaFilter) =
+        filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty() ||
+            filter.sortBy in setOf("title", "rating") || filter.sortAscending
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
-                val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
-                return@withContext parseList(get("$base/fictions/search?tagsAdd=$tag&page=$page"))
+            if (hasSearchFilters(filter)) {
+                return@withContext parseList(get(searchUrl(filter, page)))
             }
             val path = if (filter.sortBy == "latest") "latest-updates" else "best-rated"
             parseList(get("$base/fictions/$path?page=$page"))
@@ -94,9 +139,8 @@ class RoyalRoadSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            if (filter.genres.isNotEmpty()) {
-                val tag = URLEncoder.encode(filter.genres.first(), "UTF-8")
-                return@withContext parseList(get("$base/fictions/search?tagsAdd=$tag&page=$page"))
+            if (hasSearchFilters(filter)) {
+                return@withContext parseList(get(searchUrl(filter, page, query)))
             }
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/fictions/search?title=$q&page=$page"))

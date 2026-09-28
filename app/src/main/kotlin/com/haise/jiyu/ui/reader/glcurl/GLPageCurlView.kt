@@ -1,9 +1,9 @@
 package com.haise.jiyu.ui.reader.glcurl
 
+import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +25,9 @@ import androidx.lifecycle.LifecycleEventObserver
  * Skutečné dotykové gesto (tažení/ťuknutí zón) tak zůstává beze změny v Compose vrstvě nad tímhle
  * viewem, přesně jako u dřívějšího `Canvas`+`drawPageCurl` přístupu, který tenhle view nahrazuje
  * pro [com.haise.jiyu.ui.reader.CurlStyle.ROLL].
+ *
+ * [mirrored] = RTL čtečka - ohyb se zrcadlí horizontálně (front se loupe zleva, left se
+ * rozbaluje zprava) tak, aby odpovídal fyzické straně tahu prstem.
  */
 @Composable
 fun GLPageCurlView(
@@ -34,12 +37,28 @@ fun GLPageCurlView(
     forward: Boolean,
     progress: Float,
     modifier: Modifier = Modifier,
+    mirrored: Boolean = false,
 ) {
     val renderer = remember { GLPageCurlRenderer() }
     var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
 
     AndroidView(
         modifier = modifier,
+        // `update` bezi AZ PO factory - garanovane po prirazeni `glView` a po attachnuti
+        // do okna. LaunchedEffect by mohl updateState+requestRender zavolat driv, nez
+        // GLSurfaceView vubec existuje (request by se zahodil a prvni frame by zustal
+        // zaspany az do dalsi zmeny stavu).
+        update = { view ->
+            renderer.updateState(
+                current = currentBitmap.asAndroidBitmap(),
+                prev = prevBitmap?.asAndroidBitmap(),
+                next = nextBitmap?.asAndroidBitmap(),
+                forward = forward,
+                progress = progress,
+                mirrored = mirrored,
+            )
+            view.requestRender()
+        },
         factory = { context ->
             GLSurfaceView(context).apply {
                 // GLSurfaceView je SurfaceView - ten se BEZ tohohle volani vykresluje na
@@ -48,6 +67,13 @@ fun GLPageCurlView(
                 // cely efekt by pusobil jako by se vubec nerenderoval, presne jak to bylo videt
                 // po nasazeni - zadna animace, jen skok na dalsi stranku po pusteni prstu.
                 setZOrderOnTop(true)
+                // Surface je mountnuty PERMANENTNE (stejne jako PageSurfaceView v originale),
+                // takze v klidu musi byt pruhledny - TRANSLUCENT format + RGBA8888 EGL config
+                // (alfa kanal) necha skrz transparentni clear (progress==0 -> renderer jen
+                // cisti, nekresli stranky) prosvit zivou stranku pod nim. Bez alfa kanalu by
+                // tu visela nepruhledna CERNA dira pres celou ctecku.
+                holder.setFormat(PixelFormat.TRANSLUCENT)
+                setEGLConfigChooser(8, 8, 8, 8, 16, 0)
                 // Zadny setEGLContextClientVersion() - stejne jako originalni
                 // PageSurfaceView.java, ktery ho taky nevola. Renderer pouziva klasicke
                 // GL10 (pevna funkcni roura, OpenGL ES 1.x), GLSurfaceView si na to sam
@@ -59,17 +85,6 @@ fun GLPageCurlView(
             }.also { glView = it }
         },
     )
-
-    LaunchedEffect(currentBitmap, prevBitmap, nextBitmap, forward, progress) {
-        renderer.updateState(
-            current = currentBitmap.asAndroidBitmap(),
-            prev = prevBitmap?.asAndroidBitmap(),
-            next = nextBitmap?.asAndroidBitmap(),
-            forward = forward,
-            progress = progress,
-        )
-        glView?.requestRender()
-    }
 
     // GLSurfaceView se musí pozastavit i při odchodu appky do pozadí (ne jen při odchodu z
     // obrazovky), jinak renderovací vlákno běží dál; po návratu se zase probudí.

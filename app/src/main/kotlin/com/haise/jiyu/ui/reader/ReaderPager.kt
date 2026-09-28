@@ -165,7 +165,10 @@ fun MangaReader(
     // Tracks the single page index across recompositions and spread-mode resets.
     // Lives OUTSIDE key(useSpread) so it survives the pager recreation and gives the
     // new pager its correct starting group.
-    var currentSingleIndex by rememberSaveable { mutableStateOf(initialPage) }
+    // Klic `pages` (nova identita listu = nova kapitola) - bez nej by stary index z
+    // predchozi kapitoly zustal jako vychozi stranka nove (audit: pager state preziva
+    // zmenu kapitoly a obnovuje spatnou stranku; stejny vzor jako MangaPageCurlReader).
+    var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
 
     // Auto-advance to next chapter when reaching last page with autoNextChapter enabled.
     // reachedEndManually ensures we only trigger after navigating away from initial page,
@@ -179,11 +182,13 @@ fun MangaReader(
         }
     }
 
-    // key(useSpread) destroys and recreates the pager whenever spread mode changes
-    // (i.e. on rotation when double-page is enabled). The new pager receives the
+    // key(useSpread, pages) destroys and recreates the pager whenever spread mode changes
+    // (i.e. on rotation when double-page is enabled) A pri zmene kapitoly - jinak by
+    // pagerState drzel currentPage z predchozi kapitoly a snapshotFlow ho zapsal jako
+    // postup nove (audit - pager state preziva zmenu kapitoly). The new pager receives the
     // correct initialGroupIndex immediately — no post-hoc scrollToPage correction
     // and no visual flash to a wrong page.
-    key(useSpread) {
+    key(useSpread, pages) {
         val initialGroupIndex = remember(groups) {
             groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
         }
@@ -221,6 +226,10 @@ fun MangaReader(
 
         HorizontalPager(
             state = pagerState,
+            // Dalsi stranka se sklada (a tudiz i stahuje pres Coil) jeste PRED swipen -
+            // drive se jeji request spustil az s otocenim, takze na neprecachovane strance
+            // bezel sitovy fetch az kdyz uz uzivatel chtel cist (nahlasene "cekani na page").
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxSize()
                 .focusRequester(focusRequester)
@@ -321,6 +330,10 @@ fun MangaReader(
                     flippedBubbles = flippedBubbles,
                     onToggleBubbleFlip = onToggleBubbleFlip,
                     onEditBubble = onEditBubble,
+                    // Globalni crossfade(true) prehrava ~300ms fade i u stranek z DISK cache
+                    // (fade preskoci jen memory-cache hit) - prefetched stranky pak na kazdem
+                    // otoceni "dolehaly" misto okamziteho zobrazeni jako v Kotatsu.
+                    disableCrossfade = true,
                     referer = referer,
                 )
             }
@@ -537,8 +550,15 @@ private suspend fun saveBitmapToGalleryImpl(context: android.content.Context, ur
     }
     val resolver = context.contentResolver
     val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
-    resolver.openOutputStream(uri)?.use { out ->
+    // Navratovou hodnotu compress i null stream kontrolovat - drive se pri selhani zapisu
+    // stejne vratilo true a v galerii zustala prazdna 0B polozka (audit). Pri chybe radek
+    // z MediaStore smazat, at nevisi.
+    val written = resolver.openOutputStream(uri)?.use { out ->
         bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+    } == true
+    if (!written) {
+        runCatching { resolver.delete(uri, null, null) }
+        return false
     }
     val updateValues = android.content.ContentValues()
     updateValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)

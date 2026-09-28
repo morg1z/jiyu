@@ -30,6 +30,26 @@ object BubbleClassifier {
         "PSST", "SHH", "GRR", "WHACK", "SMACK", "SPLAT", "CLINK", "HISS", "SIZZLE",
         "VROOM", "BEEP", "PLOP", "THWACK", "TWANG", "CLANK", "WHEEZE", "BONK", "POOF",
         "SWISH", "FWOOSH", "RUMBLE", "WHIRR", "SCREECH", "SLURP", "MUNCH", "GRUNT",
+        // Vizbig/VIZ lettering i další manga SFX - audit Vagabond kap. 1 (v31): tyhle
+        // zvuky sedí v BÍLÝCH bublinách (bgUniform), mají samohlásky a v seznamu nebyly,
+        // takže šly na překlad (TROMP->"DUP", HLUF->"Chach") a render česky překryl
+        // originální lettering. Uživatel: SFX se nepřekládají vůbec.
+        "TROMP", "PLISH", "SPLISH", "SPLOSH", "SPLORSH", "SPLORCH", "THOOSH", "BWOOSH",
+        "SHOOM", "WHOOM", "FWISH", "FWUP", "FWOK", "FWUMP", "FWHUMP", "WHUMP", "THOOM", "SHIFF",
+        "DOOM", "KRAK", "KRAKK", "KLANK", "KRRK", "KSHK", "KRICH", "SHUNK", "SCHINK", "SHING",
+        "SNIKT", "ZWING", "FWING", "KAPOW", "BLAM", "WHAP", "THAP", "BIFF", "SOCK",
+        "PAK", "POK", "BOK", "KLAK", "KLIK", "CLAK", "TOK", "TOCK", "KTOK", "PAD",
+        "PATTER", "BADUMP", "BADUM", "DOKI", "SHLURP", "GLOOP", "GLOP", "GLUP",
+        "GURGLE", "GAK", "GLK", "GUH", "BRAAR", "GRAAR", "RAAAR", "SKREEE", "KREEE",
+        "KREE", "SHEEE", "SHIEE", "ESHHH", "SHHH", "KONK", "DONK", "PLUNK",
+        "PLONK", "KERPLUNK", "FWIP", "ZWIP", "FWOOM", "VWOOM", "SKRR", "BZZT", "WRAK",
+        // Zvukovité výkřiky/dech - ne slova, ale vocalizace; nechat v originále.
+        "URR", "URGH", "GAAH", "HAAH", "HYAH", "HYA", "KIYA", "HMPH", "NGH", "MNGH",
+        "HNN", "HNNGH", "WHEW", "PHEW", "EEP", "YIPE", "GYAA", "UWAH", "WAAH", "AAH",
+        "AHH", "EHH", "OHH", "UHH", "OOF", "OOP", "HAH",
+        // OCR varianty pozorované na zařízení (font U->I/L záměna) - "HLUF"/"HLIF"/"IHUF"
+        // jsou "HUF" z (HLIF HLUF) auditu; fuzzy lev<=1 v [isSfxToken] pokryje další.
+        "HLUF", "HLIF", "IHUF",
     )
 
     /**
@@ -45,6 +65,15 @@ object BubbleClassifier {
     }
 
     /**
+     * Je [upperCore] (verzálky, bez mezer) známý zvuk? Potřebuje ho slovníkový lint
+     * v OcrTextCleanup - bez něj by "THUD" (není v EN slovníku) „opravil" na "THUS"
+     * a zvuk by došel k modelu jako replika. Dřív privátní sada se protlačuje
+     * pouze přes tohle rozhraní, ať zůstane uzavřená.
+     */
+    internal fun isKnownSfx(upperCore: String): Boolean =
+        sfxWords.contains(upperCore) || collapsedSfxWords.contains(collapseRepeats(upperCore))
+
+    /**
      * Běžná krátká anglická citoslovce/repliky, které se NIKDY nemají klasifikovat jako SFX,
      * i když je lettering vysází přímo přes kresbu (mimo bublinu) - viz pravidlo o `bgUniform`
      * v [detectSfx]. To pravidlo záměrně nekontroluje samohlásky (chytá i "BOOM"/"CRASH"), takže
@@ -54,24 +83,57 @@ object BubbleClassifier {
     private val commonShortWordsNotSfx = setOf(
         "HEY", "WAIT", "STOP", "HELP", "RUN", "GO", "NOW", "YES", "NO", "OK", "OKAY",
         "HUH", "WHAT", "WHO", "WHY", "HOW", "COME", "LOOK", "WATCH", "LISTEN", "DAMN",
+        // Kontrakce a krátké repliky ≤4 písmen - po zúžení over-art pravidla na
+        // "samohláska ⇒ ≤4" pořád potřebují ochranu; delší slova se samohláskou
+        // chrání samotné pravidlo (viz audit Vagabondu - "THAT'S…"/"SWORDS?").
+        "I'M", "I'LL", "I'VE", "IT'S", "HE'S", "SHE'S", "DON'T", "CAN'T", "WON'T",
+        "AIN'T", "WHO'S", "LET'S", "ISN'T", "DIDN'T", "THAT'S", "WHAT'S", "THERE'S",
+        "HERE'S", "MA'AM", "SURE", "RIGHT", "WRONG", "SORRY", "THANKS", "PLEASE",
+        "WELL", "FINE", "GEEZ", "JEEZ", "GOSH", "OOPS", "UM", "UH", "ER", "AH", "OH",
+        "EH", "OW", "OWW", "HEH", "HA", "HAHA", "FOOL", "FOOLS", "LIAR", "LIES",
+        "GOD", "GODS", "LORD", "KING", "SIR", "HERO", "FOE", "FOES", "MEN", "MAN",
+        "SON", "KID", "KIDS", "DOG", "DOGS", "RAT", "PIG", "HELL", "DIE", "DEAD",
+        "KILL", "FEAR", "MINE", "OURS", "YOURS", "DEAR", "GIRL", "GIRLS", "BOY",
+        "BOYS", "NAME", "TOO", "BOTH", "EACH", "HERE", "THERE", "GONE", "LOST",
+        "BACK", "HOME", "ALONE", "SWORDS", "LETHAL", "ALIVE",
     )
 
     /**
-     * Je [core] víc než jedna stejná instance téhož krátkého zvuku vedle sebe ("GULP GULP",
-     * "BOOM BOOM BOOM")? Viz volání v [detectSfx] - existující pravidla na seznam i na
-     * "bez samohlásky" vyžadují text bez mezery, takže je opakování se skutečnou mezerou uvnitř
-     * obchází všechna najednou.
+     * Jsou VŠECHNY tokeny bloku zvuky ("GULP GULP", "HUF HUF", "(HLIF HLUF)", "BOOM CRASH")?
+     * Lettering kreslí zvuky jako víc oddělených nápisů a OCR/spojování řádků je sloučí do
+     * JEDNOHO bloku s mezerou uvnitř - ostatní pravidla vyžadují `!core.contains(' ')`,
+     * takže by je takový blok obešel všechna najednou.
+     *
+     * Dřív se vyžadovala stejná instance slova (případně s OCR literovkou) - "(HLIF HLUF)"
+     * jako OCR varianty "(HUF HUF)" propadly na překlad a česky překryly originál
+     * (audit Vagabond kap. 1: uživatel nechce překládat SFX vůbec). Teď stačí, když je
+     * každý token sám zvuk - viz [isSfxToken].
      */
-    private fun isRepeatedSfxWord(core: String): Boolean {
-        val tokens = core.split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (tokens.size < 2 || tokens.any { !it.equals(tokens[0], ignoreCase = true) }) return false
-        val single = tokens[0]
-        val singleUpper = single.uppercase()
-        if (sfxWords.contains(singleUpper) || collapsedSfxWords.contains(collapseRepeats(singleUpper))) return true
-        val singleLetters = single.filter { it.isLetter() }
-        return singleLetters.isNotEmpty() && singleLetters.length <= 6 &&
-            singleLetters.all { it.code <= MAX_LATIN_CODE } &&
-            singleLetters.none { it.uppercaseChar() in LATIN_VOWELS }
+    private fun isAllSfxTokens(core: String): Boolean {
+        // Dělící znaky vedle mezer - "GULP-GULP"/"GULP - GULP" nese stejný vzor jako
+        // "GULP GULP" a bez nich by uniklo (audit: "GULP GULP" přeložené na "GUP").
+        val tokens = core.split(Regex("[\\s\\-–—]+"))
+            .map { it.trim(*EDGE_PUNCTUATION) }
+            .filter { it.isNotBlank() }
+        if (tokens.size < 2) return false
+        return tokens.all { isSfxToken(it.uppercase()) }
+    }
+
+    /**
+     * Je jeden token zvuk? Přesná shoda / stlačené zdvojení ("SOBB"~"SOB") / bezesamohláskový
+     * tvar <=6 písmen ("KSH") / OCR literovku o jeden znak proti seznamu ("HLUF"~"HUF").
+     * [commonShortWordsNotSfx] má přednost před vším - skutečné krátké repliky ("HEY", "HUH")
+     * se jako zvuk nikdy neoznačí, ani kdyby ležely o znak od položky slovníku.
+     */
+    private fun isSfxToken(upperToken: String): Boolean {
+        if (upperToken in commonShortWordsNotSfx) return false
+        if (sfxWords.contains(upperToken) || collapsedSfxWords.contains(collapseRepeats(upperToken))) return true
+        val letters = upperToken.filter { it.isLetter() }
+        if (letters.isNotEmpty() && letters.length <= 6 &&
+            letters.all { it.code <= MAX_LATIN_CODE } &&
+            letters.none { it in LATIN_VOWELS }
+        ) return true
+        return upperToken.length >= 3 && sfxWords.any { levenshteinAtMost(upperToken, it, 1) }
     }
 
     /**
@@ -152,8 +214,12 @@ object BubbleClassifier {
         }
     }
 
-    /** "SIRENSCANS.COM", "ENSCANS.COM" apod. - viz [looksLikeWatermark]. */
-    private val domainPattern = Regex("[A-Z0-9]{2,}\\.(COM|NET|ORG|INFO|IO|TO|CC|ME)")
+    /**
+     * "SIRENSCANS.COM", "ENSCANS.COM" apod. - viz [looksLikeWatermark]. Lookahead za TLD
+     * je nutný: bez něj by doménu simulovalo i "SCANS.COMICS" nebo "READCOMICS.ORGANIC",
+     * kde je TLD jen začátek delšího slova.
+     */
+    private val domainPattern = Regex("[A-Z0-9]{2,}\\.(COM|NET|ORG|INFO|IO|TO|CC|ME)(?![A-Z0-9])")
 
     /**
      * Rozhoduje, jestli je blok textu zvukový efekt (SFX), ne replika - SFX bublina se
@@ -186,14 +252,14 @@ object BubbleClassifier {
 
         if (looksLikeWatermark(raw, core)) return true
 
-        // Opakovaná stejná instance krátkého zvuku ("GULP GULP", "BOOM BOOM BOOM") - lettering
-        // je bežně kreslí jako víc oddělených nápisů, ale OCR/spojování řádků je sloučí do
-        // JEDNOHO bloku s mezerou uvnitř. Ostatní pravidla níž (na seznam i na "bez samohlásky")
-        // vyžadují `!core.contains(' ')`, takže tahle mezera je obejde VŠECHNY najednou -
-        // živý nález: "GULP GULP" (v `sfxWords`, ale s mezerou) prošlo jako obyčejný text a
-        // přeložilo se na nesmysl. Kontrola běží PŘED nimi a řeší jen tenhle jeden případ -
-        // opakování TÉHOŽ slova, ne obecně víceslovný text.
-        if (isRepeatedSfxWord(core)) return true
+        // Víceslovný blok složený jen ze zvuků ("GULP GULP", "HUF HUF", "(HLIF HLUF)",
+        // "BOOM CRASH") - lettering je kreslí jako víc oddělených nápisů, ale
+        // OCR/spojování řádků je sloučí do JEDNOHO bloku s mezerou uvnitř. Ostatní
+        // pravidla níž (na seznam i na "bez samohlásky") vyžadují `!core.contains(' ')`,
+        // takže tahle mezera je obejde VŠECHNY najednou - živý nález: "GULP GULP"
+        // (v `sfxWords`, ale s mezerou) prošlo jako obyčejný text a přeložilo se na
+        // nesmysl, "(HLIF HLUF)" se přeložilo na "(Huf huf)" a překrylo originál.
+        if (isAllSfxTokens(core)) return true
 
         // Holé číslo bez jediného písmene - typicky číslo panelu/stránky vypálené do skenu
         // (běžné u starších scanlation releasů jako MangaStream), ne replika. Skutečný dialog
@@ -227,22 +293,68 @@ object BubbleClassifier {
         // schválně (viz komentář výš), takže by bez pojistky pohltilo i krátkou legitimní
         // repliku vysázenou mimo bublinu ("HEY", "WAIT", "NO") - běžné u komiksového zdůraznění
         // (nahlášeno v auditu).
+        //
+        // Slovo se samohláskou delší než 4 písmena je přes kresbu spíš zdůrazněná replika
+        // než vymyšlený zvuk - audit Vagabondu: "THAT'S…", "SWORDS?", "LETHAL…" se tímhle
+        // pravidlem nikdy nedostaly na překlad. Zvuky se samohláskou delší než 4 písmena
+        // ("CRASH", "FWOOSH", "RUMBLE") chytá pořád seznam sfxWords/collapsedSfxWords níž;
+        // krátké zvuky ("THUD", "POW", "BANG") a všechny bezesamohláskové (viz pravidlo výš)
+        // zůstávají chycené tady.
         if (!raw.bgUniform && letters.isNotEmpty() && letters.length <= 6 && !core.contains(' ') &&
-            core.uppercase() !in commonShortWordsNotSfx
+            core.uppercase() !in commonShortWordsNotSfx &&
+            (letters.length <= 4 || letters.none { it.uppercaseChar() in LATIN_VOWELS })
         ) return true
 
         // Stlačení zdvojených písmen kvůli protaženému letteringu - "SOBB"/"BOOOM" je pořád
-        // tentýž zvuk (viz [collapsedSfxWords]).
+        // tentýž zvuk (viz [collapsedSfxWords]). Collapsed shoda ale nesmí přebít chráněné
+        // krátké repliky: protažený slovníkový zvuk ("AHH", "OHH") se stlačí na "AH"/"OH",
+        // což je běžná interjekce - její ochrana má přednost (v31).
         val upperCore = core.uppercase()
         if (sfxWords.contains(upperCore)) return true
-        if (collapsedSfxWords.contains(collapseRepeats(upperCore))) return true
+        if (upperCore !in commonShortWordsNotSfx && upperCore !in TINY_REPLICA_ALLOWLIST &&
+            collapsedSfxWords.contains(collapseRepeats(upperCore))
+        ) return true
 
         // CJK zvuky bývají krátký text složený z opakující se znakové sekvence (např. "ドドド"),
         // na rozdíl od běžné repliky, kde se znaky neopakují takhle mechanicky.
         if (core.length in 2..6 && core.any { it.code > 0x3000 } && isRepeatingPattern(core)) return true
 
+        // --- Šumové brány: mikro-bloky, které nikdy nemají co překládat ---
+
+        // Blok bez jediného písmene, co přežil všechna pravidla výš (osamocená
+        // pomlčka/tečka apod.) - render by ho stejně přeskočil (hasTranslatableLetters)
+        // a v dávce pro model je navíc. SFX = ponechat originál, neposílat nikam.
+        if (letters.isEmpty()) return true
+
+        // Jedno/dvoupísmenný útržek, který není známá krátká replika - audit Vagabondu:
+        // "ś", "S", "F" odtržená písmena ze sazby dostala vlastní "překlad" a model nad
+        // šumem halucinoval slova ("HLUPAKI"). Skutečné krátké repliky chrání oba
+        // seznamy; cokoliv jiného je bezpečnější nechat jako SFX (originál zůstane).
+        // Jen latinka - CJK replika ("はい", "네") má taky <=2 "písmen" a není útržek.
+        if (letters.length <= 2 && letters.all { it.code <= MAX_LATIN_CODE } &&
+            upperCore !in commonShortWordsNotSfx &&
+            upperCore !in TINY_REPLICA_ALLOWLIST
+        ) return true
+
+        // Trojpísmenný útržek nad pestrou kresbou bez detekovaného tvaru bubliny -
+        // s největší pravděpodobností zbytek sazby ("PAI"). Skutečné krátké repliky
+        // chrání commonShortWordsNotSfx; uvnitř bílé bubliny (bgUniform) se brána
+        // nespouští, aby nezabila ojedinělý krátký dialog. Jen latinka ("そうか" je
+        // taky tříznaková a přesto je to replika).
+        if (letters.length == 3 && letters.all { it.code <= MAX_LATIN_CODE } &&
+            upperCore !in commonShortWordsNotSfx &&
+            !raw.bgUniform && raw.shape == null
+        ) return true
+
         return false
     }
+
+    /** Jedno/dvoupísmenné bloky, které můžou být skutečný text (zájmena, předložky). */
+    private val TINY_REPLICA_ALLOWLIST = setOf(
+        "I", "A", "O", "AN", "AM", "AS", "AT", "BE", "BY", "DO", "EX", "GO", "HE",
+        "HI", "ID", "IF", "IN", "IS", "IT", "MA", "ME", "MY", "NO", "OH", "OK",
+        "ON", "OR", "OW", "OX", "PA", "SO", "TO", "UH", "UM", "UP", "US", "WE", "YO",
+    )
 
     /** Interpunkce, která může obalovat text zvenčí, aniž by patřila k samotnému slovu. */
     private val EDGE_PUNCTUATION = charArrayOf(
@@ -262,8 +374,22 @@ object BubbleClassifier {
      *     bublina takhle nevypadá ani u dlouhé replity.
      */
     private fun looksLikeWatermark(raw: RawTextBlock, core: String): Boolean {
-        val collapsed = core.replace(" ", "").replace("\n", "").uppercase()
-        if (domainPattern.containsMatchIn(collapsed)) return true
+        // Doména jako souvislý token v textu SE mezerami ("SIRENSCANS.COM" samotnou bublinu
+        // tvoří). Zřetězený tvar sem nesmí jako první: vznikla by z něj falešná doména tam,
+        // kde věta končí tečkou a další začíná slovem shodným s TLD - "FORGET THIS. I OWE
+        // YOU" -> "THIS.IOWE" ≈ "this.io" (živý nález z telefonu - celá věta dialogu se
+        // označila za vodoznak=SFX a nikdy se nepřeložila).
+        if (domainPattern.containsMatchIn(core.uppercase())) return true
+
+        // OCR čtení vodoznaku "po písmenkách" ("E N S C A N S . C O M") - tady zřetězení
+        // potřeba je. Poznává se podle rozmezerníčeného tvaru bloku (spousta 1-2znakových
+        // tokenů) - běžná věta tolik jedno/dvoupísmenných slov nemá, takže falešný poplach
+        // z předchozího odstavce se nestane.
+        val tokens = core.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.count { it.length <= 2 } >= 5) {
+            val collapsed = core.replace(" ", "").replace("\n", "").uppercase()
+            if (domainPattern.containsMatchIn(collapsed)) return true
+        }
 
         val width = raw.rightF - raw.leftF
         val height = raw.bottomF - raw.topF

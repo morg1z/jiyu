@@ -34,6 +34,7 @@ class TwmangaSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override val id = "twmanga"
     override val name = "Twmanga"
+    override val language = "zh" // twbzmg.com = taiwansky mirror (html lang="zh-TW", overeno zive)
     override val homepageUrl get() = base
     private val base = "https://www.twbzmg.com"
 

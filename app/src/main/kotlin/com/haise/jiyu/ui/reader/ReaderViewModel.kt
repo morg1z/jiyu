@@ -26,6 +26,7 @@ import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.source.Page
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.settings.SettingsRepository
@@ -36,6 +37,7 @@ import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -54,6 +56,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
+import com.haise.jiyu.util.ErrorReporter
+import com.haise.jiyu.util.LazyPageUrl
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toErrorAction
 
@@ -70,6 +74,10 @@ private const val POSITION_FRESHNESS_MS = 10L * 24 * 60 * 60 * 1000
  * to uživatel hlásil ("kapitola se někdy nenačte správně").
  */
 private const val CHAPTER_LOAD_TIMEOUT_MS = 45_000L
+
+/** Kolikrat appendNextWebtoonSegment zkusi fetch stranek dalsi kapitoly, nez se vzdá - viz retry smycka (dead-end fix). */
+private const val APPEND_FETCH_ATTEMPTS = 3
+private const val APPEND_RETRY_DELAY_MS = 2_000L
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -142,18 +150,20 @@ class ReaderViewModel @Inject constructor(
     fun loadChapterComments() {
         if (_chapterComments.value.isNotEmpty() || commentsJob?.isActive == true) return
         val chapter = currentChapter ?: return
-        lateinit var job: Job
-        job = viewModelScope.launch {
+        // coroutineContext.job = reference na sebe sama bez lateinit - drive `lateinit var job`
+        // se mohla cist jeste neinicializovana, kdyby coroutine nabehla drive, nez launch()
+        // vratil (audit - hypoteticky, ale levna pojistka).
+        commentsJob = viewModelScope.launch {
+            val self = coroutineContext.job
             _commentsLoading.value = true
             try {
                 _chapterComments.value = repository.getChapterComments(chapter.sourceId, chapter.url)
             } catch (e: Exception) {
                 e.report("reader:loadChapterComments")
             } finally {
-                if (commentsJob === job) _commentsLoading.value = false
+                if (commentsJob === self) _commentsLoading.value = false
             }
         }
-        commentsJob = job
     }
 
     // Jednorazova hlaska "tahle kapitola byla dotazena z jineho zdroje" - viz
@@ -284,13 +294,27 @@ class ReaderViewModel @Inject constructor(
     val skipReadChapters: StateFlow<Boolean> = settings.skipReadChapters
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /**
+     * Prefetch CELÉ kapitoly jen na nezpoplatněné síti (výchozí zapnuto) - viz
+     * [shouldLimitPrefetch]. Na mobilních datech se místo ~5-15 MB předstahování
+     * použije rolling +1 stránka jako v úsporném režimu.
+     */
+    private val prefetchPagesWifiOnly: StateFlow<Boolean> = settings.prefetchPagesWifiOnly
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     fun setReaderOrientation(orientation: String) { viewModelScope.launch { settings.setReaderOrientation(orientation) } }
 
     // ── Přednačítání další kapitoly ──────────────────────────────────────────
     // ConcurrentHashMap - pise se z IO (preloadNextChapter, appendNextWebtoonSegment) a cte/maze z Main
     // (loadChapter); obycejna mapa dovolovala ConcurrentModificationException (audit nalez JIYU-UI-5).
     private val nextChapterCache = ConcurrentHashMap<String, List<String>>()
+    // Rozběhnuté přednačítací požadavky běží jako potomci viewModelScope (execute v
+    // prefetchPagesFrom) - po odchodu ze čtečky se zruší s ním a dál nedrží sloty
+    // hostitele ani nezdržují obálky/loga ve výpisu zdroje.
     private var preloadJob: Job? = null
+    // Kapitola, pro kterou preloadJob prave stahuje stranky - appendNextWebtoonSegment
+    // se na ni pripoji (join) misto druheho paralelniho fetchu.
+    private var preloadChapterId: String? = null
     private var spreadDetectJob: Job? = null
 
     // Jediné probíhající načtení kapitoly - rychlé přepínání (další/předchozí, skok) by jinak
@@ -304,8 +328,15 @@ class ReaderViewModel @Inject constructor(
     private var novelPreloadJob: Job? = null
     private var mangaTranslatePreloadJob: Job? = null
 
-    /** Indexy stránek AKTUÁLNÍ kapitoly, pro které už proběhl [prefetchPagesFrom] - viz reset v [loadChapter]. */
-    private val prefetchedPageIndices = mutableSetOf<Int>()
+    /** Indexy stránek AKTUÁLNÍ kapitoly, pro které už proběhl prefetch - viz reset v [loadChapter].
+     *  ConcurrentHashMap-backed set - paralelni prefetch workery (PREFETCH_PARALLELISM) ho
+     *  zapisuji z Dispatchers.IO a prefetchNextPage z Main; obycejny set by riskoval
+     *  ConcurrentModificationException. */
+    private val prefetchedPageIndices = ConcurrentHashMap.newKeySet<Int>()
+
+    // Sekvencni prefetch cele kapitoly (viz startChapterPrefetch) - jeden job na kapitolu,
+    // pri vymene kapitoly se zrusi a spusti novy.
+    private var chapterPrefetchJob: Job? = null
 
     private val _webtoonScrollOffset = MutableStateFlow(0)
     val webtoonScrollOffset: StateFlow<Int> = _webtoonScrollOffset.asStateFlow()
@@ -319,6 +350,12 @@ class ReaderViewModel @Inject constructor(
     // (viz dokumentace u onWebtoonVisibleChapterChanged, proč).
     private val _webtoonSegments = MutableStateFlow<List<WebtoonSegment>>(emptyList())
     val webtoonSegments: StateFlow<List<WebtoonSegment>> = _webtoonSegments.asStateFlow()
+
+    // True po dobu, co appendNextWebtoonSegment stahuje stranky dalsi kapitoly -
+    // WebtoonReader tim ukaze "Nacitam dalsi kapitolu" radek na konci listu misto
+    // tiche slepe ulicky (live audit: ~28 s bez jakekoliv odezvy).
+    private val _webtoonAppendingNext = MutableStateFlow(false)
+    val webtoonAppendingNext: StateFlow<Boolean> = _webtoonAppendingNext.asStateFlow()
     private var appendingSegmentJob: Job? = null
 
     // Scroll ve webtoon rezimu emituje pozici na kazdy pixel behem flingu - zapis do DB
@@ -387,14 +424,44 @@ class ReaderViewModel @Inject constructor(
      * [_translatedPages]) NIKDY neresetuje při přechodu mezi segmenty - jako vedlejší efekt to
      * řeší i dřívější nález "scroll přes hranici kapitoly zahodí už hotový překlad".
      */
+    // Max pocet kapitol drzenych v prekladove cache - viz putTranslatedPage (LRU evikce).
+    private val MAX_TRANSLATED_CHAPTERS_CACHED = 12
+
     private val _translatedPagesByChapter = MutableStateFlow<Map<String, Map<Int, List<TranslatedBlock>>>>(emptyMap())
     val translatedPagesByChapter: StateFlow<Map<String, Map<Int, List<TranslatedBlock>>>> = _translatedPagesByChapter.asStateFlow()
 
-    /** Zapíše do OBOU map najednou - viz komentář u [_translatedPagesByChapter]. */
+    /**
+     * Zapíše do OBOU map najednou - viz komentář u [_translatedPagesByChapter]. Do ploché
+     * mapy jen když [chapterId] odpovídá AKTUÁLNÍ kapitole: opožděný callback z jobu, který
+     * mezitím zrušilo přepnutí kapitoly (loadChapter / segment v nekonečném čtení / změna
+     * jazyka), se po cancel() ještě může vykonat (už byl naplánovaný na Main) a bez
+     * kontroly by vykreslil bubliny staré kapitoly na stránku nové se stejným indexem.
+     * Per-chapter mapa se plní vždy - je klíčovaná správně a WebtoonReader ji čte i pro
+     * odscrollané segmenty.
+     */
     private fun putTranslatedPage(chapterId: String, pageIndex: Int, blocks: List<TranslatedBlock>) {
-        _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+        // Prázdný list nikdy neukládat - znamená "stránka bez bublin/keše s nulovým
+        // obsahem" a vepsaný záznam {index: []} by jen naplnil mapu o nicneříkající
+        // položku (UI ji čte jako "stránka má překladová data"). Např. per-chapter
+        // swap při přepnutí segmentu by pak tvrdil, že kapitola přeložená je.
+        if (blocks.isEmpty()) return
+        if (chapterId == _currentChapterId.value) {
+            _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+        }
         val forChapter = (_translatedPagesByChapter.value[chapterId] ?: emptyMap()) + (pageIndex to blocks)
-        _translatedPagesByChapter.value = _translatedPagesByChapter.value + (chapterId to forChapter)
+        val merged = LinkedHashMap(_translatedPagesByChapter.value)
+        merged.remove(chapterId) // presun na konec = LRU poradi
+        merged[chapterId] = forChapter
+        // LRU strop (nekonecne cteni by mapu nechalo rust na kazdou prelozenou kapitolu =
+        // desitky KB textu navrch a nikdy neumrely, audit). Kapitoly zive ve webtoon
+        // segmentech + aktualni se drzi vzdy - pres strop se vyhazuji nejstarsi zbytek,
+        // aby zpetna navigace do nedavno navstivene kapitoly stale nasla cache.
+        val liveIds = _webtoonSegments.value.mapTo(HashSet()) { it.chapterId } + _currentChapterId.value
+        while (merged.size > MAX_TRANSLATED_CHAPTERS_CACHED) {
+            val victim = merged.keys.firstOrNull { it !in liveIds } ?: break
+            merged.remove(victim)
+        }
+        _translatedPagesByChapter.value = merged
     }
 
     // Stejná výchozí hodnota jako v SettingsRepository - než se nastavení načte, nesmí tu
@@ -753,33 +820,57 @@ class ReaderViewModel @Inject constructor(
         val threshold = 80
         val minPanelHeight = h / 12
 
-        // Single getPixels() call instead of w/4 * h individual JNI calls
-        val pixels = IntArray(w * h)
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        // Analyza na zmensene kopii - webtoon stranky byvaji klidne 2000x30000 px, IntArray
+        // w*h by sam sezral ~240 MB heapu a OOMl appku pri prvnim Panel mode (audit).
+        // Na detekci horizontalnich rezu staci ~1.3 MP; vysledne rezy se prepocitaji zpatky.
+        val maxAnalysisPixels = 1_300_000L
+        val scale = kotlin.math.sqrt(maxAnalysisPixels.toDouble() / (w.toLong() * h)).coerceAtMost(1.0)
+        val aw = (w * scale).toInt().coerceAtLeast(1)
+        val ah = (h * scale).toInt().coerceAtLeast(1)
+        val work = if (scale < 1.0) android.graphics.Bitmap.createScaledBitmap(bmp, aw, ah, true) else bmp
 
+        // Single getPixels() call instead of w/4 * h individual JNI calls
+        val pixels = IntArray(aw * ah)
+        work.getPixels(pixels, 0, aw, 0, 0, aw, ah)
+        if (work !== bmp) work.recycle()
+
+        val aMinPanelHeight = ah / 12
         val horizontalCuts = mutableListOf(0)
-        for (y in 0 until h) {
+        for (y in 0 until ah) {
             var darkCount = 0
             var x = 0
-            while (x < w) {
-                val pixel = pixels[y * w + x]
+            while (x < aw) {
+                val pixel = pixels[y * aw + x]
                 val brightness = ((pixel shr 16 and 0xFF) + (pixel shr 8 and 0xFF) + (pixel and 0xFF)) / 3
                 if (brightness < threshold) darkCount++
                 x += 4
             }
-            if (darkCount > w / 8 && (horizontalCuts.last() == 0 || y - horizontalCuts.last() > minPanelHeight)) {
+            if (darkCount > aw / 8 && (horizontalCuts.last() == 0 || y - horizontalCuts.last() > aMinPanelHeight)) {
                 horizontalCuts.add(y)
             }
         }
-        horizontalCuts.add(h)
+        horizontalCuts.add(ah)
 
+        // Prepoctat rezy zpet na souradnice plneho obrazku.
+        val invScale = 1.0 / scale
         return (0 until horizontalCuts.lastIndex).map { i ->
-            android.graphics.Rect(0, horizontalCuts[i], w, horizontalCuts[i + 1])
+            android.graphics.Rect(
+                0,
+                (horizontalCuts[i] * invScale).toInt().coerceIn(0, h),
+                w,
+                (horizontalCuts[i + 1] * invScale).toInt().coerceIn(0, h),
+            )
         }.filter { it.height() > minPanelHeight }
     }
 
     private var translationJob: Job? = null
     private var batchJob: Job? = null
+    // Kapitola, ktera si pozadala o batch zatimco bezel jiny (nekonecne cteni) -
+    // spusti se, az predchozi doběhne (viz translateAllPages a jeho finally).
+    private var pendingBatchChapterId: String? = null
+    // Kapitola, na kterou bezi prave aktivni batchJob - pro rozliseni "double-tap na
+    // stejnou kapitolu" (ignorovat) od "zadost pro jinou" (zaradit jako pending).
+    private var activeBatchChapterId: String? = null
     private var lastPageChangeMs = 0L
 
     // Deklarace MUSI byt pred `init` (viz nize) - jinak by je init blok videl jako null.
@@ -839,6 +930,8 @@ class ReaderViewModel @Inject constructor(
         _chapterErrorAction.value = null
         _pages.value = emptyList()
         prefetchedPageIndices.clear()
+        chapterPrefetchJob?.cancel()
+        chapterPrefetchJob = null
         _translatedPages.value = emptyMap()
         _chapterComments.value = emptyList()
         _commentsSupported.value = false
@@ -849,15 +942,12 @@ class ReaderViewModel @Inject constructor(
         // zůstala otočená i na stránce 3 v nové kapitole, i když jde o úplně jinou bublinu.
         _flippedBubbles.value = emptySet()
         _translateMode.value = false
-        translationJob?.cancel()
-        translationJob = null
-        _translationProgress.value = null
         // Bez tohohle by rozjeté "Přeložit vše" z PŘEDCHOZÍ kapitoly dál běželo ve stejném
         // viewModelScope a jeho onPageReady zapisoval bloky staré kapitoly do
         // _translatedPages, které si teď čte UI nové kapitoly - špatný překlad na špatné
         // stránce. _batchTranslating navíc zůstávalo true a blokovalo nové "Přeložit vše"
         // na nové kapitole, dokud starý job nedoběhl sám.
-        cancelBatchTranslation()
+        cancelActiveTranslation()
         _novelTranslateMode.value = false
         _novelTranslatedText.value = null
         novelTranslationJob?.cancel()
@@ -867,9 +957,11 @@ class ReaderViewModel @Inject constructor(
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
         _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
-        if (chapter.isFallbackSource) {
-            _fallbackNotice.value = context.getString(R.string.reader_fallback_source_notice)
-        }
+        // Hlaska se MUSI vycistit i pro ne-fallback kapitolu - jinak by po prechodu
+        // z fallback kapitoly na normalni zustala viset navzdy (audit - stale notice).
+        _fallbackNotice.value = if (chapter.isFallbackSource) {
+            context.getString(R.string.reader_fallback_source_notice)
+        } else null
         _chapterTitle.value = chapter.name
         _currentChapterId.value = chapter.id
         // Presna pozice (stranka + scroll) se pamatuje jen POSITION_FRESHNESS_MS od posledniho
@@ -879,10 +971,23 @@ class ReaderViewModel @Inject constructor(
         _currentPage.value = _initialPage.value
         _webtoonScrollOffset.value = if (positionIsFresh) chapter.lastScrollOffset else 0
 
-        allChapters = repository.getAllChapters(chapter.mangaId)
+        val loadedChapters = repository.getAllChapters(chapter.mangaId)
+        // Ochrana proti relinku: kdyz refresh/migrace mezi getChapter a getAllChapters
+        // nahradil otevrenou kapitolu entitou s jinym id, dosadime ji zpet na jeji
+        // misto v DESC poradi. Bez tohohle indexOfFirst vracel -1 -> navigace byla
+        // mrtva a davno navigatePrev hodil ctenare na allChapters[0] (ch1 -> ~200).
+        allChapters = if (loadedChapters.any { it.id == chapter.id }) {
+            loadedChapters
+        } else {
+            ErrorReporter.breadcrumb(
+                "reader:chapterMissing:loadChapter",
+                "chapterId=${chapter.id} mangaId=${chapter.mangaId} listSize=${loadedChapters.size} - inserted back",
+            )
+            loadedChapters.insertSortedDesc(chapter)
+        }
         _allChaptersFlow.value = allChapters
         _chapterCount.value = allChapters.size
-        _chapterIndex.value = allChapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
+        _chapterIndex.value = chapterIndexOrTrace(chapter.id, "loadChapter").coerceAtLeast(0)
         updateNavState()
 
         val mangaForDir = repository.getManga(chapter.mangaId)
@@ -907,6 +1012,9 @@ class ReaderViewModel @Inject constructor(
             _comickUnavailable.value = true
         } else if (chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null) {
             _comickUnavailable.value = false
+            // Stranky jsou lokalni, referer nepouzivaji - ale drzime ho na zdroji kapitoly,
+            // aby nikdy nezustal viset z predchozi (audit: stale referer z cache cesty).
+            _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
             val pageUrls = withContext(kotlinx.coroutines.Dispatchers.IO) { ChapterStorage.listPageUrls(context, chapter.localPath) }
             _pages.value = pageUrls
             _isOfflineChapter.value = true
@@ -935,6 +1043,11 @@ class ReaderViewModel @Inject constructor(
             _comickUnavailable.value = false
             _isOfflineChapter.value = false
             _spreadPageIndices.value = emptySet()
+            // Referer se nastavuje pro KAZDOU online cestu - i tu, kde stranky prisly
+            // z nextChapterCache. Drive se nastavoval az ve vetvi rucniho fetchu, takze
+            // preloadnuta kapitola jela se stale/null refererem a u hotlink-chranenych
+            // CDN se stranky vracely jako 403 (cerne stranky - viz audit).
+            _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
             val cached = nextChapterCache.remove(chapter.id)
             if (cached != null) {
                 _isNovelSource.value = false
@@ -958,7 +1071,6 @@ class ReaderViewModel @Inject constructor(
                         _chapterErrorAction.value = e.toErrorAction()
                         null
                     }
-                    _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
                     val isNovel = rawPages?.any { it.imageUrl == "novel://text" } ?: false
                     _isNovelSource.value = isNovel
                     when {
@@ -975,13 +1087,16 @@ class ReaderViewModel @Inject constructor(
                         }
                         else -> {
                             _novelText.value = ""
-                            _pages.value = rawPages.map { it.imageUrl ?: it.url }
+                            _pages.value = rawPages.map { pageDisplayUrl(it, chapter.sourceId) }
                         }
                     }
                 }
             }
         }
-        prefetchPagesFrom(_initialPage.value)
+        // Usporny rezim NEBO zpoplatnena sit (viz shouldLimitPrefetch): jen stranka dopredu
+        // pri kazdem otoceni. Normalni rezim: sekvencni prefetch cele kapitoly 0->N jednou za kapitolu.
+        if (shouldLimitPrefetch()) prefetchNextPage(_initialPage.value)
+        else startChapterPrefetch()
         lastPageChangeMs = System.currentTimeMillis()
         _loading.value = false
         // Kazde plne nacteni kapitoly (jumpToChapter/navigateNext/navigatePrev/pocatecni otevreni)
@@ -991,12 +1106,45 @@ class ReaderViewModel @Inject constructor(
         _webtoonSegments.value = listOf(WebtoonSegment(chapter.id, chapter.name, _pages.value))
     }
 
+    /**
+     * indexOfFirst kapitoly v [allChapters] s vystopováním: když tam není
+     * (refresh/migrace/relink mezi getChapter a getAllChapters ji nahradil
+     * jiným id), zanechá Crashlytics breadcrumb. Právě tahle situace způsobila
+     * hlášený skok ch1 → ~200 a předtím proběhla potichu - po tomto je vidět,
+     * kde a jak často se děje.
+     */
+    private fun chapterIndexOrTrace(chapterId: String, where: String): Int {
+        val idx = allChapters.indexOfFirst { it.id == chapterId }
+        if (idx < 0) {
+            ErrorReporter.breadcrumb(
+                "reader:chapterMissing:$where",
+                "chapterId=$chapterId mangaId=${currentChapter?.mangaId} listSize=${allChapters.size}",
+            )
+        }
+        return idx
+    }
+
+    /**
+     * Vloží kapitolu na její místo v seznamu seřazeném DESC podle
+     * `chapterNumber` (stejné pořadí jako `ChapterDao`). Používá se, když se
+     * otevřená kapitola v čerstvě načteném seznamu nenajde - migrace/relink
+     * ji nahradil entitou s jiným id, ale pořadí zůstává podle čísla kapitoly.
+     */
+    private fun List<ChapterEntity>.insertSortedDesc(chapter: ChapterEntity): List<ChapterEntity> {
+        val pos = indexOfFirst { it.chapterNumber < chapter.chapterNumber }
+            .takeIf { it >= 0 } ?: size
+        return toMutableList().apply { add(pos, chapter) }
+    }
+
     private fun updateNavState() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val idx = chapterIndexOrTrace(chapter.id, "updateNavState")
         // allChapters je DESC (nejnovější první)
         // prev = starší = vyšší index; next = novější = nižší index
-        _hasPrevChapter.value = idx < allChapters.lastIndex
+        // idx == -1 = aktualni kapitola uz v seznamu neni (refresh/migrace mezi
+        // getChapter a getAllChapters ji nahradil jinym id) - bez podminky by se
+        // prev chapalo jako target=0 a skocilo na NEJNOVEJSI kapitolu.
+        _hasPrevChapter.value = idx >= 0 && idx < allChapters.lastIndex
         _hasNextChapter.value = idx > 0
     }
 
@@ -1006,7 +1154,7 @@ class ReaderViewModel @Inject constructor(
 
     fun navigateNext() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val idx = chapterIndexOrTrace(chapter.id, "navigateNext")
         if (idx <= 0) return
         val target = if (skipReadChapters.value) {
             (idx - 1 downTo 0).firstOrNull { !allChapters[it].read } ?: (idx - 1)
@@ -1018,8 +1166,11 @@ class ReaderViewModel @Inject constructor(
 
     fun navigatePrev() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
-        if (idx >= allChapters.lastIndex) return
+        val idx = chapterIndexOrTrace(chapter.id, "navigatePrev")
+        // idx == -1 = aktualni kapitola se v allChapters nenachazi (mezitim
+        // probehla migrace/relink entit) - bez guardu by target=0 hodil na
+        // allChapters[0], tedy NEJNOVEJSI kapitolu (hlaseny skok ch1 -> ch ~200).
+        if (idx < 0 || idx >= allChapters.lastIndex) return
         val target = if (skipReadChapters.value) {
             (idx + 1..allChapters.lastIndex).firstOrNull { !allChapters[it].read } ?: (idx + 1)
         } else {
@@ -1032,55 +1183,176 @@ class ReaderViewModel @Inject constructor(
 
     private fun preloadNextChapter() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val idx = chapterIndexOrTrace(chapter.id, "preloadNextChapter")
         if (idx <= 0) return
         val nextChapter = allChapters[idx - 1]
         if (nextChapterCache.containsKey(nextChapter.id)) return
         if (nextChapter.downloadStatus == DownloadStatus.DOWNLOADED) return
         preloadJob?.cancel()
+        preloadChapterId = nextChapter.id
         preloadJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val manga = repository.getManga(nextChapter.mangaId) ?: return@launch
                 val rawPages = repository.getChapterPages(nextChapter.sourceId, nextChapter.url, manga.url)
-                val urls = rawPages.mapNotNull { it.imageUrl?.takeIf { u -> u.isNotBlank() } ?: it.url.takeIf { u -> u.isNotBlank() } }
-                if (urls.isNotEmpty()) nextChapterCache[nextChapter.id] = urls
+                val urls = rawPages.map { pageDisplayUrl(it, nextChapter.sourceId) }.filter { it.isNotBlank() }
+                if (urls.isNotEmpty()) {
+                    nextChapterCache[nextChapter.id] = urls
+                    // Samotny seznam URL nestaci - bez predstazenych obrazku zacinala kazda
+                    // dalsi kapitola studenym stahovanim (live audit "cekani na dalsi page").
+                    prefetchChapterStart(urls, nextChapter.sourceId)
+                }
             } catch (e: Exception) {
                 e.report("reader:preloadNextChapterPages")
+            } finally {
+                // Znicit jen kdyz nikdo mezitim nezadal preloadovat jinou kapitolu - identity
+                // guard: preloadChapterId muze ukazovat na NOVEJSI job a ten nesmime
+                // odpojit (append by pak joinoval mrtvy job misto ziveho).
+                if (preloadChapterId == nextChapter.id) preloadChapterId = null
             }
         }
     }
 
     /**
-     * Předstáhne obrázky nadcházejících stránek AKTUÁLNÍ kapitoly (viz [computePrefetchIndices])
-     * do Coil cache, dřív než na ně dojde řada v čtečce - řeší "kapitola se dlouho dokresluje
-     * po stránkách". Volá se po dokončení [loadChapter] (od initialPage) a při každé změně
-     * stránky (viz [onPageChanged], od `index + 1`). Fire-and-forget - selhání jednotlivého
-     * požadavku se tiše zahodí, skutečné zobrazení stránky pak proběhne normální cestou přes
-     * [RetryableAsyncImage] s vlastním retry UI.
+     * Má se předstahování omezit na rolling +1 stránku ([prefetchNextPage]) místo celokapitolového
+     * prefetchu? Úsporný režim (baterie/málo RAM) NEBO zpoplatněná síť při zapnutém
+     * "prefetch jen na WiFi" (výchozí) - předstahování celé kapitoly je ~5-15 MB dat, která
+     * čtenář třeba ani nedočte.
      */
-    private fun prefetchPagesFrom(fromIndex: Int) {
-        val pages = _pages.value
-        // Sirsi okno na zpoplatnenem/mobilnim pripojeni - na pomale/vysoke-latenci lince
-        // ctenar frontu 4 predstazenych stranek pri normalnim tempu cteni dojede a pak
-        // ceka stranku po strance; na WiFi 4 staci s rezervou.
-        val count = prefetchWindowFor(networkMonitor.isUnmetered, com.haise.jiyu.util.DeviceResourcePolicy.isSavingResources(context))
-        val indices = computePrefetchIndices(fromIndex, pages.size, prefetchedPageIndices, count)
-        if (indices.isEmpty()) return
-        val referer = _pageReferer.value
-        val imageLoader = Coil.imageLoader(context)
-        for (index in indices) {
-            val url = pages[index]
-            if (url.isBlank()) continue
-            prefetchedPageIndices += index
-            // buildPageImageRequest (ne rucne stavany request) - musi sedet se skutecnym
-            // zobrazovacim requestem (viz ReaderImage.buildPageImageRequest), jinak si Coil
-            // spocita jiny cache klic (transformace jsou jeho soucasti) a predstazeni je
-            // k nicemu: stranka se pri zobrazeni stahne/dekoduje znovu (nahlaseno v auditu).
-            val request = buildPageImageRequest(context, url, referer, cropBorders.value)
-            prefetchDisposables += imageLoader.enqueue(request)
+    private fun shouldLimitPrefetch(): Boolean =
+        com.haise.jiyu.util.DeviceResourcePolicy.isSavingResources(context) ||
+            (prefetchPagesWifiOnly.value && !networkMonitor.isUnmetered)
+
+    /**
+     * Spustí prefetch CELÉ kapitoly najednou - [PREFETCH_PARALLELISM] paralelních workerů
+     * nad frontou v pořadí [prefetchOrder] (dopředu od aktuální pozice, zpětně nakonec).
+     * Dřívější verze stahovala SEKVENČNĚ 0..N - jedna stránka po druhé, takže se kapitola
+     * na pomalém CDN naplnila až po desítkách sekund a každé otočení před doběhnutím
+     * prefetchu znamenalo čekání na síť (live audit proti Kotatsu).
+     *
+     * Stránku okolo aktuální pozice (currentPage ±1) přeskakuje, protože ji načítá
+     * zobrazovací cesta pageru - prefetch by ji jinak stahoval duplicitně vedle rozjetého
+     * zobrazovacího requestu. Kontrola se dělá DYNAMICKY uvnitř workeru (čte live
+     * _currentPage), ne jednorázově při startu - když čtenář přeskočí dopředu, workery
+     * si aktuální stránku nechají ujít a nevypálí na ni druhý download.
+     *
+     * Selhání jednotlivé stránky ji vrátí do fronty a po dokončení průchodu se nevyřízené
+     * po [PREFETCH_RETRY_DELAY_MS] zkusi znovu - celkem max [PREFETCH_MAX_PASSES] průchodů.
+     * Stažená data zůstávají v disk cache pod klíčem URL (disk drží RAW bajty), takže se
+     * zobrazení v plné velikosti čte z disku bez sítě. Lokální soubory (offline stažené
+     * kapitoly) se přeskočí - už jsou na disku.
+     *
+     * V úsporném režimu (šetření baterie / málo paměti) místo toho běží jen [prefetchNextPage]
+     * na každé otočení stránky, aby se nestahovalo něco, co čtenář třeba neotevře.
+     * Totéž platí na zpoplatněné síti při zapnutém "prefetch jen na WiFi" (viz [shouldLimitPrefetch]).
+     */
+    private fun startChapterPrefetch(centerIndex: Int = _currentPage.value) {
+        chapterPrefetchJob?.cancel()
+        chapterPrefetchJob = viewModelScope.launch {
+            val pages = _pages.value.toList()
+            if (pages.isEmpty()) return@launch
+            val imageLoader = Coil.imageLoader(context)
+            var queue = prefetchOrder(pages.size, centerIndex)
+            for (pass in 1..PREFETCH_MAX_PASSES) {
+                if (queue.isEmpty()) break
+                val cursor = java.util.concurrent.atomic.AtomicInteger(0)
+                val failed = java.util.concurrent.ConcurrentLinkedQueue<Int>()
+                kotlinx.coroutines.coroutineScope {
+                    repeat(PREFETCH_PARALLELISM) {
+                        launch(kotlinx.coroutines.Dispatchers.IO) {
+                            while (true) {
+                                ensureActive()
+                                val i = cursor.getAndIncrement()
+                                if (i >= queue.size) break
+                                val index = queue[i]
+                                if (index in prefetchedPageIndices) continue
+                                val url = pages.getOrElse(index) { "" }
+                                if (url.isBlank()) continue
+                                // Stranka na kterou se zrovna kouka (a jeji soused v pageru) -
+                                // zobrazovaci cesta ji drzi sama, duplicitni fetch je zbytecny.
+                                if (kotlin.math.abs(index - _currentPage.value) <= 1) {
+                                    prefetchedPageIndices += index
+                                    continue
+                                }
+                                if (url.startsWith("/") || url.startsWith("file://")) {
+                                    prefetchedPageIndices += index
+                                    continue
+                                }
+                                prefetchedPageIndices += index
+                                // buildPageImageRequest (ne rucne stavany request) - musi sedet
+                                // se skutecnym zobrazovacim requestem, jinak si Coil spocita jiny
+                                // cache klic a stranka se pri zobrazeni stahne znovu.
+                                // size(PREFETCH_DECODE_SIZE): disk cache uklada RAW bajty pod
+                                // klicem URL, do memory cache pribude jen mala bitmapa.
+                                val request = buildPageImageRequest(context, url, _pageReferer.value, cropBorders.value)
+                                    .newBuilder()
+                                    .size(PREFETCH_DECODE_SIZE)
+                                    .build()
+                                if (imageLoader.execute(request) is coil.request.ErrorResult) {
+                                    prefetchedPageIndices -= index
+                                    failed += index
+                                }
+                            }
+                        }
+                    }
+                }
+                queue = failed.toList()
+                if (queue.isEmpty()) break
+                delay(PREFETCH_RETRY_DELAY_MS)
+            }
         }
-        // Dokončené požadavky nedržíme (jinak by seznam za dlouhé čtení rostl).
-        prefetchDisposables.removeAll { it.isDisposed }
+    }
+
+    /**
+     * Předstáhne prvních [NEXT_CHAPTER_PREFETCH_PAGES] stránek kapitoly, jejíž seznam URL
+     * už známe (viz preloadNextChapter / appendNextWebtoonSegment), ale její obrázky ještě
+     * nejsou v disk cache. Bez toho přechod na další díl vždycky studeně čekal na síť -
+     * první stránky se stahovaly až po přepnutí (Kotatsu má další kapitolu dávno staženou).
+     *
+     * Bezpečné opakování: jede jen přes Coil requesty se STEJNÝM builderem jako display
+     * cesta (disk cache klíč URL), takže stránky, co už stažené jsou, se jen potvrdí z disku.
+     * V omezeném režimu (úsporný / zpoplatněná síť - viz [shouldLimitPrefetch]) se přeskočí
+     * - další kapitola je bonus, ne nutnost.
+     */
+    private fun prefetchChapterStart(urls: List<String>, sourceId: String) {
+        if (shouldLimitPrefetch()) return
+        val imageLoader = Coil.imageLoader(context)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val referer = repository.sourceHomepage(sourceId)
+            kotlinx.coroutines.coroutineScope {
+                urls.take(NEXT_CHAPTER_PREFETCH_PAGES).forEach { url ->
+                    if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) return@forEach
+                    launch {
+                        val request = buildPageImageRequest(context, url, referer, cropBorders.value)
+                            .newBuilder()
+                            .size(PREFETCH_DECODE_SIZE)
+                            .build()
+                        imageLoader.execute(request)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Úsporný režim - místo sekvenčního prefetchu celé kapitoly (viz [startChapterPrefetch])
+     * předstáhne jen JEDNU stránku dopředu při každém otočení stránky.
+     */
+    private fun prefetchNextPage(currentIndex: Int) {
+        val pages = _pages.value
+        val index = currentIndex + 1
+        if (index >= pages.size || index in prefetchedPageIndices) return
+        val url = pages[index]
+        if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) return
+        prefetchedPageIndices += index
+        val request = buildPageImageRequest(context, url, _pageReferer.value, cropBorders.value)
+            .newBuilder()
+            .size(PREFETCH_DECODE_SIZE)
+            .build()
+        viewModelScope.launch {
+            if (Coil.imageLoader(context).execute(request) is coil.request.ErrorResult) {
+                prefetchedPageIndices -= index
+            }
+        }
     }
 
     /**
@@ -1095,25 +1367,83 @@ class ReaderViewModel @Inject constructor(
         if (appendingSegmentJob?.isActive == true) return
         val segments = _webtoonSegments.value
         val lastChapterId = segments.lastOrNull()?.chapterId ?: return
-        val lastIdx = allChapters.indexOfFirst { it.id == lastChapterId }
+        val lastIdx = chapterIndexOrTrace(lastChapterId, "appendNextWebtoonSegment")
         // allChapters je DESC (nejnovější první) - dalsi/novejsi kapitola je NIZSI index.
         if (lastIdx <= 0) return
         val nextChapter = allChapters[lastIdx - 1]
         if (segments.any { it.chapterId == nextChapter.id }) return
+        _webtoonAppendingNext.value = true
         appendingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                // Strop stejny jako u hlavniho nacitani kapitoly (CHAPTER_LOAD_TIMEOUT_MS) -
-                // bez nej by zaseknuty pokus drzel appendingSegmentJob "aktivni" donekonecna a
-                // znemoznil dalsi pokus (viz podminka na zacatku funkce).
-                val pages = nextChapterCache.remove(nextChapter.id)
-                    ?: kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) { fetchChapterPagesForSegment(nextChapter) }
+                var pages: List<String>? = null
+                // Az 3 pokusy - driv jeden neuspesny/timeoutnuty fetch znamenal tichy
+                // dead-end: scroll stal na posledni strance a dalsi pokus se spustil
+                // az nahodnym swiipem (live audit: ~28 s "zasekleho" scrollu na pomalem
+                // zdroji). Bezpecne opakovatelne - jen nacita seznam stranek.
+                for (attempt in 1..APPEND_FETCH_ATTEMPTS) {
+                    // Kdyz bezi preloadNextChapter pro TUTO kapitolu, pockame na jeho
+                    // vysledek misto druheho paralelniho fetchu - driv se stejny request
+                    // poslal dvakrat a append cekal ~dvojnasob.
+                    if (preloadChapterId == nextChapter.id) {
+                        preloadJob?.join()
+                    }
+                    pages = nextChapterCache.remove(nextChapter.id)
+                        ?: kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) {
+                            fetchChapterPagesForSegment(nextChapter)
+                        }
+                    if (!pages.isNullOrEmpty()) break
+                    if (attempt < APPEND_FETCH_ATTEMPTS) delay(APPEND_RETRY_DELAY_MS)
+                }
                 if (pages.isNullOrEmpty()) return@launch
                 val newSegment = WebtoonSegment(nextChapter.id, nextChapter.name, pages)
                 _webtoonSegments.value = _webtoonSegments.value + newSegment
+                // LazyColumn komponuje jen ~1-2 stranky predem - rychly scroll by drive
+                // dojel na nepreddstazene stranky a kazda dalsi cekala na sit.
+                prefetchChapterStart(pages, nextChapter.sourceId)
+                // Prelozene stranky z Room cache naplnit rovnou do per-chapter mapy -
+                // bez toho by se do napojene kapitoly s drivejssim prekladem doscrollovalo
+                // a overlay se objevil az po znovuspusteni prekladu, i kdyz bloky v DB
+                // davno jsou (jen kdyz je preklad rezim aktivni, jinak je to zbytecna prace).
+                if (_translateMode.value) {
+                    preloadCachedTranslations(nextChapter.id, pages)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.report("reader:infiniteScroll:appendNextSegment")
+            } finally {
+                _webtoonAppendingNext.value = false
             }
         }
+    }
+
+    /**
+     * Naplni [_translatedPagesByChapter] z Room cache pro napojeny segment - viz
+     * [appendNextWebtoonSegment]. Stranky bez zaznamu preskoci; putTranslatedPage
+     * se postara o flat mapu jen pro aktualni kapitolu.
+     */
+    private suspend fun preloadCachedTranslations(chapterId: String, pages: List<String>) {
+        val target = _targetLanguage.value
+        val source = _sourceLanguage.value
+        for ((index, url) in pages.withIndex()) {
+            if (_webtoonSegments.value.none { it.chapterId == chapterId }) return
+            translateRepository.getCachedPage(chapterId, index, target, source, pageUrl = url)
+                ?.let { putTranslatedPage(chapterId, index, it) }
+        }
+    }
+
+    /**
+     * Page → URL pro Coil. Když zdroj vrátil jen virtuální `Page.url` (lazy
+     * resolver přes `getImageUrl` - MangaHome chapterfun, FanFox, EHentai...),
+     * zabalí se do `jiyu_lazy` markeru, který v místě fetchu rozbalí
+     * [com.haise.jiyu.source.LazyPageFetcher] - jinak by Coil stáhl HTML/JS místo
+     * obrázku a stránka zůstala černá (ověřeno na zařízení u MangaHome).
+     * U zdrojů bez lazy resolveru je marker no-op (`getImageUrl` vrátí `page.url`).
+     */
+    private fun pageDisplayUrl(page: Page, sourceId: String): String {
+        page.imageUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        val url = page.url.takeIf { it.isNotBlank() } ?: return ""
+        return LazyPageUrl.encode(sourceId, page.index, url)
     }
 
     /** Sdílená logika stažení stránek jedné kapitoly (offline i online) - viz stejné větvení v loadChapter. */
@@ -1123,7 +1453,7 @@ class ReaderViewModel @Inject constructor(
         }
         val manga = repository.getManga(chapter.mangaId) ?: return null
         val rawPages = repository.getChapterPages(chapter.sourceId, chapter.url, manga.url)
-        return rawPages.mapNotNull { it.imageUrl?.takeIf { u -> u.isNotBlank() } ?: it.url.takeIf { u -> u.isNotBlank() } }
+        return rawPages.map { pageDisplayUrl(it, chapter.sourceId) }.filter { it.isNotBlank() }
             .takeIf { it.isNotEmpty() }
     }
 
@@ -1143,20 +1473,76 @@ class ReaderViewModel @Inject constructor(
      * což omylem znovu spustilo obnovu pozice ve WebtoonReaderu a způsobilo skok scrollu).
      */
     fun onWebtoonVisibleChapterChanged(chapterId: String, localIndex: Int, localOffset: Int) {
+        var chapterSwitched = false
         if (chapterId != _currentChapterId.value) {
             val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return
             val segment = _webtoonSegments.value.firstOrNull { it.chapterId == chapterId } ?: return
+            // Rozjeté překladové joby (translationJob i batchJob) sevědomě NEZRUŠUJEME -
+            // jejich zápisy jdou přes putTranslatedPage, která je klíčovaná chapterId,
+            // takže bezpečně doběhnou "na pozadí" pro původní kapitolu; zrušení by zabilo
+            // "Přeložit vše" předchozí kapitoly jen proto, že uživatel doscrolloval do
+            // napojené (audit překladu Vagabond ch2: batch umřel při překročení do ch3).
+            // Nová kapitola si překlad spustí sama (translateAllPages se zařadí za
+            // běžící batch, viz pendingBatchChapterId). Progress ukazatele se navíc
+            // píšou jen pro AKTIVNÍ kapitolu (guard v startChapterTranslation/
+            // translateAllPages), takže cizí průběh pod novým titulkem nesvítí.
+            // Jiné joby patří PŘEDCHOZÍ kapitole a ruší se: detekce dvoustran by jinak
+            // přepsala _spreadPageIndices nové a načtené komentáře by zůstaly viset -
+            // jejich guard `isNotEmpty()` v loadChapterComments by pak u nové kapitoly
+            // odmítl načíst její.
+            commentsJob?.cancel()
+            commentsJob = null
+            _chapterComments.value = emptyList()
+            _commentsLoading.value = false
+            spreadDetectJob?.cancel()
+            spreadDetectJob = null
             currentChapter = chapter
             _currentChapterId.value = chapter.id
             _chapterTitle.value = chapter.name
-            _chapterIndex.value = allChapters.indexOfFirst { it.id == chapter.id }.coerceAtLeast(0)
+            _chapterIndex.value = chapterIndexOrTrace(chapter.id, "onWebtoonVisibleChapterChanged").coerceAtLeast(0)
             updateNavState()
             _pages.value = segment.pages
-            _translatedPages.value = emptyMap()
+            // Plochou mapu naplnit z per-chapter mapy, ne prázdnou - tahle kapitola už mohla
+            // být přeložená (uživatel scrolluje zpět na dřívější segment) a její bloky by
+            // jinak pro ne-webtoon čtečky po přepnutí režimu zmizely.
+            _translatedPages.value = _translatedPagesByChapter.value[chapter.id] ?: emptyMap()
             _flippedBubbles.value = emptySet()
-            _translateMode.value = false
+            // _translateMode sevědomě ponecháváme - "číst s překladem" je kontinuální
+            // záměr uživatele, ne per-kapitola stav: overlay nové kapitoly se ukáže, jakmile
+            // pro ni bloky existují (Room cache přes preloadCachedTranslations při appendu,
+            // nebo běžící/zařazený batch). Reset na false by po překročení hranice tichě
+            // vypnul překlad uprostřed čtení (audit překladu Vagabond ch2→ch3).
+            // suspend funkce - tahle metoda se volá z UI synchronně, takže přes launch.
+            viewModelScope.launch {
+                _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
+                // Fallback zdroj muze mit jinou domovku - bez refresh by stranky nove
+                // kapitoly jely se refererem predchozi kapitoly (audit - hotlink 403).
+                _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
+                // Nova kapitola v nekonecnem scrollu = novy seznam stranek - bez restartu
+                // by sekvencni prefetch dal stahoval stranky PREDCHOZI kapitoly a tyhle
+                // by se nikdy nepredstahly (audit). Reset fronty + restart pro tenhle
+                // segment; centerIndex = localIndex (pozice v novem segmentu).
+                prefetchedPageIndices.clear()
+                chapterPrefetchJob?.cancel()
+                chapterPrefetchJob = null
+                if (shouldLimitPrefetch()) prefetchNextPage(localIndex)
+                else startChapterPrefetch(localIndex)
+            }
+            _isOfflineChapter.value = chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null
+            // Stejna podminka jako v loadChapter - bez clearu by hlaska z fallback kapitoly
+            // previsela i na normalnich segmentech (audit).
+            _fallbackNotice.value = if (chapter.isFallbackSource) {
+                context.getString(R.string.reader_fallback_source_notice)
+            } else null
+            chapterSwitched = true
         }
-        onPageChanged(localIndex)
+        // onPageChanged JEN kdyz se skutecne zmenil index stranky (nebo kapitola) - snapshotFlow
+        // ve WebtoonReaderu emituje na kazdy PIXEL scrollu a driv se tu na kazdy emitovalo
+        // PageProgressEvent do UNLIMITED channelu: ~4 DB zapisy (updateReadProgress,
+        // propagate, updateLastReadChapter, history) + addPagesRead(1) na pixel = statistiky
+        // "prectenych stranek" se pumpovaly o tisice za jeden fling a DB psala nonstop
+        // behem celeho scrollovani (audit).
+        if (chapterSwitched || localIndex != _currentPage.value) onPageChanged(localIndex)
         saveWebtoonScrollOffset(localOffset)
     }
 
@@ -1172,7 +1558,7 @@ class ReaderViewModel @Inject constructor(
      */
     private fun preloadNextNovelChapter() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val idx = chapterIndexOrTrace(chapter.id, "preloadNextNovelChapter")
         if (idx <= 0) return
         val nextChapter = allChapters[idx - 1]
         val targetLanguage = _targetLanguage.value
@@ -1213,7 +1599,7 @@ class ReaderViewModel @Inject constructor(
      */
     private fun preloadNextChapterMangaTranslation() {
         val chapter = currentChapter ?: return
-        val idx = allChapters.indexOfFirst { it.id == chapter.id }
+        val idx = chapterIndexOrTrace(chapter.id, "preloadNextChapterMangaTranslation")
         if (idx <= 0) return
         val nextChapter = allChapters[idx - 1]
         val targetLanguage = _targetLanguage.value
@@ -1227,7 +1613,7 @@ class ReaderViewModel @Inject constructor(
                 val manga = repository.getManga(nextChapter.mangaId) ?: return@launch
                 val rawPages = repository.getChapterPages(nextChapter.sourceId, nextChapter.url, manga.url)
                 if (rawPages.any { it.imageUrl == "novel://text" }) return@launch // novela - viz preloadNextNovelChapter
-                val urls = rawPages.mapNotNull { it.imageUrl?.takeIf { u -> u.isNotBlank() } ?: it.url.takeIf { u -> u.isNotBlank() } }
+                val urls = rawPages.map { pageDisplayUrl(it, nextChapter.sourceId) }.filter { it.isNotBlank() }
                 if (urls.isEmpty()) return@launch
                 translateRepository.translateChapter(
                     pages = urls,
@@ -1246,7 +1632,10 @@ class ReaderViewModel @Inject constructor(
 
     fun onPageChanged(index: Int) {
         _currentPage.value = index
-        prefetchPagesFrom(index + 1)
+        // Normalni rezim: sekvencni prefetch kapitoly bezi sam od loadChapter, otočení
+        // stranky netreba reagovat. V omezenem rezimu (usporny / zpoplatnena sit - viz
+        // shouldLimitPrefetch) se misto toho predstahuje +1.
+        if (shouldLimitPrefetch()) prefetchNextPage(index)
 
         val total = _pages.value.size
         if (total > 0 && index >= total - 3 && _hasNextChapter.value) preloadNextChapter()
@@ -1300,7 +1689,12 @@ class ReaderViewModel @Inject constructor(
             // `read` se v ramci relace nikdy nesnizuje: dřív krok zpět z posledni stranky zapsal
             // read = false a dočtená kapitola se tvářila jako nepřečtená.
             val read = reachedEnd || chapterId in markedReadChapterIds || chapter.read
-            repository.updateReadProgress(chapterId, read = read, lastPageRead = event.index, lastReadAt = event.now)
+            repository.updateReadProgress(chapterId, read = read, lastPageRead = event.index, lastReadAt = event.now, pageCount = event.pageCount)
+            // ComicK metadatova kapitola, ktera na tuhle (realnou resolved) kapitolu
+            // presmerovava, dostane stejny postup - jinak by se po docteni resolved
+            // kapitoly "precteno" na ComicK titulu nikdy neprojevilo (a naopak driv
+            // se oznacilo prectenou uz pri vyberu zdroje, tj. hned po otevreni).
+            repository.propagateReadProgressToLinkedChapters(chapterId, read = read, lastPageRead = event.index, lastReadAt = event.now, pageCount = event.pageCount)
             repository.updateLastReadChapter(chapter.mangaId, chapterId)
             if (event.deltaMs > 0) {
                 settings.addReadingTime(event.deltaMs)
@@ -1337,6 +1731,10 @@ class ReaderViewModel @Inject constructor(
     fun setSourceLanguage(lang: String) {
         _sourceLanguage.value = lang
         viewModelScope.launch { settings.setSourceLanguage(lang) }
+        // Rozjetý překlad drží jazykový pár zachycený při startu - bez zrušení by po
+        // vymazání map dál zapisoval výsledky ve STARÉM jazyce (a jeho `finally` by mohl
+        // znovu zapnout translateMode podle nich).
+        cancelActiveTranslation()
         _translatedPages.value = emptyMap()
         // I perzistentní by-chapter mapa - jinak by kapitola navštívená PŘED změnou jazyka
         // (a tedy ve WebtoonReaderu dál "živá" v paměti) ukazovala překlad ve starém jazyce.
@@ -1347,6 +1745,7 @@ class ReaderViewModel @Inject constructor(
     fun setTargetLanguage(lang: String) {
         _targetLanguage.value = lang
         viewModelScope.launch { settings.setTargetLanguage(lang) }
+        cancelActiveTranslation()
         _translatedPages.value = emptyMap()
         _translatedPagesByChapter.value = emptyMap()
         _translateMode.value = false
@@ -1391,7 +1790,12 @@ class ReaderViewModel @Inject constructor(
                 ) { pageIndex, blocks ->
                     putTranslatedPage(chapterId, pageIndex, blocks)
                     done++
-                    _translationProgress.value = TranslationProgress(done, pages.size)
+                    // Job muze dobihat pod jinou kapitolou (nekonecne cteni neprekopava
+                    // translationJob - viz onWebtoonVisibleChapterChanged) - progress
+                    // ukazovat jen pro tu, kterou UI prave zobrazuje.
+                    if (chapterId == _currentChapterId.value) {
+                        _translationProgress.value = TranslationProgress(done, pages.size)
+                    }
                 }
                 preloadNextChapterMangaTranslation()
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
@@ -1403,7 +1807,7 @@ class ReaderViewModel @Inject constructor(
                 e.report("reader:translateChapter")
                 _translationError.value = context.getString(R.string.reader_error_translation_failed)
             } finally {
-                _translationProgress.value = null
+                if (chapterId == _currentChapterId.value) _translationProgress.value = null
             }
         }
     }
@@ -1411,7 +1815,16 @@ class ReaderViewModel @Inject constructor(
     // ── Hromadný překlad všech stránek + přepínač originál/překlad ──────────
 
     fun translateAllPages() {
-        if (_batchTranslating.value) return
+        // Bezi-li batch JINE kapitoly (nekonecne cteni ho nechava dobehnout na pozadi -
+        // viz onWebtoonVisibleChapterChanged), pozadavek teto kapitoly se zaradi a
+        // spusti se, az ten predchozi doběhne - paralelni dva batchy by zdvojnasobily
+        // tlak na API/rate limity a hlavne by se vzajemne prebijely o ukazatele.
+        if (_batchTranslating.value) {
+            if (currentChapter?.id != activeBatchChapterId) {
+                pendingBatchChapterId = currentChapter?.id
+            }
+            return
+        }
         _batchTranslating.value = true
         _showOriginal.value = false
         // Vycistit predchozi hlasku - jinak by ji nize v `finally` mohla omylem "prezit" i
@@ -1421,6 +1834,7 @@ class ReaderViewModel @Inject constructor(
             val pages = _pages.value
             val lang = _targetLanguage.value
             val chapterId = currentChapter?.id ?: run { _batchTranslating.value = false; return@launch }
+            activeBatchChapterId = chapterId
             val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: ""
 
             var done = 0
@@ -1439,7 +1853,11 @@ class ReaderViewModel @Inject constructor(
                 ) { pageIndex, blocks ->
                     putTranslatedPage(chapterId, pageIndex, blocks)
                     done++
-                    _batchProgress.value = TranslationProgress(done, pages.size)
+                    // Stejny guard jako u translationProgress - batch muze dobihat pod
+                    // jinou kapitolou, prubeh se pak nesmi kreslit pod cizim titulkem.
+                    if (chapterId == _currentChapterId.value) {
+                        _batchProgress.value = TranslationProgress(done, pages.size)
+                    }
                 }
                 preloadNextChapterMangaTranslation()
             } catch (_: com.haise.jiyu.translate.RateLimitedException) {
@@ -1451,8 +1869,16 @@ class ReaderViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.report("reader:translateAllPages")
             } finally {
-                _batchProgress.value = null
+                if (chapterId == _currentChapterId.value) _batchProgress.value = null
+                activeBatchChapterId = null
                 _batchTranslating.value = false
+                // Zarazeny pozadavek z jine kapitoly (translateAllPages nad
+                // _batchTranslating guardem) - spustit jen kdyz je stale aktualni;
+                // do tehdy se _batchTranslating uz vypnul, takze rekurze projde.
+                pendingBatchChapterId?.let { pending ->
+                    pendingBatchChapterId = null
+                    if (pending == _currentChapterId.value) translateAllPages()
+                }
                 // translateMode=true prepina UI z tlacitka "Prelozit vse" na prepinac
                 // Original/Preklad (viz ReaderControls - tlacitko se renderuje jen
                 // "else if (!translateMode)") - jakmile jednou zustane true bez skutecneho
@@ -1467,16 +1893,23 @@ class ReaderViewModel @Inject constructor(
                 // v to, ze smycka dobehla - true jen kdyz aspon JEDNA stranka opravdu ma
                 // neprazdny (ne-SFX) preklad, jinak zustane tlacitko k dispozici a uzivatel
                 // dostane konkretni hlasku misto tiseho "hotovo" bez obsahu.
-                val hasAnyTranslation = _translatedPages.value.values.any { blocks -> blocks.any { !it.isSfx } }
-                if (hasAnyTranslation) {
-                    _translateMode.value = true
-                } else if (_translationError.value == null) {
-                    _translationError.value = if (!translateRepository.isApiKeyConfigured &&
-                        !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
-                    ) {
-                        context.getString(R.string.reader_error_language_unsupported_offline)
-                    } else {
-                        context.getString(R.string.reader_error_translation_failed)
+                //
+                // Hodnotit jen kdyz job stale patri AKTIVNI kapitole - po prepnuti
+                // segmentu/kapitoly (nebo zruseni) by opozdeny finally stareho jobu
+                // mohl preklopit _translateMode/_translationError pro kontext, ktereho
+                // se uz netyka (obsah plochy mapy se hodi k jeho chapterId, ne k novemu).
+                if (chapterId == _currentChapterId.value) {
+                    val hasAnyTranslation = _translatedPages.value.values.any { blocks -> blocks.any { !it.isSfx } }
+                    if (hasAnyTranslation) {
+                        _translateMode.value = true
+                    } else if (_translationError.value == null) {
+                        _translationError.value = if (!translateRepository.isApiKeyConfigured &&
+                            !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
+                        ) {
+                            context.getString(R.string.reader_error_language_unsupported_offline)
+                        } else {
+                            context.getString(R.string.reader_error_translation_failed)
+                        }
                     }
                 }
             }
@@ -1486,8 +1919,23 @@ class ReaderViewModel @Inject constructor(
     fun cancelBatchTranslation() {
         batchJob?.cancel()
         batchJob = null
+        pendingBatchChapterId = null
         _batchTranslating.value = false
         _batchProgress.value = null
+    }
+
+    /**
+     * Zruší OBA rozjeté překlady aktuální kapitoly (jednotlivý i "Přeložit vše") a uklidí
+     * jejich ukazatele průběhu - volá se při každém odchodu z kapitoly (loadChapter,
+     * přepnutí segmentu v nekonečném čtení) i při změně jazykového páru, protože joby si
+     * při startu zachytily kapitolu i jazyk a pozdní zápisy by jinak dopadly do stavu,
+     * který už patří novému kontextu (viz [putTranslatedPage]).
+     */
+    private fun cancelActiveTranslation() {
+        translationJob?.cancel()
+        translationJob = null
+        _translationProgress.value = null
+        cancelBatchTranslation()
     }
 
     fun toggleShowOriginal() {
@@ -1514,13 +1962,7 @@ class ReaderViewModel @Inject constructor(
         chaptersPendingAutoDelete.clear()
     }
 
-    // Rozběhnuté přednačítací požadavky - po odchodu ze čtečky se ruší, aby dál nedržely sloty hostitele
-    // a nezdržovaly obálky/loga ve výpisu zdroje (Coil je jinak dotáhne i bez čtečky).
-    private val prefetchDisposables = java.util.Collections.synchronizedList(mutableListOf<coil.request.Disposable>())
-
     override fun onCleared() {
-        synchronized(prefetchDisposables) { prefetchDisposables.forEach { it.dispose() } }
-        prefetchDisposables.clear()
         // Čtečka skončila (ne rotace - ta ViewModel nečistí): odpočet už nemá koho ukončit.
         sleepTimerManager.cancel()
         flushPendingAutoDelete()

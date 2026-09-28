@@ -27,11 +27,17 @@ class SourceSlowdown @Inject constructor() {
     /**
      * Kolik milisekund musí volající počkat před dalším požadavkem na [host] (0 = hned). Termín si tím zároveň
      * REZERVUJE - souběžné požadavky se tak seřadí za sebe po [INTERVAL_MS], ne všechny naráz.
+     *
+     * Rezervace horizontu je omezena [MAX_QUEUE_MS]: po 429 + velkem davu obrazku by se jinak
+     * rezervace nakoupily do minut a desitky OkHttp dispatcher vlaken by jen spalo (audit).
+     * Pozadavek nad horizont se pusti hned - pripadne 429 znovu nabije okno a fronta se
+     * samo-regulacne rozevře, misto aby se dispatcher zaplavil spicemi.
      */
     fun reserve(host: String): Long = synchronized(lock) {
         val now = nowMs()
         if ((slowedUntil[host] ?: 0L) <= now) return 0L
         val slot = maxOf(now, nextSlot[host] ?: 0L)
+        if (slot - now > MAX_QUEUE_MS) return 0L
         nextSlot[host] = slot + INTERVAL_MS
         slot - now
     }
@@ -39,6 +45,8 @@ class SourceSlowdown @Inject constructor() {
     companion object {
         const val INTERVAL_MS = 1_600L
         const val SLOWDOWN_WINDOW_MS = 10L * 60 * 1000
+        /** Nejvic si rezervovat dopredu na jednoho hosta - viz reserve(). */
+        const val MAX_QUEUE_MS = 30_000L
         private const val MAX_HOSTS = 64
     }
 }

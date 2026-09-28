@@ -19,8 +19,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -110,12 +111,18 @@ class SourceBrowseViewModel @Inject constructor(
     // poslední a Procházet dál nikdy nenačetlo, i když web měl další stránky plné
     // titulů. "Konec seznamu" pozná appka ted jedině podle PRÁZDNÉ stránky, ne podle
     // magického čísla 20.
+    // Joby vsech tri listing cest se trackuji zvlast - loadPopular/search zrusi jak
+    // stare prvni stranky, tak rozbehnute loadMore, jinak by se vysledky stare stranky
+    // mohly pridat k novemu seznamu (merged z vyse) a zapsat se zpet do _results.
+    private var listingJob: Job? = null
+    private var loadMoreJob: Job? = null
+
     fun loadMore() {
         if (_loading.value || !_hasMore.value) return
         currentPage++
         val q = lastQuery
         val filter = _activeFilter.value
-        viewModelScope.launch {
+        loadMoreJob = viewModelScope.launch {
             _loading.value = true
             try {
                 val page = if (q == null)
@@ -136,6 +143,10 @@ class SourceBrowseViewModel @Inject constructor(
                     _hasMore.value = merged.size > _results.value.size
                     _results.value = merged
                 }
+            } catch (e: CancellationException) {
+                // Zruseni (nova prvni stranka) neni chyba - jen vrat citac a prepust dal.
+                currentPage--
+                throw e
             } catch (e: Exception) {
                 // Načtení stránky selhalo - vracíme čítač, ať retry zkusí tu samou. Bez
                 // hlášení se rozbitý zdroj (změněné HTML, blokace) navenek projeví úplně
@@ -144,7 +155,8 @@ class SourceBrowseViewModel @Inject constructor(
                 e.report("source:$sourceId:${if (q == null) "popular" else "search"}")
                 currentPage--
             } finally {
-                _loading.value = false
+                // Zruseny STARY job nesmi vynulovat loading NOVEHO listovani.
+                if (loadMoreJob === coroutineContext.job) _loading.value = false
             }
         }
     }
@@ -173,7 +185,7 @@ class SourceBrowseViewModel @Inject constructor(
         _openingManga.value = manga
         viewModelScope.launch {
             try {
-                val id = repository.openPreview(manga)
+                val id = repository.registerPreview(manga)
                 onOpened(id)
             } catch (e: Exception) {
                 _openError.value = e.toFriendlyMessage()
@@ -218,13 +230,18 @@ class SourceBrowseViewModel @Inject constructor(
     fun loadPopular(filter: MangaFilter = _activeFilter.value) {
         lastQuery = null
         currentPage = 1
+        // Zrus vsechny rozbehnute listovani - bez toho by vysledek stareho popular/search
+        // dojel po novem a prepsal ho (audit - search a popular joby si navzajem konkurovaly).
+        searchJob?.cancel()
+        listingJob?.cancel()
+        loadMoreJob?.cancel()
         if (!networkMonitor.isOnline) {
             _error.value = appContext.getString(R.string.detail_error_no_internet)
             _results.value = emptyList()
             _hasMore.value = false
             return
         }
-        viewModelScope.launch {
+        listingJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
             _errorAction.value = null
@@ -234,6 +251,8 @@ class SourceBrowseViewModel @Inject constructor(
                 val page = repository.getPopular(sourceId, 1, filter, force = force)
                 _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
                 _errorAction.value = e.toErrorAction()
@@ -241,31 +260,31 @@ class SourceBrowseViewModel @Inject constructor(
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {
-                _loading.value = false
+                if (listingJob === coroutineContext.job) _loading.value = false
             }
         }
     }
 
     private var searchJob: Job? = null
 
-    // Debounce primo tady (misto sdileneho _query flow jako ComicKBrowseViewModel) - fce se
-    // vola primo z onQueryChange na kazde pismeno, bez tohohle by nektere zdroje (napr.
-    // MangaPlus, ktery pri hledani filtruje cely katalog v pameti) delaly drahou praci na
-    // kazdy keystroke (nahlaseno v auditu).
+    // Search se spousti az na IME submit (SourceBrowseScreen driv volala z
+    // onQueryChange na kazde pismeno s 350ms debouncem - pri preklopeni stavu
+    // se pak search field z kompozice ztratil a klavesnice zavrela; submit-only
+    // je stejny vzor jako ComicK browse). Debounce tu proto neni potreba.
     fun search(query: String, filter: MangaFilter = _activeFilter.value) {
         if (query.isBlank()) { searchJob?.cancel(); loadPopular(filter); return }
         lastQuery = query
         currentPage = 1
+        listingJob?.cancel()
+        loadMoreJob?.cancel()
+        searchJob?.cancel()
         if (!networkMonitor.isOnline) {
-            searchJob?.cancel()
             _error.value = appContext.getString(R.string.detail_error_no_internet)
             _results.value = emptyList()
             _hasMore.value = false
             return
         }
-        searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            delay(350)
             _loading.value = true
             _error.value = null
             _errorAction.value = null
@@ -273,6 +292,10 @@ class SourceBrowseViewModel @Inject constructor(
                 val page = repository.search(sourceId, query, 1, filter)
                 _results.value = page.distinctBy { it.sourceId + it.url }
                 _hasMore.value = page.isNotEmpty()
+            } catch (e: CancellationException) {
+                // Debounce zruseni pri dalsim pismenu nesmi smazat _results/error stav
+                // noveho hledani, ktere uz muze bezet.
+                throw e
             } catch (e: Exception) {
                 _error.value = e.toFriendlyMessage()
                 _errorAction.value = e.toErrorAction()
@@ -280,7 +303,7 @@ class SourceBrowseViewModel @Inject constructor(
                 _results.value = emptyList()
                 _hasMore.value = false
             } finally {
-                _loading.value = false
+                if (searchJob === coroutineContext.job) _loading.value = false
             }
         }
     }

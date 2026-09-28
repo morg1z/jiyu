@@ -48,8 +48,10 @@ class HentaiFoxSourceTest {
             <ul class="artists"><span class="i_text">Artists:</span><li><a class='tag_btn ' href='/artist/yamada-sakurako/'>yamada sakurako <span class='t_badge'>12</span></a></li></ul>
             <ul class="languages"><span class="i_text">Languages:</span><li><a class='tag_btn' href='/language/english/'>english <span class='t_badge'>156376</span></a></li></ul>
             <ul class="categories"><span class="i_text">Category:</span><li><a class='tag_btn' href='/category/doujinshi/'>doujinshi <span class='t_badge'>117427</span></a></li></ul>
-            <span class="i_text pages">Pages: 3</span>
+            <span class="i_text pages">Pages: 5</span>
         </div>
+        <!-- Realne: "Pages: 70" ale jen ~10 thumb divu (audit 2026-11) -
+             proto getPageList cte i_text.pages a ne pocet thumbu. -->
         <div class="gallery_bottom"><div id="append_thumbs">
             <div class="gallery_thumb"><div class="g_thumb"><a href="/g/169933/1/"><img class="lazy preloader" src="data:x" data-src="https://i3.hentaifox.com/004/4108430/1t.jpg" /></a></div></div>
             <div class="gallery_thumb"><div class="g_thumb"><a href="/g/169933/2/"><img class="lazy preloader" src="data:x" data-src="https://i3.hentaifox.com/004/4108430/2t.jpg" /></a></div></div>
@@ -121,13 +123,14 @@ class HentaiFoxSourceTest {
     }
 
     @Test
-    fun `getPageList builds one reader URL per page from the thumbnail count`() = runTest {
+    fun `getPageList uses declared Pages count, not rendered thumbnails`() = runTest {
         val manga = source.getPopular(1).first { it.url == "/gallery/169933/" }
         val chapter = source.getChapterList(manga).first()
         val pages = source.getPageList(chapter)
-        assertEquals(3, pages.size)
+        // Fixture: Pages: 5, ale jen 3 thumb divy - realne chovani webu.
+        assertEquals(5, pages.size)
         assertEquals("https://hentaifox.com/g/169933/1/", pages[0].url)
-        assertEquals("https://hentaifox.com/g/169933/3/", pages[2].url)
+        assertEquals("https://hentaifox.com/g/169933/5/", pages[4].url)
     }
 
     @Test

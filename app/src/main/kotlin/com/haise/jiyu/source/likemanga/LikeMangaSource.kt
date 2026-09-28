@@ -99,6 +99,9 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
+        // "/search/top-all/N/" web ignoruje - stranka 2 vraci identicke tituly
+        // jako stranka 1 (audit DUP, overeno zive).
+        if (page > 1) return@withContext emptyList()
         try {
             val doc = Jsoup.parse(get("$base/search/top-all/$page/"))
             doc.select("div.card-body.list-left-8-manga").mapNotNull { it.parent()?.let(::parseCard) }

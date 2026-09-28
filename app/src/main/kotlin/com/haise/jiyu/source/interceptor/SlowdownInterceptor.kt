@@ -19,7 +19,14 @@ class SlowdownInterceptor(
         while (remaining > 0) {
             if (chain.call().isCanceled()) throw IOException("Canceled")
             val step = minOf(remaining, STEP_MS)
-            sleep(step)
+            try {
+                sleep(step)
+            } catch (e: InterruptedException) {
+                // Interceptor se kontraktne ukoncuje IOException - InterruptedException
+                // ven by prolezl mimo OkHttp retry/cancel cesty (audit). Vlajku vratime.
+                Thread.currentThread().interrupt()
+                throw IOException("Interrupted", e)
+            }
             remaining -= step
         }
         return chain.proceed(chain.request())

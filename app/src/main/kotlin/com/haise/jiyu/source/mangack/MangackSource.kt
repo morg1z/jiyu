@@ -25,7 +25,9 @@ import javax.inject.Singleton
 
 /**
  * mangack.com - vlastni WordPress sablona (ne Madara), plne server-rendered
- * vcetne cteni. Obrazky kapitoly jsou hostovane primo na i.imgur.com.
+ * vcetne cteni. Obrazky kapitoly se hostuj na externim CDN (drive i.imgur.com,
+ * od 2026-09 cdn.black-clover.org) - proto se berou VSECHNY obrazky v
+ * ".entry-content", ne jen jeden domenovy vzor.
  */
 @Singleton
 class MangackSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -47,7 +49,11 @@ class MangackSource @Inject constructor(private val client: OkHttpClient) : Mang
     private fun parseCard(a: Element): SManga? {
         val href = a.attr("href").ifBlank { return null }
         val img = a.selectFirst("img") ?: return null
-        val title = img.attr("alt").trim().ifBlank { return null }
+        // img[alt] web nove necha prazdny (audit 2026-09) - titul je v a[title]
+        // na tom samem odkazu ("a > div.mediumthumbnail1 > img" karta).
+        val title = img.attr("alt").trim()
+            .ifBlank { a.attr("title").trim() }
+            .ifBlank { return null }
         val cover = img.attr("src").trim().let { absoluteMediaUrl(base, it) }
         return SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
     }
@@ -140,8 +146,15 @@ class MangackSource @Inject constructor(private val client: OkHttpClient) : Mang
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(chapter.url))
-            doc.select("img[src*=i.imgur.com]").mapIndexedNotNull { i, img ->
-                val url = img.attr("src").let { absoluteMediaUrl(base, it) } ?: return@mapIndexedNotNull null
+            doc.select(".entry-content img").mapIndexedNotNull { i, img ->
+                // CDN host se meni (imgur -> black-clover.org) - bere se kazdy
+                // obrazek v obsahu kapitoly s http(s) src a priponou obrazku.
+                val url = img.attr("src").trim().let { absoluteMediaUrl(base, it) }
+                    ?: return@mapIndexedNotNull null
+                if (!url.startsWith("http") ||
+                    !url.substringBefore('?').substringAfterLast('.').lowercase()
+                        .let { it in setOf("webp", "jpg", "jpeg", "png", "gif", "avif") }
+                ) return@mapIndexedNotNull null
                 Page(i, url, url)
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

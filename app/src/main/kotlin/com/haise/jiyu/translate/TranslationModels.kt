@@ -76,8 +76,14 @@ data class GeminiBubbleTranslation(
  */
 data class GlossarySuggestion(val source: String, val target: String)
 
-/** Naparsovaná odpověď z Gemini API - viz [GeminiTranslateClient]. */
+/**
+ * Naparsovaná odpověď z Gemini API - viz [GeminiTranslateClient].
+ * @param model upstream model, který doopravdy odpověděl (proxy ho hlásí v poli "model") -
+ *   po interním fallbacku proxy je to slabší záložní model (např. flash-lite), viz
+ *   [TranslateRepository] - takový výsledek se ukáže, ale necachuje.
+ */
 data class GeminiTranslationResponse(
     val bubbles: List<GeminiBubbleTranslation>,
     val newTerms: List<GlossarySuggestion> = emptyList(),
+    val model: String? = null,
 )

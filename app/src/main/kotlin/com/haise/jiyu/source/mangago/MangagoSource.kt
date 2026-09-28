@@ -29,6 +29,7 @@ class MangagoSource @Inject constructor(
 ) : MangaSource {
     override val id = "mangago"
     override val name = "Mangago"
+    override val isAdult = true // dominantne yaoi/BL katalog s explicitnim obsahem
     override val homepageUrl get() = base
     private val base = "https://www.mangago.me"
 

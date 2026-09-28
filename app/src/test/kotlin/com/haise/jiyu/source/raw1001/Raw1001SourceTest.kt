@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.raw1001
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -37,6 +38,14 @@ class Raw1001SourceTest {
         {"status":true,"html":"<div class=\"separator\"><a href=\"https:\/\/cdn.example.com\/1.webp\" class=\"readImg\"><img/></a></div><div class=\"separator\"><a href=\"https:\/\/cdn.example.com\/2.webp\" class=\"readImg\"><img/></a></div>"}
     """.trimIndent()
 
+    // Homepage nese zanrovy index - nazev je v "title" atributu.
+    private val homeHtml = """
+        <html><body>
+        <a href="https://raw1001.net/genres/academy" title="Academy">Academy</a>
+        <a href="https://raw1001.net/genres/action" title="Action">Action</a>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -44,6 +53,8 @@ class Raw1001SourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path == "/" -> MockResponse().setBody(homeHtml)
+                    path.startsWith("/genres/") -> MockResponse().setBody(listHtml)
                     path.startsWith("/all-manga/") -> MockResponse().setBody(listHtml)
                     path == "/manga/test-series" -> MockResponse().setBody(detailHtml)
                     path == "/ajax/image/list/chap/111" -> MockResponse().setBody(pagesJson)
@@ -91,6 +102,27 @@ class Raw1001SourceTest {
         val pages = source.getPageList(chapters[1])
         assertEquals(2, pages.size)
         assertEquals("https://cdn.example.com/1.webp", pages[0].url)
+    }
+
+    @Test
+    fun `getAvailableTags reads the homepage genre index`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("academy", tags[0].id)
+        assertEquals("Academy", tags[0].label)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the genre archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("academy")))
+        assertEquals(1, result.size)
+        assertEquals("Test Series", result[0].title)
+    }
+
+    @Test
+    fun `search filters the catalog locally by title`() = runTest {
+        assertEquals(1, source.search("test", 1).size)
+        assertTrue(source.search("zzz", 1).isEmpty())
     }
 
     @Test

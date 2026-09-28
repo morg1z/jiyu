@@ -49,7 +49,7 @@ class TranslateWithGroqRetryTest {
             groqClient.translateBatch(
                 texts = listOf("A", "Take him to the hospital."),
                 targetLanguage = "English", sourceLanguage = "Auto", glossary = emptyMap(),
-                provider = "groq", mangaContext = "", previousLines = emptyList(),
+                provider = "groq", mangaContext = "", previousLines = emptyList(), onModel = any(),
             )
         } returns listOf("Á", "hospitalized hospitalized hospitalized hospitalized hospitalized")
         // Retry posle jen tu jednu spatnou bublinu - druha uz je hotova, netreba jeste jednou.
@@ -57,7 +57,7 @@ class TranslateWithGroqRetryTest {
             groqClient.translateBatch(
                 texts = listOf("Take him to the hospital."),
                 targetLanguage = "English", sourceLanguage = "Auto", glossary = emptyMap(),
-                provider = "groq", mangaContext = "", previousLines = emptyList(),
+                provider = "groq", mangaContext = "", previousLines = emptyList(), onModel = any(),
             )
         } returns listOf("Take him to the hospital, now.")
 
@@ -81,7 +81,7 @@ class TranslateWithGroqRetryTest {
             groqClient.translateBatch(
                 texts = listOf("Hello there."),
                 targetLanguage = "English", sourceLanguage = "Auto", glossary = emptyMap(),
-                provider = "groq", mangaContext = "", previousLines = emptyList(),
+                provider = "groq", mangaContext = "", previousLines = emptyList(), onModel = any(),
             )
         } returns listOf("Hi there.")
 
@@ -94,7 +94,7 @@ class TranslateWithGroqRetryTest {
         )
 
         assertEquals("Hi there.", result?.get(0)?.translatedText)
-        coVerify(exactly = 1) { groqClient.translateBatch(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { groqClient.translateBatch(any(), any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -105,7 +105,7 @@ class TranslateWithGroqRetryTest {
             groqClient.translateBatch(
                 texts = listOf("Take him to the hospital."),
                 targetLanguage = "English", sourceLanguage = "Auto", glossary = emptyMap(),
-                provider = "groq", mangaContext = "", previousLines = emptyList(),
+                provider = "groq", mangaContext = "", previousLines = emptyList(), onModel = any(),
             )
         } returnsMany listOf(
             listOf("hospitalized hospitalized hospitalized hospitalized hospitalized"),

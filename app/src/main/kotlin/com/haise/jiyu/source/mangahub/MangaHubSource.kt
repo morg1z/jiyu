@@ -2,6 +2,7 @@ package com.haise.jiyu.source.mangahub
 
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -62,16 +63,29 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
         }
     }
 
+    // genre parametr search() prijima nazev zanru stejny, jaky vraci pole `genres`
+    // v detailu mangy (napr. "Action", "Gender Bender"); "all" = bez filtru.
+    private fun genreParam(filter: MangaFilter): String =
+        filter.genres.firstOrNull()?.replace("\"", "\\\"") ?: "all"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val offset = (page - 1) * 30
-        parseRows(gql("""{ search(x:"",q:"",genre:"all",order:POPULAR,moderationMode:false,count:true,offset:$offset){ rows{ id title slug image } } }"""))
+        val g = genreParam(filter)
+        parseRows(gql("""{ search(x:"",q:"",genre:"$g",order:POPULAR,moderationMode:false,count:true,offset:$offset){ rows{ id title slug image } } }"""))
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val q      = query.replace("\"", "\\\"")
+        val g      = genreParam(filter)
         val offset = (page - 1) * 30
-        parseRows(gql("""{ search(x:"",q:"$q",genre:"all",order:POPULAR,moderationMode:false,count:true,offset:$offset){ rows{ id title slug image } } }"""))
+        parseRows(gql("""{ search(x:"",q:"$q",genre:"$g",order:POPULAR,moderationMode:false,count:true,offset:$offset){ rows{ id title slug image } } }"""))
     }
+
+    /**
+     * Zanry, ktere search query `genre:` prijima - API zadny endpoint pro vypsani
+     * seznamu nema, takze natvrdo (stejne hodnoty, jake vraci `manga.genres`).
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = GENRES
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         val slug = manga.url.substringAfterLast("/")
@@ -138,5 +152,18 @@ class MangaHubSource @Inject constructor(private val client: OkHttpClient) : Man
             }
             Page(i, imageUrl, imageUrl)
         }
+    }
+
+    private companion object {
+        // Hodnoty kopiruji to, co vraci `manga.genres` pole (API seznam zanru neumi vypsat).
+        val GENRES = listOf(
+            "Action", "Adult", "Adventure", "Comedy", "Cooking", "Doujinshi", "Drama",
+            "Ecchi", "Fantasy", "Gender Bender", "Harem", "Historical", "Horror",
+            "Isekai", "Josei", "Manhua", "Manhwa", "Martial Arts", "Mature", "Mecha",
+            "Medical", "Mystery", "One Shot", "Psychological", "Romance",
+            "School Life", "Sci-Fi", "Seinen", "Shoujo", "Shoujo Ai", "Shounen",
+            "Shounen Ai", "Slice of Life", "Smut", "Sports", "Supernatural",
+            "Thriller", "Tragedy", "Webtoons", "Yaoi", "Yuri",
+        ).map { FilterTag(id = it, label = it) }
     }
 }

@@ -171,8 +171,12 @@ class ImHentaiSource @Inject constructor(private val client: OkHttpClient) : Man
         try {
             val doc = fetchDoc(resolveSourceUrl(base, chapter.url))
             val galleryId = chapter.url.trim('/').substringAfterLast('/')
-            val count = doc.select("div.gthumb").size.takeIf { it > 0 }
-                ?: doc.selectFirst("li.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+            // "Pages: N" v li.pages je autoritativni soucet - div.gthumb thumby
+            // se na strance galerie renderuji jen pro prvnich ~10 stran (audit
+            // 2026-11: galerie se 1425 stranami mela 10 gthumb), takze pocitat
+            // je jako primarni zdroj stranky usekne.
+            val count = doc.selectFirst("li.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+                ?: doc.select("div.gthumb").size.takeIf { it > 0 }
                 ?: return@withContext emptyList()
             (1..count).map { n -> Page(index = n - 1, url = "$base/view/$galleryId/$n/") }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

@@ -67,8 +67,21 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // /search?ajax=1 prijima status= (canceled|completed|hiatus|on_hold|ongoing,
+    // viz data-statuses na /search) a kombinuje ho s genre= - overeno zive:
+    // status=completed vraci 18/18 completed. Sort parametry API ignoruje.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+
+    private val statusValues = mapOf(
+        "ongoing" to "ongoing", "completed" to "completed",
+        "hiatus" to "hiatus", "cancelled" to "canceled",
+    )
+
     private fun StringBuilder.appendGenreFilter(filter: MangaFilter) {
         filter.genres.firstOrNull()?.let { append("&genre=${URLEncoder.encode(it, "UTF-8")}") }
+        statusValues[filter.status]?.let { append("&status=$it") }
     }
 
     private fun parseListJson(json: String): List<SManga> {
@@ -89,10 +102,12 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
             // "Latest Updates" (div.update-row), kterou API nevraci - proto se pro
             // "latest" parsuje primo HTML homepage, ne JSON endpoint. Neni strankovana
             // (fixni pocet polozek na homepage), stejny vzor jako KScansSource.getPopular.
-            if (filter.genres.isNotEmpty()) {
-                val offset = (page - 1) * 10
+            if (filter.genres.isNotEmpty() || filter.status != null) {
+                // "/search?offset=N" API offset ignoruje - kazda stranka vraci
+                // identickych prvnich 18 titulu (audit DUP, overeno zive).
+                if (page > 1) return@withContext emptyList()
                 val url = buildString {
-                    append("$base/search?offset=$offset&ajax=1")
+                    append("$base/search?offset=0&ajax=1")
                     appendGenreFilter(filter)
                 }
                 return@withContext parseListJson(get(url))
@@ -101,8 +116,8 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
                 if (page > 1) return@withContext emptyList()
                 parseLatestUpdates(get(base))
             } else {
-                val offset = (page - 1) * 10
-                parseListJson(get("$base/search?offset=$offset&ajax=1"))
+                if (page > 1) return@withContext emptyList() // offset ignorovan - viz vyse
+                parseListJson(get("$base/search?offset=0&ajax=1"))
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
@@ -119,11 +134,12 @@ class KuraMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // "offset" parametr API ignoruje (stejny endpoint jako getPopular - audit DUP).
+        if (page > 1) return@withContext emptyList()
         try {
             val q = URLEncoder.encode(query, "UTF-8")
-            val offset = (page - 1) * 10
             val url = buildString {
-                append("$base/search?name=$q&offset=$offset&ajax=1")
+                append("$base/search?name=$q&offset=0&ajax=1")
                 appendGenreFilter(filter)
             }
             parseListJson(get(url))

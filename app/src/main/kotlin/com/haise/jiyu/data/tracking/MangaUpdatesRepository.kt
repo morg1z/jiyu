@@ -79,6 +79,18 @@ class MangaUpdatesRepository @Inject constructor(
 
     private suspend fun sessionToken(): String? = withContext(Dispatchers.IO) { secureStore.get(KEY_SESSION) }
 
+    /**
+     * 401 = expirovaný session token - bez tohohle se uložený token držel napořád, UI tvrdilo
+     * "připojeno" a každý další push tichě selhal (audit). Vrátí true, když session zahodil.
+     */
+    private fun dropSessionIfUnauthorized(resp: okhttp3.Response): Boolean {
+        if (resp.code != 401) return false
+        secureStore.remove(KEY_SESSION, KEY_USER)
+        _session.value = null
+        _username.value = ""
+        return true
+    }
+
     suspend fun login(user: String, pass: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val json = JSONObject().put("username", user).put("password", pass).toString()
@@ -141,7 +153,11 @@ class MangaUpdatesRepository @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .put(addBody.toRequestBody(jsonType))
                 .build()
-                .let { httpClient.newCall(it).execute().close() }
+                .let { req ->
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (dropSessionIfUnauthorized(resp)) return@withContext
+                    }
+                }
 
             // Nastaví počet přečtených kapitol
             val chapBody = JSONObject().put("chapter", chaptersRead).toString()
@@ -150,7 +166,11 @@ class MangaUpdatesRepository @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .post(chapBody.toRequestBody(jsonType))
                 .build()
-                .let { httpClient.newCall(it).execute().close() }
+                .let { req ->
+                    httpClient.newCall(req).execute().use { resp ->
+                        dropSessionIfUnauthorized(resp)
+                    }
+                }
         } catch (e: Exception) {
             e.report("tracking:mangaupdates:updateProgress")
         }
@@ -168,6 +188,7 @@ class MangaUpdatesRepository @Inject constructor(
                 .build()
                 .let { req ->
                     httpClient.newCall(req).execute().use { resp ->
+                        if (dropSessionIfUnauthorized(resp)) return@withContext null
                         if (resp.isSuccessful) {
                             listId = parseMuListId(resp.body?.string() ?: "{}")
                         }
@@ -179,6 +200,7 @@ class MangaUpdatesRepository @Inject constructor(
                 .build()
                 .let { req ->
                     httpClient.newCall(req).execute().use { resp ->
+                        if (dropSessionIfUnauthorized(resp)) return@withContext null
                         if (resp.isSuccessful) {
                             rating = parseMuRating(resp.body?.string() ?: "{}")
                         }

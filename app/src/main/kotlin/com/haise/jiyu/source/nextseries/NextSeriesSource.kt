@@ -55,6 +55,9 @@ class NextSeriesSource(
     override val contentType: String = "MANHWA",
 ) : MangaSource {
     override val supportsSortOrder: Boolean get() = false
+    // Skutecne vypnuty (driv jen zdokumentovano v hlavicce) - bez deklarace
+    // se dedilo defaultni `true` a picker se otevrel prazdny.
+    override val supportsTagFilter: Boolean get() = false
     override val homepageUrl get() = baseUrl
     private val base get() = baseUrl.trimEnd('/')
 
@@ -136,15 +139,33 @@ class NextSeriesSource(
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
-    private val pageImageRegex = Regex("""/uploads/series/[a-zA-Z0-9-]+/c[a-zA-Z0-9-]+/p\d+\.webp""")
+    // Stranky jsou v RSC payloadu Next.js jako escapovany JSON:
+    // \"pages\":[{\"pageNumber\":1,...,\"imageUrl\":\"/uploads/series/{slug}/0001/p-{uuid}.webp\"},...]
+    // Paruje se pageNumber+imageUrl uvnitr jednoho objektu ([^{}]*?), seradi podle cisla
+    // strany (uuid nazvy souboru poradi neurcuji). Stary vzor /c{x}/p{n}.webp zustava
+    // jako fallback pro weby, co jeste nemigrovali.
+    private val pageObjRegex = Regex("""\\+"pageNumber\\+":(\d+)[^{}]*?\\+"imageUrl\\+":\\+"([^\\"]+)""")
+    private val pageImageRegex = Regex("""/uploads/series/[a-zA-Z0-9-]+/(?:c?[a-zA-Z0-9-]+)/p[-a-zA-Z0-9]*\.webp""")
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val html = get(resolveSourceUrl(base, chapter.url))
-            pageImageRegex.findAll(html).map { it.value }.distinct().mapIndexed { i, path ->
-                val url = "$base$path"
+            val fromPayload: List<String> = pageObjRegex.findAll(html)
+                .mapNotNull { m ->
+                    val num = m.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                    num to m.groupValues[2]
+                }
+                .distinctBy { it.first }
+                .sortedBy { it.first }
+                .map { it.second }
+                .toList()
+            val paths: List<String> = fromPayload.ifEmpty {
+                pageImageRegex.findAll(html).map { it.value }.distinct().toList()
+            }
+            paths.mapIndexed { i, path ->
+                val url = if (path.startsWith("http")) path else "$base$path"
                 Page(i, url, url)
-            }.toList()
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

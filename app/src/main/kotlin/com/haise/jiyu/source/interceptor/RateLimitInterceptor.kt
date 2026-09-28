@@ -8,9 +8,10 @@ import okhttp3.Response
 
 /**
  * Na HTTP 429 vyhodí [SourceRateLimitedException] místo obyčejné odpovědi - viz `Throwable.toFriendlyMessage`
- * pro srozumitelnou hlášku uživateli. Výjimka záměrně NENÍ IOException, takže ji [RetryInterceptor] nezachytí a
- * nebude zbytečně opakovat request, který stejně zůstane rate-limitovaný. Host se navíc ohlásí [SourceSlowdown],
- * aby se další požadavky na něj (stahování, předstahování) rozložily v čase.
+ * pro srozumitelnou hlášku uživateli. Výjimka je `IOException` + `NonRetryable`: přes async `enqueue()` (Coil)
+ * se doručí do onFailure místo aby shodila dispatcher vlákno, a [RetryInterceptor] ji přesto neopakuje (druhý
+ * pokus by stejně zůstal rate-limitovaný). Host se navíc ohlásí [SourceSlowdown], aby se další požadavky
+ * na něj (stahování, předstahování) rozložily v čase.
  */
 class RateLimitInterceptor(private val slowdown: SourceSlowdown) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {

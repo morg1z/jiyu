@@ -6,6 +6,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -67,11 +68,26 @@ class MangaParkSource @Inject constructor(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        try { parseList(get("$base/series?page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        try {
+            // Web podporuje ?genres={slug} (overeno live) - jen jeden zanr naraz,
+            // kombinace genres=a&genres=b server nerozumi.
+            val genre = filter.genres.firstOrNull()
+                ?.let { "&genres=" + URLEncoder.encode(it, "UTF-8") } ?: ""
+            parseList(get("$base/series?page=$page$genre"))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext getPopular(page, filter)
+        // S vybranym zanrem pres /series HTML (searchTerm + genres) - /api/search
+        // JSON genre nepodporuje.
+        val genre = filter.genres.firstOrNull()
+        if (query.isBlank() && genre == null) return@withContext getPopular(page, filter)
+        if (genre != null) {
+            try {
+                val q = if (query.isBlank()) "" else "&searchTerm=" + URLEncoder.encode(query, "UTF-8")
+                return@withContext parseList(get("$base/series?page=$page&genres=${URLEncoder.encode(genre, "UTF-8")}$q"))
+            } catch (e: Exception) { e.rethrowIfControl(); return@withContext emptyList() }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             val body = get("$base/api/search?search=$q&page=$page")
@@ -135,5 +151,39 @@ class MangaParkSource @Inject constructor(
                     Page(i, url, url)
                 }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    /**
+     * Zanrove chips z filtracni stranky /series (`label.genre-item-row[data-slug]` -
+     * overeno live). Natvrdo fallback seznam pokud web markup zmeni.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        try {
+            val live = Jsoup.parse(get("$base/series"))
+                .select("label.genre-item-row[data-slug]")
+                .mapNotNull { el ->
+                    val slug = el.attr("data-slug").trim().ifBlank { return@mapNotNull null }
+                    FilterTag(id = slug, label = el.selectFirst("span")?.text()?.trim()?.ifBlank { null } ?: slug)
+                }
+                .distinctBy { it.id }
+                .sortedBy { it.label.lowercase() }
+            if (live.isNotEmpty()) return@withContext live
+        } catch (e: Exception) { e.rethrowIfControl() }
+        FALLBACK_GENRES
+    }
+
+    private companion object {
+        // Overeno live z /series - slugy i labely kopiruji markup filtracniho formulare.
+        val FALLBACK_GENRES = listOf(
+            "action", "adult", "adventure", "boys love", "comedy", "demons", "drama",
+            "ecchi", "fantasy", "full color", "girls love", "harem", "historical",
+            "horror", "isekai", "josei", "magic", "manga", "manhwa", "martial arts",
+            "mature", "mystery", "one shot", "others", "psychological", "romance",
+            "school", "school life", "sci-fi", "seinen", "shoujo", "shounen",
+            "slice of life", "smut", "sports", "supernatural", "thriller", "tragedy",
+            "webtoons", "yaoi",
+        ).map { slug ->
+            FilterTag(id = slug, label = slug.replace('-', ' ').replaceFirstChar(Char::uppercase))
+        }
     }
 }

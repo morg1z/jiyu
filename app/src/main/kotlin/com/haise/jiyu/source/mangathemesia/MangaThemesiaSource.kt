@@ -58,6 +58,17 @@ data class MangaThemesiaSelectors(
  * seznam - viz `SourceExceptions.kt`. Legitimně prázdný výsledek (hledání bez shody, titul bez kapitol) zůstává
  * prázdný seznam.
  */
+
+/** Standardní nabídka `?type=` ve themesia filtračním formuláři - overeno zive
+ * na galaxymanga.io a rokaricomics.com (name="type", hodnoty stejne). */
+private val THEMESIA_TYPES = listOf(
+    FilterTag(id = "comic", label = "Comic"),
+    FilterTag(id = "manga", label = "Manga"),
+    FilterTag(id = "manhua", label = "Manhua"),
+    FilterTag(id = "manhwa", label = "Manhwa"),
+    FilterTag(id = "novel", label = "Novel"),
+)
+
 class MangaThemesiaSource(
     override val id: String,
     override val name: String,
@@ -82,6 +93,21 @@ class MangaThemesiaSource(
     /** Web používá lehkou JS výzvu NetShield (viz [NetShieldSolver]); vyžaduje [jsRunner]. */
     private val netShield: Boolean = false,
     private val jsRunner: com.haise.jiyu.util.JsRunner? = null,
+    /** Web zanrovou taxonomii vubec nevystavuje - filtr by v UI ukazal prazdny seznam. */
+    private val supportsTags: Boolean = true,
+    /** Nektere weby strankovani v archivu ignoruji (page=N vraci identickou
+     * stranku 1 - audit DUP) - pro ne se page>1 ukonci prazdnym vysledkem. */
+    private val hasPagination: Boolean = true,
+    /** Vlastni search cesta (napr. "/search/{q}/page/{p}" u webu, kde WAF blokuje
+     * klasicke "?s=" - ext:komikstation). Null = vychozi "/?s={q}". */
+    private val searchUrl: ((root: String, query: String, page: Int) -> String)? = null,
+    /** Filtr stavu na archivni strance /{listPath}/?status= (standardni themesia
+     * formular; hodnoty ongoing/completed/hiatus - overeno zive na galaxymanga.io
+     * a rokaricomics.com, 2026-10). */
+    private val supportsStatus: Boolean = true,
+    /** Filtr typu dila /{listPath}/?type= - standardni themesia nabidka je
+     * comic/manga/manhua/manhwa/novel (FilterTag id = query hodnota). */
+    private val comicTypes: List<FilterTag> = THEMESIA_TYPES,
 ) : MangaSource {
 
     override val includeInGlobalSearch: Boolean get() = inGlobalSearch
@@ -90,8 +116,10 @@ class MangaThemesiaSource(
     override val language: String get() = languageOverride
     override val isAdult: Boolean get() = isAdultOverride
     override val homepageUrl: String get() = baseUrl
-    override val supportsTagFilter: Boolean get() = true
+    override val supportsTagFilter: Boolean get() = supportsTags
     override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+    override val supportsStatusFilter: Boolean get() = supportsStatus
+    override val availableComicTypes: List<FilterTag> get() = comicTypes
     override val supportsChapterComments: Boolean get() = hasChapterComments
 
     private val root get() = baseUrl.trimEnd('/')
@@ -155,10 +183,28 @@ class MangaThemesiaSource(
             archiveUrl(page, orderQuery = null, genres = genres)
         }
 
-    private fun archiveUrl(page: Int, orderQuery: String?, genres: List<String>): String {
+    /** URL filtrovaneho vypisu podle [filter]. Na webech s [genreArchive] taxonomicky
+     * archiv status/type ignoruje a `genre[]` bere jen ciselna ID (ne slugy) - tam se
+     * pri kombinaci zanr+status/typ pouzije cisty zanrovy archiv a vedlejsi filtry
+     * se propadnou (stejne jako na samotnem webu, kde kombinace neexistuje). */
+    private fun filteredUrl(page: Int, orderQuery: String?, filter: MangaFilter): String =
+        if (filter.genres.isNotEmpty() && (filter.status != null || filter.comicTypes.isNotEmpty()) && !genreArchive) {
+            archiveUrl(page, orderQuery, filter.genres, filter.status, filter.comicTypes)
+        } else if (filter.genres.isNotEmpty()) {
+            genreUrl(filter.genres, page)
+        } else if (filter.status != null || filter.comicTypes.isNotEmpty()) {
+            archiveUrl(page, orderQuery, emptyList(), filter.status, filter.comicTypes)
+        } else {
+            archiveUrl(page, orderQuery, emptyList())
+        }
+
+    private fun archiveUrl(page: Int, orderQuery: String?, genres: List<String>,
+                           status: String? = null, types: List<String> = emptyList()): String {
         val params = buildList {
             orderQuery?.let { add("order=$it") }
             genres.forEach { add("genre%5B%5D=${encode(it)}") }
+            status?.let { add("status=${encode(it)}") }
+            types.forEach { add("type=${encode(it)}") }
             if (!pathPagination) add("page=$page")
         }
         val path = if (pathPagination && page > 1) "$root/$listPath/page/$page/" else "$root/$listPath/"
@@ -166,16 +212,21 @@ class MangaThemesiaSource(
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        val genres = filter.genres
-        val url = if (genres.isNotEmpty()) genreUrl(genres, page) else archiveUrl(page, orderFor(filter), emptyList())
-        parseList(get(url), url, mustHaveContainer = genres.isEmpty() && page <= 1)
+        if (page > 1 && !hasPagination) return@withContext emptyList()
+        val url = filteredUrl(page, orderFor(filter), filter)
+        parseList(get(url), url, mustHaveContainer = filter.genres.isEmpty() &&
+            filter.status == null && filter.comicTypes.isEmpty() && page <= 1)
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        // Genre filtr se s "?s=" fulltextem nekombinuje (WP search ho tiše ignoruje) - při vybraném žánru se
-        // proto použije rovnou filtrovaný výpis, stejně jako u MadaraSource.
-        val url = if (filter.genres.isNotEmpty()) {
-            genreUrl(filter.genres, page)
+        // Filtry se s "?s=" fulltextem nekombinuji (WP search je tiše ignoruje) - při vybraném
+        // žánru/stavu/typu se proto použije rovnou filtrovaný výpis, stejně jako u MadaraSource.
+        if (page > 1 && !hasPagination) return@withContext emptyList()
+        val custom = searchUrl
+        val url = if (filter.genres.isNotEmpty() || filter.status != null || filter.comicTypes.isNotEmpty()) {
+            filteredUrl(page, orderQuery = null, filter = filter)
+        } else if (custom != null) {
+            custom(root, encode(query), page)
         } else {
             val q = encode(query)
             if (page <= 1) "$root/?s=$q" else "$root/page/$page/?s=$q"
@@ -191,14 +242,25 @@ class MangaThemesiaSource(
         cachedTags?.let { return@withContext it }
         val url = "$root/$listPath/"
         val doc = Jsoup.parse(get(url), root)
-        val tags = doc.select(selectors.genreInput).mapNotNull { input ->
-            val value = input.attr("value").trim().ifBlank { return@mapNotNull null }
-            val id = input.attr("id")
-            val label = (if (id.isNotBlank()) doc.selectFirst("label[for=$id]") else null)?.text()
-                ?: input.parent()?.selectFirst("label")?.text()
-                ?: input.parent()?.text()
-            FilterTag(id = value, label = label?.trim()?.ifBlank { null } ?: value)
-        }.distinctBy { it.id }
+        val tags = if (genreArchive) {
+            // U webu s "/genres/{slug}/" archivem nesou checkboxy jen ciselna ID,
+            // ktera "?genre[]=" filtr nefunguje (ext:makimaaaaa - audit 2026-10).
+            // Slugy se ctou z a[href*=/genres/] odkazu na archivni strance.
+            doc.select("a[href*=/genres/]").mapNotNull { a ->
+                val slug = a.attr("href").substringAfter("/genres/").trim('/')
+                    .substringBefore('/').ifBlank { null } ?: return@mapNotNull null
+                FilterTag(id = slug, label = a.text().trim().ifBlank { slug })
+            }.distinctBy { it.id }
+        } else {
+            doc.select(selectors.genreInput).mapNotNull { input ->
+                val value = input.attr("value").trim().ifBlank { return@mapNotNull null }
+                val id = input.attr("id")
+                val label = (if (id.isNotBlank()) doc.selectFirst("label[for=$id]") else null)?.text()
+                    ?: input.parent()?.selectFirst("label")?.text()
+                    ?: input.parent()?.text()
+                FilterTag(id = value, label = label?.trim()?.ifBlank { null } ?: value)
+            }.distinctBy { it.id }
+        }
         if (tags.isEmpty()) throw SourceParseException("Seznam žánrů nenalezen", url)
         cachedTags = tags
         tags
@@ -263,7 +325,14 @@ class MangaThemesiaSource(
         val items = container.select(selectors.chapterItem).filter { it.selectFirst("a[href]") != null }
         items.mapIndexedNotNull { i, li ->
             val link = li.selectFirst("a[href]") ?: return@mapIndexedNotNull null
-            val href = resolveSourceUrl(root, link.attr("href")).ifBlank { return@mapIndexedNotNull null }
+            // Coin-lock/premium radky maji href="#" nebo "javascript:..." misto
+            // URL - resolveSourceUrl by z "#" udelal zpet stranku titulu a
+            // getPageList by pak na ni selhal (audit ext:elftoon/asialotuss).
+            val rawHref = link.attr("href").trim()
+            if (rawHref.startsWith("#") || rawHref.startsWith("javascript:", ignoreCase = true)) {
+                return@mapIndexedNotNull null
+            }
+            val href = resolveSourceUrl(root, rawHref).ifBlank { return@mapIndexedNotNull null }
             val rawName = (li.selectFirst(selectors.chapterNumber) ?: link).text().replace(Regex("""\s+"""), " ").trim()
             val num = li.attr("data-num").toFloatOrNull()
                 ?: numberRegex.find(rawName)?.groupValues?.get(1)?.toFloatOrNull()
@@ -308,11 +377,33 @@ class MangaThemesiaSource(
 
         val doc = Jsoup.parse(html, url)
         val imgs = doc.select(selectors.readerImages)
-        if (imgs.isEmpty() && doc.selectFirst("#readerarea") == null) {
+        if (imgs.isNotEmpty()) {
+            return@withContext imgs.mapNotNull { it.lazySrc()?.let { u -> resolveSourceUrl(root, u) } }
+                .distinct().mapIndexed { i, u -> Page(i, u, u) }
+        }
+        if (doc.selectFirst("#readerarea") == null) {
             throw SourceParseException("Stránky kapitoly nenalezeny (změněné HTML?)", url)
         }
-        imgs.mapNotNull { it.lazySrc()?.let { u -> resolveSourceUrl(root, u) } }
-            .distinct().mapIndexed { i, u -> Page(i, u, u) }
+        // Novejsi Themesia weby stranky lazy-loaduji: #readerarea prijde prazdny a JS
+        // dotece obsah pres WP REST API. Link wp-json/wp/v2/posts/{id} je v kazde
+        // strance (oembed/self linky), content.rendered obsahuje <img> vsech stranek
+        // (overeno na scythescans.com).
+        doc.selectFirst("link[href*='wp-json/wp/v2/posts/']")?.attr("href")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { apiUrl ->
+                val rendered = runCatching {
+                    JSONObject(get(apiUrl)).optJSONObject("content")?.optString("rendered")
+                }.getOrNull().orEmpty()
+                if (rendered.isNotBlank()) {
+                    val apiImgs = Jsoup.parse(rendered, apiUrl).select("img[src]")
+                        .mapNotNull { it.attr("src").takeIf(String::isNotBlank) }
+                        .distinct()
+                    if (apiImgs.isNotEmpty()) {
+                        return@withContext apiImgs.mapIndexed { i, u -> Page(i, u, u) }
+                    }
+                }
+            }
+        emptyList()
     }
 
     override suspend fun getChapterComments(chapter: SChapter): List<ChapterComment> {

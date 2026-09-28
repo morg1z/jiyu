@@ -50,13 +50,15 @@ class ZeistMangaSource(
     private val selectTags: String = DEFAULT_SELECT_TAGS,
     private val pageSize: Int = 20,
     private val userAgent: String = SourceHttp.USER_AGENT_DESKTOP,
+    /** Blog vubec nepouziva Blogger labely - filtr by v UI ukazal prazdny seznam. */
+    private val supportsTags: Boolean = true,
 ) : MangaSource {
 
     override val contentType: String get() = contentTypeOverride
     override val language: String get() = languageOverride
     override val isAdult: Boolean get() = isAdultOverride
     override val homepageUrl: String get() = baseUrl
-    override val supportsTagFilter: Boolean get() = true
+    override val supportsTagFilter: Boolean get() = supportsTags
     override val availableSorts: Set<String> get() = setOf("latest")
     override val includeInGlobalSearch: Boolean get() = false
 

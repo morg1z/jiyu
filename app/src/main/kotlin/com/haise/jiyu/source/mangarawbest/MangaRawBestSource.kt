@@ -31,7 +31,9 @@ class MangaRawBestSource @Inject constructor(private val client: OkHttpClient) :
 
     override val id = "mangarawbest"
     override val name = "漫画 raw"
+    override val language = "ja" // japonsky raw web
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = false // web nema zanrovou/tagovou taxonomii
     private val base = "https://mangaraw.best"
 
     private fun get(url: String): String {
@@ -62,8 +64,25 @@ class MangaRawBestSource @Inject constructor(private val client: OkHttpClient) :
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Web zadny funkcni search endpoint nema ("/search?q=X" vraci pro ruzne
+    // dotazy identicky, nefiltrovany vystup s nespustenou Alpine sablonou
+    // "result.name" - overeno zive). Lokalni fallback: projde omezeny pocet
+    // stranek katalogu /manga-list a filtruje tituly podle dotazu (vzor
+    // Manhwa210Source). Katalog ma ~24 titulu/stranu, strop 20 stranek.
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        emptyList()
+        if (query.isBlank()) return@withContext getPopular(page, filter)
+        if (page > 1) return@withContext emptyList()
+        val needle = query.trim().lowercase()
+        val out = mutableListOf<SManga>()
+        try {
+            for (p in 1..20) {
+                val doc = Jsoup.parse(get("$base/manga-list?sort=-updated_at&page=$p"))
+                val items = doc.select("a:has(.cover-frame)").mapNotNull(::parseCard)
+                if (items.isEmpty()) break
+                out += items.filter { it.title.lowercase().contains(needle) }
+            }
+        } catch (e: Exception) { e.rethrowIfControl() }
+        out.distinctBy { it.url }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {

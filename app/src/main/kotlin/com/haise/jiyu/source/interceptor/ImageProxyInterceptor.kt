@@ -39,14 +39,19 @@ class ImageProxyInterceptor(
         val url = request.url
         if (wantsOriginal || !config.enabled || request.method != "GET" || !isEligible(url)) return chain.proceed(direct)
 
-        val proxied = direct.newBuilder().url(proxyUrl(url)).removeHeader("Referer").build()
+        // Proxy (wsrv.nl) dostane jen cisty GET - drive se stripl jen Referer a vsechny
+        // ostatni hlavicky (Cookie/Authorization, co nektere zdroje skladaji rucne pro
+        // obrazky) letely na cizi sluzbu = unik session dat treti strane (audit).
+        val proxied = direct.newBuilder().url(proxyUrl(url))
+            .removeHeader("Referer")
+            .removeHeader("Cookie")
+            .removeHeader("Authorization")
+            .build()
         val viaProxy: Response? = try {
             chain.proceed(proxied)
         } catch (_: IOException) {
-            null
-        } catch (_: com.haise.jiyu.source.SourceRateLimitedException) {
-            // 429 od proxy (RateLimitInterceptor ho mění na tuhle výjimku, která NENÍ IOException) - obrázek se
-            // zkusí stáhnout přímo.
+            // Sem patří i 429 - SourceRateLimitedException je IOException (NonRetryable),
+            // takže proxy rate-limit taky skončí fallbackem na přímé stažení.
             null
         } catch (_: RuntimeException) {
             null
@@ -55,7 +60,13 @@ class ImageProxyInterceptor(
         viaProxy?.close()
 
         val response = chain.proceed(direct)
-        if (response.isSuccessful) blockedHosts += url.host
+        if (response.isSuccessful) {
+            // Sada hostu "proxy blokuje" rostla donekonecna pres scrapeovane stranky s
+            // cizimi CDN - strop s resetem (vycistena sada se rychle znovu naplni temi
+            // opravdu blokovanymi; audit).
+            if (blockedHosts.size >= MAX_BLOCKED_HOSTS) blockedHosts.clear()
+            blockedHosts += url.host
+        }
         return response
     }
 
@@ -77,5 +88,6 @@ class ImageProxyInterceptor(
     companion object {
         const val HEADER_ORIGINAL = "X-Jiyu-Original"
         const val PROXY_HOST = "wsrv.nl"
+        private const val MAX_BLOCKED_HOSTS = 256
     }
 }

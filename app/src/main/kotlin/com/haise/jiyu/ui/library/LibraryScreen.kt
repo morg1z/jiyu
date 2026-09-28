@@ -249,7 +249,7 @@ fun LibraryScreen(
                 if (heroItem != null) {
                     HeroContinueReadingCard(
                         item = heroItem,
-                        progressPercent = progressPercentFor(heroItem.manga.id, unreadCounts, totalCounts),
+                        progressPercent = progressPercentFor(heroItem, unreadCounts, totalCounts),
                         onFavoriteToggle = { viewModel.toggleFavorite(heroItem.manga.id, heroItem.manga.isFavorite) },
                         onOpenDetail = { onOpenManga(heroItem.manga.id) },
                         onContinue = {
@@ -276,7 +276,7 @@ fun LibraryScreen(
                             items(continueReading, key = { it.manga.id }) { item ->
                                 ContinueReadingCard(
                                     item = item,
-                                    progressPercent = progressPercentFor(item.manga.id, unreadCounts, totalCounts),
+                                    progressPercent = progressPercentFor(item, unreadCounts, totalCounts),
                                     onOpenDetail = { onOpenManga(item.manga.id) },
                                     onContinue = {
                                         val chapterId = item.manga.lastReadChapterId
@@ -333,10 +333,26 @@ fun LibraryScreen(
     }
 }
 
-private fun progressPercentFor(mangaId: String, unreadCounts: Map<String, Int>, totalCounts: Map<String, Int>): Int {
-    val total = totalCounts[mangaId] ?: 0
+/**
+ * % na kartě "Pokračovat ve čtení" = průběh v POSLEDNÍ rozečtené kapitole (pod titulkem je
+ * "Kapitola N", takže číslo musí vyjadřovat, jak daleko v té kapitole čtenář je - dřív tu byl
+ * hrubý podíl přečtených kapitol celé série a po jedné přečtené stránce poslední kapitoly
+ * ukazoval 100 %; nahlášený bug). `lastPageRead` je 0-based index -> +1 stránka.
+ *
+ * Bez známého počtu stranek (staré záznamy z dob, kdy se verifiedPageCount ještě neukládal)
+ * se vrať na dřívější podíl přečtených kapitol - lepší odhad než 0 %.
+ */
+internal fun progressPercentFor(item: ContinueReadingItem, unreadCounts: Map<String, Int>, totalCounts: Map<String, Int>): Int {
+    if (item.lastChapterRead == true) return 100
+    val pageCount = item.lastPageCount ?: 0
+    if (pageCount > 0) {
+        val lastPage = item.lastPageRead ?: 0
+        // Rozctena kapitola nemuze ukazat 100 % - to patri jen read=true (viz vyse).
+        return ((lastPage + 1).toFloat() / pageCount.toFloat() * 100f).toInt().coerceIn(0, 99)
+    }
+    val total = totalCounts[item.manga.id] ?: 0
     if (total <= 0) return 0
-    val unread = unreadCounts[mangaId] ?: 0
+    val unread = unreadCounts[item.manga.id] ?: 0
     val read = (total - unread).coerceAtLeast(0)
     return ((read.toFloat() / total.toFloat()) * 100f).toInt().coerceIn(0, 100)
 }

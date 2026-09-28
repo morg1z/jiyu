@@ -94,19 +94,36 @@ class Hentai20Source @Inject constructor(private val client: OkHttpClient) : Man
     private fun genreArchiveUrl(slug: String, page: Int) =
         if (page <= 1) "$base/genres/$slug/" else "$base/genres/$slug/page/$page/"
 
+    // Filtracni formular na /manga/ prijima status= ongoing|completed|hiatus
+    // (overeno zive - status=ongoing meni sadu). Select "type" na strance je, ale
+    // type= vraci prazdny vypis - typ filtr nepropagujeme.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+
+    private val SITE_STATUSES = setOf("ongoing", "completed", "hiatus")
+
+    private fun mangaListUrl(page: Int, filter: MangaFilter): String = buildString {
+        append("$base/manga/?page=").append(page)
+        append("&order=").append(if (filter.sortBy == "latest") "update" else "popular")
+        filter.status?.takeIf { it in SITE_STATUSES }?.let { append("&status=").append(it) }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseMangaList(fetchDocument(genreArchiveUrl(filter.genres.first(), page)))
             }
-            val order = if (filter.sortBy == "latest") "update" else "popular"
-            parseMangaList(fetchDocument("$base/manga/?page=$page&order=$order"))
+            parseMangaList(fetchDocument(mangaListUrl(page, filter)))
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseMangaList(fetchDocument(genreArchiveUrl(filter.genres.first(), page)))
+            }
+            if (filter.status != null) {
+                return@withContext parseMangaList(fetchDocument(mangaListUrl(page, filter)))
             }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"

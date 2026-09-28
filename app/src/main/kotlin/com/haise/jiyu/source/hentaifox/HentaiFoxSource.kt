@@ -160,9 +160,11 @@ class HentaiFoxSource @Inject constructor(private val client: OkHttpClient) : Ma
         try {
             val doc = fetchDoc(resolveSourceUrl(base, chapter.url))
             val galleryId = chapter.url.trim('/').substringAfterLast('/')
-            val count = doc.select("div#append_thumbs div.gallery_thumb").size
-                .takeIf { it > 0 }
-                ?: doc.selectFirst("span.i_text.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+            // "Pages: N" v span.i_text.pages je autoritativni soucet - thumby se
+            // renderuji jen pro prvnich ~10 stran (audit 2026-11: Pages: 70 pri
+            // 10 gallery_thumb divech), pocitat je stranky usekne.
+            val count = doc.selectFirst("span.i_text.pages")?.text()?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+                ?: doc.select("div#append_thumbs div.gallery_thumb").size.takeIf { it > 0 }
                 ?: return@withContext emptyList()
             (1..count).map { n -> Page(index = n - 1, url = "$base/g/$galleryId/$n/") }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

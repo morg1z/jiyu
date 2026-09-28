@@ -3,6 +3,7 @@ package com.haise.jiyu.source.pururin
 import com.haise.jiyu.util.lazySrc
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -36,6 +37,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
     override val name = "Pururin"
     override val isAdult = true
     override val homepageUrl get() = base
+    override val supportsTagFilter: Boolean get() = true
 
     private val base = "https://pururin.me"
 
@@ -62,8 +64,40 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
             SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
         }
 
+    // Tagova taxonomie webu je "/browse/tags/{typ}/{id}/{slug}" - "content" typ je
+    // ekvivalent zanru (ostatni typy = artist/circle/parody...). Index je
+    // "/tags/content?page=N" (strankovany, ~30 tagu/strana). Tagovy archiv se
+    // strankuje stejnym "?page=N" parametrem. Vice tagu najednou web nepodporuje.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val tags = try {
+            val out = mutableListOf<FilterTag>()
+            var p = 1
+            while (p <= 50) {
+                val links = fetchDocument("$base/tags/content?page=$p").select("a[href*=/browse/tags/content/]")
+                if (links.isEmpty()) break
+                links.forEach { a ->
+                    val id = a.attr("href").substringAfter("/browse/tags/content/").trim('/').ifBlank { return@forEach }
+                    val label = a.text().trim().ifBlank { return@forEach }
+                    out += FilterTag(id = id, label = label)
+                }
+                p++
+            }
+            out.distinctBy { it.id }
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) {
+                return@withContext try {
+                    parseGalleryList(fetchDocument("$base/browse/tags/content/${filter.genres.first()}?page=$page"))
+                } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+            }
             val sort = if (filter.sortBy == "latest") "newest" else "most-popular"
             try {
                 parseGalleryList(fetchDocument("$base/browse?sort=$sort&page=$page"))
@@ -72,6 +106,7 @@ class PururinSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
+            if (filter.genres.isNotEmpty()) return@withContext getPopular(page, filter)
             if (query.isBlank()) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query.trim(), "UTF-8")

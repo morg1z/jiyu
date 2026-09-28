@@ -106,6 +106,16 @@ class ChapterUpdateWorker @AssistedInject constructor(
         }
 
     private fun notify(updated: List<UpdatedMangaInfo>) {
+        // runCatching kolem CELEHO bloku: zamitnute POST_NOTIFICATIONS (Android 13+) vyhodi
+        // SecurityException z nm.notify - bez tohohle by propadla do catch runUpdate() a
+        // spustila Result.retry() cele knihovny (vsechny HTTP dotazy zdroju znovu) jen kvuli
+        // notifikaci, a po 3. pokusu cela aktualizace "selhala" i kdyz data jsou v poradku.
+        runCatching {
+            notifyUnsafe(updated)
+        }.onFailure { it.report("update:notify") }
+    }
+
+    private fun notifyUnsafe(updated: List<UpdatedMangaInfo>) {
         val nm = context.getSystemService(NotificationManager::class.java)
         val totalNew = updated.sumOf { it.count }
 

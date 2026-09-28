@@ -33,9 +33,44 @@ internal fun isSuspiciouslyTinyBubbleBox(widthDp: Float, maxHeightDp: Float): Bo
  * prosvítat originál) - null = kreslí se. Sdíleno mezi skutečnou podmínkou v BubbleOverlayLayer
  * a logováním, aby se obě nemohly rozejít.
  */
-internal fun bubbleSkipReason(isSfx: Boolean, isUntranslated: Boolean, hasTranslatableLetters: Boolean): String? = when {
+internal fun bubbleSkipReason(
+    isSfx: Boolean,
+    isUntranslated: Boolean,
+    hasTranslatableLetters: Boolean,
+    isArtText: Boolean = false,
+    leakedToken: Boolean = false,
+    artLettering: Boolean = false,
+): String? = when {
     isSfx -> "sfx"
+    isArtText -> "art_text"
+    artLettering -> "art_lettering"
+    leakedToken -> "leaked_token"
     isUntranslated -> "untranslated"
     !hasTranslatableLetters -> "no_letters"
     else -> null
+}
+
+/**
+ * Jak se bublina DOOPRAVDY vykreslila (ne statická aproximace ze flagů - to hlásí
+ * "kind=page" záznam, ten render-time výsledek nezná). Volá se až po vyhodnocení
+ * záplat/obnovy obrysu ze stejných hodnot, jaké používá [BubbleOverlayLayer], takže
+ * záznam `kind="render_page"` je autoritativní odpověď na "co ta bublina na obrazovce
+ * dělá" - viz recordRender v TranslationDiagnostics.
+ *
+ * @param recoveredPatch zda má obnovená bublina i záplatu (vzorovaný interiér se kreslí
+ *   záplatou oříznutou konturou, jednolitý jen výplní).
+ */
+internal fun bubbleRenderMode(
+    hasShape: Boolean,
+    bgUniform: Boolean,
+    hasPatch: Boolean,
+    hasRecoveredShape: Boolean,
+    recoveredPatch: Boolean = false,
+): String = when {
+    // Pořadí odpovídá render gate: skipy řeší bubbleSkipReason dřív, sem chodí jen
+    // renderované bloky. Obnovený obrys má přednost před heuristikou (mění i box).
+    hasRecoveredShape -> if (recoveredPatch) "recovered_patch" else "recovered_fill"
+    hasShape -> if (hasPatch) "shaped_patch" else "shaped_fill"
+    hasPatch -> "patched_art"
+    else -> "uniform_fill"
 }

@@ -1,6 +1,7 @@
 package com.haise.jiyu.source.simplyhentai
 
 import com.haise.jiyu.source.SourceHttp
+import com.haise.jiyu.util.lazySrc
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -12,27 +13,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * simply-hentai.com - anglicka hentai doujin/manga galerie (Next.js Pages
- * Router). Listing i detail stranky jsou server-rendovane a nesou kompletni
- * data primo v `__NEXT_DATA__` JSON (`pageProps.mangas`/`pageProps.manga`) -
- * zadne extra HTTP pozadavky navic. Detail dokonce uz obsahuje CELY `images`
- * seznam s primymi plne-rozlisenymi URL (`sizes.full`), takze getPageList
- * nepotrebuje zadnou zvlast "all-pages"/reader stranku.
+ * simply-hentai.com - anglicka hentai doujin/manga galerie. Web drive nesel
+ * kompletni data v `__NEXT_DATA__` JSON (Next.js), od 2026-11 ale bezi na
+ * server-renderovanem frontendu ("web2"): vypis = `article.manga-container`
+ * karty, detail = `h1` + `pages-overview` nahledy.
  *
- * Skutecne fulltextove hledani je cistě klientske (`/search?query=...` ma
- * prazdne `pageProps` bez ohledu na parametr - overeno zive) a zadny verejny
- * API endpoint pro nej se nepodarilo najit ani v JS bundlech. Jedina funkcni
- * serverova cesta je `/search/{slug}` - ale ta NEni fulltextovy vyhledavac,
- * jde primo na konkretni galerii, jejiz vlastni slug (ne nazev seznamu/tagu)
- * presne odpovida - tedy funguje jen kdyz `query` uhodne presny slug jedne
- * konkretni galerie. search() to pouziva jako "best effort": vrati tu jednu
- * galerii pri presne shode, jinak prazdny seznam.
+ * Stranky galerie: plne URL obrazku zije na CDN `images.sh-cdn.com` pod nazvem
+ * `{hash}.jpg` - z nahledu `small_thumb_{hash}.jpg` staci oriznout prefix.
+ * Detail ukazuje jen prvnich ~12 nahledu; cely pocet nese odkaz
+ * `all-pages-link` ("View all N images") a `/page/{id}` identifikatory jsou
+ * sekvcencni (overeno zive). `getPageList` proto nejdriv zkusi primou stranku
+ * `/all-pages` (v appce ji projde Cloudflare interceptor pres WebView), jako
+ * fallback vrati virtualni `/page/{id}` adresy, ktere lazy rozparsuje
+ * [getImageUrl].
+ *
+ * POZOR: `/all-pages`, `/page/N` a `/search/` jsou za CF vyzvou - z JVM bez
+ * WebView vratou "Just a moment", v appce je vyresi CloudflareInterceptor.
+ *
+ * Skutecne fulltextove hledani neexistuje - `/search/{slug}` presmeruje primo
+ * na galerii jen pri presne shode slug; search() to vraci jako best-effort
+ * jednu galerii, jinak prazdny seznam.
  */
 @Singleton
 class SimplyHentaiSource @Inject constructor(
@@ -42,6 +48,10 @@ class SimplyHentaiSource @Inject constructor(
     override val id = "simplyhentai"
     override val name = "Simply Hentai"
     override val supportsSortOrder: Boolean get() = false
+    // Tagy na webu existuji, ale browsable schema tag URL nebylo overitelne
+    // (403 i s realistickym UA) - radsi picker schovame nez shipnout rozbitou
+    // implementaci.
+    override val supportsTagFilter: Boolean get() = false
     override val isAdult = true
     override val homepageUrl get() = base
 
@@ -55,29 +65,20 @@ class SimplyHentaiSource @Inject constructor(
         return client.newCall(request).execute().use { it.bodyOrThrow(url) }
     }
 
-    private fun extractNextData(html: String): JSONObject? {
-        val markerIdx = html.indexOf("__NEXT_DATA__")
-        if (markerIdx == -1) return null
-        val jsonStart = html.indexOf('>', markerIdx).let { if (it == -1) return null else it + 1 }
-        val jsonEnd = html.indexOf("</script>", jsonStart)
-        if (jsonEnd == -1) return null
-        return try { JSONObject(html.substring(jsonStart, jsonEnd)) } catch (e: Exception) { e.rethrowIfControl(); null }
-    }
-
-    private fun mangaFromListItem(item: JSONObject): SManga? {
-        val slug = item.optString("slug").ifBlank { return null }
-        val series = item.optJSONObject("series") ?: return null
-        val seriesSlug = series.optString("slug").ifBlank { return null }
-        val title = item.optString("title").ifBlank { return null }
-        val cover = item.optJSONObject("preview")?.optJSONObject("sizes")?.optString("full")?.ifBlank { null }
-        return SManga(sourceId = id, url = "$base/$seriesSlug/$slug", title = title, coverUrl = cover, contentType = "MANGA")
-    }
-
-    private fun parseListing(html: String): List<SManga> {
-        val pageProps = extractNextData(html)?.optJSONObject("props")?.optJSONObject("pageProps") ?: return emptyList()
-        val mangas = pageProps.optJSONArray("mangas") ?: return emptyList()
-        return (0 until mangas.length()).mapNotNull { mangaFromListItem(mangas.getJSONObject(it)) }
-    }
+    private fun parseListing(html: String): List<SManga> =
+        Jsoup.parse(html, base).select("article.manga-container").mapNotNull { card ->
+            val a = card.selectFirst("a.content-link") ?: return@mapNotNull null
+            val href = a.absUrl("href").ifBlank { a.attr("abs:href") }
+            if (href.isBlank()) return@mapNotNull null
+            val title = card.selectFirst("h3.title a")?.text()?.ifBlank { null }
+                ?: card.selectFirst("img")?.attr("alt")?.ifBlank { null }
+                ?: return@mapNotNull null
+            // Nahled "small_thumb_{hash}" -> plne rozliseni "{hash}" (stejna cesta
+            // na CDN) - cover se pouziva i v hlavicce detailu, kde thumb mizi.
+            val cover = card.selectFirst(".cover-slot img")?.absUrl("src")?.ifBlank { null }
+                ?.replace("small_thumb_", "")
+            SManga(sourceId = id, url = href, title = title, coverUrl = cover, contentType = "MANGA")
+        }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
@@ -94,40 +95,39 @@ class SimplyHentaiSource @Inject constructor(
             if (query.isBlank()) return@withContext getPopular(page, filter)
             if (page > 1) return@withContext emptyList()
             try {
-                val html = fetchHtml("$base/search/${slugify(query)}")
-                val manga = extractNextData(html)?.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("manga")
-                    ?: return@withContext emptyList()
-                mangaFromDetail(manga)?.let { listOf(it) } ?: emptyList()
+                val doc = Jsoup.parse(fetchHtml("$base/search/${slugify(query)}"), base)
+                // `/search/{slug}` pri presne shode presmeruje primo na galerii
+                // (pozna se podle `pages-overview`), jinak muze vratit karty.
+                if (doc.selectFirst("[data-testid=pages-overview]") != null) {
+                    mangaFromDetailDoc(doc)?.let { listOf(it) } ?: emptyList()
+                } else {
+                    doc.select("article.manga-container").takeIf { it.isNotEmpty() }
+                        ?.let { parseListing(doc.html()) }
+                        ?: emptyList()
+                }
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
-    private fun mangaFromDetail(manga: JSONObject): SManga? {
-        val slug = manga.optString("slug").ifBlank { return null }
-        val series = manga.optJSONObject("series") ?: return null
-        val seriesSlug = series.optString("slug").ifBlank { return null }
-        val title = manga.optString("title").ifBlank { return null }
-        val cover = manga.optJSONArray("images")?.optJSONObject(0)?.optJSONObject("sizes")?.optString("full")?.ifBlank { null }
-        return SManga(sourceId = id, url = "$base/$seriesSlug/$slug", title = title, coverUrl = cover, contentType = "MANGA")
+    private fun mangaFromDetailDoc(doc: Document): SManga? {
+        val title = doc.selectFirst("h1")?.text()?.ifBlank { null } ?: return null
+        val cover = doc.selectFirst("[data-testid=cover-link] img")?.absUrl("src")?.ifBlank { null }
+            ?.replace("small_thumb_", "")
+        // Web zadny canonical link nema - og:url nese relativni cestu galerie
+        // ("/{series}/{slug}"), kterou absUrl spoji proti `base`.
+        val url = doc.selectFirst("meta[property=og:url]")?.absUrl("content")?.ifBlank { null }
+            ?: return null
+        return SManga(sourceId = id, url = url, title = title, coverUrl = cover, contentType = "MANGA")
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val json = extractNextData(fetchHtml(manga.url))?.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("manga")
-                ?: return@withContext manga
-            val description = json.optString("description").ifBlank { null }?.let { Jsoup.parse(it).text().ifBlank { null } }
-            val artists = json.optJSONArray("artists")
-            val artist = if (artists != null) (0 until artists.length())
-                .mapNotNull { artists.getJSONObject(it).optString("title").ifBlank { null } }
-                .joinToString(", ").ifBlank { null } else null
-            val tagsArr = json.optJSONArray("tags")
-            val genres = if (tagsArr != null) (0 until tagsArr.length())
-                .mapNotNull { tagsArr.getJSONObject(it).optString("title").ifBlank { null } } else emptyList()
-
+            val doc = Jsoup.parse(fetchHtml(manga.url), base)
+            val title = doc.selectFirst("h1")?.text()?.ifBlank { null }
+            val cover = doc.selectFirst("[data-testid=cover-link] img")?.absUrl("src")?.ifBlank { null }
+                ?.replace("small_thumb_", "")
             manga.copy(
-                title = json.optString("title").ifBlank { null } ?: manga.title,
-                description = description,
-                artist = artist,
-                genres = genres,
+                title = title ?: manga.title,
+                coverUrl = cover ?: manga.coverUrl,
             )
         } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
@@ -145,16 +145,52 @@ class SimplyHentaiSource @Inject constructor(
         )
     }
 
+    private val pageIdRegex = Regex("""/page/(\d+)""")
+
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
-            val json = extractNextData(fetchHtml(chapter.url))?.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("manga")
-                ?: return@withContext emptyList()
-            val images = json.optJSONArray("images") ?: return@withContext emptyList()
-            (0 until images.length()).mapNotNull { i ->
-                val url = images.getJSONObject(i).optJSONObject("sizes")?.optString("full")?.ifBlank { null }
-                    ?: return@mapNotNull null
-                Page(index = i, url = url, imageUrl = url)
+            // Primarne "/all-pages" - v appce ji projde Cloudflare interceptor a
+            // vrati vsechny plne obrazky najednou (bez per-page dotazu).
+            runCatching {
+                Jsoup.parse(fetchHtml("${chapter.url}/all-pages"), base)
+                    .select("img")
+                    .mapNotNull { it.lazySrc() }
+                    .filter { "sh-cdn.com" in it }
+                    .map { it.replace("small_thumb_", "").replace("thumb_", "") }
+                    .distinct()
+            }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { urls ->
+                return@withContext urls.mapIndexed { i, u -> Page(i, u, u) }
+            }
+            // Fallback (JVM bez WebView nebo kdyz /all-pages layout zmeni): detail
+            // nese "View all N images" + prvnich ~12 sekvcencnich /page/{id}
+            // odkazu - z nich se da spocitat cely rozsah id. Virtualni adresy
+            // rozparsuje az getImageUrl (v appce CF interceptor vyresi vyzvu).
+            val doc = Jsoup.parse(fetchHtml(chapter.url), base)
+            val firstId = doc.select("a[href*=/page/]")
+                .mapNotNull { pageIdRegex.find(it.attr("href"))?.groupValues?.get(1)?.toIntOrNull() }
+                .minOrNull() ?: return@withContext emptyList()
+            val total = doc.selectFirst("[data-testid=all-pages-link], [data-testid=actions-all-pages-link]")
+                ?.text()?.let { Regex("""(\d+)""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+            val count = total ?: doc.select("a[href*=/page/]").size
+            (0 until count).map { i ->
+                Page(i, "${chapter.url}/page/${firstId + i}")
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    override suspend fun getImageUrl(page: Page): String {
+        // Virtualni "/page/{id}" adresa - lazy nacte stranku a vytahne plne CDN URL.
+        if (page.imageUrl != null) return page.imageUrl!!
+        if (!page.url.contains("/page/")) return page.url
+        return withContext(Dispatchers.IO) {
+            try {
+                Jsoup.parse(fetchHtml(page.url), base)
+                    .select("img")
+                    .mapNotNull { it.lazySrc() }
+                    .filter { "sh-cdn.com" in it }
+                    .firstOrNull { "thumb" !in it }
+                    ?: page.url
+            } catch (e: Exception) { e.rethrowIfControl(); page.url }
+        }
     }
 }

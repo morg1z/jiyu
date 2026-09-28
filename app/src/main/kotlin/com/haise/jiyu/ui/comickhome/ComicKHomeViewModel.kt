@@ -11,6 +11,9 @@ import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +44,16 @@ class ComicKHomeViewModel @Inject constructor(
         settings.comickUpdatesMatureFlags.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
     val showAdultContent: StateFlow<Boolean> =
         settings.showAdultSources.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Jednorazove tipy k gestum - nezavisle na onboardingu (ukazou se i lidem,
+    // co ho prosli davno). ComicK tip se ukaze az po odklepnuti browse tipu,
+    // at se dva bottom sheety neskladaji pres sebe.
+    val comickFilterTipShown: StateFlow<Boolean> =
+        settings.comickFilterTipShown.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val browseModeTipShown: StateFlow<Boolean> =
+        settings.browseModeTipShown.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setComickFilterTipShown() = viewModelScope.launch { settings.setComickFilterTipShown() }
 
     /** Uloží Preferences a znovu načte Aktualizace od první stránky s novým filtrem. */
     fun setUpdatesPreferences(countries: Set<String>, demographics: Set<String>, matureFlags: Set<String>) {
@@ -106,17 +119,26 @@ class ComicKHomeViewModel @Inject constructor(
     /** Retry jen pro Aktualizace feed (dole na Domů) - nemusi znovu tahat /top. */
     fun retryUpdates() = loadUpdatesFirstPage()
 
+    private var topJob: Job? = null
+    private var updatesJob: Job? = null
+
     private fun loadTop() {
-        viewModelScope.launch {
+        // Stary request zrusit - retry za letu by jinak dva joby prepsaly loading/feed
+        // v nespravnem poradi (audit).
+        topJob?.cancel()
+        topJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
                 _topFeed.value = comicKSource.getTop()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.report("comickhome:getTop")
                 _error.value = e.toFriendlyMessage()
             } finally {
-                _loading.value = false
+                // Zruseny STARY job nesmi vynulovat loading NOVEHO (guard na vlastnictvi jobu).
+                if (topJob === coroutineContext.job) _loading.value = false
             }
         }
     }
@@ -131,6 +153,10 @@ class ComicKHomeViewModel @Inject constructor(
     }
 
     private fun loadUpdatesFirstPage() {
+        // Bez cancelu by bezici stara stranka bezela s PREDESLYM filtrem a prepisala
+        // prazdny stav vysledky stareho filtru (vysledek: po zmene razeni/filtru se
+        // ukazala data z puvodniho dotazu - audit).
+        updatesJob?.cancel()
         updatesPage = 1
         _updates.value = emptyList()
         _updatesError.value = null
@@ -139,17 +165,19 @@ class ComicKHomeViewModel @Inject constructor(
 
     fun loadMoreUpdates() {
         if (_updatesLoading.value) return
-        viewModelScope.launch {
+        updatesJob = viewModelScope.launch {
             _updatesLoading.value = true
             try {
                 val page = comicKSource.getUpdates(_updatesOrder.value, updatesPage)
                 _updates.value = (_updates.value + page).distinctBy { it.chapter.sourceId + it.chapter.url }
                 if (page.isNotEmpty()) updatesPage++
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.report("comickhome:getUpdates")
                 if (_updates.value.isEmpty()) _updatesError.value = e.toFriendlyMessage()
             } finally {
-                _updatesLoading.value = false
+                if (updatesJob === coroutineContext.job) _updatesLoading.value = false
             }
         }
     }
@@ -159,7 +187,7 @@ class ComicKHomeViewModel @Inject constructor(
         _openingManga.value = manga
         viewModelScope.launch {
             try {
-                val id = repository.openPreview(manga)
+                val id = repository.registerPreview(manga)
                 onOpened(id)
             } catch (e: Exception) {
                 e.report("comickhome:openManga")

@@ -7,6 +7,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -61,16 +62,58 @@ class ScribbleHubSource @Inject constructor(private val client: OkHttpClient) : 
     }
 
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // Genre archiv /genre/{slug}/ vraci standardni .search_main_box listing.
+        val genre = filter.genres.firstOrNull()
+        if (genre != null && page > 1) return@withContext emptyList() // strankovani archivu neoverene
         try {
-            parseList(get("$base/series-ranking/?sort=toprated&page=$page"))
+            val url = if (genre != null) "$base/genre/$genre/"
+            else "$base/series-ranking/?sort=toprated&page=$page"
+            parseList(get(url))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        val genre = filter.genres.firstOrNull()
+        if (genre != null) {
+            // ?s= nelze kombinovat s genre archivem - text dofilitrujeme lokalne.
+            val base = getPopular(page, filter)
+            return@withContext if (query.isBlank()) base
+            else base.filter { it.title.contains(query.trim(), ignoreCase = true) }
+        }
         try {
             val q = URLEncoder.encode(query, "UTF-8")
             parseList(get("$base/?s=$q&post_type=fictionposts&paged=$page"))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+    }
+
+    /**
+     * Genre index web nenabizi na jedinem endpointu - kazda detail stranka
+     * ale nese sve genre linky (.wi_fic_genre a -> /genre/{slug}/). Sklizime
+     * je z nekolika top-hodnocenych detailu; taxonomie je fixni (~40 zanru),
+     * takze par detailu staci na temer kompletni pokryti.
+     */
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        val acc = linkedMapOf<String, String>() // slug -> label
+        try {
+            val rankDoc = Jsoup.parse(get("$base/series-ranking/?sort=toprated"), base)
+            val detailUrls = rankDoc.select(".search_main_box .search_title a, .novel-item .novel-title a")
+                .mapNotNull { it.attr("href").takeIf(String::isNotBlank) }
+                .distinct().take(6)
+            for (u in detailUrls) {
+                try {
+                    Jsoup.parse(get(resolveSourceUrl(base, u)), base)
+                        .select(".wi_fic_genre a")
+                        .forEach { a ->
+                            val slug = Regex("""/genre/([^/?#]+)""").find(a.attr("href"))?.groupValues?.get(1)
+                                ?: return@forEach
+                            acc.putIfAbsent(slug, a.text().trim().ifBlank { slug })
+                        }
+                } catch (e: Exception) { e.rethrowIfControl() }
+                if (acc.size >= 30) break
+            }
+        } catch (e: Exception) { e.rethrowIfControl() }
+        acc.map { (slug, label) -> FilterTag(id = slug, label = label) }
+            .sortedBy { it.label.lowercase() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {

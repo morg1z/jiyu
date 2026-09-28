@@ -30,8 +30,11 @@ object JsPacker {
      * a vrátí dekódovaný JS zdroj, nebo null pokud vstup neodpovídá packer formátu.
      */
     fun unpackEval(evalSource: String): String? {
+        // Pozor: samotna '}' musi byt na Androidu escapovana (ICU regex, narozdil
+        // od JDK, ji jako literal neprijme a hodi PatternSyntaxException) - proto
+        // testy na JVM prochazi, ale na zarizeni tenhle regex padal.
         val match = Regex(
-            """}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)""",
+            """\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)""",
             RegexOption.DOT_MATCHES_ALL,
         ).find(evalSource) ?: return null
         val (payloadRaw, radixStr, countStr, wordsRaw) = match.destructured

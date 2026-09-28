@@ -82,20 +82,45 @@ class KDTScansSource @Inject constructor(private val client: OkHttpClient) : Man
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Web filtruje status pres /search/?status=ongoing|completed (overeno zive -
+    // ruzne sady). genre[] na /search/ web ignoruje a status na /manga/ take -
+    // kombinovat nejdou, zanr ma prednost (jako na webu).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed")
+
     private fun archiveUrl(page: Int, order: String, genreId: String?): String {
         val url = "$base/manga/?page=$page&order=$order"
         return if (genreId != null) "$url&genre%5B%5D=$genreId" else url
     }
 
+    private val SITE_STATUSES = setOf("ongoing", "completed")
+
+    private fun statusUrl(status: String): String = "$base/search/?status=$status"
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         val order = if (filter.sortBy == "latest") "update" else "popular"
-        try { parseList(get(archiveUrl(page, order, filter.genres.firstOrNull()))) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        try {
+            val url = when {
+                filter.genres.isNotEmpty() -> archiveUrl(page, order, filter.genres.first())
+                filter.status in SITE_STATUSES -> {
+                    if (page > 1) return@withContext emptyList()
+                    statusUrl(filter.status!!)
+                }
+                else -> archiveUrl(page, order, null)
+            }
+            parseList(get(url))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             if (filter.genres.isNotEmpty()) {
                 return@withContext parseList(get(archiveUrl(page, "popular", filter.genres.first())))
+            }
+            if (filter.status in SITE_STATUSES) {
+                if (page > 1) return@withContext emptyList()
+                return@withContext parseList(get(statusUrl(filter.status!!)))
             }
             val q = URLEncoder.encode(query, "UTF-8")
             val url = if (page <= 1) "$base/?s=$q" else "$base/page/$page/?s=$q"

@@ -436,12 +436,65 @@ class BubbleClassifierTest {
     @Test
     fun `a short word drawn straight onto the artwork is a sound effect`() {
         // Druhý nezávislý signál zvuku: zvuk se sází PŘES KRESBU, replika do bubliny. Tohle
-        // chytá i zvuky, které v seznamu nejsou a samohlásku mají.
-        val onArtwork = BubbleClassifier.classify(rawBlock("ZWISH", bgUniform = false), 1)
+        // chytá i zvuky, které v seznamu nejsou - ale jen do 4 písmen u slov se samohláskou
+        // (delší "slovo se samohláskou" je spíš zdůrazněná replika - viz audit níž).
+        // Slovo musí být MIMO slovník zvuků - "ZWIP" tam od v31 je (a v bublině se tedy
+        // chytá jako známý SFX, což je žádané), "BWAP" v seznamu není.
+        val onArtwork = BubbleClassifier.classify(rawBlock("BWAP", bgUniform = false), 1)
         assertTrue("krátký text na kresbě je zvuk", onArtwork.isSfx)
 
-        val inBubble = BubbleClassifier.classify(rawBlock("ZWISH", bgUniform = true), 1)
+        val inBubble = BubbleClassifier.classify(rawBlock("BWAP", bgUniform = true), 1)
         assertFalse("stejný text v bublině zvuk není", inBubble.isSfx)
+    }
+
+    // ── over-art pravidlo: replika se samohláskou >4 písmen není zvuk (audit Vagabondu) ──
+
+    @Test
+    fun `a word with a vowel longer than four letters on artwork is dialogue not sfx`() {
+        // JÁDRO NÁLEZU Z AUDITU: "THAT'S…", "SWORDS?", "LETHAL…" se jako SFX nikdy
+        // neposlaly na překlad - stránka si nechala anglický originál. Všechna jsou
+        // skutečná slova se samohláskou delší než 4 písmena.
+        listOf("THAT'S…", "SWORDS?", "LETHAL…", "THAT'S", "SWORDS", "LETHAL").forEach { text ->
+            assertFalse(
+                "„$text\" je replika přes kresbu, ne zvuk",
+                BubbleClassifier.classify(rawBlock(text, bgUniform = false), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `listed vowel sfx longer than four letters stay sfx even on artwork`() {
+        // Pojistka proti přestřelení: známé zvuky se samohláskou delší než 4 písmena
+        // chytá seznam sfxWords/collapsedSfxWords, ne over-art pravidlo - nic se nemění.
+        listOf("FWOOSH", "CRASH", "RUMBLE", "SWOOSH").forEach { text ->
+            assertTrue(
+                "„$text\" je v seznamu zvuků",
+                BubbleClassifier.classify(rawBlock(text, bgUniform = false), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `an unlisted coined sfx longer than four letters on artwork now goes to translation`() {
+        // Dokumentovaný trade-off zúžení: vymyšlený zvuk se samohláskou >4 písmen, který
+        // není v seznamu, se přestane chytat over-art pravidlem a projde k překladu.
+        // Model ho typicky vrátí skoro beze změny (případně českou onomatopejí) - lepší
+        // než polknout skutečnou repliku (viz audit). "GRAAAW" má 6 písmen - je tedy
+        // uvnitř starého limitu ≤6 a prošel by; dnes projde k překladu.
+        val result = BubbleClassifier.classify(rawBlock("GRAAAW", bgUniform = false), 1)
+        assertFalse("nevýslovný zvuk se samohláskou >4 písmen už nepadá do SFX", result.isSfx)
+    }
+
+    @Test
+    fun `short vowel-less text on artwork is still caught as sfx`() {
+        // Bezesamohláskové krátké texty přes kresbu pořád zvuky jsou - pravidlo o
+        // "zvuk nemá samohlásku" běží před over-art kontrolou a zůstává beze změny.
+        listOf("KRRR", "SHNK", "BZZT", "SKRR").forEach { text ->
+            assertTrue(
+                "„$text\" bez samohlásky je zvuk",
+                BubbleClassifier.classify(rawBlock(text, bgUniform = false), 1).isSfx,
+            )
+        }
     }
 
     @Test
@@ -450,5 +503,150 @@ class BubbleClassifierTest {
         // zvuk nikdy není.
         val result = BubbleClassifier.classify(rawBlock("MĚLI JSME JEN TRÁVU K JÍDLU.", bgUniform = false), 1)
         assertFalse(result.isSfx)
+    }
+
+    @Test
+    fun `sentence ending before a TLD-looking word is not a domain watermark`() {
+        // Živý nález z telefonu: zřetězený text "FORGETTHIS.IOWE..." simuloval doménu
+        // "this.io" a celá bublina se označila za vodoznak=SFX - nikdy se nepřeložila.
+        val result = BubbleClassifier.classify(
+            rawBlock("AND I WON'T FORGET THIS. I OWE YOU MY LIFE.", bgUniform = false, lineCount = 5),
+            lineCount = 5,
+        )
+        assertFalse(result.isSfx)
+    }
+
+    @Test
+    fun `sentence ending with me after period is not a domain watermark`() {
+        // "TELL. ME" by se po zřetězení četlo jako doména "tell.me" - stejný falešný vzor.
+        val result = BubbleClassifier.classify(rawBlock("PLEASE DON'T TELL. ME ANYTHING."), lineCount = 2)
+        assertFalse(result.isSfx)
+    }
+
+    @Test
+    fun `domain at end of real watermark block is still caught`() {
+        val result = BubbleClassifier.classify(rawBlock("READ AT ENSCANS.COM", bgUniform = false), lineCount = 1)
+        assertTrue(result.isSfx)
+    }
+
+    // ── Opakované zvuky a mikro-útržky (audit Vagabondu ch1+ch2) ──
+
+    @Test
+    fun `the same sfx word repeated with spaces or dashes is sfx`() {
+        // "GULP GULP" prošlo jako text a přeložilo se na "GUP" - mezera obcházela
+        // všechna pravidla vyžadující text bez mezery.
+        listOf("GULP GULP", "GULP-GULP", "GULP - GULP", "BOOM BOOM BOOM", "SOB SOB").forEach { text ->
+            assertTrue(
+                "„$text\" je opakovaný zvuk",
+                BubbleClassifier.classify(rawBlock(text), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `repeated sfx with a one-letter ocr slip is still sfx`() {
+        // "GULP GLP" / "BOOM B0OM" - editační vzdálenost 1 od stejného zvuku.
+        assertTrue(BubbleClassifier.classify(rawBlock("GULP GLP"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("BOOM B0OM"), 1).isSfx)
+    }
+
+    @Test
+    fun `a repeated real word is dialogue, not sfx`() {
+        // "WAIT WAIT" není v uzavřeném seznamu zvuků a má samohlásku - replika.
+        assertFalse(BubbleClassifier.classify(rawBlock("WAIT WAIT"), 1).isSfx)
+    }
+
+    @Test
+    fun `a stretched sfx with doubled letters is still sfx`() {
+        // "SOBB"/"BOOOM" - stlačené zdvojení padne na známý tvar.
+        assertTrue(BubbleClassifier.classify(rawBlock("SOBB"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("BOOOM"), 1).isSfx)
+    }
+
+    @Test
+    fun `a one or two letter fragment is noise, not a bubble to translate`() {
+        // "ś", "F", "S" - odtržená písmena sazby, která dostala vlastní "překlad" a
+        // model nad nimi halucinoval ("HLUPAKI"). Ponechat jako SFX = originál zůstane.
+        listOf("ś", "F", "S", "PAI".take(2)).forEach { text ->
+            assertTrue(
+                "„$text\" je útržek",
+                BubbleClassifier.classify(rawBlock(text, bgUniform = false), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `allowlisted one or two letter replicas stay dialogue`() {
+        listOf("I", "A", "NO", "OH", "OK", "WE", "GO").forEach { text ->
+            assertFalse(
+                "„$text\" je legitimní krátká replika",
+                BubbleClassifier.classify(rawBlock(text), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `a lone exclamation mark keeps its own bubble`() {
+        // Dramatická samostatná "!" je přeživší pravidlo "bez písmen + !/?/*" -
+        // označí se jako SFX (originál zůstane), ne aby se absorbovala do souseda.
+        assertTrue(BubbleClassifier.classify(rawBlock("!"), 1).isSfx)
+    }
+
+    // ── SFX uvnitř bílé bubliny (audit Vagabond kap. 1 / v31): Vizbig sází zvuky do
+    //    oválu (bgUniform), takže pravidlo "přes kresbu" je nechytí a slovník je neměl -
+    //    šly na překlad a český text se vykreslil přes originální lettering ──
+
+    @Test
+    fun `vizbig sfx inside a white bubble is never sent to translation`() {
+        // Všechny z auditní diagnostiky - šly do modelu a vrátily se jako "DUP"/"Chach"/...
+        listOf(
+            "TROMP", "PLISH", "FWISH", "FWUP", "FWOK", "SHIFF", "KRICH", "WRAK",
+            "THOOSH", "SPLORSH", "BRAAR", "GLK", "OOP", "GAK", "URR", "ESHHH",
+        ).forEach { text ->
+            assertTrue(
+                "„$text\" v bublině je pořád zvuk - nesmí se překládat",
+                BubbleClassifier.classify(rawBlock(text), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `multi-token block of sfx words stays untranslated even in a bubble`() {
+        // "(HLIF HLUF)" = OCR varianty "HUF HUF" - staré pravidlo chtělo TOTÉŽ slovo,
+        // takže propadlo a model přeložil "(Huf huf)" přes originál.
+        assertTrue(BubbleClassifier.classify(rawBlock("(HLIF HLUF)"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("HUF HUF"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("BOOM CRASH"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("TROMP TROMP TROMP"), 1).isSfx)
+    }
+
+    @Test
+    fun `vocalization grunts in bubbles stay original`() {
+        // Dech/rozechvění - zvuk, ne replika (uživatel: SFX se nepřekládají vůbec).
+        listOf("URGH", "AHH", "OOF", "HAAH", "HNNGH").forEach { text ->
+            assertTrue("„$text\" je zvuk", BubbleClassifier.classify(rawBlock(text), 1).isSfx)
+        }
+    }
+
+    @Test
+    fun `two-word dialogue is never swept into the all-sfx rule`() {
+        // Pojistka: i kdyby jedno slovo sedělo o znak na položku slovníku, druhé je
+        // chráněná krátká replika nebo slovo se samohláskou - blok jde na překlad.
+        listOf(
+            "HEY WAIT", "I SURVIVED", "GIVE ME A BREAK", "HA HA", "HUH HUH",
+            "NO STOP", "YOU FOOL",
+        ).forEach { text ->
+            assertFalse(
+                "„$text\" je dialog, ne zvuk",
+                BubbleClassifier.classify(rawBlock(text), 1).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `short protected replica inside a multi-token block keeps the block translatable`() {
+        // "HUH" je v commonShortWordsNotSfx - i vedle skutečného zvuku celý blok padá
+        // na dialog (lepší přeložit "HUH POW" než zahodit "HUH").
+        assertFalse(BubbleClassifier.classify(rawBlock("HUH POW"), 1).isSfx)
     }
 }

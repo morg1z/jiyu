@@ -18,6 +18,7 @@ object SettingsKeys {
     val TARGET_LANGUAGE        = stringPreferencesKey("target_language")
     val SOURCE_LANGUAGE        = stringPreferencesKey("source_language")
     val THEME                  = stringPreferencesKey("theme")
+    val THEME_ACCENT           = stringPreferencesKey("theme_accent")
     val READING_DIRECTION      = stringPreferencesKey("reading_direction")
     val READING_MODE           = stringPreferencesKey("reading_mode")
     val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
@@ -38,7 +39,6 @@ object SettingsKeys {
     val FULLSCREEN_ENABLED     = booleanPreferencesKey("fullscreen_enabled")
     val READER_THEME           = stringPreferencesKey("reader_theme")
     val OLED_MODE              = booleanPreferencesKey("oled_mode")
-    val WEEKLY_GOAL_CHAPTERS   = intPreferencesKey("weekly_goal_chapters")
     val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
     val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
     val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
@@ -86,7 +86,19 @@ object SettingsKeys {
     val CROP_BORDERS           = booleanPreferencesKey("crop_borders")
     val LIBRARY_GRID_MODE      = booleanPreferencesKey("library_grid_mode")
     val DOWNLOAD_ONLY_WIFI     = booleanPreferencesKey("download_only_wifi")
+    /** Předstahování stránek čtené kapitoly jen na nezpoplatněné síti - viz ReaderViewModel.startChapterPrefetch. */
+    val PREFETCH_PAGES_WIFI_ONLY = booleanPreferencesKey("prefetch_pages_wifi_only")
+    /** DNS-over-HTTPS přes Cloudflare (výchozí zapnuto) - vypnutím jede resolving přes systémové DNS. */
+    val DNS_OVER_HTTPS_ENABLED = booleanPreferencesKey("dns_over_https_enabled")
     val ONBOARDING_COMPLETED   = booleanPreferencesKey("onboarding_completed")
+
+    /**
+     * Jednorázové tipy k gestům - samostatné flagy od [ONBOARDING_COMPLETED] na to
+     * zaměřené: mají se zobrazit i lidem, kteří onboarding už dávno dokončili
+     * (přišli na starší verzi), proto na něm nezávisí.
+     */
+    val BROWSE_MODE_TIP_SHOWN  = booleanPreferencesKey("browse_mode_tip_shown")
+    val COMICK_FILTER_TIP_SHOWN = booleanPreferencesKey("comick_filter_tip_shown")
     val DOWNLOAD_FOLDER_URI    = stringPreferencesKey("download_folder_uri")
     val TAP_ZONE_GRID          = stringPreferencesKey("tap_zone_grid")
     val NEW_CHAPTERS_COUNT     = intPreferencesKey("new_chapters_count")
@@ -102,6 +114,7 @@ object SettingsKeys {
     val NOTIFY_DOWNLOADS       = booleanPreferencesKey("notify_downloads")
     val BACKUP_FOLDER_URI      = stringPreferencesKey("backup_folder_uri")
     val CLOUDFLARE_CLEARANCE_CACHE = stringPreferencesKey("cloudflare_clearance_cache")
+    val CLOUDFLARE_WARMUP_HOSTS = stringPreferencesKey("cloudflare_warmup_hosts")
     val MANGACLOUD_SESSION_CACHE = stringPreferencesKey("mangacloud_session_cache")
 
     /**
@@ -137,6 +150,22 @@ object ThemeOption {
     const val TRUE_BLACK = "true_black"
 }
 
+/**
+ * Akcentová barva appky (přepisuje Accent/AccentLight/AccentDark - viz
+ * `ui/theme/Color.kt` a `ACCENT_OPTIONS`). Klíče se nesmí přejmenovat - jsou
+ * uložené v preferencích uživatele.
+ */
+object AccentOption {
+    const val VIOLET = "violet"   // výchozí
+    const val BLUE   = "blue"
+    const val TEAL   = "teal"
+    const val GREEN  = "green"
+    const val ORANGE = "orange"
+    const val PINK   = "pink"
+    const val RED    = "red"
+    const val AMBER  = "amber"
+}
+
 object ReadingDirection {
     const val LTR = "ltr"
     const val RTL = "rtl"
@@ -147,8 +176,6 @@ object ReadingDirection {
 object CurlStyleSetting {
     const val CLASSIC = "classic"
     const val ROLL = "roll"
-    const val CYLINDER = "cylinder"
-    const val WAVE = "wave"
 }
 
 object ReadingMode {
@@ -159,6 +186,12 @@ object ReadingMode {
 object AppMode {
     const val SOURCES = "sources"
     const val COMICK  = "comick"
+    /** "Novela" - agregovaný režim pro novelové zdroje (sjednocený katalog napříč
+     * všemi NOVEL zdroji, výběr nejlepší kopie titulu - viz NovelResolver). */
+    const val NOVEL   = "novel"
+    /** "Komiks" - agregovaný režim pro komiksové zdroje (sjednocený katalog napříč
+     * všemi COMIC zdroji, výběr nejlepší kopie titulu - viz ComicResolver). */
+    const val COMIC   = "comic"
 }
 
 /** Uložená proxy bez hesla - viz [SettingsRepository.proxy]. [type] je název `ProxyType`. */
@@ -193,6 +226,10 @@ class SettingsRepository @Inject constructor(
 
     val theme: Flow<String> =
         dataStore.data.map { it[SettingsKeys.THEME] ?: ThemeOption.SYSTEM }
+
+    /** Akcentová barva - klíč z [AccentOption], neznámá/stará hodnota padne na výchozí fialovou. */
+    val themeAccent: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.THEME_ACCENT] ?: AccentOption.VIOLET }
 
     val readingDirection: Flow<String> =
         dataStore.data.map { it[SettingsKeys.READING_DIRECTION] ?: ReadingDirection.LTR }
@@ -252,6 +289,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTheme(theme: String) =
         dataStore.edit { it[SettingsKeys.THEME] = theme }
+
+    suspend fun setThemeAccent(accent: String) =
+        dataStore.edit { it[SettingsKeys.THEME_ACCENT] = accent }
 
     suspend fun setReadingDirection(dir: String) =
         dataStore.edit { it[SettingsKeys.READING_DIRECTION] = dir }
@@ -329,9 +369,6 @@ class SettingsRepository @Inject constructor(
     suspend fun setOledMode(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.OLED_MODE] = enabled }
 
-    val weeklyGoal: Flow<Int> =
-        dataStore.data.map { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] ?: 0 }
-
     val readingStreak: Flow<Int> =
         dataStore.data.map { it[SettingsKeys.READING_STREAK_DAYS] ?: 0 }
 
@@ -373,9 +410,6 @@ class SettingsRepository @Inject constructor(
         dataStore.edit { it[SettingsKeys.BYOK_BASE_URL] = url }
     suspend fun setByokModel(model: String) =
         dataStore.edit { it[SettingsKeys.BYOK_MODEL] = model }
-
-    suspend fun setWeeklyGoal(chapters: Int) =
-        dataStore.edit { it[SettingsKeys.WEEKLY_GOAL_CHAPTERS] = chapters }
 
     suspend fun setCustomCss(css: String) =
         dataStore.edit { it[SettingsKeys.CUSTOM_CSS] = css }
@@ -446,8 +480,25 @@ class SettingsRepository @Inject constructor(
      * při dalším pushi udělá "náhrobky" (in_library=false), aby se odebrání šířilo mezi zařízeními
      * a pull odebraný titul zase nevrátil (viz SyncRepository).
      */
+    // Polozky se interne ukladaji jako "id|removedAtMs" - cas odebrani je potreba pro
+    // LWW na cloudu (drive se jako updatedAt posilal cas PUSH, takze nahrobek odeslany
+    // pozde prepsal i legitimni novejsi re-add z jineho zarizeni - audit). Stare polozky
+    // bez "|" se ctou jako id s timestamp 0.
     val pendingRemovedMangaIds: Flow<Set<String>> =
-        dataStore.data.map { it[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet() }
+        dataStore.data.map { prefs ->
+            (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet())
+                .mapTo(HashSet()) { it.substringBefore('|') }
+        }
+
+    /** mangaId -> cas odebrani (ms). Polozky stareho formatu (bez "|") maji ts 0. */
+    val pendingRemovedMangaTimestamps: Flow<Map<String, Long>> =
+        dataStore.data.map { prefs ->
+            (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet())
+                .associate { raw ->
+                    val id = raw.substringBefore('|')
+                    id to (raw.substringAfter('|', "").toLongOrNull() ?: 0L)
+                }
+        }
 
     /** Id účtu, kterému patří lokální knihovna - viz [com.haise.jiyu.sync.decideOwnership]. */
     val localDataOwnerId: Flow<String?> = dataStore.data.map { it[SettingsKeys.LOCAL_DATA_OWNER_ID] }
@@ -463,11 +514,14 @@ class SettingsRepository @Inject constructor(
     suspend fun setSyncLastChapterPushAt(millis: Long) = dataStore.edit { it[SettingsKeys.SYNC_LAST_CHAPTER_PUSH_AT] = millis }
 
     suspend fun addPendingRemovedMangaId(mangaId: String) = dataStore.edit { prefs ->
-        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet()) + mangaId
+        val cleaned = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet())
+            .filterNot { it.substringBefore('|') == mangaId }.toSet()
+        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = cleaned + "$mangaId|${System.currentTimeMillis()}"
     }
 
     suspend fun clearPendingRemovedMangaIds(mangaIds: Set<String>) = dataStore.edit { prefs ->
-        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet()) - mangaIds
+        prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] = (prefs[SettingsKeys.PENDING_REMOVED_MANGA_IDS] ?: emptySet())
+            .filterNot { it.substringBefore('|') in mangaIds }.toSet()
     }
 
     suspend fun toggleFavoriteSource(sourceId: String) = dataStore.edit { prefs ->
@@ -569,6 +623,28 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setImageProxyEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.IMAGE_PROXY_ENABLED] = enabled }
+
+    /**
+     * Výchozí true - předstahování stránek čtené kapitoly jen na nezpoplatněné síti (viz
+     * ReaderViewModel.startChapterPrefetch). Na mobilních datech se místo celé kapitoly
+     * předstahuje jen jedna stránka dopředu (rolling prefetch jako v úsporném režimu).
+     */
+    val prefetchPagesWifiOnly: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.PREFETCH_PAGES_WIFI_ONLY] ?: true }
+
+    suspend fun setPrefetchPagesWifiOnly(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.PREFETCH_PAGES_WIFI_ONLY] = enabled }
+
+    /**
+     * Výchozí true - DNS dotazy přes Cloudflare DNS-over-HTTPS (pomáhá, když ISP/router DNS
+     * manga zdroje blokuje nebo zpomaluje). Vypnutím se resolving přepne na systémové DNS -
+     * hodí se na sítích, kde je 1.1.1.1 sama zablokovaná, nebo při diagnoze DNS problémů.
+     */
+    val dnsOverHttpsEnabled: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.DNS_OVER_HTTPS_ENABLED] ?: true }
+
+    suspend fun setDnsOverHttpsEnabled(enabled: Boolean) =
+        dataStore.edit { it[SettingsKeys.DNS_OVER_HTTPS_ENABLED] = enabled }
 
     /** Uživatelem zadané domény zdrojů: id zdroje -> host (viz [com.haise.jiyu.source.interceptor.DomainOverrides]). */
     val sourceDomainOverrides: Flow<Map<String, String>> =
@@ -701,6 +777,18 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setOnboardingCompleted() =
         dataStore.edit { it[SettingsKeys.ONBOARDING_COMPLETED] = true }
+
+    val browseModeTipShown: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.BROWSE_MODE_TIP_SHOWN] ?: false }
+
+    suspend fun setBrowseModeTipShown() =
+        dataStore.edit { it[SettingsKeys.BROWSE_MODE_TIP_SHOWN] = true }
+
+    val comickFilterTipShown: Flow<Boolean> =
+        dataStore.data.map { it[SettingsKeys.COMICK_FILTER_TIP_SHOWN] ?: false }
+
+    suspend fun setComickFilterTipShown() =
+        dataStore.edit { it[SettingsKeys.COMICK_FILTER_TIP_SHOWN] = true }
 
     val downloadFolderUri: Flow<String?> =
         dataStore.data.map { it[SettingsKeys.DOWNLOAD_FOLDER_URI] }

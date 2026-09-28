@@ -32,6 +32,7 @@ import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.util.normalizeMangaTitle
 import kotlinx.coroutines.flow.Flow
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
@@ -39,6 +40,11 @@ import javax.inject.Singleton
 
 private const val PAGES_TTL_MS = 10L * 60 * 1000
 private const val PAGES_MAX = 8
+// Lazy resolve (resolvePageImageUrl): kratka TTL - podepsane CDN URL u nekterych
+// zdroju po case expiruji, takze nesmime drzet odpoved dlouho; zaroven dost dlouha
+// na to, aby sdilela vysledek mezi prefetch/display/retry v ramci jednoho cteni.
+private const val RESOLVE_TTL_MS = 15L * 60 * 1000
+private const val RESOLVE_MAX = 64
 private const val DETAILS_TTL_MS = 5L * 60 * 1000
 private const val LISTING_TTL_MS = 3L * 60 * 1000
 private const val LISTING_MAX = 48
@@ -88,6 +94,14 @@ class MangaRepository @Inject constructor(
     suspend fun resetActiveDownloads() = chapterDao.resetActiveDownloads()
     fun observeReadChaptersCount(): Flow<Int> = chapterDao.observeReadCount()
     suspend fun getAllLibraryChapters(): List<ChapterEntity> = chapterDao.getAllForLibrary()
+
+    /** Jednorázové čítače pro Statistiky - deduplikované přes skupinové verze kapitol
+     * (viz ChapterDao.countDistinctInLibrary). */
+    suspend fun countLibraryChaptersDistinct(): Int = chapterDao.countDistinctInLibrary()
+    suspend fun countLibraryReadChaptersDistinct(): Int = chapterDao.countReadDistinctInLibrary()
+    suspend fun countLibraryRated(): Int = mangaDao.countRatedInLibrary()
+    suspend fun earliestLibraryAddedAt(): Long? = mangaDao.earliestLibraryAddedAt()
+    suspend fun latestLibraryReadAt(): Long? = mangaDao.latestLibraryReadAt()
 
     /** Dávkuje po 400, aby nenarazila na SQLite strop na počet parametrů (999). */
     suspend fun getChaptersByIds(ids: List<String>): List<ChapterEntity> =
@@ -149,6 +163,19 @@ class MangaRepository @Inject constructor(
         refreshChapters(id, manga)
         return id
     }
+
+    /**
+     * Lehká varianta [openPreview] pro tap-to-detail cesty (Procházet, feedy, doporučení):
+     * jen zapíše metadata a vrátí id HNED - navigace na detail tak proběhne okamžitě
+     * místo čekání na síťový fetch kapitol (u ComicK detail-json + stránkovaný chapter
+     * list = vteřiny čekání na spinneru). Seznam kapitol si detail dotáhne sám na
+     * pozadí - viz auto-refresh při prázdném seznamu v MangaDetailViewModel.init.
+     *
+     * Volající, kteří potřebují kapitoly hned po návratu (SourceResolverViewModel
+     * getAllChapters), musí použít plný [openPreview].
+     */
+    suspend fun registerPreview(manga: SManga): String =
+        upsertMangaMetadata(manga, forceInLibrary = false)
 
     /** Přepne již existující (např. dříve jen prohlíženou) mangu do knihovny. */
     suspend fun addExistingToLibrary(mangaId: String) {
@@ -303,9 +330,9 @@ class MangaRepository @Inject constructor(
      * ze source.getMangaDetails() se tiše zahazoval, takže např. ComicK tituly
      * nikdy nezobrazily popis/stav/žánry ani po ručním refreshi.
      *
-     * Volá se jen z ručního refreshe (Knihovna pull-to-refresh, refresh na detailu,
-     * a od teď i jednorázově při prvním otevření ComicK titulu - viz
-     * MangaDetailViewModel.init), NE z [com.haise.jiyu.work.ChapterUpdateWorker] -
+     * Volá se jen z ručního refreshe (Knihovna pull-to-refresh, refresh na detailu)
+     * a jednorázově při prvním otevření detailu titulu, dokud nemá obohacená
+     * metadata - viz MangaDetailViewModel.init), NE z [com.haise.jiyu.work.ChapterUpdateWorker] -
      * ten běží tiše na pozadí nad celou knihovnou a stahovat kvůli kosmetickým
      * detailům navíc denně by nebylo úměrné.
      */
@@ -319,6 +346,10 @@ class MangaRepository @Inject constructor(
         } catch (_: Exception) { return }
         val existing = mangaDao.getById(mangaId) ?: return
         val updated = existing.copy(
+            // Detail ma autoritativni nazev (ComicK z nej preferuje EN md_title - viz
+            // ComicKSource.getMangaDetails) - timhle se do knihovny propasle i oprava
+            // drive ulozenych titulu s japonskym nazvem.
+            title = detail.title.ifBlank { existing.title },
             description = detail.description ?: existing.description,
             status = detail.status ?: existing.status,
             author = detail.author ?: existing.author,
@@ -357,14 +388,42 @@ class MangaRepository @Inject constructor(
         } catch (_: Exception) { null }
     }
 
-    /** Vrací seznam nově přidaných kapitol (existující kapitoly jsou přeskočeny). */
+    /**
+     * Dotáhne celý detail titulu přes sdílenou "details" cache - bez DB zápisu.
+     * Používají agregované Domů obrazovky (Novela/Komiks) k obohacení top položek
+     * o žánry/status, které listingy zdrojů často nenesou.
+     */
+    suspend fun fetchDetails(manga: SManga): SManga? {
+        val source = sourceManager.getById(manga.sourceId) ?: return null
+        return try {
+            contentCache.getOrLoad("details", "${manga.sourceId}|${manga.url}", DETAILS_TTL_MS, DETAILS_MAX) {
+                source.getMangaDetails(manga)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /**
+     * Vrací kapitoly, které jsou SKUTEČNĚ nové - tj. číslo kapitoly přesahující maximum
+     * uložené před touto obnovou. Kapitoly vložené při zakladním naplnění (manga zatím
+     * žádné nemá) nebo backfill/reupload čísel pod starým maximem se za nové nepočítají -
+     * jinak by po přidání titulu s 20 kapitolami nebo po obnově baseline (selhaný první
+     * fetch, obnovená záloha, změněná URL schéma) notifikace hlásila staré kapitoly jako
+     * novinky (uživatelský požadavek: oznámení až od kapitoly 21).
+     *
+     * Stejnou logiku zapisujeme i do `discoveredAt`: řádky nad maximem = teď, baseline/
+     * backfill = addedAt mangy, takže záložka Novinky (`c.discoveredAt > m.addedAt`)
+     * je taky neukazuje jako nové.
+     */
     suspend fun refreshChapters(mangaId: String, manga: SManga): List<ChapterEntity> {
         val source = sourceManager.getById(manga.sourceId) ?: return emptyList()
+        val previousMax = chapterDao.getMaxChapterNumber(mangaId)
+        val baselineTs = mangaDao.getById(mangaId)?.addedAt ?: 0L
         val chapters = source.getChapterList(manga)
         // discoveredAt se pouziva jen pri SKUTECNEM prvnim vlozeni radku (insertNewOnly nize
         // duplicity ignoruje) - proto staci jedno "ted" pro celou davku, ne per-kapitola cas.
         val now = System.currentTimeMillis()
         val entities = chapters.map { chapter ->
+            val isNew = previousMax != null && chapter.chapterNumber > previousMax
             ChapterEntity(
                 id = chapterId(chapter),
                 mangaId = mangaId,
@@ -376,7 +435,7 @@ class MangaRepository @Inject constructor(
                 scanlationGroup = chapter.scanlationGroup,
                 volume = chapter.volume,
                 groupsJson = serializeChapterGroups(chapter.groups),
-                discoveredAt = now,
+                discoveredAt = if (isNew) now else baselineTs,
             )
         }
         // Zdroj změnil schéma URL kapitol (nebo je uložené kapitoly z importu zálohy měly jinou
@@ -385,7 +444,11 @@ class MangaRepository @Inject constructor(
         val migratedIds = if (manga.sourceId == "comick") emptySet() else migrateOrphanedChapters(mangaId, chapters)
         val toInsert = entities.filter { it.id !in migratedIds }
         val rowIds = chapterDao.insertNewOnly(toInsert)
+        // NULL previousMax = zakladni naplneni (zadne kapitoly ulozene nebyly) - nic se
+        // nehlasi jako nove ani pri vlozeni 200 kapitol; jinak jen cisla nad maximem.
+        if (previousMax == null) return emptyList()
         return toInsert.filterIndexed { index, _ -> rowIds[index] != -1L }
+            .filter { it.chapterNumber > previousMax }
     }
 
     /**
@@ -477,6 +540,64 @@ class MangaRepository @Inject constructor(
     }
 
     /**
+     * Cross-source varianta [recoverMangaLink] pro případ, že ZDROJ samotný umřel (seiznutá
+     * doména, zaniklý web - tehdy same-source recovery nemá kde hledat). Volá ji detail UI s
+     * uživatelem vybraným kandidátem z [com.haise.jiyu.source.CrossSourceSearch] - nikdy se
+     * nespouští automaticky bez potvrzení, protože "stejný název na jiném webu" je slabší
+     * důkaz identity než přesměrování na stejném webu.
+     *
+     * Pravidla:
+     * - [MangaEntity.id] se nemění (stejný důvod jako u [recoverMangaLink] - stabilní identita).
+     * - Kapitoly se párují podle čísla přes [planChapterMigration] a přemapují včetně sourceId;
+     *   čtecí stav, stažené soubory, překlady a historie se zachovají (viz [applyChapterRelink]).
+     * - Fallback kapitoly (`isFallbackSource` - naučené náhrady z ComicK resolveru) se do
+     *   přemapování NEzařazují: mohly by nést id cílového zdroje a relink by narazil na PK
+     *   kolizi. Zůstávají jako samostatné řádky; číselná shoda s novým seznamem se prostě
+     *   přeskočí.
+     * - Kolize s existující entou: pokud na `newSourceId + target.url` už ukazuje JINÁ manga
+     *   (typicky duplicitně přidaný titul), relink se odmítne - sjednocení dvou knihovních
+     *   řádků řeší detektor duplicit, ne tahle cesta.
+     */
+    suspend fun relinkMangaToSource(mangaId: String, target: SManga, newChapters: List<SChapter>): Boolean {
+        val existing = mangaDao.getById(mangaId) ?: return false
+        if (existing.sourceId == target.sourceId) return false
+        if (newChapters.isEmpty()) return false
+        val clash = mangaDao.getMangaBySourceAndUrl(target.sourceId, target.url)
+        if (clash != null && clash.id != mangaId) return false
+
+        val allChapters = chapterDao.getAllForManga(mangaId)
+        val takenIds = allChapters.filter { it.isFallbackSource }.mapTo(HashSet()) { it.id }
+        val plan = planChapterMigration(allChapters.filter { !it.isFallbackSource }, newChapters)
+        db.withTransaction {
+            // Nové id obsazené fallback kapitolou = ta kapitola na cílovém zdroji už existuje;
+            // relink by narazil na PK kolizi a shodil celou transakci. Taková dvojice se prostě
+            // přeskočí - fallback řádek titul reprezentuje už teď.
+            applyChapterRelink(plan.relink.filter { (_, n) -> chapterId(n) !in takenIds })
+            if (plan.newOnly.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val entities = plan.newOnly.map { chapter ->
+                    ChapterEntity(
+                        id = chapterId(chapter),
+                        mangaId = mangaId,
+                        sourceId = chapter.sourceId,
+                        url = chapter.url,
+                        name = chapter.name,
+                        chapterNumber = chapter.chapterNumber,
+                        dateUpload = chapter.dateUpload,
+                        scanlationGroup = chapter.scanlationGroup,
+                        volume = chapter.volume,
+                        groupsJson = serializeChapterGroups(chapter.groups),
+                        discoveredAt = now,
+                    )
+                }
+                chapterDao.insertNewOnly(entities)
+            }
+            mangaDao.relinkMangaSource(id = mangaId, sourceId = target.sourceId, url = target.url, title = target.title, coverUrl = target.coverUrl)
+        }
+        return true
+    }
+
+    /**
      * Přemapuje uložené kapitoly na nové id/URL (viz [planChapterMigration]) a přenese všechny
      * tabulky, které na kapitolu ukazují jen řetězcem. Musí běžet v transakci volajícího.
      */
@@ -486,6 +607,7 @@ class MangaRepository @Inject constructor(
             chapterDao.relink(
                 oldId = old.id,
                 newId = newId,
+                newSourceId = new.sourceId,
                 newUrl = new.url,
                 newName = new.name,
                 dateUpload = new.dateUpload,
@@ -522,6 +644,26 @@ class MangaRepository @Inject constructor(
         }.map { it.copy() }
     }
 
+    /**
+     * Lazy `Page.url` → skutečná URL obrázku přes `MangaSource.getImageUrl`.
+     * Zdroje s líným resolvováním (MangaHome chapterfun, FanFox, EHentai...)
+     * vracejí v `Page.url` neobrazovou virtuální adresu; pro ostatní zdroje je
+     * to no-op (default implementace vrací `page.url`). Volá se vždy až v okamžiku
+     * stahování - viz LazyPageFetcher / ChapterDownloadWorker.
+     *
+     * Výsledek se memoizuje na [RESOLVE_TTL_MS] pod klíčem `sourceId|virtuální URL` -
+     * pro lazy zdroje je resolve samostatný HTTP request (chapterfun fetch + unpack),
+     * takže souběžný prefetch + display path + retry jinak platily 2-3 resolve requesty
+     * za jednu stránku. Resolve obsahuje jen URL (žádný stav se nemění), takže krátká
+     * TTL nekazí přesnost a chrání před zastaralými podpisovými tokeny.
+     */
+    suspend fun resolvePageImageUrl(sourceId: String, page: com.haise.jiyu.source.Page): String {
+        val source = sourceManager.getById(sourceId) ?: return page.url
+        return contentCache.getOrLoad("resolve", "$sourceId|${page.url}", RESOLVE_TTL_MS, RESOLVE_MAX) {
+            source.getImageUrl(page)
+        }
+    }
+
     suspend fun getChapterComments(sourceId: String, chapterUrl: String): List<com.haise.jiyu.source.comments.ChapterComment> {
         val source = sourceManager.getById(sourceId) ?: return emptyList()
         return source.getChapterComments(SChapter(sourceId, "", chapterUrl, "", 0f, 0L))
@@ -548,8 +690,23 @@ class MangaRepository @Inject constructor(
     suspend fun setVerifiedPageCount(chapterEntityId: String, count: Int, isFallback: Boolean, fallbackChapterId: String? = null) =
         chapterDao.setVerifiedPageCount(chapterEntityId, count, isFallback, fallbackChapterId)
 
-    suspend fun updateReadProgress(chapterEntityId: String, read: Boolean, lastPageRead: Int, lastReadAt: Long = 0L) =
-        chapterDao.updateProgress(chapterEntityId, read, lastPageRead, lastReadAt)
+    suspend fun updateReadProgress(chapterEntityId: String, read: Boolean, lastPageRead: Int, lastReadAt: Long = 0L, pageCount: Int = 0) =
+        chapterDao.updateProgress(chapterEntityId, read, lastPageRead, lastReadAt, pageCount)
+
+    /** Přilinkuje "metadatovou" kapitolu na reálnou resolved kapitolu - viz
+     *  [ChapterDao.setFallbackTarget] a SourceResolverViewModel.selectCandidate. */
+    suspend fun setChapterFallbackTarget(chapterEntityId: String, targetChapterId: String?) =
+        chapterDao.setFallbackTarget(chapterEntityId, targetChapterId)
+
+    /** Propaguje postup z reálné čtené kapitoly na kapitoly, které na ni přesměrovávají
+     *  (ComicK metadatová kapitola) - viz [ChapterDao.propagateProgressToFallbackParents]. */
+    suspend fun propagateReadProgressToLinkedChapters(
+        chapterEntityId: String,
+        read: Boolean,
+        lastPageRead: Int,
+        lastReadAt: Long,
+        pageCount: Int,
+    ) = chapterDao.propagateProgressToFallbackParents(chapterEntityId, read, lastPageRead, lastReadAt, pageCount)
 
     /** Batched varianta [updateReadProgress] pro import historie ze zálohy (viz
      * TachiyomiBackupImporter) - jedno UPDATE místo jednoho volání na kapitolu.
@@ -571,6 +728,8 @@ class MangaRepository @Inject constructor(
 
     suspend fun getChapter(chapterEntityId: String) = chapterDao.getById(chapterEntityId)
     suspend fun getManga(mangaId: String) = mangaDao.getById(mangaId)
+
+    suspend fun getMangasByIds(ids: List<String>) = if (ids.isEmpty()) emptyList() else mangaDao.getByIds(ids)
 
     // ── Categories ───────────────────────────────────────────────────────────
 
@@ -599,6 +758,11 @@ class MangaRepository @Inject constructor(
         pageImageSelector: String? = null,
         contentType: String = "MANGA",
     ) {
+        // Validace uz pri ulozeni - poskozena adresa by se jinak uloukala a pri KAZDEM
+        // pouziti zdroje hazela IllegalArgumentException z Request.Builder.url (audit).
+        val parsedBase = runCatching { baseUrl.trim().toHttpUrl() }.getOrNull()
+            ?: throw IllegalArgumentException("Neplatná adresa zdroje: $baseUrl")
+        require(parsedBase.host.isNotBlank()) { "Adresa zdroje musí obsahovat doménu: $baseUrl" }
         // Stejná adresa podruhé = úprava existujícího zdroje (nový nesmí vzniknout jako duplicita
         // se stejným katalogem a jiným id, na které by ukazovaly jen některé tituly).
         val normalized = baseUrl.trim().trimEnd('/').lowercase()

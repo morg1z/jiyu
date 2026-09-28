@@ -1,9 +1,5 @@
 package com.haise.jiyu.source.interceptor
 
-import com.haise.jiyu.ui.reader.PREFETCH_WINDOW
-import com.haise.jiyu.ui.reader.PREFETCH_WINDOW_METERED
-import com.haise.jiyu.ui.reader.PREFETCH_WINDOW_MINIMAL
-import com.haise.jiyu.ui.reader.prefetchWindowFor
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -85,13 +81,5 @@ class NetworkProxyTest {
         assertNull(noUser.authenticator.authenticate(null, proxyAuthResponse()))
         val socks = NetworkProxyConfig().apply { settings = ProxySettings(ProxyType.SOCKS, "p.test", 1080, "bob", "pw") }
         assertNull(socks.authenticator.authenticate(null, proxyAuthResponse()))
-    }
-
-    @Test
-    fun `prefetch window shrinks when saving resources`() {
-        assertEquals(PREFETCH_WINDOW, prefetchWindowFor(unmetered = true, savingResources = false))
-        assertEquals(PREFETCH_WINDOW_METERED, prefetchWindowFor(unmetered = false, savingResources = false))
-        assertEquals(PREFETCH_WINDOW_MINIMAL, prefetchWindowFor(unmetered = true, savingResources = true))
-        assertEquals(PREFETCH_WINDOW_MINIMAL, prefetchWindowFor(unmetered = false, savingResources = true))
     }
 }

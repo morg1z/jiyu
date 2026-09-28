@@ -35,10 +35,18 @@ class CloudflareBlockedDetectionTest {
     }
 
     @Test
-    fun `plain 403 from a cloudflare-fronted server without any challenge markers still flagged by legacy fallback`() {
-        // Zdokumentovane chovani (ne nutne idealni) - zustava beze zmeny, viz komentar
-        // u isCloudflareBlocked v CloudflareInterceptor.kt.
+    fun `plain 403 from a cloudflare-fronted server without challenge markers is not flagged`() {
+        // Zmena chovani (audit): obycejna 403 za CF edge (WAF block, geo-block, spatny
+        // Referer na CDN) NENI vyzva - "Server: cloudflare + 403" fallback se zpřesnil
+        // na telo vypadajici jako challenge stranka, jinak kazda legitimni 403 vyskocila
+        // s interaktivnim WebView dialogem.
         val resp = response(403, mapOf("Server" to "cloudflare"), body = "Forbidden")
+        assertFalse(isCloudflareBlocked(resp))
+    }
+
+    @Test
+    fun `403 behind cloudflare edge with a challenge-like page body is still flagged`() {
+        val resp = response(403, mapOf("Server" to "cloudflare"), body = "<title>Just a moment...</title>")
         assertTrue(isCloudflareBlocked(resp))
     }
 

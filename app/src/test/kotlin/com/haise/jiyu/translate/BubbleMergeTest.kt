@@ -304,4 +304,74 @@ class BubbleMergeTest {
         val b = block("B", 0.7f, 0.7f, 0.8f, 0.8f)
         assertFalse(linesInDifferentYoloBoxes(a, b, emptyList()))
     }
+
+    // ── mergeBlocksInSameYoloBox (audit Vagabondu: dva bloky pod jedním obrysem se
+    //    překládaly separátně - půl-EN/půl-CS bublina "MATA-HACHI'S BEEN") ──
+
+    @Test
+    fun `two blocks whose centers share one YOLO box merge into a single block`() {
+        // Geometricky příliš daleko na shouldMerge (velká svislá mezera) - bez YOLO
+        // signálu by zůstaly dvěma bloky a každý by se překládal zvlášť.
+        val boxes = listOf(yoloBox(0.1f, 0.1f, 0.9f, 0.5f))
+        val a = block("MATA-HACHI'S BEEN", 0.2f, 0.15f, 0.8f, 0.20f)
+        val b = block("ASKING YOU.", 0.3f, 0.38f, 0.7f, 0.43f)
+
+        val merged = mergeBlocksInSameYoloBox(listOf(a, b), boxes)
+
+        assertEquals(1, merged.size)
+        assertEquals("MATA-HACHI'S BEEN ASKING YOU.", merged[0].text)
+        assertEquals(2, merged[0].lineCount)
+        assertEquals(0.2f, merged[0].leftF)
+        assertEquals(0.8f, merged[0].rightF)
+    }
+
+    @Test
+    fun `blocks in different YOLO boxes stay separate`() {
+        // Kaskádová ("sněhuláková") replika = dva obrysy = dva YOLO boxy - sloučit je
+        // nesmíme, to by na kresbě zmizela jedna bublina.
+        val boxes = listOf(yoloBox(0.1f, 0.1f, 0.6f, 0.3f), yoloBox(0.3f, 0.4f, 0.9f, 0.6f))
+        val a = block("IF I'D KNOWN…", 0.15f, 0.15f, 0.55f, 0.25f)
+        val b = block("…IN THE FIRST PLACE.", 0.35f, 0.45f, 0.85f, 0.55f)
+
+        val merged = mergeBlocksInSameYoloBox(listOf(a, b), boxes)
+
+        assertEquals(2, merged.size)
+    }
+
+    @Test
+    fun `a block outside every YOLO box keeps its own identity`() {
+        // Bez signálu se nic nerozbíjí - stejná politika jako u linesInDifferentYoloBoxes.
+        val boxes = listOf(yoloBox(0.1f, 0.1f, 0.5f, 0.3f))
+        val inside = block("INSIDE ONE", 0.15f, 0.15f, 0.45f, 0.25f)
+        val outside = block("NO BOX HERE", 0.6f, 0.6f, 0.9f, 0.65f)
+
+        val merged = mergeBlocksInSameYoloBox(listOf(inside, outside), boxes)
+
+        assertEquals(2, merged.size)
+        assertEquals("NO BOX HERE", merged[1].text)
+    }
+
+    @Test
+    fun `three blocks in one box merge in reading order`() {
+        val boxes = listOf(yoloBox(0.1f, 0.05f, 0.9f, 0.6f))
+        // Záměrně v nepořádku - výsledek musí číst shora dolů.
+        val top = block("FIRST LINE", 0.3f, 0.10f, 0.7f, 0.14f)
+        val bottom = block("THIRD LINE", 0.3f, 0.45f, 0.7f, 0.49f)
+        val middle = block("SECOND LINE", 0.3f, 0.25f, 0.7f, 0.29f)
+
+        val merged = mergeBlocksInSameYoloBox(listOf(bottom, top, middle), boxes)
+
+        assertEquals(1, merged.size)
+        assertEquals("FIRST LINE SECOND LINE THIRD LINE", merged[0].text)
+        assertEquals(3, merged[0].lineCount)
+    }
+
+    @Test
+    fun `empty yolo boxes leave the list untouched`() {
+        val blocks = listOf(
+            block("A", 0.1f, 0.1f, 0.3f, 0.15f),
+            block("B", 0.1f, 0.5f, 0.3f, 0.55f),
+        )
+        assertEquals(blocks, mergeBlocksInSameYoloBox(blocks, emptyList()))
+    }
 }

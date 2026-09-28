@@ -52,7 +52,13 @@ class RetryInterceptor(
                     now - start >= totalBudgetMs
                 if (giveUp) throw e
                 attempt++
-                sleep(baseDelayMs + jitterMs())
+                try {
+                    sleep(baseDelayMs + jitterMs())
+                } catch (ie: InterruptedException) {
+                    // Viz SlowdownInterceptor - interceptor konci IOException, vlajku vratime.
+                    Thread.currentThread().interrupt()
+                    throw IOException("Interrupted", ie)
+                }
             }
         }
     }

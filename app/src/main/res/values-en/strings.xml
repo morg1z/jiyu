@@ -105,6 +105,16 @@
 
     <!-- Settings: Appearance -->
     <string name="settings_appearance_theme_title">Theme</string>
+    <string name="settings_appearance_accent_title">App color</string>
+    <string name="accent_violet">Violet</string>
+    <string name="accent_blue">Blue</string>
+    <string name="accent_teal">Teal</string>
+    <string name="accent_green">Green</string>
+    <string name="accent_orange">Orange</string>
+    <string name="accent_pink">Pink</string>
+    <string name="accent_red">Red</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_custom">Custom</string>
     <string name="settings_appearance_theme_system">System</string>
     <string name="settings_appearance_theme_light">Light</string>
     <string name="settings_appearance_theme_dark">Dark</string>
@@ -442,6 +452,25 @@
     <string name="resolver_opening">Opening…</string>
     <string name="resolver_chapter_missing_after_select">This source doesn\'t actually have that chapter.</string>
 
+    <!-- Novela - aggregated mode for novel sources -->
+    <string name="novel_home_title">Novela</string>
+    <string name="novel_home_subtitle">Unified catalog across all novel sources</string>
+    <string name="novel_home_search_hint">Search novels across sources…</string>
+    <string name="novel_home_loading">Merging novel catalogs…</string>
+    <string name="novel_home_empty">Nothing here.</string>
+    <string name="novel_home_retry">Retry</string>
+    <string name="novel_resolver_title">Novela</string>
+    <string name="settings_sources_mode_sources_title">Individual sources</string>
+    <string name="settings_sources_mode_sources_desc">Browse and pick sources one by one - manga, novels and comics.</string>
+    <string name="settings_sources_mode_comick_title">ComicK</string>
+    <string name="settings_sources_mode_comick_desc">One manga/manhwa/manhua catalog with scan groups, just like ComicK.</string>
+    <string name="settings_sources_mode_novel_title">Novela</string>
+    <string name="settings_sources_mode_novel_desc">Unified catalog across all novel sources - a title opens on the source with the best available copy.</string>
+    <string name="settings_sources_mode_comic_title">Comics</string>
+    <string name="settings_sources_mode_comic_desc">Unified catalog across all comic sources - a title opens on the source with the best available copy.</string>
+    <string name="onb_mode_novel_title">Aggregated style (Novela)</string>
+    <string name="onb_mode_novel_desc">Unified catalog across all novel sources - a title opens on the source with the best available copy.</string>
+
     <!-- Group screen -->
     <string name="group_screen_loading">Loading group…</string>
     <string name="group_screen_load_failed">Failed to load the group.</string>
@@ -454,6 +483,7 @@
     <string name="comick_home_tab_updates">Updates</string>
     <string name="comick_home_recently_added">Recently Added</string>
     <string name="comick_home_completed">Completed</string>
+    <string name="aggregate_section_longest">Longest-running</string>
     <string name="comick_home_popular_new">Popular New Comics</string>
     <string name="comick_home_most_recent_popular">Most Recent Popular</string>
     <string name="comick_home_recent_reviews">Recent Reviews</string>
@@ -529,7 +559,19 @@
     <string name="detail_mark_as_unread">Mark as unread</string>
     <string name="detail_mark_as_read">Mark as read</string>
     <string name="detail_error_no_internet">You\'re not connected to the internet</string>
+    <string name="detail_chapters_loading">Loading chapters…</string>
     <string name="detail_error_refresh_failed">Update failed: %1$s</string>
+    <string name="detail_relink_offer_title">Source not responding</string>
+    <string name="detail_relink_offer_body">Try finding the same title on another source</string>
+    <string name="detail_relink_sheet_title">Move to another source</string>
+    <string name="detail_relink_searching">Searching other sources…</string>
+    <string name="detail_relink_empty">This title was not found on any other source.</string>
+    <string name="detail_relink_already_in_library">You already have this title from this source in your library</string>
+    <string name="detail_relink_confirm_title">Move to %1$s?</string>
+    <string name="detail_relink_confirm_body">The title “%1$s” will switch to the new source. Stored chapters are re-mapped by number — read state, downloads and translations are preserved. Check that it really is the same title.</string>
+    <string name="detail_relink_confirm_action">Move</string>
+    <string name="detail_relink_applied">Title moved to %1$s</string>
+    <string name="detail_relink_failed">Moving to another source failed</string>
 
     <!-- Manga detail: Details sub-page -->
     <string name="detail_info_title_fallback">Details</string>
@@ -796,6 +838,14 @@
     <string name="account_have_account">I already have an account</string>
     <string name="account_new_account">New account</string>
     <string name="account_forgot_password">Forgot password</string>
+    <string name="account_reset_title">New password</string>
+    <string name="account_reset_subtitle">Enter a new password for your account.</string>
+    <string name="account_new_password">New password</string>
+    <string name="account_confirm_password">Repeat password</string>
+    <string name="account_passwords_mismatch">Passwords don’t match</string>
+    <string name="account_set_password">Set password</string>
+    <string name="account_password_changed">Password changed</string>
+    <string name="account_reset_expired">The reset link has expired – request a new one.</string>
     <string name="account_avatar_desc_named">%1$s\'s profile picture</string>
     <string name="account_avatar_desc">Profile picture</string>
     <string name="account_default_username">User</string>
@@ -806,6 +856,7 @@
     <string name="account_sign_out">Sign out</string>
     <string name="account_error_unsupported_credential">Unsupported sign-in type</string>
     <string name="account_error_login_generic">Sign-in error</string>
+    <string name="account_error_google_timeout">Google sign-in is not responding - try again in a moment, or sign in with email.</string>
     <string name="account_error_no_google_account">No Google account was found on this phone, or the app isn\'t authorized for it. Check that you\'re signed into a Google account in your phone\'s settings, or sign in with email instead.</string>
     <string name="account_sync_done">Sync complete</string>
     <string name="account_owner_conflict_title">Library belongs to another account</string>
@@ -867,15 +918,24 @@
     <string name="stats_export_json">Export as JSON</string>
     <string name="stats_export_csv">Export as CSV</string>
     <string name="stats_export_error">Error: %1$s</string>
-    <string name="stats_chapters_label">Chapters</string>
-    <string name="stats_pages_label">Pages</string>
     <string name="stats_reading_time_label">Reading time</string>
     <string name="stats_streak_label">Day streak</string>
     <string name="stats_chapters_30days_title">CHAPTERS IN THE LAST 30 DAYS</string>
     <string name="stats_no_reading_30days">No reading in the last 30 days</string>
+    <string name="stats_summary_title">SUMMARY</string>
+    <string name="stats_type_manga">Manga</string>
+    <string name="stats_type_manhwa">Manhwa</string>
+    <string name="stats_type_manhua">Manhua</string>
+    <string name="stats_type_novel">Novel</string>
+    <string name="stats_type_other">Others</string>
+    <string name="stats_total_titles">Titles in library</string>
+    <string name="stats_total_chapters">Chapters in library</string>
+    <string name="stats_total_read_chapters">Chapters read</string>
+    <string name="stats_total_pages">Pages read</string>
+    <string name="stats_total_rated">Titles rated</string>
+    <string name="stats_last_read">Last read</string>
+    <string name="stats_member_since">First title added</string>
     <string name="stats_top_genres_title">TOP GENRES</string>
-    <string name="stats_top_authors_title">TOP AUTHORS</string>
-    <string name="stats_reading_status_title">READING STATUS</string>
     <string name="stats_status_reading">Reading</string>
     <string name="stats_status_completed">Completed</string>
     <string name="stats_status_on_hold">On hold</string>
@@ -911,6 +971,13 @@
     <string name="main_screen_tab_list">List</string>
     <string name="main_screen_tab_updates">Updates</string>
     <string name="main_screen_tab_browse">Browse</string>
+    <string name="browse_mode_sheet_title">BROWSE MODE</string>
+    <string name="feature_tip_got_it">Got it</string>
+    <string name="feature_tip_once_note">This tip is only shown once.</string>
+    <string name="tip_browse_title">SWITCHING BROWSE MODES</string>
+    <string name="tip_browse_body">Long-press the Browse tab in the bottom bar to open the mode switcher — browse individual sources, ComicK, Novela or Komiks.</string>
+    <string name="tip_comick_title">COMICK FILTERS</string>
+    <string name="tip_comick_body">Long-press the ComicK title in the top bar to open content filters — choose what you do and don\'t want to see.</string>
     <string name="main_screen_tab_history">History</string>
 
     <!-- Widget -->
@@ -936,6 +1003,11 @@
     <string name="settings_reader_preload_manga_desc">Once the current chapter is translated, the next one is downloaded and translated in the background — this costs more data and battery than with light novels</string>
     <string name="settings_reader_preload_manga_wifi_title">Wi-Fi only</string>
     <string name="settings_reader_preload_manga_wifi_desc">Turn this off if you want preloading on mobile data too</string>
+    <string name="settings_reader_prefetch_pages_wifi_title">Prefetch pages on Wi-Fi only</string>
+    <string name="settings_reader_prefetch_pages_wifi_desc">On mobile data, only the next page is prefetched instead of the whole chapter — saves 5–15 MB per chapter</string>
+    <string name="settings_doh_section_title">Address resolution (DNS)</string>
+    <string name="settings_doh_title">DNS over HTTPS (Cloudflare)</string>
+    <string name="settings_doh_desc">Helps when your ISP or router DNS blocks or slows down sources. Turn it off if 1.1.1.1 is blocked on your network, or when diagnosing DNS issues.</string>
 
     <string name="settings_about_downloading">Downloading update…</string>
     <string name="settings_about_download_failed">Download failed</string>
@@ -1002,6 +1074,14 @@
         <item quantity="one">%1$d chapter</item>
         <item quantity="other">%1$d chapters</item>
     </plurals>
+    <plurals name="novel_on_n_sources">
+        <item quantity="one">on %1$d source</item>
+        <item quantity="other">on %1$d sources</item>
+    </plurals>
+    <plurals name="novel_failed_sources">
+        <item quantity="one">%1$d source failed to load</item>
+        <item quantity="other">%1$d sources failed to load</item>
+    </plurals>
     <plurals name="downloads_manager_count_downloading">
         <item quantity="one">%1$d downloading</item>
         <item quantity="other">%1$d downloading</item>
@@ -1062,6 +1142,10 @@
         <item quantity="one">%1$d chapter</item>
         <item quantity="other">%1$d chapters</item>
     </plurals>
+    <plurals name="detail_relink_matched_chapters">
+        <item quantity="one">%1$d of %2$d chapters match</item>
+        <item quantity="other">%1$d of %2$d chapters match</item>
+    </plurals>
     <plurals name="source_browse_dup_existing">
         <item quantity="one">• %1$s (in library): %2$d chapter</item>
         <item quantity="other">• %1$s (in library): %2$d chapters</item>
@@ -1111,11 +1195,10 @@
     <string name="settings_reader_infinite_scroll_desc">In vertical (webtoon) mode, the app smoothly appends the next chapter below the current one instead of switching chapters</string>
     <string name="settings_reader_curl_style_classic">Classic curl</string>
     <string name="settings_reader_curl_style_roll">Page roll</string>
-    <string name="settings_reader_curl_style_cylinder">Thick scroll</string>
-    <string name="settings_reader_curl_style_wave">Sea wave</string>
     <string name="reader_reset_chapter_desc">Reload chapter</string>
     <string name="webtoon_chapter_boundary_finished">End: %1$s</string>
     <string name="webtoon_chapter_boundary_next">Next: %1$s</string>
+    <string name="webtoon_loading_next_chapter">Loading next chapter…</string>
     <string name="reader_home_desc">Home (Library)</string>
     <string name="browse_source_adult_badge">18+</string>
     <string name="comick_browse_search_history">RECENTLY SEARCHED</string>

@@ -81,22 +81,38 @@ class SpiderScansSource @Inject constructor(private val client: OkHttpClient) : 
         }.distinctBy { it.url }
     }
 
+    // Web filtruje status= ongoing|completed|hiatus (overeno zive - ruzne sady).
+    // Select "filter-type" na strance existuje, ale type= je tichy no-op
+    // (manhwa/manga/manhua vraci identickou sadu i v kombinaci se statusem).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+
+    private val SITE_STATUSES = setOf("ongoing", "completed", "hiatus")
+
+    private fun mangaUrl(filter: MangaFilter, page: Int, query: String? = null): String {
+        val sort = if (filter.sortBy == "latest") "latest" else "popular"
+        val sb = StringBuilder("$base/manga/?sort=$sort&page=$page")
+        filter.genres.firstOrNull()?.let { sb.append("&genre=").append(URLEncoder.encode(it, "UTF-8")) }
+        filter.status?.takeIf { it in SITE_STATUSES }?.let { sb.append("&status=").append(it) }
+        query?.let { sb.append("&search=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        // "?page=N" web ignoruje - stranka 2 vraci stejne tituly jako stranka 1
+        // (audit DUP, overeno zive pro sort=popular i sort=latest).
+        if (page > 1) return@withContext emptyList()
         try {
-            val genre = filter.genres.firstOrNull()
-            val sort = if (filter.sortBy == "latest") "latest" else "popular"
-            val genreParam = if (genre != null) "&genre=${URLEncoder.encode(genre, "UTF-8")}" else ""
-            parseList(get("$base/manga/?sort=$sort&page=$page$genreParam"))
+            parseList(get(mangaUrl(filter, page)))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (page > 1) return@withContext emptyList() // "?page=" ignorovan - viz getPopular
         try {
-            val genre = filter.genres.firstOrNull()
-            val genreParam = if (genre != null) "&genre=${URLEncoder.encode(genre, "UTF-8")}" else ""
             if (query.isBlank()) return@withContext getPopular(page, filter)
-            val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/manga/?search=$q&page=$page$genreParam"))
+            parseList(get(mangaUrl(filter, page, query)))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

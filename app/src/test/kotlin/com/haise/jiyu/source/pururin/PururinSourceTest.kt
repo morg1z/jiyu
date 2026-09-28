@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.pururin
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -64,6 +65,16 @@ class PururinSourceTest {
         </body></html>
     """.trimIndent()
 
+    // Vyrez z zive odpovedi https://pururin.me/tags/content?page=1 - content-tag
+    // index, odkazy ve tvaru "/browse/tags/content/{id}/{slug}".
+    private val tagsHtml = """
+        <html><body>
+        <a href="/browse/tags/content/2196/abortion">Abortion</a>
+        <a href="/browse/tags/content/1591/ahegao">Ahegao</a>
+        <a href="/browse/tags/artist/9683/sink">Sink</a>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -71,6 +82,9 @@ class PururinSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path.startsWith("/tags/content") -> MockResponse().setBody(
+                        if (path.endsWith("page=1")) tagsHtml else ""
+                    )
                     path.startsWith("/browse") -> MockResponse().setBody(browseHtml)
                     path.startsWith("/search") -> MockResponse().setBody(browseHtml)
                     path.startsWith("/gallery/67980") -> MockResponse().setBody(galleryHtml)
@@ -126,6 +140,22 @@ class PururinSourceTest {
         assertEquals(2, pages.size)
         assertEquals("https://i.pururin.me/2eb5d88b_5183/1.jpg", pages[0].url)
         assertEquals("https://i.pururin.me/2eb5d88b_5183/2.jpg", pages[1].url)
+    }
+
+    @Test
+    fun `getAvailableTags returns only content tags, not artist links`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("2196/abortion", tags[0].id)
+        assertEquals("Abortion", tags[0].label)
+        assertEquals("1591/ahegao", tags[1].id)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the content-tag archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("1591/ahegao")))
+        assertEquals(1, result.size)
+        assertEquals("An Academy with Servile Female Teachers", result[0].title)
     }
 
     @Test

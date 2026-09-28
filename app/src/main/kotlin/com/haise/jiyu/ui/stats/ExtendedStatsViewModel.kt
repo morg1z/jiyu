@@ -6,8 +6,6 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
-import com.haise.jiyu.data.db.MangaDao
-import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.util.report
@@ -27,13 +25,21 @@ import javax.inject.Inject
 
 data class ExtendedStats(
     val chaptersRead: Int = 0,
+    val totalChaptersInLibrary: Int = 0,
     val pagesRead: Long = 0L,
     val readingTimeMs: Long = 0L,
     val readingStreak: Int = 0,
+    val ratedCount: Int = 0,
+    /** MAX(manga.lastReadAt) - 0 = ještě se nic nečetlo. */
+    val lastReadAt: Long = 0L,
+    /** MIN(manga.addedAt) - obdoba "member since" ze souhrnu účtu; 0 = neznámé. */
+    val memberSince: Long = 0L,
     val dailyCounts: List<Pair<String, Int>> = emptyList(),
     val topGenres: List<Pair<String, Int>> = emptyList(),
-    val topAuthors: List<Pair<String, Int>> = emptyList(),
     val statusBreakdown: Map<String, Int> = emptyMap(),
+    /** Rozpad knihovny podle [com.haise.jiyu.data.db.entity.MangaEntity.contentType]
+     * (MANGA/MANHWA/MANHUA/NOVEL/Ostatní) - viz souhrn účtu na ComicK. */
+    val typeBreakdown: Map<String, Int> = emptyMap(),
     val totalInLibrary: Int = 0,
 )
 
@@ -42,6 +48,10 @@ sealed interface StatsExportState {
     data class Success(val message: String) : StatsExportState
     data class Error(val message: String) : StatsExportState
 }
+
+/** Typy obsahu, které mají ve Statistikách vlastní řádek - cokoliv jiného (COMIC, neznámé)
+ * spadá pod "OTHER" (viz ComicK souhrn "Others"). */
+internal val KNOWN_TYPES = setOf("MANGA", "MANHWA", "MANHUA", "NOVEL")
 
 @HiltViewModel
 class ExtendedStatsViewModel @Inject constructor(
@@ -79,29 +89,29 @@ class ExtendedStatsViewModel @Inject constructor(
                 if (genre.isNotBlank()) genreMap[genre] = (genreMap[genre] ?: 0) + 1
             }
         }
-        val topGenres = genreMap.entries.sortedByDescending { it.value }.take(6).map { it.key to it.value }
-
-        val authorMap = mutableMapOf<String, Int>()
-        repository.getAllLibraryAuthors().forEach { a ->
-            val author = a.trim()
-            if (author.isNotBlank()) authorMap[author] = (authorMap[author] ?: 0) + 1
-        }
-        val topAuthors = authorMap.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
+        val topGenres = genreMap.entries.sortedByDescending { it.value }.take(12).map { it.key to it.value }
 
         val library = repository.getAllLibraryManga()
         val statusBreakdown = library
             .groupBy { it.readingStatus ?: "UNSET" }
             .mapValues { it.value.size }
+        val typeBreakdown = library
+            .groupBy { it.contentType.takeIf { t -> t in KNOWN_TYPES } ?: "OTHER" }
+            .mapValues { it.value.size }
 
         _stats.value = ExtendedStats(
-            chaptersRead = repository.observeReadChaptersCount().first(),
+            chaptersRead = repository.countLibraryReadChaptersDistinct(),
+            totalChaptersInLibrary = repository.countLibraryChaptersDistinct(),
             pagesRead = settings.totalPagesRead.first(),
             readingTimeMs = settings.totalReadingTimeMs.first(),
             readingStreak = settings.readingStreak.first(),
+            ratedCount = repository.countLibraryRated(),
+            lastReadAt = repository.latestLibraryReadAt() ?: 0L,
+            memberSince = repository.earliestLibraryAddedAt() ?: 0L,
             dailyCounts = allDays,
             topGenres = topGenres,
-            topAuthors = topAuthors,
             statusBreakdown = statusBreakdown,
+            typeBreakdown = typeBreakdown,
             totalInLibrary = library.size,
         )
     }
@@ -125,14 +135,18 @@ class ExtendedStatsViewModel @Inject constructor(
                 put("dailyCounts", JSONArray().also { arr ->
                     s.dailyCounts.forEach { (day, count) -> arr.put(JSONObject().put("day", day).put("count", count)) }
                 })
+                put("totalChaptersInLibrary", s.totalChaptersInLibrary)
+                put("ratedCount", s.ratedCount)
+                put("lastReadAt", s.lastReadAt)
+                put("memberSince", s.memberSince)
                 put("topGenres", JSONArray().also { arr ->
                     s.topGenres.forEach { (genre, count) -> arr.put(JSONObject().put("genre", genre).put("count", count)) }
                 })
-                put("topAuthors", JSONArray().also { arr ->
-                    s.topAuthors.forEach { (author, count) -> arr.put(JSONObject().put("author", author).put("count", count)) }
-                })
                 put("statusBreakdown", JSONObject().also { obj ->
                     s.statusBreakdown.forEach { (status, count) -> obj.put(status, count) }
+                })
+                put("typeBreakdown", JSONObject().also { obj ->
+                    s.typeBreakdown.forEach { (type, count) -> obj.put(type, count) }
                 })
             }
             context.contentResolver.openOutputStream(uri)?.use { it.write(root.toString(2).toByteArray()) }
@@ -157,14 +171,16 @@ class ExtendedStatsViewModel @Inject constructor(
             sb.append("reading_time_ms,${s.readingTimeMs}\n")
             sb.append("reading_streak_days,${s.readingStreak}\n")
             sb.append("total_in_library,${s.totalInLibrary}\n")
+            sb.append("total_chapters_in_library,${s.totalChaptersInLibrary}\n")
+            sb.append("rated_count,${s.ratedCount}\n")
             sb.append("\nday,chapters_read\n")
             s.dailyCounts.forEach { (day, count) -> sb.append("$day,$count\n") }
             sb.append("\ngenre,manga_count\n")
             s.topGenres.forEach { (genre, count) -> sb.append("\"${genre.replace("\"", "\"\"")}\",$count\n") }
-            sb.append("\nauthor,manga_count\n")
-            s.topAuthors.forEach { (author, count) -> sb.append("\"${author.replace("\"", "\"\"")}\",$count\n") }
             sb.append("\nreading_status,count\n")
             s.statusBreakdown.forEach { (status, count) -> sb.append("$status,$count\n") }
+            sb.append("\ncontent_type,count\n")
+            s.typeBreakdown.forEach { (type, count) -> sb.append("$type,$count\n") }
 
             context.contentResolver.openOutputStream(uri)?.use { it.write(sb.toString().toByteArray()) }
                 ?: error(context.getString(R.string.stats_export_open_file_error))

@@ -70,6 +70,19 @@ class TranslationMergeTest {
         assertTrue(originalMatches("I could break out of this trap for sure.", "I could definitely break out of this trap."))
     }
 
+    @Test
+    fun `an OCR typo corrected by the model in the echo still matches`() {
+        // OCR přečetlo "SIRVIVOR", model v echu vrátil opravené "SURVIVOR" - překlad je správný a nesmí se zahodit.
+        assertTrue(originalMatches("A survivor among the refugees.", "A sirvivor among the refugees."))
+        assertTrue(originalMatches("Forget about the enemy.", "Foget about the enemy."))
+    }
+
+    @Test
+    fun `typo tolerance does not turn a different sentence into a match`() {
+        assertFalse(originalMatches("Raise your arm higher for that part.", "Not like that."))
+        assertFalse(originalMatches("Take care of them now.", "Give me another break."))
+    }
+
     // ── isUsableTranslation ──
 
     @Test
@@ -471,5 +484,47 @@ class TranslationMergeTest {
                 glossary = mapOf("Frodo" to "Frodo"),
             ),
         )
+    }
+
+    // ── isArtTextEcho (WP7 - logo/titulní text se nemá překreslovat) ──
+
+    @Test
+    fun `ocr typo in a logo counts as art text`() {
+        // Audit Vagabondu: "Vagakond" -> "Vagabond" - "překlad" je jen oprava OCR v ručně
+        // kresleném logu; overlay by lettering jen degradoval.
+        assertTrue(isArtTextEcho("Vagakond", "Vagabond"))
+    }
+
+    @Test
+    fun `diacritics-only difference counts as art text`() {
+        assertTrue(isArtTextEcho("TAKEZO", "TAKEZŌ"))
+    }
+
+    @Test
+    fun `case-only difference counts as art text`() {
+        assertTrue(isArtTextEcho("vagabond", "VAGABOND"))
+    }
+
+    @Test
+    fun `a real translation is not art text`() {
+        assertFalse(isArtTextEcho("WHERE ARE WE?", "KDE JSME?"))
+    }
+
+    @Test
+    fun `too short tokens are not art text`() {
+        // "OK" -> "OK" nebo "HI" -> "HI" - u <4 znaků je shoda málo vypovídající a krátká
+        // bublina překreslená česky nikoho neurazí.
+        assertFalse(isArtTextEcho("OK", "OK"))
+    }
+
+    @Test
+    fun `a different-length rewrite is not art text`() {
+        // Levenshtein <=2 na STEJNÉ délce - "SWORDS" -> "MEČE" má jinou délku, nesmí spadnout.
+        assertFalse(isArtTextEcho("SWORDS", "MEČE"))
+    }
+
+    @Test
+    fun `verbatim echo longer than the threshold is art text`() {
+        assertTrue(isArtTextEcho("MATA-HACHI", "MATA-HACHI"))
     }
 }

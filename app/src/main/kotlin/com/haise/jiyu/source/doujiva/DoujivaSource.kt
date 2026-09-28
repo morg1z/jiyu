@@ -26,7 +26,8 @@ import javax.inject.Singleton
  * primo na CDN pod predvidatelnou cestou
  * "https://cdn.doujiva.com/{slug}/chapter-1/{NNN}.webp" (NNN = trojciselne
  * cislo stranky s nulami zleva), ktera se da odvodit primo ze slugu v URL a
- * poctu stranek zjisteneho z "{NNN}.thumb.webp" nahledu na detailu - zadny
+ * poctu stranek z "numberOfPages" v JSON-LD detailu ("{NNN}.thumb.webp" nahledy
+ * se renderuji jen pro prvnich ~24 stran, nejsou spolehlive) - zadny
  * hash ani token neni treba. Web technicky podporuje vice kapitol na titul
  * (`/manga/{slug}/read/{chapterId}`), ale zatim nebyl narazen zadny vicedilny
  * titul - proto (stejne jako u NhentaiSource) cela galerie = jedna kapitola.
@@ -137,18 +138,22 @@ class DoujivaSource @Inject constructor(
     // bez ".thumb" - viz komentar u tridy.
     private val thumbRegex = Regex("""(https://cdn\.doujiva\.com/[^"'\s]+/chapter-\d+)/(\d+)\.thumb\.webp""")
 
+    // "numberOfPages":N v JSON-LD detailu je autoritativni soucet - thumb
+    // nahledy se renderuji jen pro prvnich ~24 stran (audit 2026-11: galerie se
+    // 178 stranami mela 24 thumbu), pocitat je stranky usekne.
+    private val numberOfPagesRegex = Regex("""\\?"numberOfPages\\?":(\d+)""")
+
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val html = fetchHtml(chapter.url)
-            thumbRegex.findAll(html)
-                .map { it.groupValues[1] to it.groupValues[2] }
-                .distinctBy { it.second }
-                .sortedBy { it.second.toInt() }
-                .mapIndexed { i, (dir, num) ->
-                    val full = "$dir/$num.webp"
-                    Page(index = i, url = full, imageUrl = full)
-                }
-                .toList()
+            val dir = thumbRegex.find(html)?.groupValues?.get(1) ?: return@withContext emptyList()
+            val count = numberOfPagesRegex.find(html)?.groupValues?.get(1)?.toIntOrNull()
+                ?: thumbRegex.findAll(html).mapNotNull { it.groupValues[2].toIntOrNull() }.maxOrNull()
+                ?: return@withContext emptyList()
+            (1..count).map { n ->
+                val full = "$dir/%03d.webp".format(n)
+                Page(index = n - 1, url = full, imageUrl = full)
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 }

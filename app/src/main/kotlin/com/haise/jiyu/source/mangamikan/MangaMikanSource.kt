@@ -23,9 +23,13 @@ import javax.inject.Singleton
 
 /**
  * mangamikan.com - vlastni sablona, plne server-rendered vcetne cteni.
- * Obrazky maji podepsanou URL (`/i.php?c=X&f=Y&exp=...&t=...`), ale token uz
- * je hotovy primo v `data-src` atributu na strance - zadny dalsi request
- * navic netreba.
+ *
+ * 2026-10 redesign: listing karty jsou `article.collection-book`
+ * (a.collection-book__cover + img[src] + h3>a), sort hodnoty se zmenily
+ * (views7->popular, latest->updated), detail ma .collection-synopsis /
+ * .collection-creator / .collection-book-tags, kapitoly jsou
+ * a[data-chapter-row] a stranky primo img[data-page] s nesou Signed
+ * URL /mangas/{id}/pNNNN_*.webp (drive podepsane /i.php uz neni).
  */
 @Singleton
 class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : MangaSource {
@@ -43,16 +47,14 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
         return client.newCall(req).execute().use { it.bodyOrThrow(url) }
     }
 
-    private fun parseCard(a: Element): SManga? {
+    private fun parseCard(article: Element): SManga? {
+        val a = article.selectFirst("a.collection-book__cover") ?: return null
         val href = a.attr("href").ifBlank { return null }
-        val title = a.attr("title").trim().ifBlank { return null }
-        // Bug fix - "src" u img.cover je jen prazdny/placeholder atribut (lazy-loading), i
-        // kdyz komentar u tridy uz spravne rikal, ze hotova URL je v "data-src" - kod se ale
-        // divam na "src", takze coverUrl vzdy vyslo null (nahlaseno jako "covery se nenacitaji").
-        // Navic je "data-src" relativni cesta ("/i.php?..."), ne absolutni URL, takze i pri
-        // spravnem atributu by "startsWith(http)" test vyfiltroval vsechno - treba prefixovat base.
-        val raw = a.selectFirst("img.cover")?.attr("data-src")?.trim()?.ifBlank { null }
-            ?: a.selectFirst("img.cover")?.attr("src")?.trim()?.ifBlank { null }
+        val title = article.selectFirst("h3 a")?.text()?.trim()
+            ?: a.selectFirst("img")?.attr("alt")?.trim()?.removePrefix("Cover of ")
+            ?: return null
+        if (title.isBlank()) return null
+        val raw = a.selectFirst("img")?.attr("src")?.trim()?.ifBlank { null }
         val cover = when {
             raw == null -> null
             raw.startsWith("http") -> raw
@@ -83,35 +85,51 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Formular na /browse filtruje status= ongoing|completed|hiatus a sort=
+    // updated|added|popular|chapters|title|title_desc (stejny engine jako
+    // mangacherri, overeno zive na obou webech).
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "title")
+
+    private val sortValues = mapOf(
+        "latest" to "updated", "popular" to "popular", "title" to "title",
+    )
+    private val siteStatuses = setOf("ongoing", "completed", "hiatus")
+
+    private fun browseUrl(page: Int, filter: MangaFilter, query: String? = null): String {
+        val sort = sortValues[filter.sortBy] ?: "popular"
+        val sb = StringBuilder("$base/browse?sort=$sort&page=$page")
+        filter.genres.firstOrNull()?.let { sb.append("&genre=").append(it) }
+        filter.status?.takeIf { it in siteStatuses }?.let { sb.append("&status=").append(it) }
+        query?.let { sb.append("&q=").append(URLEncoder.encode(it, "UTF-8")) }
+        return sb.toString()
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
-            // Bez parametru web sam defaultuje na sort=latest (viz <select name="sort">
-            // na strance, "Latest" je oznaceny selected) - vlastni "Popularni" razeni
-            // (7denni top views) je proto potreba zadat explicitne, overeno zive.
-            val sort = if (filter.sortBy == "latest") "latest" else "views7"
-            val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
-            val doc = Jsoup.parse(get("$base/browse?sort=$sort&page=$page$genreParam"))
-            doc.select("a.card-manga").mapNotNull(::parseCard)
+            val doc = Jsoup.parse(get(browseUrl(page, filter)))
+            doc.select("article.collection-book").mapNotNull(::parseCard)
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext getPopular(page, filter)
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            val genreParam = filter.genres.firstOrNull()?.let { "&genre=$it" }.orEmpty()
-            val doc = Jsoup.parse(get("$base/browse?q=$q&page=$page$genreParam"))
-            doc.select("a.card-manga").mapNotNull(::parseCard)
+            val doc = Jsoup.parse(get(browseUrl(page, filter, query)))
+            doc.select("article.collection-book").mapNotNull(::parseCard)
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
-            val authorText = doc.select("span").firstOrNull { it.text().trim().startsWith("Author:") }
-                ?.selectFirst("b")?.text()?.trim()
             manga.copy(
-                genres = doc.select("a.genre-pill").map { it.text().trim() }.filter { it.isNotBlank() },
-                author = authorText?.takeIf { it.isNotBlank() },
+                description = doc.selectFirst("p.collection-synopsis")?.text()?.trim()?.ifBlank { null },
+                genres = doc.select(".collection-book-tags a").map { it.text().trim() }.filter { it.isNotBlank() },
+                author = doc.selectFirst("p.collection-creator")?.text()?.trim()
+                    ?.removePrefix("By ")?.trim()?.ifBlank { null },
             )
         } catch (e: Exception) { e.rethrowIfControl(); manga }
     }
@@ -119,11 +137,15 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(resolveSourceUrl(base, manga.url)))
-            doc.select("a[href^=/read/]").mapNotNull { a ->
+            doc.select("a[data-chapter-row]").mapNotNull { a ->
                 val href = a.attr("href").ifBlank { return@mapNotNull null }
-                val name = a.text().trim().ifBlank { return@mapNotNull null }
+                val name = a.selectFirst(".chapter-arsenal__name strong")?.text()
+                    ?.replace(Regex("\\s*NEW CHAPTER\\s*$"), "")?.trim()
+                    ?: a.text().trim().ifBlank { return@mapNotNull null }
                 val num = parseChapterNumber(name) ?: 0f
-                SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = 0L)
+                // data-created-at je unix timestamp v sekundach.
+                val date = a.attr("data-created-at").toLongOrNull()?.times(1000) ?: 0L
+                SChapter(sourceId = id, mangaUrl = manga.url, url = href, name = name, chapterNumber = num, dateUpload = date)
             }.distinctBy { it.url }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
@@ -131,9 +153,10 @@ class MangaMikanSource @Inject constructor(private val client: OkHttpClient) : M
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {
         try {
             val doc = Jsoup.parse(get(resolveSourceUrl(base, chapter.url)))
-            doc.select("img.page-img").mapIndexedNotNull { i, img ->
-                val url = img.attr("data-src").takeIf { it.startsWith("/i.php") } ?: return@mapIndexedNotNull null
-                Page(i, "$base$url", "$base$url")
+            doc.select("img[data-page]").mapIndexedNotNull { i, img ->
+                val url = img.attr("src").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                val abs = if (url.startsWith("http")) url else "$base$url"
+                Page(i, abs, abs)
             }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }

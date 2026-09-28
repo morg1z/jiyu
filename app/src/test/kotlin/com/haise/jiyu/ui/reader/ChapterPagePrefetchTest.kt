@@ -6,68 +6,30 @@ import org.junit.Test
 class ChapterPagePrefetchTest {
 
     @Test
-    fun `window in the middle of the list returns count indices ahead`() {
+    fun `prefetchOrder zacina na pozici ctenare a jede dopredu`() {
         assertEquals(
-            listOf(2, 3, 4, 5),
-            computePrefetchIndices(fromIndex = 2, pageCount = 20, alreadyPrefetched = emptySet(), count = 4),
+            listOf(10, 11, 12, 13, 14, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+            prefetchOrder(pageCount = 15, centerIndex = 10),
         )
     }
 
     @Test
-    fun `window near the end is truncated to page count`() {
-        assertEquals(
-            listOf(8, 9),
-            computePrefetchIndices(fromIndex = 8, pageCount = 10, alreadyPrefetched = emptySet(), count = 4),
-        )
+    fun `prefetchOrder na zacatku kapitoly je 0 az N`() {
+        assertEquals(listOf(0, 1, 2, 3), prefetchOrder(pageCount = 4, centerIndex = 0))
     }
 
     @Test
-    fun `already prefetched indices are skipped`() {
-        assertEquals(
-            listOf(3, 5),
-            computePrefetchIndices(fromIndex = 2, pageCount = 20, alreadyPrefetched = setOf(2, 4), count = 4),
-        )
+    fun `prefetchOrder na konci kapitoly jde jen zpetne`() {
+        assertEquals(listOf(4, 3, 2, 1, 0), prefetchOrder(pageCount = 5, centerIndex = 4))
     }
 
     @Test
-    fun `negative fromIndex returns empty list`() {
-        assertEquals(
-            emptyList<Int>(),
-            computePrefetchIndices(fromIndex = -1, pageCount = 10, alreadyPrefetched = emptySet()),
-        )
+    fun `prefetchOrder oreze centerIndex mimo rozsah`() {
+        assertEquals(listOf(2, 1, 0), prefetchOrder(pageCount = 3, centerIndex = 99))
     }
 
     @Test
-    fun `fromIndex at or past the end of the list returns empty list`() {
-        assertEquals(
-            emptyList<Int>(),
-            computePrefetchIndices(fromIndex = 10, pageCount = 10, alreadyPrefetched = emptySet()),
-        )
-    }
-
-    @Test
-    fun `zero page count returns empty list regardless of fromIndex`() {
-        assertEquals(
-            emptyList<Int>(),
-            computePrefetchIndices(fromIndex = 0, pageCount = 0, alreadyPrefetched = emptySet()),
-        )
-    }
-
-    @Test
-    fun `default count is PREFETCH_WINDOW`() {
-        assertEquals(4, PREFETCH_WINDOW)
-        assertEquals(
-            listOf(0, 1, 2, 3),
-            computePrefetchIndices(fromIndex = 0, pageCount = 100, alreadyPrefetched = emptySet()),
-        )
-    }
-
-    @Test
-    fun `metered window prefetches further ahead than the unmetered default`() {
-        assertEquals(8, PREFETCH_WINDOW_METERED)
-        assertEquals(
-            listOf(0, 1, 2, 3, 4, 5, 6, 7),
-            computePrefetchIndices(fromIndex = 0, pageCount = 100, alreadyPrefetched = emptySet(), count = PREFETCH_WINDOW_METERED),
-        )
+    fun `prefetchOrder prazdna kapitola`() {
+        assertEquals(emptyList<Int>(), prefetchOrder(pageCount = 0, centerIndex = 0))
     }
 }

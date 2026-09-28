@@ -43,6 +43,25 @@ fun toSourcePath(base: String, href: String): String {
     }
 }
 
+/**
+ * Patří [url] hostiteli zdroje [base]? Přímo, nebo přes uživatelem nastavené zrcadlo
+ * ([com.haise.jiyu.source.interceptor.DomainOverrides] - po přesměrování domény mají
+ * scrapnuté odkazy host zrcadla, ne původní base). Používá se před odesláním requestu:
+ * scrapeovaná stránka může obsahovat odkaz na cizí host a bez kontroly by klient zdroje
+ * request na něj poslal (SSRF / leak kontextu, audit).
+ */
+fun isSourceHost(base: String, url: String): Boolean {
+    val u = hostKey(url) ?: return false
+    val b = hostKey(base) ?: return false
+    // Subdomeny puvodniho hosta jsou legitimni (cdn./reader./img. predky bezne nosi
+    // obsah stejneho webu); uplne jiny host jen pres nastavene zrcadlo.
+    if (u == b || u.endsWith(".$b")) return true
+    val overrides = com.haise.jiyu.source.interceptor.DomainOverrides.shared ?: return false
+    if (overrides.resolve(b) == u || overrides.resolve(u) == b) return true
+    val mirror = overrides.resolve(b) ?: return false
+    return u.endsWith(".$mirror")
+}
+
 /** Adresa pro požadavek: absolutní zůstane, `//host` dostane `https:`, cesta se připojí k [base]. */
 fun resolveSourceUrl(base: String, url: String): String = when {
     url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true) -> url

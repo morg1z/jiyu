@@ -102,6 +102,18 @@ class OmegaScansSource @Inject constructor(
     private fun tagsParam(ids: List<String>): String =
         "&tags_ids=" + URLEncoder.encode("[" + ids.joinToString(",") + "]", "UTF-8")
 
+    // /query prijima status=Ongoing|Completed|Hiatus|Dropped (capitalizovane) -
+    // overeno zive: status=Completed vraci jen Completed, Dropped jen Dropped.
+    // series_type je v katalogu vseobecne "Comic" - typovy filtr nedava smysl.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus", "cancelled")
+
+    private val statusValues = mapOf(
+        "ongoing" to "Ongoing", "completed" to "Completed",
+        "hiatus" to "Hiatus", "cancelled" to "Dropped",
+    )
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             // Bez orderBy razeni API vraci podle total_views (nejpopularnejsi) - pro
@@ -109,13 +121,14 @@ class OmegaScansSource @Inject constructor(
             // skutecneho casu posledni aktualizace (sestupne).
             val order = if (filter.sortBy == "latest") "&orderBy=updated_at" else ""
             val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""
-            try { parseList(get("$apiBase/query?page=$page&perPage=20$order$tags")) }
+            val status = statusValues[filter.status]?.let { "&status=$it" }.orEmpty()
+            try { parseList(get("$apiBase/query?page=$page&perPage=20$order$tags$status")) }
             catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
-            if (query.isBlank()) return@withContext getPopular(page, filter)
+            if (query.isBlank() || filter.status != null) return@withContext getPopular(page, filter)
             try {
                 val q = URLEncoder.encode(query, "UTF-8")
                 val tags = if (filter.genres.isNotEmpty()) tagsParam(filter.genres) else ""

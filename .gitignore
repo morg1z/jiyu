@@ -35,4 +35,9 @@ relnotes.tmp
 # Stará scratch data z živého zkoumání zdrojů (curl dumpy stránek apod.) - ne zdrojový kód,
 # přesunuto sem z C:\Users\ilekr\Desktop\masaze, kde omylem skončilo.
 /scratch/
+# Stejna kategorie - jednorazove HTML dumpy z auditovani/auditu zdroju a clanku.
+/.audit_tmp/
+/.tmp/
+/md.html
+/wb.html
 .aider*

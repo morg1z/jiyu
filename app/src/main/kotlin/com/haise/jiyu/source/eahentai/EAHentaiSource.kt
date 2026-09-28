@@ -92,7 +92,11 @@ class EAHentaiSource @Inject constructor(
     private fun fetchDocument(url: String): Document = Jsoup.parse(fetchHtml(url), url)
 
     private fun coverFromSrcset(img: Element?): String? {
-        val srcset = img?.attr("srcset")?.ifBlank { null } ?: return null
+        if (img == null) return null
+        // Web presel z srcset (proxovane "url=" parametry) na primy src
+        // "https://i.eahentai.com/file/..." - audit 2026-10: 0 coveru v listingu.
+        img.attr("src").trim().takeIf { it.isNotBlank() }?.let { return it }
+        val srcset = img.attr("srcset").ifBlank { null } ?: return null
         val encoded = Regex("""url=([^&\s]+)""").find(srcset)?.groupValues?.get(1) ?: return null
         return try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { e.rethrowIfControl(); null }
     }

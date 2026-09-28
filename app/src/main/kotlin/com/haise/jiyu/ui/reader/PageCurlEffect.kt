@@ -10,9 +10,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
-import kotlin.math.PI
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /** Počet sloupců sítě, na které se ohýbaný pás rozdělí pro [android.graphics.Canvas.drawBitmapMesh]
  * - vyšší číslo = plynulejší zakulacení. Mesh je bilineárně interpolovaný hardwarově, takže na
@@ -139,8 +137,18 @@ fun DrawScope.drawPageCurl(
 
 /** Kolik vodorovných pruhů se použije na vykreslení stínu - musí sledovat stejný kónický taper
  * jako hlavní mesh (viz [PageCurlGeometry.verticalTaper]), jinak by stín zůstal rovný pruh i
- * když je samotný ohyb nahoře/dole slabší - vypadalo by to nesourodě. */
-private const val SHADOW_STRIPS = 12
+ * když je samotný ohyb nahoře/dole slabší - vypadalo by to nesourodě. Pruhů je tolik, aby byl
+ * krok vnitřní hrany stínu subpixelový (dřív 12 pruhů = viditelně schodovaná nerovnoměrná čára). */
+private const val SHADOW_STRIPS = 48
+
+/** Kolik vzorků [PageCurlGeometry.warpedOffset] pro nalezení skutečného vnějšího okraje ohýbaného
+ * pásu - viz výpočet `outerEdge` v [drawAheadShadow]. */
+private const val SHADOW_EDGE_SAMPLES = 16
+
+/** Podíl vnějšího okraje, na který stín zasahuje POD ohýbaný pás - stín se kreslí před meshem,
+ * takže overlap mesh překryje a mezi okrajem ohybu a stínem nemůže vzniknout ani subpixelová
+ * světlá mezera odkryté stránky. */
+private const val SHADOW_EDGE_UNDERLAP = 0.92f
 
 /** Měkký vržený stín na odkryté stránce těsně před ohýbaným pásem - simuluje, že zvednutý papír
  * vrhá stín na to, co je pod ním. Šířka škáluje s poloměrem ohybu (u širšího/pozvolnějšího ohybu
@@ -149,12 +157,18 @@ private const val SHADOW_STRIPS = 12
  * jednoho rovného obdélníku přes celou výšku. */
 private fun drawAheadShadow(canvas: android.graphics.Canvas, geometry: PageCurlGeometry, direction: Float) {
     val paint = Paint()
+    // Vnejsi okraj, kam se pás skutecne vykresli - NE curlBandWidth (to je pozice ne-warppovane
+    // hrany papiru). Perspektivni komprese ve warpedOffset ho zmackne zhruba na polovinu, takze
+    // stin kotveny na curlBandWidth "plaval" jako oddelena tmava cara kus za viditelnym ohybem.
+    val outerEdge = (0..SHADOW_EDGE_SAMPLES).maxOf { i ->
+        geometry.warpedOffset(geometry.curlBandWidth * i / SHADOW_EDGE_SAMPLES)
+    }
     for (i in 0 until SHADOW_STRIPS) {
         val rowT0 = i.toFloat() / SHADOW_STRIPS
         val rowT1 = (i + 1).toFloat() / SHADOW_STRIPS
         val taper = geometry.verticalTaper((rowT0 + rowT1) / 2f)
         val shadowWidth = geometry.radius * 0.6f * taper
-        val edgeX = geometry.foldX + direction * geometry.curlBandWidth * taper
+        val edgeX = geometry.foldX + direction * outerEdge * taper * SHADOW_EDGE_UNDERLAP
         val farX = edgeX + direction * shadowWidth
         paint.shader = LinearGradient(
             edgeX, 0f, farX, 0f,
@@ -165,151 +179,5 @@ private fun drawAheadShadow(canvas: android.graphics.Canvas, geometry: PageCurlG
         val left = minOf(edgeX, farX)
         val right = maxOf(edgeX, farX)
         canvas.drawRect(left, geometry.pageHeight * rowT0, right, geometry.pageHeight * rowT1, paint)
-    }
-}
-
-/** Kolik sloupců/řádků má síť pro [drawWaveCurl] - stejné hustoty jako [MESH_COLUMNS]/
- * [MESH_ROWS], jen samostatné konstanty, kdyby si vlna časem žádala jinou hustotu. */
-private const val WAVE_MESH_COLUMNS = 30
-private const val WAVE_MESH_ROWS = 24
-
-/** O kolik dál než lineární pozici (0f) se vrchol vlny (`frac`=0.5) vyboulí navenek, jako násobek
- * [PageCurlGeometry.curlBandWidth] - čistě estetický parametr, ladit podle dojmu na reálném
- * zařízení (viz komentář u volajícího místa, zatím neověřeno naživo). */
-private const val WAVE_BULGE_STRENGTH = 0.28f
-
-/** Jak moc tmavší jsou okraje vlny (`frac`=0/1, kde se láme do ploché části/hřebenu) oproti
- * vrcholu (`frac`=0.5, plný jas) - vertex-color multiply umí jen ZTMAVIT (ne zesvětlit nad
- * texturu), takže "nasvícení" hřebenu je jen relativní - vrchol zůstává na plném jasu textury,
- * okraje jsou o tenhle podíl tmavší. */
-private const val WAVE_EDGE_DARKEN = 0.3f
-
-/**
- * Vykreslí aktuální stránku s efektem "mořské vlny" - VLASTNÍ sinusová geometrie, ne válcová
- * ([PageCurlGeometry.warpedOffset]/[shadeAt] se tu nepoužívají). [geometry] se ale počítá stejnou
- * [computePageCurlGeometry] funkcí se stylem [CurlStyle.WAVE] - [PageCurlGeometry.foldX] je
- * hranice mezi plochou částí a vlněním (kde vlna vyrůstá z roviny stránky, výška 0), a
- * [PageCurlGeometry.curlBandWidth] je šířka vlnícího se pásu; jeho vzdálenější konec (`front`)
- * je "hřeben" - výška je 0 i tam (vlna vyroste a zase klesne, ne monotónně roste jako u
- * [CurlStyle.CLASSIC]/[CurlStyle.ROLL]). Za hřebenem je jen měkký stín na odkryté stránce, žádný
- * zrcadlený "lip" přehyb - ten byl na zařízení potvrzeně rozbitý (viz git historie), odstraněn
- * místo dalšího ladění naslepo bez přístupu k zařízení.
- *
- * Sílu vlnění řídí [PageCurlGeometry.progress] přes `envelope = sin(π·progress)` - 0 v klidu
- * (na začátku i na konci tažení), maximum v polovině tažení, takže "moře" je klidné, dokud se
- * stránka nezačne otáčet, a zase se uklidní, jakmile se otočení dokončí.
- */
-fun DrawScope.drawWaveCurl(
-    geometry: PageCurlGeometry,
-    currentPageBitmap: ImageBitmap,
-    revealedPageBitmap: ImageBitmap?,
-) {
-    val nativeCanvas = drawContext.canvas.nativeCanvas
-    val rawBitmap = currentPageBitmap.asAndroidBitmap()
-    // Stejná past jako v drawPageCurl - HARDWARE bitmapa (GPU-only pamet) tise nevrati zadna
-    // data pri Bitmap.createBitmap ořezu ani pri drawBitmapMesh, bez pádu/chyby.
-    val bitmap = if (rawBitmap.config == Bitmap.Config.HARDWARE) {
-        rawBitmap.copy(Bitmap.Config.ARGB_8888, false)
-    } else {
-        rawBitmap
-    }
-
-    revealedPageBitmap?.let {
-        nativeCanvas.drawBitmap(it.asAndroidBitmap(), 0f, 0f, null)
-    }
-
-    val direction = if (geometry.turningFromRight) 1f else -1f
-    val envelope = sin(PI.toFloat() * geometry.progress).coerceIn(0f, 1f)
-
-    // Plocha cast pred vlnou (jeste nedosazena) - stejna hranice jako flatRect v drawPageCurl.
-    val flatRect = if (geometry.turningFromRight) {
-        Rect(0, 0, geometry.foldX.roundToInt().coerceIn(0, bitmap.width), bitmap.height)
-    } else {
-        Rect(geometry.foldX.roundToInt().coerceIn(0, bitmap.width), 0, bitmap.width, bitmap.height)
-    }
-    if (flatRect.width() > 0) {
-        nativeCanvas.save()
-        nativeCanvas.clipRect(flatRect)
-        nativeCanvas.drawBitmap(bitmap, 0f, 0f, null)
-        nativeCanvas.restore()
-    }
-
-    // POZOR: i pri envelope blizko 0 (klidne more na zacatku/konci tazeni) se pas porad musi
-    // vykreslit (jen plochy, bez vlneni) - jinak by tu zbyla nevykreslena mezera (prosvitala by
-    // skrz ni revealedPageBitmap), protoze flatRect vyse konci presne na foldX, ne az za pasem.
-    if (geometry.curlBandWidth < 0.5f) return
-
-    // "front" = vzdalenejsi konec vlnicího se pásu od foldX (smerem k hrane, ze ktere se otáci) -
-    // tam se vlna lame (viz lip nize). Zdrojovy orez pro sit jde od foldX (hranice s plochou
-    // castí) po front (hranice se skrytou/jiz "zlomenou" castí).
-    val front = geometry.foldX + direction * geometry.curlBandWidth
-    val cropLeft = minOf(geometry.foldX, front).roundToInt().coerceIn(0, bitmap.width)
-    val cropRight = maxOf(geometry.foldX, front).roundToInt().coerceIn(cropLeft, bitmap.width)
-    val cropWidth = cropRight - cropLeft
-    if (cropWidth <= 0) return
-    val croppedBand = Bitmap.createBitmap(bitmap, cropLeft, 0, cropWidth, bitmap.height)
-    val bandBitmap = if (croppedBand.config == Bitmap.Config.HARDWARE) {
-        croppedBand.copy(Bitmap.Config.ARGB_8888, false)
-    } else {
-        croppedBand
-    }
-
-    // Sit WAVE_MESH_COLUMNS x WAVE_MESH_ROWS - pro kazdy sloupec spocitame sinusovy "hrb"
-    // (bulge, 0 na obou koncich pásu, vrchol uprostred) a z nej vodorovny posun (extra vyboulení
-    // navenek pres linearni pozici) a stín (svetlejsi na vrcholu, tmavsi na okrajich).
-    val vertsPerRow = WAVE_MESH_COLUMNS + 1
-    val vertsPerCol = WAVE_MESH_ROWS + 1
-    val verts = FloatArray(vertsPerRow * vertsPerCol * 2)
-    val colors = IntArray(vertsPerRow * vertsPerCol)
-    for (row in 0..WAVE_MESH_ROWS) {
-        val rowT = row.toFloat() / WAVE_MESH_ROWS
-        val y = geometry.pageHeight * rowT
-        val taper = geometry.verticalTaper(rowT)
-        for (col in 0..WAVE_MESH_COLUMNS) {
-            // srcFrac indexuje SLOUPCE zdrojove bandBitmap (0=cropLeft, 1=cropRight, vzdy
-            // vzestupne v bitmapovych souradnicich - drawBitmapMesh je bere v tomhle poradi bez
-            // ohledu na smer otaceni). `d` je pojmova vzdalenost od foldX smerem k front (0..
-            // curlBandWidth) - u turningFromRight=false je bandBitmap orezana [front..foldX], tedy
-            // OBRACENE (cropLeft=front), takze se musi prehodit, jinak by se sirka pasu vykreslila
-            // zrcadlove (obsah co patri k foldX by skoncil u front a naopak).
-            val srcFrac = col.toFloat() / WAVE_MESH_COLUMNS
-            val d = if (geometry.turningFromRight) geometry.curlBandWidth * srcFrac else geometry.curlBandWidth * (1f - srcFrac)
-            val bulge = sin((d / geometry.curlBandWidth) * PI.toFloat()) * envelope
-            val extra = geometry.curlBandWidth * WAVE_BULGE_STRENGTH * bulge
-            val x = geometry.foldX + direction * (d + extra) * taper
-            val idx = row * vertsPerRow + col
-            verts[idx * 2] = x
-            verts[idx * 2 + 1] = y
-
-            val shade = 1f - (1f - bulge) * WAVE_EDGE_DARKEN * taper
-            val gray = (shade.coerceIn(0f, 1f) * 255).roundToInt()
-            colors[idx] = Color.argb(255, gray, gray, gray)
-        }
-    }
-
-    val meshPaint = Paint().apply {
-        isAntiAlias = true
-        isFilterBitmap = true
-    }
-    nativeCanvas.drawBitmapMesh(bandBitmap, WAVE_MESH_COLUMNS, WAVE_MESH_ROWS, verts, 0, colors, 0, meshPaint)
-
-    // Stin za "front" (kde by se vlna lamala) na odkrytou stranku - naznaci hloubku bez
-    // zrcadleneho "lip" pruhu, ktery byl na zarizeni potvrzene rozbity (roztrhany/posunuty
-    // obsah, viz nahlaseny bug) - zrcadleni platna + drawBitmap(src,dst) pres nej byla jedina
-    // technika v tehle funkci bez overeneho vzoru jinde v kodu, proto prvni podezrely a
-    // odstraneny, misto dalsiho slepeho ladeni bez pristupu k zarizeni.
-    if (envelope > 0.05f) {
-        val shadowNear = front
-        val shadowFar = front + direction * geometry.curlBandWidth * 0.25f
-        val shadowPaint = Paint().apply {
-            shader = LinearGradient(
-                shadowNear, 0f, shadowFar, 0f,
-                intArrayOf(Color.argb((110 * envelope).roundToInt(), 0, 0, 0), 0x00000000),
-                null, Shader.TileMode.CLAMP,
-            )
-        }
-        val shadowLeft = minOf(shadowNear, shadowFar)
-        val shadowRight = maxOf(shadowNear, shadowFar)
-        nativeCanvas.drawRect(shadowLeft, 0f, shadowRight, geometry.pageHeight, shadowPaint)
     }
 }

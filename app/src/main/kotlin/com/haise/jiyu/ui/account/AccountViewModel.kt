@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -99,7 +101,13 @@ class AccountViewModel @Inject constructor(
                     .addCredentialOption(googleIdOption)
                     .build()
 
-                val result = CredentialManager.create(context).getCredential(context, request)
+                // Timeout je nutný - když Google backend nezná registraci appky (nový
+                // OAuth klient se teprve propaguje, špatný SHA-1, ...), CredentialSelectorActivity
+                // se spustí, ale nikdy nevrátí výsledek a UI by viselo na spinneru navždy
+                // (ověřeno živě: flow visel 3+ minuty do ručního cancelu).
+                val result = withTimeout(60_000) {
+                    CredentialManager.create(context).getCredential(context, request)
+                }
                 val credential = result.credential
 
                 if (credential is CustomCredential &&
@@ -130,6 +138,16 @@ class AccountViewModel @Inject constructor(
                 // (uzivatelsky report se screenshotem).
                 e.report("account:signInWithGoogle:noCredential")
                 _authState.value = AuthUiState.Error(appContext.getString(R.string.account_error_no_google_account))
+            } catch (e: TimeoutCancellationException) {
+                // Zahozený credential flow kvůli timeoutu - NE GetCredentialCancellationException
+                // (tohle je kotlinx CancellationException), takže se hlásí jako chyba s hláškou
+                // "zkus to znovu", ne jako tichý user-cancel.
+                e.report("account:signInWithGoogle:timeout")
+                _authState.value = AuthUiState.Error(appContext.getString(R.string.account_error_google_timeout))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Skutečná korutinová cancelace (zničený scope) - musí se propagovat,
+                // ne se pít za chybu přihlášení.
+                throw e
             } catch (e: GetCredentialException) {
                 e.report("account:signInWithGoogle")
                 _authState.value = AuthUiState.Error(appContext.getString(R.string.account_error_login_generic))
@@ -142,6 +160,7 @@ class AccountViewModel @Inject constructor(
 
     fun signOut() = viewModelScope.launch {
         try { authRepository.signOut() } catch (e: Exception) { e.report("account:signOut") }
+        try { syncRepository.clearSyncStateForSignOut() } catch (e: Exception) { e.report("account:signOut:clearSync") }
         cancelBackgroundSync()
     }
 
@@ -210,6 +229,20 @@ class AccountViewModel @Inject constructor(
                 // resetPasswordForEmail existenci účtu neprozrazuje ani při úspěchu, takže
                 // sem doputují jen opravdové chyby (síť, rate limit, špatný formát).
                 e.report("AccountViewModel.sendPasswordReset")
+                _authState.value = AuthUiState.Error(e.toFriendlyMessage())
+            }
+        }
+    }
+
+    /** Nastavení nového hesla z recovery session - viz ResetPasswordScreen / jiyu://auth deep link. */
+    fun updatePassword(newPassword: String) {
+        viewModelScope.launch {
+            _authState.value = AuthUiState.Loading
+            try {
+                authRepository.updatePassword(newPassword)
+                _authState.value = AuthUiState.Success
+            } catch (e: Exception) {
+                e.report("account:updatePassword")
                 _authState.value = AuthUiState.Error(e.toFriendlyMessage())
             }
         }

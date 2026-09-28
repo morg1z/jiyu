@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,7 +100,8 @@ fun GlobalSearchScreen(
             viewModel.clearAddError()
         }
     }
-    var inputText by remember { mutableStateOf(initialQuery) }
+    // rememberSaveable - pri rotaci/prekonfigurovani by se text dotazu ztratil (audit).
+    var inputText by rememberSaveable { mutableStateOf(initialQuery) }
     val focusManager = LocalFocusManager.current
 
     Column(modifier = Modifier.fillMaxSize().background(screenGradient)) {
@@ -178,7 +180,7 @@ fun GlobalSearchScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        items(savedSearches) { saved ->
+                        items(savedSearches, key = { it }) { saved ->
                             Row(
                                 modifier = Modifier
                                     .clickable {
@@ -247,7 +249,7 @@ fun GlobalSearchScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                items(sourceResult.results) { manga ->
+                                items(sourceResult.results, key = { it.url }) { manga ->
                                     MiniMangaCard(
                                         manga = manga,
                                         onClick = { viewModel.addToLibrary(manga) },

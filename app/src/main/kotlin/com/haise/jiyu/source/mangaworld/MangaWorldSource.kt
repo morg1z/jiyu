@@ -62,25 +62,50 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
             SManga(sourceId = id, url = href, title = title, coverUrl = cover)
         }
 
+    // <select> "Stato" na /archive (overeno zive): ongoing (In corso),
+    // completed (Finito), dropped, paused (In pausa = hiatus), canceled.
+    private fun statusParam(status: String?): String = when (status) {
+        "ongoing" -> "ongoing"
+        "completed" -> "completed"
+        "hiatus" -> "paused"
+        else -> ""
+    }
+
+    // /archive?type= filtruje server-side (overeno zive: manga/manhwa/manhua/
+    // oneshot/doujinshi vraceji ruzne sady a kombinuji se statusem).
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+        FilterTag(id = "oneshot", label = "One-shot"),
+        FilterTag(id = "doujinshi", label = "Doujinshi"),
+    )
+    private val siteTypes = setOf("manga", "manhwa", "manhua", "oneshot", "doujinshi")
+
+    private fun archiveUrl(page: Int, filter: MangaFilter, sort: String? = null, genre: String? = null, keyword: String? = null): String = buildString {
+        append("$base/archive?page=$page")
+        sort?.let { append("&sort=$it") }
+        genre?.let { append("&genre=${URLEncoder.encode(it, "UTF-8")}") }
+        keyword?.let { append("&keyword=${URLEncoder.encode(it, "UTF-8")}") }
+        statusParam(filter.status).takeIf { it.isNotEmpty() }?.let { append("&status=$it") }
+        filter.comicTypes.firstOrNull()?.takeIf { it in siteTypes }?.let { append("&type=$it") }
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try {
-                parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
-            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
-        }
-        val sort = if (filter.sortBy == "latest") "newest" else "most_read"
-        try { parseList(get("$base/archive?sort=$sort&page=$page")) } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
+        try {
+            parseList(get(
+                if (filter.genres.isNotEmpty()) archiveUrl(page, filter, genre = filter.genres.first())
+                else archiveUrl(page, filter, sort = if (filter.sortBy == "latest") "newest" else "most_read")
+            ))
+        } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
-            return@withContext try {
-                parseList(get("$base/archive?genre=${filter.genres.first()}&page=$page"))
-            } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
-        }
         try {
-            val q = URLEncoder.encode(query, "UTF-8")
-            parseList(get("$base/archive?keyword=$q&page=$page"))
+            parseList(get(
+                if (filter.genres.isNotEmpty()) archiveUrl(page, filter, genre = filter.genres.first())
+                else archiveUrl(page, filter, keyword = query)
+            ))
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
@@ -91,6 +116,9 @@ class MangaWorldSource @Inject constructor(private val client: OkHttpClient) : M
     // tituly).
 
     override val supportsTagFilter: Boolean get() = true
+
+    // /archive?status= aplikuje filtr server-side (overeno zive).
+    override val supportsStatusFilter: Boolean get() = true
 
     @Volatile private var cachedTags: List<FilterTag>? = null
 

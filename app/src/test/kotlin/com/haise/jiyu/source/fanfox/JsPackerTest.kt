@@ -20,6 +20,21 @@ class JsPackerTest {
         assertTrue("expected second image query token", decoded.contains("b20250623_93556_349"))
     }
 
+    // Skutečná odpověď z mangahome.com chapterfun.ashx (zachyceno na zařízení, 658 B).
+    // Regresní test za bug: regex unpackEval začínal literální '}', což na Androidu
+    // (ICU regex) háže PatternSyntaxException - JDK ji bere jako literál, takže JVM
+    // testy procházely, ale na telefonu se vracela virtuální URL -> černá čtečka.
+    private val mangahomeEvalResponse = """eval(function(p,a,c,k,e,d){e=function(c){return(c<a?"":e(parseInt(c/a)))+((c=c%a)>35?String.fromCharCode(c+29):c.toString(36))};if(!''.replace(/^/,String)){while(c--){d[c.toString(a)]=k[c]||c.toString(a)}k=[function(e){return d[e]}];e=function(){return'\w+'};c=1};while(c--){if(k[c]){p=p.replace(new RegExp('\b'+e(c)+'\b','g'),k[c])}}return p}('g a(){2 c="//5.8.7/6/9/4/b.0/3";2 1=["/k.e","/l.e"];f(2 i=0;i<1.j;i++){h(i==0){1[i]="//5.8.7/6/9/4/b.0/3"+1[i];o}1[i]=c+1[i]}n 1}2 d;d=a();m=p;',26,26,'|pvalue|var|compressed|17871|zjcdn|store|org|mangahere|manga|dm5imagefun|001|pix||jpg|for|function|if||length|m001|m002|currentimageid|return|continue|8071213'.split('|'),0,{}))"""
+
+    @Test
+    fun `unpackEval decodes real mangahome chapterfun payload to cdn urls`() {
+        val decoded = JsPacker.unpackEval(mangahomeEvalResponse)
+        assertTrue("expected non-null decode result", decoded != null)
+        assertTrue("expected mangahere cdn host", decoded!!.contains("zjcdn.mangahere.org"))
+        assertTrue("expected decoded page file names", decoded.contains("/m001.jpg"))
+        assertTrue(decoded.contains("/m002.jpg"))
+    }
+
     @Test
     fun `unpack is a straightforward roundtrip on a minimal synthetic example`() {
         // 'ab' encoded where a=0->"x", b=1->"y" (radix 2, count 2)

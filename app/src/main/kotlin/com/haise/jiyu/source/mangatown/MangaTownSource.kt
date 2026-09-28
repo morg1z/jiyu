@@ -54,10 +54,35 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
         }
     }
 
+    // /directory/{sort}-{genre}-{year}-{status}-{letter}-{type}/{page}.html -
+    // bitmaskova cesta archivu; jednotlive pozice odpovidaji odkazum v panelu
+    // webu (status: ongoing|completed|new, rok: 1999-2025, typ: manga|manhua|
+    // manhwa). Hodnota 0 = libovolna. Overeno na odkazech stranky /directory/.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() = listOf("ongoing", "completed")
+    override val supportsYearFilter: Boolean get() = true
+    override val availableComicTypes: List<FilterTag> get() = listOf(
+        FilterTag(id = "manga", label = "Manga"),
+        FilterTag(id = "manhwa", label = "Manhwa"),
+        FilterTag(id = "manhua", label = "Manhua"),
+    )
+
+    private fun directoryUrl(page: Int, filter: MangaFilter): String {
+        val genre = filter.genres.firstOrNull() ?: "0"
+        val year = filter.year?.toString() ?: "0"
+        val status = filter.status?.takeIf { it in availableStatuses } ?: "0"
+        val type = filter.comicTypes.firstOrNull()
+            ?.takeIf { it in setOf("manga", "manhwa", "manhua") } ?: "0"
+        return "$base/directory/0-$genre-$year-$status-0-$type/$page.html"
+    }
+
+    private fun hasDirectoryFilters(filter: MangaFilter) =
+        filter.status != null || filter.year != null || filter.comicTypes.isNotEmpty()
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
+        if (filter.genres.isNotEmpty() || hasDirectoryFilters(filter)) {
             return@withContext try {
-                parseList(get("$base/directory/0-${filter.genres.first()}-0-0-0-0/$page.html"))
+                parseList(get(directoryUrl(page, filter)))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         // Vychozi /directory/ razeni je Views (Popularni) - "Latest Updated" je zvlastni
@@ -67,9 +92,9 @@ class MangaTownSource @Inject constructor(private val client: OkHttpClient) : Ma
     }
 
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
-        if (filter.genres.isNotEmpty()) {
+        if (filter.genres.isNotEmpty() || hasDirectoryFilters(filter)) {
             return@withContext try {
-                parseList(get("$base/directory/0-${filter.genres.first()}-0-0-0-0/$page.html"))
+                parseList(get(directoryUrl(page, filter)))
             } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
         }
         try {

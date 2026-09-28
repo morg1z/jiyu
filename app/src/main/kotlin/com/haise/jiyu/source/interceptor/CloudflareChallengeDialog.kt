@@ -30,7 +30,9 @@ fun CloudflareChallengeHost() {
     pending?.let { challenge ->
         CloudflareChallengeAttempt(
             challenge = challenge,
-            onDone = { cookies -> CloudflareChallengeBridge.resolve(cookies) },
+            // id vyzvy se zachyti v lambde - zpozdene WebView callbacky muzou dobehnout
+            // az po vymene pending vyzvy a bez id by vysledek dopadl te nove (audit).
+            onDone = { cookies -> CloudflareChallengeBridge.resolve(challenge.id, cookies) },
         )
     }
 }

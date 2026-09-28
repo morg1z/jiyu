@@ -3,6 +3,10 @@ package com.haise.jiyu.translate
 import com.haise.jiyu.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
@@ -329,6 +333,21 @@ class OcrEngine @Inject constructor(
             language to recognizeLines(language, image, w, h)
         }
 
+        // Bílé písmo na tmavé kresbě (audit Vagabondu: "SOMEONE'S THERE." v nočním
+        // panelu zůstalo nepřeložené) ML Kit v normální polaritě nevidí - na stránce
+        // s výrazným tmavým podílem proběhne navíc jeden průchod na INVERTOVANÉ
+        // bitmapě a jeho řádky se přidají jen tam, kde normální průchod nic nenašel.
+        val allLines = if (shouldRunInvertedOcrPass(bitmap)) {
+            val inverted = recognizeLines(
+                resolvedLanguage,
+                InputImage.fromBitmap(invertColors(bitmap), 0),
+                w, h,
+            )
+            lines + inverted.filter { cand -> lines.none { normalizedOverlap(it, cand) >= 0.5f } }
+        } else {
+            lines
+        }
+
         // Sampling barvy pozadí i detekce tvaru bubliny potřebují ještě živou bitmapu,
         // proto běží tady a ne až v TranslateRepository, kam se bitmapa vůbec nedostane
         // (jen relativní souřadnice).
@@ -373,22 +392,28 @@ class OcrEngine @Inject constructor(
             emptyList()
         }
         val merged = if (resolvedLanguage == "Japanese" && onDeviceModelsOk) {
-            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, lines, yoloBoxes, visionOcrFallback), rightToLeft = true)
+            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, allLines, yoloBoxes, visionOcrFallback), rightToLeft = true)
         } else {
             sortIntoReadingOrder(
-                mergeNearbyLines(
-                    lines,
-                    noWallBetween = { a, b ->
-                        !hasWallBetween(
-                            pixelSource,
-                            bitmap.width,
-                            bitmap.height,
-                            a,
-                            b,
-                            onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
-                        ) && !linesInDifferentYoloBoxes(a, b, yoloBoxes)
-                    },
-                    onStructuredFieldMerge = ::logStructuredFieldMerge,
+                // Po řádkovém merge ještě sloučíme bloky padající do STEJNÉHO YOLO boxu -
+                // jsou to dva textové kusy pod jedním kresleným obrysem (audit Vagabondu:
+                // "MATA-HACHI'S BEEN" zůstalo EN vedle přeložené půlky téže bubliny).
+                mergeBlocksInSameYoloBox(
+                    mergeNearbyLines(
+                        allLines,
+                        noWallBetween = { a, b ->
+                            !hasWallBetween(
+                                pixelSource,
+                                bitmap.width,
+                                bitmap.height,
+                                a,
+                                b,
+                                onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
+                            ) && !linesInDifferentYoloBoxes(a, b, yoloBoxes)
+                        },
+                        onStructuredFieldMerge = ::logStructuredFieldMerge,
+                    ),
+                    yoloBoxes,
                 ),
                 // Rozhoduje ROZPOZNANÝ jazyk, ne ten nastavený - pod "Auto" byl nastavený jazyk
                 // doslova "Auto", takže japonská stránka dostala pořadí zleva doprava a model
@@ -467,6 +492,60 @@ class OcrEngine @Inject constructor(
         }
         logShapeCoverage(result.size, result.count { it.shape != null })
         result
+    }
+
+    /**
+     * Má stránka tolik tmavé plochy, že se vyplatí zkusit invertovaný OCR průchod
+     * (bílé písmo na tmavé kresbě - viz komentář u `allLines` v [recognize])?
+     * Podmínka drží extra ML Kit call jen na skutečně tmavých stránkách - světlá
+     * stránka nemá co objevit.
+     */
+    private fun shouldRunInvertedOcrPass(bitmap: Bitmap): Boolean {
+        val sample = Bitmap.createScaledBitmap(bitmap, INVERSE_SAMPLE_W, INVERSE_SAMPLE_H, true)
+        val pixels = IntArray(INVERSE_SAMPLE_W * INVERSE_SAMPLE_H)
+        sample.getPixels(pixels, 0, INVERSE_SAMPLE_W, 0, 0, INVERSE_SAMPLE_W, INVERSE_SAMPLE_H)
+        return darkPixelFraction(pixels) >= DARK_FRACTION_FOR_INVERSE_PASS
+    }
+
+    /** Podíl pixelů s luminancí pod 70/255 - tmavé panely, kde může být bílý lettering. */
+    internal fun darkPixelFraction(pixels: IntArray): Float {
+        if (pixels.isEmpty()) return 0f
+        var dark = 0
+        for (p in pixels) {
+            val lum = 0.299 * ((p shr 16) and 0xFF) + 0.587 * ((p shr 8) and 0xFF) + 0.114 * (p and 0xFF)
+            if (lum < DARK_LUMINANCE_THRESHOLD) dark++
+        }
+        return dark.toFloat() / pixels.size
+    }
+
+    /** Invertovaná kopie bitmapy - bílý text na černé kresbě se stane černým na bílém. */
+    private fun invertColors(bitmap: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val matrix = ColorMatrix(
+            floatArrayOf(
+                -1f, 0f, 0f, 0f, 255f,
+                0f, -1f, 0f, 0f, 255f,
+                0f, 0f, -1f, 0f, 255f,
+                0f, 0f, 0f, 1f, 0f,
+            ),
+        )
+        Canvas(out).drawBitmap(bitmap, 0f, 0f, Paint().apply { colorFilter = ColorMatrixColorFilter(matrix) })
+        return out
+    }
+
+    /**
+     * Podíl menšího boxu pokrytý druhým (containment, ne IoU - malý řádek uvnitř
+     * velkého bloku má padnout taky). >=0,5 znamená, že invertovaný řádek popisuje
+     * stejné místo, co už normální průchod našel, a přidával by jen duplicitu.
+     */
+    private fun normalizedOverlap(a: RawTextBlock, b: RawTextBlock): Float {
+        val interW = minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF)
+        val interH = minOf(a.bottomF, b.bottomF) - maxOf(a.topF, b.topF)
+        if (interW <= 0f || interH <= 0f) return 0f
+        val inter = interW * interH
+        val areaA = (a.rightF - a.leftF) * (a.bottomF - a.topF)
+        val areaB = (b.rightF - b.leftF) * (b.bottomF - b.topF)
+        return inter / minOf(areaA, areaB).coerceAtLeast(0.000001f)
     }
 
     /**
@@ -782,5 +861,15 @@ class OcrEngine @Inject constructor(
 
     private companion object {
         private const val COLOR_BUCKET_SIZE = 32
+
+        /** Rozměry vzorkovací miniatury pro [shouldRunInvertedOcrPass]. */
+        private const val INVERSE_SAMPLE_W = 48
+        private const val INVERSE_SAMPLE_H = 72
+
+        /** Kolik stránky musí být tmavé, aby se spustil invertovaný OCR průchod. */
+        private const val DARK_FRACTION_FOR_INVERSE_PASS = 0.25f
+
+        /** Luminace (0-255), pod kterou pixel počítáme jako tmavý - viz [darkPixelFraction]. */
+        private const val DARK_LUMINANCE_THRESHOLD = 70.0
     }
 }

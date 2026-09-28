@@ -4,6 +4,7 @@ import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.util.rethrowIfControl
 import com.haise.jiyu.source.bodyOrThrow
 
+import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
@@ -17,6 +18,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import org.jsoup.Jsoup
+import java.net.URLDecoder
+import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,6 +53,7 @@ class HitomiSource @Inject constructor(
     override val name = "Hitomi.La"
     override val isAdult = true
     override val homepageUrl get() = baseUrl
+    override val supportsTagFilter: Boolean get() = true
 
     private val baseUrl = "https://hitomi.la"
     private val ltnUrl = "https://ltn.gold-usergeneratedcontent.net"
@@ -107,13 +111,54 @@ class HitomiSource @Inject constructor(
         }.mapNotNull { it.await() }
     }
 
+    // Tagy: index "/alltags-{a-z,123}.html" (27 stranek) vypisuje vsechny tagy
+    // jako "/tag/{encoded}-all.html" - nazev tagu muze byt sex-prefixovany
+    // ("female:big breasts") a v HTML href je percent-encoding. Tagovy index
+    // nozomi "/tag/{encoded}-all.nozomi" ma stejny 4B big-endian format jako
+    // index-all a cte se pres Range (overeno zive). FilterTag.id = dekodovane
+    // jmeno tagu; do URL se znovu percent-enkoduje (mezera=%20, ne "+").
+    // Vice tagu najednou index nepodporuje - pri vice vybranych se pouzije prvni.
+    @Volatile private var cachedTags: List<FilterTag>? = null
+
+    override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
+        cachedTags?.let { return@withContext it }
+        val letters = listOf("123") + ('a'..'z').map { it.toString() }
+        val out = mutableListOf<FilterTag>()
+        try {
+            for (letter in letters) {
+                val links = try {
+                    Jsoup.parse(get("$baseUrl/alltags-$letter.html"), baseUrl).select("a[href^=/tag/]")
+                } catch (e: Exception) { e.rethrowIfControl(); continue }
+                links.forEach { a ->
+                    val encoded = a.attr("href").removePrefix("/tag/").removeSuffix("-all.html")
+                        .ifBlank { return@forEach }
+                    val name = try {
+                        URLDecoder.decode(encoded, "UTF-8")
+                    } catch (e: Exception) { e.rethrowIfControl(); return@forEach }
+                    if (name.isBlank()) return@forEach
+                    val label = a.text().trim().ifBlank { name }
+                    out += FilterTag(id = name, label = label)
+                }
+            }
+        } catch (e: Exception) { e.rethrowIfControl() }
+        val tags = out.distinctBy { it.id }
+        if (tags.isNotEmpty()) cachedTags = tags
+        tags
+    }
+
     override suspend fun getPopular(page: Int, filter: MangaFilter): List<SManga> = withContext(Dispatchers.IO) {
         try {
             // index-all.nozomi je serazeny podle ID sestupne = nejnovejsi pridane
             // galerie prvni. popular/today-all.nozomi je SAMOSTATNY index podle
             // popularity, neni jen jina projekce toho stejneho - overeno zive
-            // (rozdilne, nenavazujici ID na stejne pozici).
-            val index = if (filter.sortBy == "popular") "popular/today-all.nozomi" else "index-all.nozomi"
+            // (rozdilne, nenavazujici ID na stejne pozici). Tagovy index
+            // "tag/{name}-all.nozomi" je treti samostatna sada.
+            val index = when {
+                filter.genres.isNotEmpty() ->
+                    "tag/" + URLEncoder.encode(filter.genres.first(), "UTF-8").replace("+", "%20") + "-all.nozomi"
+                filter.sortBy == "popular" -> "popular/today-all.nozomi"
+                else -> "index-all.nozomi"
+            }
             val start = (page - 1).toLong() * itemsPerPage * 4
             val end = start + itemsPerPage * 4 - 1
             val ids = decodeNozomiIds(getRange("$ltnUrl/$index", start, end))

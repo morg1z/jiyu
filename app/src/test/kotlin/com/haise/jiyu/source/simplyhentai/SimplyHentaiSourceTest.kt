@@ -13,38 +13,63 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * Fixture odpovídají reálnému server-renderovanému markupu webu (audit 2026-11):
+ * výpis = `article.manga-container` karty, detail = `h1` + `pages-overview`
+ * náhledy se sekvenčními `/page/{id}` odkazy, plné obrázky na `/all-pages`.
+ */
 class SimplyHentaiSourceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var source: SimplyHentaiSource
 
-    private fun nextDataHtml(pagePropsJson: String) = """
-        <html><body><div id="__next"></div><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":$pagePropsJson}}</script></body></html>
+    private val listingHtml = """
+        <html><body><div data-testid="manga-cards">
+        <article class="object-container manga-container" data-testid="manga-card-207580">
+          <a class="with-fade content-link" href="/1-blue-archive/sensei-rentaru-talk-a0001">
+            <div class="cover-slot"><img src="https://images.sh-cdn.com/x/small_thumb_0c325282.jpg" alt="Sensei Rentaru Talk"/></div>
+          </a>
+          <div class="info"><h3 class="title"><a href="/1-blue-archive/sensei-rentaru-talk-a0001">Sensei Rentaru Talk</a></h3></div>
+        </article>
+        </div></body></html>
     """.trimIndent()
 
-    private val listingHtml = nextDataHtml(
-        """
-        {"mangas":[
-            {"id":207580,"slug":"sensei-rentaru-talk-sensei-rental-talk","title":"Sensei Rentaru Talk",
-             "series":{"id":3357,"slug":"1-blue-archive","title":"Blue Archive"},
-             "preview":{"sizes":{"full":"https://images.sh-cdn.com/x/full.jpg"}}}
-        ],"pagination":{"current":1,"pages":415}}
-        """.trimIndent()
-    )
+    private val detailHtml = """
+        <html><head><meta property="og:url" content="/1-blue-archive/sensei-rentaru-talk-a0001"/></head><body>
+        <header><h1>Sensei Rentaru Talk | Sensei Rental Talk</h1></header>
+        <a class="block" data-testid="cover-link" href="/x"><img src="https://images.sh-cdn.com/x/small_thumb_0c325282.jpg"/></a>
+        <div data-testid="pages-overview">
+          <a href="/1-blue-archive/sensei-rentaru-talk-a0001/page/100"><img src="https://images.sh-cdn.com/x/small_thumb_0c325282.jpg"/></a>
+          <a href="/1-blue-archive/sensei-rentaru-talk-a0001/page/101"><img src="https://images.sh-cdn.com/x/small_thumb_500d7bb7.jpg"/></a>
+        </div>
+        <a class="btn" data-testid="all-pages-link" href="/1-blue-archive/sensei-rentaru-talk-a0001/all-pages">View all <!-- -->3<!-- --> images</a>
+        </body></html>
+    """.trimIndent()
 
-    private val detailHtml = nextDataHtml(
-        """
-        {"manga":{"id":363517,"slug":"sensei-rentaru-talk-sensei-rental-talk","title":"Sensei Rentaru Talk | Sensei Rental Talk",
-          "series":{"id":3357,"slug":"1-blue-archive","title":"Blue Archive"},
-          "description":"<p>A &ldquo;short&rdquo; summary.</p>",
-          "artists":[{"id":26874,"slug":"yanje","title":"Yanje"}],
-          "tags":[{"id":12142,"slug":"halo","title":"halo"}],
-          "images":[
-            {"id":1,"page_num":1,"sizes":{"full":"https://images.sh-cdn.com/x/0c325282.jpg"}},
-            {"id":2,"page_num":2,"sizes":{"full":"https://images.sh-cdn.com/x/500d7bb7.jpg"}}
-          ]}}
-        """.trimIndent()
-    )
+    private val allPagesHtml = """
+        <html><body>
+        <img src="https://images.sh-cdn.com/x/0c325282.jpg"/>
+        <img src="https://images.sh-cdn.com/x/500d7bb7.jpg"/>
+        <img src="https://images.sh-cdn.com/x/77ccdd00.jpg"/>
+        </body></html>
+    """.trimIndent()
+
+    // Detail bez /all-pages (druha galerie) - detail stale nese page linky +
+    // pocet, takze getPageList padne do sekvcencniho fallbacku.
+    private val fallbackDetailHtml = """
+        <html><head><meta property="og:url" content="/2-other/other-gallery-a0002"/></head><body>
+        <h1>Other Gallery</h1>
+        <div data-testid="pages-overview">
+          <a href="/2-other/other-gallery-a0002/page/200"><img src="https://images.sh-cdn.com/y/small_thumb_aa0011aa.jpg"/></a>
+          <a href="/2-other/other-gallery-a0002/page/201"><img src="https://images.sh-cdn.com/y/small_thumb_bb0022bb.jpg"/></a>
+        </div>
+        <a class="btn" data-testid="all-pages-link" href="/2-other/other-gallery-a0002/all-pages">View all <!-- -->2<!-- --> images</a>
+        </body></html>
+    """.trimIndent()
+
+    private val singlePageHtml = """
+        <html><body><img src="https://images.sh-cdn.com/y/aa0011aa.jpg"/></body></html>
+    """.trimIndent()
 
     @Before
     fun setUp() {
@@ -56,7 +81,11 @@ class SimplyHentaiSourceTest {
                     path.startsWith("/2-mangas/sort-most-viewed") -> MockResponse().setBody(listingHtml)
                     path == "/search/sensei-rentaru-talk" -> MockResponse().setBody(detailHtml)
                     path == "/search/nonexistent-title" -> MockResponse().setResponseCode(404)
-                    path == "/1-blue-archive/sensei-rentaru-talk-sensei-rental-talk" -> MockResponse().setBody(detailHtml)
+                    path == "/1-blue-archive/sensei-rentaru-talk-a0001" -> MockResponse().setBody(detailHtml)
+                    path == "/1-blue-archive/sensei-rentaru-talk-a0001/all-pages" -> MockResponse().setBody(allPagesHtml)
+                    path == "/2-other/other-gallery-a0002" -> MockResponse().setBody(fallbackDetailHtml)
+                    // "/all-pages" pro druhou galerii zamerne 404 -> fallback veta
+                    path == "/2-other/other-gallery-a0002/page/200" -> MockResponse().setBody(singlePageHtml)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
@@ -71,12 +100,13 @@ class SimplyHentaiSourceTest {
     }
 
     @Test
-    fun `getPopular parses the mangas array from Next-js pageProps`() = runTest {
+    fun `getPopular parses server-rendered manga cards`() = runTest {
         val result = source.getPopular(1, MangaFilter())
         assertEquals(1, result.size)
         assertEquals("Sensei Rentaru Talk", result[0].title)
-        assertEquals("https://www.simply-hentai.com/1-blue-archive/sensei-rentaru-talk-sensei-rental-talk", result[0].url)
-        assertEquals("https://images.sh-cdn.com/x/full.jpg", result[0].coverUrl)
+        assertEquals("https://www.simply-hentai.com/1-blue-archive/sensei-rentaru-talk-a0001", result[0].url)
+        // Nahled small_thumb_ se orizne na plne rozliseni
+        assertEquals("https://images.sh-cdn.com/x/0c325282.jpg", result[0].coverUrl)
     }
 
     @Test
@@ -84,6 +114,7 @@ class SimplyHentaiSourceTest {
         val result = source.search("Sensei Rentaru Talk", 1, MangaFilter())
         assertEquals(1, result.size)
         assertEquals("Sensei Rentaru Talk | Sensei Rental Talk", result[0].title)
+        assertEquals("https://www.simply-hentai.com/1-blue-archive/sensei-rentaru-talk-a0001", result[0].url)
     }
 
     @Test
@@ -93,20 +124,35 @@ class SimplyHentaiSourceTest {
     }
 
     @Test
-    fun `getMangaDetails strips HTML from description and reads artist and tags`() = runTest {
+    fun `getMangaDetails reads title and full-size cover from detail HTML`() = runTest {
         val manga = source.getPopular(1, MangaFilter())[0]
         val detail = source.getMangaDetails(manga)
-        assertEquals("A “short” summary.", detail.description)
-        assertEquals("Yanje", detail.artist)
-        assertEquals(listOf("halo"), detail.genres)
+        assertEquals("Sensei Rentaru Talk | Sensei Rental Talk", detail.title)
+        assertEquals("https://images.sh-cdn.com/x/0c325282.jpg", detail.coverUrl)
     }
 
     @Test
-    fun `getPageList reads full-resolution image URLs already embedded in the detail page`() = runTest {
+    fun `getPageList prefers all-pages with direct full URLs`() = runTest {
         val manga = source.getPopular(1, MangaFilter())[0]
         val chapters = source.getChapterList(manga)
         val pages = source.getPageList(chapters[0])
-        assertEquals(2, pages.size)
+        assertEquals(3, pages.size)
         assertEquals("https://images.sh-cdn.com/x/0c325282.jpg", pages[0].url)
+    }
+
+    @Test
+    fun `getPageList falls back to sequential page ids and getImageUrl resolves lazily`() = runTest {
+        val manga = com.haise.jiyu.source.SManga(
+            sourceId = source.id,
+            url = "https://www.simply-hentai.com/2-other/other-gallery-a0002",
+            title = "Other Gallery",
+            coverUrl = null,
+            contentType = "MANGA",
+        )
+        val chapters = source.getChapterList(manga)
+        val pages = source.getPageList(chapters[0])
+        assertEquals(2, pages.size)
+        assertEquals("https://www.simply-hentai.com/2-other/other-gallery-a0002/page/200", pages[0].url)
+        assertEquals("https://images.sh-cdn.com/y/aa0011aa.jpg", source.getImageUrl(pages[0]))
     }
 }

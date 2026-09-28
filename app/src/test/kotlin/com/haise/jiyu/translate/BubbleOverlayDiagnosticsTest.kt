@@ -43,7 +43,100 @@ class BubbleOverlayDiagnosticsTest {
     }
 
     @Test
+    fun `skip reason reports art_lettering for text painted onto artwork`() {
+        assertEquals(
+            "art_lettering",
+            bubbleSkipReason(isSfx = false, isUntranslated = false, hasTranslatableLetters = true, artLettering = true),
+        )
+    }
+
+    @Test
+    fun `art lettering beats untranslated - the block could not be drawn either way`() {
+        // Blok je nepřeložený A ZÁROVEŇ lettering v kresbě (žádný obrys, pestré pozadí) -
+        // pro důvod "proč se nic nekreslí" je strukturální vysvětlení srozumitelnější,
+        // příznak untranslated je v diagnostice zaznamenaný zvlášť.
+        assertEquals(
+            "art_lettering",
+            bubbleSkipReason(isSfx = false, isUntranslated = true, hasTranslatableLetters = true, artLettering = true),
+        )
+    }
+
+    @Test
+    fun `art text label still wins over art lettering`() {
+        // Echo originálu (logo/titul) je specifičtější příčina než samotné "na kresbě".
+        assertEquals(
+            "art_text",
+            bubbleSkipReason(isSfx = false, isUntranslated = false, hasTranslatableLetters = true, isArtText = true, artLettering = true),
+        )
+    }
+
+    @Test
     fun `skip reason is null when the block should render`() {
         assertEquals(null, bubbleSkipReason(isSfx = false, isUntranslated = false, hasTranslatableLetters = true))
+    }
+
+    // ── bubbleRenderMode ──
+
+    @Test
+    fun `render mode - plain shaped bubble without patch`() {
+        assertEquals(
+            "shaped_fill",
+            bubbleRenderMode(hasShape = true, bgUniform = true, hasPatch = false, hasRecoveredShape = false),
+        )
+    }
+
+    @Test
+    fun `render mode - shaped bubble on varied bg gets shaped_patch`() {
+        assertEquals(
+            "shaped_patch",
+            bubbleRenderMode(hasShape = true, bgUniform = false, hasPatch = true, hasRecoveredShape = false),
+        )
+    }
+
+    @Test
+    fun `render mode - shapeless lettering with patch is patched_art`() {
+        assertEquals(
+            "patched_art",
+            bubbleRenderMode(hasShape = false, bgUniform = false, hasPatch = true, hasRecoveredShape = false),
+        )
+    }
+
+    @Test
+    fun `render mode - recovered bubble with patch`() {
+        assertEquals(
+            "recovered_patch",
+            bubbleRenderMode(
+                hasShape = false,
+                bgUniform = false,
+                hasPatch = true,
+                hasRecoveredShape = true,
+                recoveredPatch = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `render mode - recovered bubble without patch`() {
+        assertEquals(
+            "recovered_fill",
+            bubbleRenderMode(hasShape = false, bgUniform = false, hasPatch = false, hasRecoveredShape = true),
+        )
+    }
+
+    @Test
+    fun `render mode - recovered shape wins over original shape`() {
+        // Obnovený obrys mění i box - má přednost i když OCR obrys existoval.
+        assertEquals(
+            "recovered_fill",
+            bubbleRenderMode(hasShape = true, bgUniform = true, hasPatch = false, hasRecoveredShape = true),
+        )
+    }
+
+    @Test
+    fun `render mode - shapeless uniform block falls back to uniform_fill`() {
+        assertEquals(
+            "uniform_fill",
+            bubbleRenderMode(hasShape = false, bgUniform = true, hasPatch = false, hasRecoveredShape = false),
+        )
     }
 }

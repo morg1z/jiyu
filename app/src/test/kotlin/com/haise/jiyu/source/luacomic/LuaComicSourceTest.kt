@@ -25,10 +25,14 @@ class LuaComicSourceTest {
         {"meta":{"total":2},"data":[{"id":2,"chapter_name":"Chapter 2","chapter_slug":"chapter-2","series_id":658},{"id":1,"chapter_name":"Chapter 1","chapter_slug":"chapter-1","series_id":658}]}
     """.trimIndent()
 
+    // Audit 2026-11: web prestal pridavat ".jpg" suffix; stranky jsou
+    // page_NNN.webp pod uploads/series/{slug}/{uuid}/. Mimo "/series/" cestu
+    // na stejnem CDN lezi i thumbnaily - parser je musi odfiltrovat.
     private val readerHtml = """
         <html><body>
-        <img src="https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/001.webp.jpg">
-        <img src="https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/002.webp.jpg">
+        <img src="https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/page_001.webp">
+        <img src="https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/page_002.webp">
+        <img src="https://media.luacomic.org/file/V4IKlhs/hc8zemhks29010jvb1v3fwir.webp">
         </body></html>
     """.trimIndent()
 
@@ -85,7 +89,7 @@ class LuaComicSourceTest {
         val chapters = source.getChapterList(manga)
         val pages = source.getPageList(chapters[1])
         assertEquals(2, pages.size)
-        assertEquals("https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/001.webp.jpg", pages[0].url)
+        assertEquals("https://media.luacomic.org/file/V4IKlhs/uploads/series/test-series/abc/page_001.webp", pages[0].url)
     }
 
     @Test

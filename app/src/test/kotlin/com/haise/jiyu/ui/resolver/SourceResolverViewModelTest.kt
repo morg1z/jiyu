@@ -31,6 +31,7 @@ class SourceResolverViewModelTest {
         isFavorite: Boolean = false,
         minChapter: Float? = null,
         maxChapter: Float? = null,
+        isDirectMirror: Boolean = false,
     ): ResolvedCandidate {
         val source = FakeSource(sourceId, sourceId)
         val manga = SManga(sourceId = sourceId, url = "https://example/$sourceId", title = "Test", coverUrl = null)
@@ -42,6 +43,7 @@ class SourceResolverViewModelTest {
             isFavorite = isFavorite,
             minChapterNumber = minChapter,
             maxChapterNumber = maxChapter,
+            isDirectMirror = isDirectMirror,
         )
     }
 
@@ -195,6 +197,55 @@ class SourceResolverViewModelTest {
             candidates = listOf(incompleteGroupMatch, completeOther),
             totalComicKChapters = 163,
             isPreferredGroup = { it.source.id == "group-match-thin" },
+        )
+
+        assertEquals("complete", ranked.first().source.id)
+    }
+
+    // ── comick.art mirror (fáze 0, sdílený slug) ─────────────────────────────
+
+    @Test
+    fun `a complete direct-mirror candidate outranks a complete group-matched source`() {
+        // Mirror = potvrzena stejna serie pres sdileny slug - kompletni mirror ma
+        // vyssi prioritu nez fuzzy skupinova shoda (mirror nese stejne verze skupin).
+        val groupMatch = candidate("group-source", matchedChapterCount = 160)
+        val mirror = candidate("comickart", matchedChapterCount = 160, isDirectMirror = true)
+
+        val ranked = rankCandidates(
+            candidates = listOf(groupMatch, mirror),
+            totalComicKChapters = 163,
+            isPreferredGroup = { it.source.id == "group-source" },
+        )
+
+        assertEquals("comickart", ranked.first().source.id)
+    }
+
+    @Test
+    fun `a complete direct mirror outranks even a complete favorite`() {
+        // Uzivatelsky pozadavek: comick.art je vychozi zdroj pro KAZDY titul,
+        // kdyz ho mirror ma kompletni - porazi i oblibeny zdroj.
+        val mirror = candidate("comickart", matchedChapterCount = 160, isDirectMirror = true)
+        val favorite = candidate("favorite", matchedChapterCount = 160, isFavorite = true)
+
+        val ranked = rankCandidates(
+            candidates = listOf(mirror, favorite),
+            totalComicKChapters = 163,
+            isPreferredGroup = ::noPreferredGroup,
+        )
+
+        assertEquals("comickart", ranked.first().source.id)
+    }
+
+    @Test
+    fun `an incomplete mirror gets no bonus and loses to a complete source`() {
+        val mirror = candidate("comickart", matchedChapterCount = 40, isDirectMirror = true, minChapter = 110f, maxChapter = 150f)
+        val complete = candidate("complete", matchedChapterCount = 148, minChapter = 1f, maxChapter = 150f)
+
+        val ranked = rankCandidates(
+            candidates = listOf(mirror, complete),
+            totalComicKChapters = 150,
+            isPreferredGroup = ::noPreferredGroup,
+            comicKRange = ChapterRange(1f, 150f),
         )
 
         assertEquals("complete", ranked.first().source.id)

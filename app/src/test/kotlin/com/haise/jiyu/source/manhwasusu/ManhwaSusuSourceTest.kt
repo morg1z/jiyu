@@ -63,12 +63,14 @@ class ManhwaSusuSourceTest {
         </body></html>
     """.trimIndent()
 
+    // Realny web: stranky jsou <img data-src=".../{serie}/chapters/{id}/{file}.jpg">,
+    // src je jen lazy placeholder (covers maji /covers/ v ceste a filtruji se pryc).
     private val chapterHtml = """
         <html><body>
         <img alt="Secret Class" src="https://s1.manhwature.com/wp-content/uploads/secret-class-01.jpg">
         <div class="reading">
-          <img src="https://s1.manhwature.com/abc/secret-class-01/chapter-310/001.jpg" data-src="https://s1.manhwature.com/abc/secret-class-01/chapter-310/001.jpg">
-          <img src="https://s1.manhwature.com/abc/secret-class-01/chapter-310/002.jpg" data-src="https://s1.manhwature.com/abc/secret-class-01/chapter-310/002.jpg">
+          <img src="/readerarea.svg" data-src="https://s1.manhwature.com/abc/secret-class-01/chapters/97765/001.jpg">
+          <img src="/readerarea.svg" data-src="https://s1.manhwature.com/abc/secret-class-01/chapters/97765/002.jpg">
         </div>
         </body></html>
     """.trimIndent()
@@ -142,8 +144,8 @@ class ManhwaSusuSourceTest {
         val chapter = source.getChapterList(manga).first { it.chapterNumber == 310f }
         val pages = source.getPageList(chapter)
         assertEquals(2, pages.size)
-        assertTrue(pages[0].url.endsWith("/chapter-310/001.jpg"))
-        assertTrue(pages[1].url.endsWith("/chapter-310/002.jpg"))
+        assertTrue(pages[0].url.endsWith("/chapters/97765/001.jpg"))
+        assertTrue(pages[1].url.endsWith("/chapters/97765/002.jpg"))
     }
 
     @Test

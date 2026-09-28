@@ -78,8 +78,214 @@ class TranslateRepository @Inject constructor(
             .addOnFailureListener { cont.resume(null) }
     }
 
-    private suspend fun glossaryFor(mangaId: String, targetLanguage: String): Map<String, String> =
-        glossaryRepository.getMap(mangaId, targetLanguage)
+    private suspend fun glossaryFor(mangaId: String, targetLanguage: String): Map<String, String> {
+        val stored = glossaryRepository.getMap(mangaId, targetLanguage)
+        // CS seed glosář (Volume->Svazek apod., audit "Hlasitost") - uložený per-manga
+        // záznam má vždy přednost (+ je univerzální - platí i pro BYOK/on-device cesty).
+        return if (targetLanguage == "Czech") GeminiUltraPrompt.DEFAULT_CS_GLOSSARY + stored else stored
+    }
+
+    /**
+     * EN slovník (~20k nejčastějších slov, `assets/en_common_words.txt`) pro slovníkový
+     * lint v [cleanOcrLatinText]. Načte se jednou a sdílí; když asset chybí, lint se
+     * prostě přeskočí (slovníková oprava je best-effort nadstavba, ne povinná fáze).
+     */
+    @Volatile
+    private var enOcrDictionary: Set<String>? = null
+
+    private fun enOcrDictionary(): Set<String> {
+        enOcrDictionary?.let { return it }
+        val loaded = runCatching {
+            context.assets.open(EN_WORDLIST_ASSET).bufferedReader().useLines { lines ->
+                lines.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            }
+        }.getOrNull()
+        if (loaded != null) enOcrDictionary = loaded
+        return loaded.orEmpty()
+    }
+
+    /**
+     * CS frekvenční slovník (~35k tvarů, `assets/cs_common_words.txt`) pro výstupní
+     * lint [suspiciousCzechTokens] - pozná zkomoleniny typu "ZATÍŽETE"/"NEMYSL"/
+     * "MUSELI". Stejný lazy/sdílený vzor jako [enOcrDictionary]; bez assetu se lint
+     * přeskočí (prázdný slovník -> flaguje nic).
+     */
+    @Volatile
+    private var csWordlist: Set<String>? = null
+
+    private fun csWordlist(): Set<String> {
+        csWordlist?.let { return it }
+        val loaded = runCatching {
+            context.assets.open(CS_WORDLIST_ASSET).bufferedReader().useLines { lines ->
+                lines.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            }
+        }.getOrNull()
+        if (loaded != null) csWordlist = loaded
+        return loaded.orEmpty()
+    }
+
+    /**
+     * Označí bloky, jejichž český překlad obsahuje podezřelé tokeny ([isSuspiciousCzechOutput]),
+     * jako `isUntranslated` - tak projdou repair retry přes [fillUntranslatedBlocks] a když
+     * ani jiný provider lepší výsledek nedá, čtenář uvidí originál místo zkomoleniny
+     * (audit: radši anglické "THAT'S NOT WHAT I MEANT" než useknuté "TO JSEM NEMYSL.").
+     */
+    private fun flagSuspiciousCzechOutput(
+        blocks: List<TranslatedBlock>,
+        classified: List<ClassifiedBubble>,
+        targetLanguage: String,
+    ): List<TranslatedBlock> {
+        if (targetLanguage != "Czech" || blocks.size != classified.size) return blocks
+        val dictionary = csWordlist()
+        if (dictionary.isEmpty()) return blocks
+        var changed = false
+        val result = blocks.mapIndexed { i, b ->
+            if (b.isSfx || b.isUntranslated || b.isArtText) {
+                b
+            } else if (isSuspiciousCzechOutput(b.translatedText, classified[i].raw.text, dictionary, enOcrDictionary())) {
+                changed = true
+                b.copy(isUntranslated = true)
+            } else b
+        }
+        return if (changed) result else blocks
+    }
+
+    /**
+     * Kontrola kvality pro přijetí výsledku REPAIR retry v [fillUntranslatedBlocks] - bez
+     * ní se zkomolenina z retry ("HLUPAKI" z auditu) tiše přijala jako hotový překlad,
+     * protože se přepisovalo přímo do výsledku bez re-lintu. Leaked placeholdery
+     * ("__g8__") odchytává [fillUntranslatedBlocks] samo, tady řešíme jen český lint.
+     */
+    private fun isRetryResultSuspicious(translated: String, source: String, targetLanguage: String): Boolean =
+        targetLanguage == "Czech" &&
+            isSuspiciousCzechOutput(translated, source, csWordlist(), enOcrDictionary())
+
+    /**
+     * Self-review pass (WP11): stejný free proxy řetězec nechá model zkontrolovat vlastní
+     * dvojice zdroj->překlad (verdikty OK/FIX/BAD, viz [TranslationReview]). Chytá chyby,
+     * které slovníkový lint strukturálně neodhalí, protože všechna slova jsou platná
+     * ("ZABIJ U TĚ", "PŘEDALI JSME MAČKY", "BYT MOŽNÉ MÍT DRINK").
+     *
+     * FIX se aplikuje jen když sám projde všemi kontrolami normálního překladu (lint +
+     * verbatim + leaked token) - review tak nemůže propašovat horší text než měl vstup.
+     * Neparsovatelná/nedostupná odpověď = fail-open, nic se nemění; jde o přídavnou
+     * vrstvu nad překladem, ne o kritický krok.
+     */
+    private suspend fun applySelfReview(
+        blocks: List<TranslatedBlock>,
+        classified: List<ClassifiedBubble>,
+        targetLanguage: String,
+    ): List<TranslatedBlock> {
+        if (targetLanguage != "Czech" || blocks.size != classified.size) return blocks
+        // Bez nakonfigurovaného proxy nemá review smysl; při plně vyčerpané kvótě ho
+        // šetříme (překlad je prioritnější než kontrola).
+        if (!geminiClient.isConfigured || providerHealth.allUnavailable()) return blocks
+        val indices = blocks.indices.filter { i ->
+            val b = blocks[i]
+            !b.isSfx && !b.isUntranslated && !b.isArtText &&
+                b.translatedText.count { it.isLetter() } >= 3
+        }
+        if (indices.isEmpty()) return blocks
+        val pairs = indices.map { classified[it].raw.text to blocks[it].translatedText }
+        val raw = runReviewAttempt(pairs, "gemini", targetLanguage)
+            ?: runReviewAttempt(pairs, "openrouter", targetLanguage)
+            ?: return blocks
+        val verdicts = TranslationReview.parse(raw) ?: return blocks
+        if (verdicts.isEmpty()) return blocks
+        val csDict = csWordlist()
+        val enDict = enOcrDictionary()
+        val out = blocks.toMutableList()
+        var changed = false
+        indices.forEachIndexed { pos, i ->
+            val r = verdicts[pos] ?: return@forEachIndexed
+            when (r.verdict) {
+                TranslationReview.Verdict.BAD -> {
+                    changed = true
+                    out[i] = out[i].copy(
+                        translatedText = out[i].originalText,
+                        displayText = out[i].originalText,
+                        isUntranslated = true,
+                    )
+                }
+                TranslationReview.Verdict.FIX -> {
+                    val fixed = r.fixed.trim()
+                    if (fixed.isNotEmpty() && !hasLeakedToken(fixed) &&
+                        !isSuspiciousVerbatimCopy(classified[i].raw.text, fixed) &&
+                        !isSuspiciousCzechOutput(fixed, classified[i].raw.text, csDict, enDict)
+                    ) {
+                        changed = true
+                        out[i] = out[i].copy(
+                            translatedText = fixed,
+                            displayText = ensureFallbackHyphens(fixed),
+                            isArtText = out[i].isArtText || isArtTextEcho(classified[i].raw.text, fixed),
+                        )
+                    }
+                }
+                TranslationReview.Verdict.OK -> Unit
+            }
+        }
+        return if (changed) out else blocks
+    }
+
+    /** Jedno review volání na jednom providerovi - jakékoli selhání vrací null (fail-open). */
+    private suspend fun runReviewAttempt(
+        pairs: List<Pair<String, String>>,
+        provider: String,
+        targetLanguage: String,
+    ): String? = try {
+        geminiClient.reviewPairs(pairs, provider, targetLanguage)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: RateLimitedException) {
+        null
+    } catch (e: Exception) {
+        e.report("translate:review:$provider")
+        null
+    }
+
+    /**
+     * Aplikuje registr jmen kapitoly/stránky ([ChapterNameRegistry], WP13) na hotové bloky:
+     * (1) poškozené varianty jmen v překladu se sjednotí na kanonický tvar ze zdroje
+     *     ("TSIJJIKAZE"->"TSUJIKAZE"), (2) identická zdrojová fráze dostane identický
+     *     překlad ("NO WAY I'M GONNA DIE!" se podruhé přeloží stejně; pokud byl její
+     *     první výskyt vyhodnocen jako untranslated, stejně dopadne i druhý - a naopak
+     *     z cache se může do-přeložit blok, který model tentokrát vynechal).
+     */
+    private fun applyChapterConsistency(
+        blocks: List<TranslatedBlock>,
+        classified: List<ClassifiedBubble>,
+        registry: ChapterNameRegistry,
+    ): List<TranslatedBlock> {
+        if (blocks.size != classified.size) return blocks
+        var changed = false
+        val out = blocks.mapIndexed { i, b ->
+            if (b.isSfx || b.isArtText) return@mapIndexed b
+            val (consistent, fromCache) = registry.consistentTranslation(
+                classified[i].raw.text, b.translatedText, wasTranslated = !b.isUntranslated,
+            )
+            if (b.isUntranslated && !fromCache) {
+                // Nepřeložený blok - translatedText JE anglický zdroj, na něj se cache
+                // ani normalizace nesahají. Ale i ten zdroj je OCR text a jména v něm
+                // bývají poškozená ("TAKEZO" bez makronu, co na stránce je) - displayText
+                // proto přes registr projdeme, ať viditelný výstup neswapuje tvary
+                // proti přeloženým bublinám ("TAKEZŌ!!" vs "TAKEZO.").
+                val fixedDisplay = ensureFallbackHyphens(registry.normalizeText(b.originalText))
+                if (fixedDisplay == b.displayText) return@mapIndexed b
+                changed = true
+                return@mapIndexed b.copy(displayText = fixedDisplay)
+            }
+            val named = registry.normalizeText(consistent)
+            if (!fromCache && named == b.translatedText) return@mapIndexed b
+            changed = true
+            b.copy(
+                translatedText = named,
+                displayText = ensureFallbackHyphens(named),
+                isUntranslated = false,
+                isArtText = b.isArtText || isArtTextEcho(classified[i].raw.text, named),
+            )
+        }
+        return if (changed) out else blocks
+    }
 
     /**
      * Krátký kontext o samotné maze (název/typ obsahu/žánry) pro [GeminiUltraPrompt] -
@@ -125,15 +331,43 @@ class TranslateRepository @Inject constructor(
         // (viz komentář tam, až 180s na jeden obrázek) nechala appku bez zpětné vazby
         // stejně dlouho i tady, jen na jedné stránce místo celé kapitoly.
         val visionOcrBudget = newVisionOcrBudgetIfConfigured()
+        // K čemu stránka došla, když OCR nic nenajde - pro diagnostiku (viz
+        // TranslationDiagnostics), jinak se prázdná stránka od žádného záznamu
+        // nepozná (vypadá jako crash mimo pipeline).
+        var ocrOutcome = "timeout"
         val rawBlocks = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
-            val bitmap = pageBitmapLoader.load(pageUrl) ?: return@withTimeoutOrNull emptyList()
-            ocrEngine.recognize(bitmap, sourceLanguage, visionOcrFallbackFor(visionOcrBudget))
+            val bitmap = pageBitmapLoader.load(pageUrl)
+            if (bitmap == null) {
+                ocrOutcome = "bitmap_failed"
+                emptyList()
+            } else {
+                ocrEngine.recognize(bitmap, sourceLanguage, visionOcrFallbackFor(visionOcrBudget)).also {
+                    ocrOutcome = if (it.isEmpty()) "no_text" else "ok"
+                }
+            }
         } ?: emptyList()
-        if (rawBlocks.isEmpty()) return emptyList()
+        if (rawBlocks.isEmpty()) {
+            TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, emptyList(), emptyList(), note = "ocr_$ocrOutcome")
+            return emptyList()
+        }
 
         val glossary = glossaryFor(mangaId, targetLanguage)
         val mangaContext = mangaContextFor(mangaId)
-        val classified = BubbleClassifier.classifyPage(rawBlocks)
+        val classifiedRaw = BubbleClassifier.classifyPage(rawBlocks.withCleanedOcrText(enOcrDictionary()))
+        // Hustá seznamová stránka (obsah kapitol/titulní list s oblouky drobného textu -
+        // audit Vagabondu: TOC dostal šedé patche a gibberish "ZacZachycéneí kapitolaí").
+        // Nemá co překládat - všechny bloky se označí jako "preserve" (SFX), takže se
+        // nikdy nepošlou modelu ani nemaskují; stránka zůstane čistý originál.
+        val densePage = isDenseTextPage(classifiedRaw)
+        val classified = if (densePage) {
+            classifiedRaw.map { it.asPreservedBlock() }
+        } else {
+            classifiedRaw
+        }
+        // Registr jmen stránky (WP13) - zdrojové kandidáty jmen pro kanonický tvar
+        // (včetně tvarů z titulku s diakritikou, "TAKEZŌ").
+        val nameRegistry = ChapterNameRegistry(englishWords = enOcrDictionary(), czechWords = csWordlist())
+        classified.forEach { if (!it.isSfx) nameRegistry.observeSource(it.raw.text) }
 
         // Návaznost při čtení stránku po stránce: co zaznělo na té předchozí. Bere se jen
         // z cache - dohledávat ji překladem by znamenalo přeložit stránku, kterou čtenář
@@ -153,7 +387,12 @@ class TranslateRepository @Inject constructor(
         //
         // Pokud není nakonfigurovaný žádný cloudový provider (Supabase/Groq/Gemini),
         // rovnou zkusíme on-device ML Kit překlad, aby uživatel viděl alespoň náhled.
-        val blocks = if (!groqClient.isConfigured) {
+        // Upstream modely, které na stránce doopravdy odpověděly - podle nich se pozná,
+        // jestli výsledek padl na slabý záložní model proxy a NEcachuje se (viz
+        // DEGRADED_MODELS a rozhodnutí u dao.upsert níž).
+        val usedModels = mutableListOf<String>()
+        val onModel: (String?) -> Unit = { m -> if (m != null) usedModels += m }
+        val chainBlocks = if (!groqClient.isConfigured) {
             translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) ?: emptyList()
         } else if (targetLanguage == "Czech") {
             // 1) Gemini. 2) Stejný "ultra" prompt (komprese/sylabické dělení), ale přes OpenRouter
@@ -180,11 +419,11 @@ class TranslateRepository @Inject constructor(
             // vyřazený (2026-09-19): free kvóta vyčerpaná, API vrací HTTP 402 "Payment required" a
             // pokračování by vyžadovalo kartu, což projekt nikdy nepoužívá.
             translateChain(
-                { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
-                { translateWithGemini(classified, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines) },
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines) },
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines) },
+                { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                { translateWithGemini(classified, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                 { translateWithByok(classified, glossary, targetLanguage, sourceLanguage) },
                 { translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) },
             )
@@ -195,14 +434,30 @@ class TranslateRepository @Inject constructor(
             // "manga"/"novel" prompt parametrizovaný cílovým jazykem, viz translate-proxy
             // systemPromptFor).
             translateChain(
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines) },
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines) },
-                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
+                { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                 { translateWithByok(classified, glossary, targetLanguage, sourceLanguage) },
                 { translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) },
             )
         }
-        if (blocks.isEmpty()) return emptyList()
+        if (chainBlocks.isEmpty()) return emptyList()
+        // Výstupní lint před gap-fill: zkomolený český výstup ("ZATÍŽETE", "NEMYSL.")
+        // se označí jako untranslated, takže dostane repair retry přes další providery
+        // v řetězci a když ani to nepomůže, čtenář vidí originál, ne gibberish.
+        val linted = flagSuspiciousCzechOutput(chainBlocks, classified, targetLanguage)
+        val filled = fillUntranslatedBlocks(
+            linted, classified,
+            gapFillSteps(glossary, targetLanguage, sourceLanguage, mangaId, mangaContext, recentLines, onModel = onModel),
+            qualityGate = { b, c -> isRetryResultSuspicious(b.translatedText, c.raw.text, targetLanguage) },
+        )
+        // Self-review pass (WP11): model zdarma zkontroluje vlastní dvojice zdroj->překlad -
+        // chytá chyby, které slovníkový lint neodhalí ("ZABIJ U TĚ", "MAČKY", "OBECNÉ").
+        val reviewed = applySelfReview(filled, classified, targetLanguage)
+        // Kanonické tvary jmen + konzistence frází (WP13) a nakonec render safety gate
+        // (WP9 - placeholder/echo leak -> untranslated, ".." -> "…").
+        val blocks = applyChapterConsistency(reviewed, classified, nameRegistry).applyRenderSafetyGate()
+        TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, classified, blocks, note = if (densePage) "dense_skip" else null, ocrRawCount = rawBlocks.size)
 
         // translateWithGemini/translateWithGroq mají svoje vlastní "accept-best-available" -
         // po vyčerpání retry řetězce použijí i výsledek ve špatném jazyce, aby jedna
@@ -212,7 +467,11 @@ class TranslateRepository @Inject constructor(
         // stejné stránky tak dostane novou šanci na správný překlad, místo aby zůstalo
         // navždy zamrzlé na jednou vadné odpovědi.
         val cacheableText = blocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
-        if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+        // Zápis do cache jen u plnohodnotné odpovědi - výsledek ze záložního (slabšího)
+        // modelu proxy se ukáže, ale neuloží, aby se po obnovení kvóty stránka překlopila
+        // zpátky na kvalitnější model (viz DEGRADED_MODELS).
+        if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)
+            && usedModels.none { it in DEGRADED_MODELS }) {
             dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = blocks.serialize()))
         }
         // Ručně opravené bubliny se napařují AŽ TEĎ, na čerstvý strojový překlad, a do cache
@@ -316,7 +575,12 @@ class TranslateRepository @Inject constructor(
         // stránku (viz newVisionOcrBudgetIfConfigured) - stránky níž běží paralelně, takže
         // AtomicInteger je nutný, obyčejný Int by se souběhem prošel bez ochrany.
         val visionOcrBudget = newVisionOcrBudgetIfConfigured()
-        var bubblesByPage: Map<Int, List<ClassifiedBubble>> = coroutineScope {
+        // Per-stránkový výsledek OCR se táhne vedle bublin - bez něj se v diagnostice
+        // timeout/selhání bitmapy/prázdná stránka nerozliší (všechno skončilo jako
+        // ploché "ocr_empty"; stejné rozlišení používá translatePage výš).
+        // rawCount vysledek nosi vedle classified - "OCR nasel N regionu, bloku vyslo M"
+        // je jediny metrika, ktera odhali tichy ztraceny text (audit - vynechane bubliny).
+        val ocrPass: List<PageOcrResult> = coroutineScope {
             uncached.map { pageIndex ->
                 async(Dispatchers.IO) {
                     // Postup se hlásí (onPageReady) až PO téhle celé awaitAll - jedna jediná
@@ -328,12 +592,13 @@ class TranslateRepository @Inject constructor(
                     // frontu na semafory, takže stránky na konci dlouhé kapitoly (webtoon, 100+ stran)
                     // vypršely dřív, než vůbec dostaly řadu, a tiše se braly jako "bez textu"
                     // (audit nalez JIYU-NET-1).
+                    var ocrOutcome = "bitmap_failed"
                     val bitmap = bitmapLoadSemaphore.withPermit {
                         withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) { pageBitmapLoader.load(pages[pageIndex]) }
                     }
                     val raw = bitmap?.let { bmp ->
                         ocrSemaphore.withPermit {
-                            withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
+                            val recognized = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
                                 // coroutineScope níž zruší VŠECHNY sourozenecké stránky, jakmile
                                 // jedna vyhodí výjimku - jedna poškozená/nepodporovaná bitmapa by
                                 // tak shodila OCR celé dávky (třeba 53 z 54 stránek), ne jen sebe.
@@ -344,21 +609,54 @@ class TranslateRepository @Inject constructor(
                                     throw e
                                 } catch (e: Exception) {
                                     e.report("translate:ocr:recognize")
+                                    ocrOutcome = "engine_error"
                                     emptyList()
                                 }
                             }
+                            if (ocrOutcome != "engine_error") {
+                                ocrOutcome = when {
+                                    recognized == null -> "timeout"
+                                    recognized.isEmpty() -> "no_text"
+                                    else -> "ok"
+                                }
+                            }
+                            recognized
                         }
                     } ?: emptyList()
-                    pageIndex to BubbleClassifier.classifyPage(raw)
+                    // TOC/titulní stránky se nepřekládají (viz isDenseTextPage u
+                    // translatePage) - jen by spotřebovaly volání a dostaly šedé patche.
+                    val cls = BubbleClassifier.classifyPage(raw.withCleanedOcrText(enOcrDictionary()))
+                    val dense = isDenseTextPage(cls)
+                    PageOcrResult(
+                        pageIndex,
+                        if (dense) cls.map { it.asPreservedBlock() } else cls,
+                        ocrOutcome, raw.size, dense,
+                    )
                 }
             }.awaitAll()
-        }.toMap()
+        }
+        var bubblesByPage: Map<Int, List<ClassifiedBubble>> = ocrPass.associate { it.pageIndex to it.classified }
+        val ocrOutcomes = ocrPass.associate { it.pageIndex to it.outcome }
+        val ocrRawCounts = ocrPass.associate { it.pageIndex to it.rawCount }
+        val ocrDense = ocrPass.associate { it.pageIndex to it.dense }
 
         val translatable = uncached.filter { bubblesByPage.getValue(it).isNotEmpty() }
         for (pageIndex in uncached) {
-            if (pageIndex !in translatable) onPageReady(pageIndex, emptyList())
+            if (pageIndex !in translatable) {
+                // Prázdný záznam stránky - bez něj se stránka bez textu (nebo s OCR
+                // selháním) od absence záznamu nepozná (viz komentář v translatePage).
+                // "ok" tady znamená: OCR bubliny našel, ale všechny skončily jako
+                // nepřekladatelné (SFX/šum) - stránka je v pořádku, jen nemá text.
+                TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, emptyList(), emptyList(), note = "ocr_${ocrOutcomes[pageIndex] ?: "empty"}", ocrRawCount = ocrRawCounts[pageIndex] ?: 0)
+                onPageReady(pageIndex, emptyList())
+            }
         }
-        if (translatable.isEmpty()) return
+        if (translatable.isEmpty()) {
+            // Chapter souhrn i pro kapitolu bez překladatelného textu - "0 bubbles"
+            // je legitimní výsledek, ne absence dat (viz recordChapter).
+            TranslationDiagnostics.recordChapter(context, chapterId, targetLanguage, pages = uncached.size, bubbles = 0, translated = 0, sfx = 0, untranslated = 0)
+            return
+        }
 
         // Webtoon/manhwa: bublina klidne pokracuje pres hranici mezi sousednimi strankami
         // (ty jsou jen rez jednoho dlouheho pruhu, ne skutecne oddelene panely) - viz
@@ -371,11 +669,25 @@ class TranslateRepository @Inject constructor(
             if (merges.isNotEmpty()) bubblesByPage = applyCrossPageMerges(bubblesByPage, merges)
         }
 
+        // Registr jmen CELE kapitoly (WP13) - kanonický tvar jména (např. "TAKEZŌ"
+        // z titulku) se naučí ze všech stránek najednou a pak sjednotí poškozené
+        // varianty v překladech ("TSIJJIKAZE", "SAKUSHO"). Slovníky slov brání
+        // přepsání běžného slova za jméno.
+        val nameRegistry = ChapterNameRegistry(englishWords = enOcrDictionary(), czechWords = csWordlist())
+        bubblesByPage.values.flatten().forEach { if (!it.isSfx) nameRegistry.observeSource(it.raw.text) }
+
         // Ocásek replik z PŘEDCHOZÍ dávky. Uvnitř dávky měl model kontext odjakživa (jde do
         // jednoho požadavku celá, v pořadí čtení), ale na hranici dávky začínal s čistým
         // stolem - uprostřed rozhovoru se pak mohlo přehodit tykání/vykání nebo oslovení.
         // Viz [GeminiUltraPrompt.recentContextLines], kde je i rozpočet.
         var recentLines = emptyList<String>()
+
+        // Akumulátory pro souhrnný "chapter" diagnostický záznam na konci - jeden řádek
+        // na kapitolu místo luštění jednotlivých page záznamů (viz recordChapter).
+        var chapterBlocks = 0
+        var chapterTranslated = 0
+        var chapterSfx = 0
+        var chapterUntranslated = 0
 
         chunkPages(translatable, bubblesByPage).forEachIndexed { chunkIndex, chunk ->
             if (chunkIndex > 0) delay(800L)
@@ -394,35 +706,59 @@ class TranslateRepository @Inject constructor(
             //
             // Pokud není nakonfigurovaný cloud (Supabase/Groq/Gemini), rovnou zkusíme
             // on-device ML Kit překlad.
-            val blocks = if (!groqClient.isConfigured) {
+            // Upstream modely použité pro TUTO dávku - degradace na slabý záložní model
+            // proxy znamená necachovat výsledky všech stránek dávky (viz DEGRADED_MODELS).
+            val chunkModels = mutableListOf<String>()
+            val onModel: (String?) -> Unit = { m -> if (m != null) chunkModels += m }
+            val chainBlocks = if (!groqClient.isConfigured) {
                 translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) ?: emptyList()
             } else if (targetLanguage == "Czech") {
                 translateChain(
-                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines) },
-                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines) },
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines) },
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines) },
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines) },
+                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                     { translateWithByok(flatBubbles, glossary, targetLanguage, sourceLanguage) },
                     { translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) },
                 )
             } else {
                 translateChain(
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines) },
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines) },
-                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
+                    { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                     { translateWithByok(flatBubbles, glossary, targetLanguage, sourceLanguage) },
                     { translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) },
                 )
             }
 
+            // Výstupní lint před gap-fill - viz stejné volání v translatePage výše.
+            val linted = flagSuspiciousCzechOutput(chainBlocks, flatBubbles, targetLanguage)
+            val filled = fillUntranslatedBlocks(
+                linted, flatBubbles,
+                gapFillSteps(glossary, targetLanguage, sourceLanguage, mangaId, mangaContext, recentLines, onModel = onModel),
+                qualityGate = { b, c -> isRetryResultSuspicious(b.translatedText, c.raw.text, targetLanguage) },
+            )
+            // Self-review + registr jmen/konzistence + render gate - viz translatePage.
+            val reviewed = applySelfReview(filled, flatBubbles, targetLanguage)
+            val blocks = applyChapterConsistency(reviewed, flatBubbles, nameRegistry).applyRenderSafetyGate()
+            // Degradace platí pro celou dávku najednou - bubliny z ní se rozdělují po
+            // stránkách až dodatečně, takže slabý model zasáhl i stránky, kde se nic
+            // nepřeložilo jinak.
+            val chunkDegraded = chunkModels.any { it in DEGRADED_MODELS }
             val perPage = splitBlocksByPage(chunk, chunk.map { bubblesByPage.getValue(it).size }, blocks)
             for ((pageIndex, pageBlocks) in perPage) {
+                TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, bubblesByPage[pageIndex].orEmpty(), pageBlocks, note = if (ocrDense[pageIndex] == true) "dense_skip" else null, ocrRawCount = ocrRawCounts[pageIndex] ?: 0)
+                chapterBlocks += pageBlocks.size
+                chapterTranslated += pageBlocks.count { !it.isSfx && !it.isUntranslated }
+                chapterSfx += pageBlocks.count { it.isSfx }
+                chapterUntranslated += pageBlocks.count { it.isUntranslated }
                 if (pageBlocks.isNotEmpty()) {
                     // Stejný důvod jako u translatePage výš - accept-best-available výsledek se
                     // pořád zobrazí (onPageReady níž), jen se neuloží natrvalo do cache.
+                    // Totéž pro degradovaný model - viz DEGRADED_MODELS.
                     val cacheableText = pageBlocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
-                    if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+                    if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode) && !chunkDegraded) {
                         dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = pageBlocks.serialize()))
                     }
                 }
@@ -435,7 +771,28 @@ class TranslateRepository @Inject constructor(
                 blocks.filter { !it.isSfx && !it.isUntranslated }.map { it.translatedText },
             )
         }
+
+        // Jeden souhrnný záznam na celou kapitolu - "kolik procent detekovaného textu se
+        // přeložilo" bez sčítání jednotlivých page záznamů (audit Vagabondu).
+        TranslationDiagnostics.recordChapter(
+            context, chapterId, targetLanguage,
+            pages = uncached.size,
+            bubbles = chapterBlocks,
+            translated = chapterTranslated,
+            sfx = chapterSfx,
+            untranslated = chapterUntranslated,
+        )
     }
+
+    /** Výsledek OCR fáze jedné stránky v [translateChapter] - viz ocrPass. */
+    private data class PageOcrResult(
+        val pageIndex: Int,
+        val classified: List<ClassifiedBubble>,
+        val outcome: String,
+        val rawCount: Int,
+        /** Dense/seznamová stránka (TOC/titulní list) - překlad se přeskočí, originál zůstane. */
+        val dense: Boolean = false,
+    )
 
 
     /**
@@ -457,6 +814,10 @@ class TranslateRepository @Inject constructor(
         mangaId: String,
         targetLanguage: String,
         previousLines: List<String> = emptyList(),
+        // Zpětná volba pro hlášení upstream modelu, který doopravdy odpověděl (viz
+        // GeminiTranslationResponse.model) - volající podle něj pozná degradaci na
+        // slabší záložní model a takový výsledek necachuje (viz translatePage).
+        onModel: (String?) -> Unit = {},
     ): List<TranslatedBlock>? {
         if (!geminiClient.isConfigured) return null
 
@@ -467,8 +828,11 @@ class TranslateRepository @Inject constructor(
         // substituce vůbec neproběhla. `substitution.classified` se používá VÝHRADNĚ pro
         // samotné odchozí requesty níže, nikde jinde.
         val substitution = GlossaryPlaceholders.substitute(classified, glossaryRepository.getProtectedEntries(mangaId, targetLanguage))
+        // Poslední nahlášený model - pro diagnostiku provider záznamu (viz níže).
+        var lastModel: String? = null
         val response = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines)
-            ?.let(substitution::restoreResponse) ?: return null
+            ?.let(substitution::restoreResponse)
+            ?.also { lastModel = it.model; onModel(it.model) } ?: return null
 
         // Model občas bublinu v odpovědi vynechá, vrátí prázdný řetězec, zacyklí se
         // (isRepetitionLoop) nebo ztratí větu (likelyDroppedSentence). Doptáme se JEN na ty
@@ -487,6 +851,7 @@ class TranslateRepository @Inject constructor(
                 mangaContext = mangaContext,
                 previousLines = previousLines,
             )?.let(substitution::restoreResponse)
+                ?.also { lastModel = it.model; onModel(it.model) }
             mergeRetry(response.bubbles.associateBy { it.id }, missing, retryResponse, classified)
         }
 
@@ -504,6 +869,7 @@ class TranslateRepository @Inject constructor(
         if (isWrongTargetLanguage(combinedText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
             val wholeBatchRetry = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines)
                 ?.let(substitution::restoreResponse)
+                ?.also { lastModel = it.model; onModel(it.model) }
             if (wholeBatchRetry != null) byId = wholeBatchRetry.bubbles.associateBy { it.id }
         }
 
@@ -568,6 +934,7 @@ class TranslateRepository @Inject constructor(
                 bgColorArgb = c.raw.bgColorTopArgb,
                 bgColorBottomArgb = c.raw.bgColorBottomArgb,
                 isSfx = false,
+                isArtText = !isUntranslated && isArtTextEcho(c.raw.text, translatedText),
                 lineCount = c.lineCount,
                 shape = c.raw.shape,
                 bubbleType = c.bubbleType,
@@ -576,6 +943,7 @@ class TranslateRepository @Inject constructor(
                 nativeLineHeightF = c.raw.nativeLineHeightF,
             )
         }
+        TranslationDiagnostics.recordProvider(context, provider, result.count { !it.isSfx }, result.count { !it.isSfx && it.isUntranslated }, targetLanguage, model = lastModel)
         return result.ifEmpty { null }
     }
 
@@ -595,12 +963,17 @@ class TranslateRepository @Inject constructor(
         provider: String = "groq",
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
+        // Viz translateWithGemini - hlášení upstream modelu, který doopravdy odpověděl.
+        onModel: (String?) -> Unit = {},
     ): List<TranslatedBlock>? {
         val toTranslate = classified.filter { !it.isSfx }
         // Stejná substituce jako v translateWithGemini (viz [GlossaryPlaceholders]), ale
         // jednodušší obnova - Groq cesta nemá echo "original" k porovnání (viz níže, výsledek
         // se páruje POZICÍ, ne id), takže stačí vrátit tokeny zpátky přímo v odpovědi.
         val substitution = GlossaryPlaceholders.substitute(toTranslate, glossaryRepository.getProtectedEntries(mangaId, targetLanguage))
+        // Poslední nahlášený model - pro diagnostiku provider záznamu (viz níže).
+        var lastModel: String? = null
+        val reportModel: (String?) -> Unit = { m -> if (m != null) lastModel = m; onModel(m) }
         var translations = if (toTranslate.isEmpty()) emptyList() else groqClient.translateBatch(
             texts = substitution.classified.map { it.raw.text },
             targetLanguage = targetLanguage,
@@ -609,6 +982,7 @@ class TranslateRepository @Inject constructor(
             provider = provider,
             mangaContext = mangaContext,
             previousLines = previousLines,
+            onModel = reportModel,
         )
         if (toTranslate.isNotEmpty() && translations.isEmpty()) return null
 
@@ -634,6 +1008,7 @@ class TranslateRepository @Inject constructor(
                     provider = provider,
                     mangaContext = mangaContext,
                     previousLines = previousLines,
+                    onModel = reportModel,
                 )
                 // Jiný počet položek než se poslalo = nedůvěryhodná odpověď, tiše zahodit a
                 // nechat původní - bezpečný fallback, žádný pád na chybějícím indexu.
@@ -646,7 +1021,7 @@ class TranslateRepository @Inject constructor(
         }
 
         var ti = 0
-        return classified.map { c ->
+        val groqBlocks = classified.map { c ->
             if (c.isSfx) {
                 sfxBlock(c)
             } else {
@@ -683,6 +1058,7 @@ class TranslateRepository @Inject constructor(
                     bgColorArgb = c.raw.bgColorTopArgb,
                     bgColorBottomArgb = c.raw.bgColorBottomArgb,
                     isSfx = false,
+                    isArtText = !isUntranslated && isArtTextEcho(c.raw.text, translated),
                     lineCount = c.lineCount,
                     shape = c.raw.shape,
                     bubbleType = c.bubbleType,
@@ -692,6 +1068,8 @@ class TranslateRepository @Inject constructor(
                 )
             }
         }
+        TranslationDiagnostics.recordProvider(context, "$provider-bare", groqBlocks.count { !it.isSfx }, groqBlocks.count { !it.isSfx && it.isUntranslated }, targetLanguage, model = lastModel)
+        return groqBlocks
     }
 
     /**
@@ -773,6 +1151,7 @@ class TranslateRepository @Inject constructor(
                     bgColorArgb = c.raw.bgColorTopArgb,
                     bgColorBottomArgb = c.raw.bgColorBottomArgb,
                     isSfx = false,
+                    isArtText = !isUntranslated && isArtTextEcho(c.raw.text, translated),
                     lineCount = c.lineCount,
                     shape = c.raw.shape,
                     bubbleType = c.bubbleType,
@@ -804,6 +1183,26 @@ class TranslateRepository @Inject constructor(
         bubbleType = c.bubbleType,
         bgUniform = c.raw.bgUniform,
         nativeLineHeightF = c.raw.nativeLineHeightF,
+    )
+
+    /**
+     * Kroky pro [fillUntranslatedBlocks]: holý překlad přes zbylé cloudové providery. "Ultra" prompt se tu nepoužívá
+     * (stejný důvod jako v řetězci výš - malý denní rozpočet), jde jen o pár bublin. ML Kit tu SCHVÁLNĚ NENÍ: bez
+     * kontextu překládá slovo po slově a jméno postavy ("Takezō") by vyšlo jako běžné slovo ("těžko") - anglický
+     * originál je pro čtenáře lepší než takový nesmysl.
+     */
+    private fun gapFillSteps(
+        glossary: Map<String, String>,
+        targetLanguage: String,
+        sourceLanguage: String,
+        mangaId: String,
+        mangaContext: String,
+        recentLines: List<String>,
+        onModel: (String?) -> Unit = {},
+    ): List<suspend (List<ClassifiedBubble>) -> List<TranslatedBlock>?> = listOf(
+        { bubbles -> translateWithGroq(bubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
+        { bubbles -> translateWithGroq(bubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
+        { bubbles -> translateWithGroq(bubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
     )
 
     /**
@@ -848,6 +1247,7 @@ class TranslateRepository @Inject constructor(
                     bgColorArgb = c.raw.bgColorTopArgb,
                     bgColorBottomArgb = c.raw.bgColorBottomArgb,
                     isSfx = false,
+                    isArtText = !isUntranslated && isArtTextEcho(c.raw.text, translated),
                     lineCount = c.lineCount,
                     shape = c.raw.shape,
                     bubbleType = c.bubbleType,
@@ -1104,8 +1504,72 @@ class TranslateRepository @Inject constructor(
          *   drive osirely zbytek unikal bez kontextu. Meni to, ktery text se vubec ulozi jako
          *   blok, jaky tvar bublina dostane, a jak se spoji fragmenty pres hranici stranky -
          *   tedy i ulozeny vysledek u vsech tri.
+         * v26: [BubbleClassifier.looksLikeWatermark] uz doménu nehledá ve zřetězeném textu
+         *   (mezery odstraněné) - vznikala falešná doména z hranice vět ("THIS. I OWE" ->
+         *   "THIS.IO" ≈ doména .io) a celá bublina se uložila jako SFX = nikdy přeložená.
+         *   Taková cache by bez zvýšení verze chybný příznak nesla navždy.
+         * v27: [cleanOcrLatinText] nově opravuje i OCR šum uvnitř verzálkových slov
+         *   ("MAKE6"->"MAKES", "LIMlTS"->"LIMITS") - mění se `original` bloků i vstup
+         *   pro překlad, takže stránky uložené se zkomoleným textem se mají překladit
+         *   znovu.
+         * v28: Vagabond audit balík - (1) [BubbleClassifier]: krátká slova se samohláskou
+         *   nad kresbou už nejsou automaticky SFX (hranice snížená na <=4 písmena) - "THAT'S…",
+         *   "SWORDS?", "LETHAL…" už nejsou tiché vynechání. (2) [BubbleMerge]: fragmenty ve
+         *   stejném YOLO boxu se sloučí před překladem ("MATA-HACHI'S BEEN" + "PTÁM SE TĚ."
+         *   už nejsou dvě půlky). (3) [cleanOcrLatinText]: slovníkový lint přes
+         *   en_common_words.txt (unikátní edit-distance-1 oprava, "FOGET"->"FORGET").
+         *   (4) [TranslatedBlock.isArtText]: "Vagakond"->"Vagabond" echo se nově ukládá jako
+         *   art-text a render ho přeskočí - staré záznamy by obyčejný overlay přes logo
+         *   kreslily dál. (5) WP6: nová prompt sekce "ČESKÁ MORFOLOGIE" (vokativ, genitivní
+         *   slovosklad, Volume->Svazek, povinná diakritika i ve verzálkách, konzistence
+         *   makronů), seed glosář [GeminiUltraPrompt.DEFAULT_CS_GLOSSARY] a výstupní lint
+         *   [isSuspiciousCzechOutput] nad cs_common_words.txt - zkomoleniny ("ZATÍŽETE",
+         *   "NEMYSL.") se označí untranslated a dostanou repair retry místo zobrazení.
+         * v29: Vagabond QA audit druhého kola - sedm změn uložených/vykreslených dat:
+         *   (1) [isDenseTextPage] - husté seznamové stránky (TOC/titulní list) se označí
+         *   "dense_skip" a nepřekládají vůbec (čistý originál místo šedých patchů a
+         *   gibberishe "ZacZachycéneí kapitolaí"). (2) [applyRenderSafetyGate] -
+         *   leaked placeholdery ("__g8__", "⟦JIYU_PROTECT_0⟧", "[UNTRANSLATED]") a
+         *   překlad-echo cizí bubliny se nikdy nevykreslí; ".." se normalizuje na "…".
+         *   (3) Lint [isSuspiciousCzechOutput] je přísnější na krátkých blocích a dostává
+         *   anglický slovník pro detekci EN úniku; výsledky repair retry v
+         *   [fillUntranslatedBlocks] jím nově procházejí znovu (předtím se zkomolenina
+         *   "HLUPAKI" tiše přijala). (4) [ChapterNameRegistry] - kanonické tvary jmen a
+         *   konzistence frází v rámci kapitoly ("TSIJJIKAZE"->"TSUJIKAZE"; stejná věta =
+         *   stejný překlad). (5) Self-review pass [applySelfReview] - model zkontroluje
+         *   vlastní dvojice zdroj->překlad (OK/FIX/BAD) přes stávající free proxy.
+         *   (6) [joinIntraLineHyphens] v [cleanOcrLatinText] - "VAL- LAGE"->"VILLAGE",
+         *   "MUSH- ROOM"->"MUSHROOM". (7) Inverzní OCR pass v [OcrEngine.recognize] pro
+         *   bílý text na tmavé kresbě. (8) [isArtTextEcho] nově kryje logo+přilepený
+         *   pojem (cover "VAGAKOND...SVAZEK"). (9) [mergeUntranslatedSiblingBlocks]
+         *   pohltí i drobné SFX fragmenty sousedící s přeloženou bublinou.
+         *
+         * v30: Záchrana useknutých odpovědí - [GeminiUltraPrompt.parseTruncatedResponse]
+         *   parsuje kompletní bubliny z prefixu uříznutého JSONu místo zahození celé
+         *   dávky (v auditu na zařízení takhle zůstalo ~40 % bublin anglicky, protože
+         *   Gemini narazil na output limit a ocásek se ztratil). V [applyChapterConsistency]
+         *   se navíc normalizují jména i v displayText nepřeložených bloků - "TAKEZO."
+         *   bez makronu vedle "TAKEZŌ!!" vypadalo jako swap tvaru.
+         * v31: SFX se už nikdy nesmí překládat - [BubbleClassifier.sfxWords] rozšířený o
+         *   Vizbig/VIZ i běžné manga zvuky (TROMP, PLISH, SPLORSH, THOOSH, BRAAR, ...),
+         *   které sedí V bílé bublině (bgUniform) a mají samohlásky, takže je žádné
+         *   obsahové pravidlo nechytilo a šly na překlad (TROMP->"DUP", "(HLIF HLUF)"->
+         *   "(Huf huf)" se dokonce vykreslilo přes originál). [isAllSfxTokens] místo
+         *   opakování TÉHOŽ slova teď přijímá jakoukoli kombinaci zvukových tokenů s
+         *   OCR tolerancí lev<=1 - "HLIF HLUF" už nejde na model, zůstává originál.
          */
-        internal const val PIPELINE_VERSION = 25
+        internal const val PIPELINE_VERSION = 31
+
+        /**
+         * Záložní modely, na které proxy sama přepne při přetížení hlavního (viz
+         * GROQ_FALLBACK_MODEL/GEMINI_FALLBACK_MODEL v supabase/functions/translate-proxy/index.ts)
+         * a které hlásí v poli "model" odpovědi. Jejich výstup se ukáže (lepší degradovaný
+         * překlad než žádný), ale NEcachuje - až se hlavní model vrátí, má stránka při
+         * příštím zobrazení dostat jeho kvalitnější překlad místo navždy uloženého
+         * degradovaného. Zahrnuje i stránky, kde jen ČÁST dávky (retry/gap-fill) doběhla
+         * na slabém modelu - složený výsledek je taky degradovaný.
+         */
+        internal val DEGRADED_MODELS = setOf("gemini-3.5-flash-lite", "qwen/qwen3.8-27b")
 
         /** Maximální počet znaků originálu na jedno API volání - drží výstup pod limitem max_tokens. */
         internal const val NOVEL_CHUNK_CHAR_LIMIT = 2500
@@ -1155,6 +1619,19 @@ class TranslateRepository @Inject constructor(
          * desítky bublin jen proto, že třeba celá stránka je nekvalitní sken.
          */
         private const val MAX_VISION_OCR_FALLBACKS_PER_CHAPTER = 5
+
+        /**
+         * Asset s ~20k nejčastějšími anglickými slovy (jedno na řádek, lowercase) -
+         * slovníkový lint v [cleanOcrLatinText], viz [enOcrDictionary].
+         */
+        private const val EN_WORDLIST_ASSET = "en_common_words.txt"
+
+        /**
+         * Asset s ~35k nejčastějšími českými slovními tvary (jedno na řádek, lowercase,
+         * frekvenční seznam z OpenSubtitles) - výstupní lint [suspiciousCzechTokens],
+         * viz [csWordlist].
+         */
+        private const val CS_WORDLIST_ASSET = "cs_common_words.txt"
     }
 
     // ── Light novel překlad (prostý text, ne obrázek) ────────────────────────
@@ -1221,13 +1698,19 @@ class TranslateRepository @Inject constructor(
             suspend fun isBadBatch(candidate: List<String>) =
                 candidate.size != chunk.size || isWrongTargetLanguage(candidate.joinToString(" "), targetLanguage, identifyLanguage = ::identifyLanguageCode)
 
-            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext, previousLines = previousLines)
+            // Degradace na záložní model proxy (viz DEGRADED_MODELS) - výsledek se použije
+            // pro tohle zobrazení, ale kapitola se necachuje, stejná filozofie jako
+            // accept-best-available u špatného jazyka výš.
+            val chunkModels = mutableListOf<String>()
+            val onModel: (String?) -> Unit = { m -> if (m != null) chunkModels += m }
+            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
             if (isBadBatch(translated)) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext, previousLines = previousLines)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
             }
             if (isBadBatch(translated)) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
             }
+            if (chunkModels.any { it in DEGRADED_MODELS }) cacheable = false
             // Strukturalni selhani na VSECH providerech (spatny pocet odstavcu v odpovedi) -
             // drive `return null` zahodilo i vsechny uz uspesne prelozene predchozi chunky
             // cele kapitoly (nahlaseno v auditu). Misto toho se pro tenhle kus pouzije puvodni
@@ -1361,6 +1844,15 @@ internal fun splitBlocksByPage(
     bubbleCounts: List<Int>,
     blocks: List<TranslatedBlock>,
 ): List<Pair<Int, List<TranslatedBlock>>> {
+    // Invariant: `blocks` MUSÍ mít přesně `bubbleCounts.sum()` položek - všechny
+    // provider cesty ho drží (chybějící odpověď se doplňuje originálem, ne zahazuje).
+    // Kdyby ho nějaká budoucí cesta porušila, slicování "naslepo" by tiše přidělilo
+    // bloky stránkám, které je neposlaly (posunuté mapování z auditu zlodějské
+    // sekvence). Neshoda se proto aspoň zaloguje - koncové stránky dostanou prázdno.
+    val expected = bubbleCounts.sum()
+    if (blocks.size != expected) {
+        Log.w("TranslateRepository", "splitBlocksByPage: odpověď má ${blocks.size} bloků, stránky poslaly $expected - koncové stránky zůstanou bez překladu")
+    }
     var offset = 0
     return pageIndices.mapIndexed { i, pageIndex ->
         val count = bubbleCounts[i]
@@ -1383,4 +1875,60 @@ internal suspend fun translateChain(vararg steps: suspend () -> List<TranslatedB
     }
     if (anyRateLimited) throw RateLimitedException()
     return emptyList()
+}
+
+/**
+ * Dopřeloží bubliny, které po celém řetězci providerů zůstaly nepřeložené (model je vynechal nebo vrátil
+ * nepoužitelně a opravný dotaz selhal, typicky při přetíženém Gemini). Dřív takové bubliny zůstaly anglicky,
+ * protože [translateChain] se zajímá jen o to, jestli provider vrátil něco - ne o to, jestli přeložil všechno.
+ *
+ * Posílají se JEN nepřeložené bubliny (levné volání navíc), postupně přes [steps], dokud nějaké zbývají.
+ * [blocks] a [classified] musí být stejně dlouhé (pozice = bublina), jinak se nic nemění. Selhání kroku
+ * (výjimka RateLimited, null, jiný počet výsledků) se přeskočí a zkusí se další - nikdy to neshodí stránku.
+ */
+internal suspend fun fillUntranslatedBlocks(
+    blocks: List<TranslatedBlock>,
+    classified: List<ClassifiedBubble>,
+    steps: List<suspend (List<ClassifiedBubble>) -> List<TranslatedBlock>?>,
+    /**
+     * Poslední kontrola před přijetím opraveného výsledku - retry může vyrobit
+     * zkomoleninu znovu ("HLUPAKI" z auditu se tiše přijalo jako hotový překlad).
+     * true = výsledek je nedůvěryhodný a blok má zůstat untranslated (zkusí se další
+     * provider, nakonec originál). Výchozí = bez kontroly; u českého cíle se předává
+     * lint [isSuspiciousCzechOutput].
+     */
+    qualityGate: (TranslatedBlock, ClassifiedBubble) -> Boolean = { _, _ -> false },
+): List<TranslatedBlock> {
+    if (blocks.size != classified.size) return blocks
+    var remaining = classified.indices.filter { i ->
+        !classified[i].isSfx && blocks[i].isUntranslated && classified[i].raw.text.count { it.isLetter() } >= 2
+    }
+    if (remaining.isEmpty()) return blocks
+    val result = blocks.toMutableList()
+    for (step in steps) {
+        if (remaining.isEmpty()) break
+        val translated = try {
+            step(remaining.map { classified[it] })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: RateLimitedException) {
+            null
+        }
+        if (translated == null || translated.size != remaining.size) continue
+        remaining = remaining.filterIndexed { j, i ->
+            val candidate = translated[j]
+            // Placeholder z retry ("__g8__", "[UNTRANSLATED]") ani opakovaná zkomolenina
+            // se nepřijmou - blok zůstane v remaining pro dalšího providera / nakonec
+            // pro originál, místo aby se vykreslil rozbitý overlay.
+            if (candidate.isUntranslated || hasLeakedToken(candidate.translatedText) ||
+                qualityGate(candidate, classified[i])
+            ) {
+                true
+            } else {
+                result[i] = candidate
+                false
+            }
+        }
+    }
+    return result
 }

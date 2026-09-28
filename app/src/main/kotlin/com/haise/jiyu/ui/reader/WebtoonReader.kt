@@ -14,17 +14,22 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,19 +52,31 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.request.ImageRequest
 import com.haise.jiyu.R
 import com.haise.jiyu.translate.TranslatedBlock
+import com.haise.jiyu.util.PageSlicePlan
+import com.haise.jiyu.util.PageSliceRequest
 import compose.icons.TablerIcons
+import compose.icons.tablericons.AlertCircle
 import compose.icons.tablericons.ArrowLeft
 import compose.icons.tablericons.ArrowRight
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // ── Vertikální webtoon reader ────────────────────────────────────────────────
@@ -95,6 +112,11 @@ fun WebtoonReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    // True po dobu, co ViewModel stahuje a připojuje další segment (viz
+    // ReaderViewModel.appendNextWebtoonSegment) - bez indikace uživatel na konci
+    // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
+    // "mrtvého" scrollu na pomalém zdroji).
+    isAppendingNextChapter: Boolean = false,
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
@@ -190,7 +212,10 @@ fun WebtoonReader(
             // Nekonecne cteni - jakmile se priblizime ke konci POSLEDNIHO nacteneho segmentu,
             // ViewModel potichu stahne a prileji dalsi kapitolu (viz appendNextWebtoonSegment) -
             // pokud uz zadna neni/neni zapnute, je to no-op.
-            if (idx >= lastPageFlatIndex - 3) onNeedMoreSegments()
+            // Práh držen znatelne pred koncem - fetch segmentu na pomalem zdroji trva
+            // i desitky sekund, 3 stranky rezervy nestacily a scroll dorazil na konec
+            // driv, nez novy obsah dorazil (live audit).
+            if (idx >= lastPageFlatIndex - APPEND_PREFETCH_DISTANCE) onNeedMoreSegments()
         }
     }
 
@@ -204,6 +229,16 @@ fun WebtoonReader(
 
     val maxFlatIndex = remember(segments) {
         (segmentRanges.lastOrNull()?.let { it.startFlat + it.pageCount - 1 } ?: 0).coerceAtLeast(0)
+    }
+
+    // Placeholder vyska pro nenactene stranky (viz WebtoonPage): fixni 0.7 minej
+    // realny pomer stranek (VIZBIG ~0.66, barevne/dvoustranky i 1.4), takze se celkova
+    // vyska listu menila podkladama podkladama, jak se obrazky donacitaly - podklad
+    // se ted odvozuje z medianu SKUTECNE namerenych pomeru v teto kapitole. Manga zdroje
+    // maji pomer stranek dost konzistentni, takze median se ustali po par strankach.
+    val pageAspectSamples = remember { mutableStateListOf<Float>() }
+    val placeholderAspectRatio by remember {
+        derivedStateOf { medianPlaceholderAspect(pageAspectSamples) }
     }
 
     LazyColumn(
@@ -287,6 +322,7 @@ fun WebtoonReader(
         segments.forEachIndexed { segIdx, seg ->
             webtoonSegmentItems(
                 segment = seg,
+                zoomActive = scale > 1f,
                 translateMode = translateMode,
                 translatedPagesByChapter = translatedPagesByChapter,
                 textScale = textScale,
@@ -295,6 +331,14 @@ fun WebtoonReader(
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
                 referer = referer,
+                placeholderAspectRatio = placeholderAspectRatio,
+                onPageAspectMeasured = { ratio ->
+                    pageAspectSamples.add(ratio)
+                    // Strop na pocet vzorku - u dlouhe kapitoly by seznam rostl bez
+                    // meze; stare stranky (recompose po odscrollovani) navic hlasí
+                    // pomer znovu, takze staci poslednich par desitek.
+                    while (pageAspectSamples.size > MAX_ASPECT_SAMPLES) pageAspectSamples.removeAt(0)
+                },
             )
             if (segIdx != segments.lastIndex) {
                 item(key = "boundary:${seg.chapterId}") {
@@ -307,11 +351,17 @@ fun WebtoonReader(
                 }
             }
         }
+        if (isAppendingNextChapter) {
+            item(key = "appending_next_chapter") {
+                NextChapterLoadingRow()
+            }
+        }
     }
 }
 
 private fun LazyListScope.webtoonSegmentItems(
     segment: WebtoonSegment,
+    zoomActive: Boolean,
     translateMode: Boolean,
     translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>>,
     textScale: Float,
@@ -320,12 +370,15 @@ private fun LazyListScope.webtoonSegmentItems(
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     referer: String?,
+    placeholderAspectRatio: Float,
+    onPageAspectMeasured: (Float) -> Unit,
 ) {
     val chapterTranslations = translatedPagesByChapter[segment.chapterId] ?: emptyMap()
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
         WebtoonPage(
             pageUrl = pageUrl,
             pageIndex = index,
+            zoomActive = zoomActive,
             translateMode = translateMode,
             translatedBlocks = chapterTranslations[index] ?: emptyList(),
             textScale = textScale,
@@ -334,6 +387,31 @@ private fun LazyListScope.webtoonSegmentItems(
             onToggleBubbleFlip = onToggleBubbleFlip,
             onEditBubble = onEditBubble,
             referer = referer,
+            placeholderAspectRatio = placeholderAspectRatio,
+            onPageAspectMeasured = onPageAspectMeasured,
+        )
+    }
+}
+
+/** Indikace "stahuju se stranky dalsi kapitoly" na konci seznamu - viz isAppendingNextChapter. */
+@Composable
+private fun NextChapterLoadingRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.dp,
+            color = Color.White.copy(alpha = 0.7f),
+        )
+        Text(
+            text = stringResource(R.string.webtoon_loading_next_chapter),
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 13.sp,
         )
     }
 }
@@ -396,6 +474,7 @@ private fun ChapterBoundaryCard(
 private fun WebtoonPage(
     pageUrl: String,
     pageIndex: Int,
+    zoomActive: Boolean,
     translateMode: Boolean,
     translatedBlocks: List<TranslatedBlock>,
     textScale: Float,
@@ -404,6 +483,8 @@ private fun WebtoonPage(
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     referer: String? = null,
+    placeholderAspectRatio: Float = WEBTOON_PLACEHOLDER_ASPECT_RATIO,
+    onPageAspectMeasured: (Float) -> Unit = {},
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     // `size` z onSizeChanged se nastaví, jakmile Compose obrázek ZALOŽÍ (i během
@@ -413,6 +494,41 @@ private fun WebtoonPage(
     // načíst (viz shouldShowTranslationOverlay).
     var imageLoaded by remember(pageUrl) { mutableStateOf(false) }
     val density = LocalDensity.current
+    val context = LocalContext.current
+
+    // Extrémně vysoké stránky (> 8192 px): jediná bitmapa by byla ~96 MB a nad GPU
+    // texture limit se ani nevykreslí - PageSlicer je rozdělí na řezy dekódované
+    // po regionech v nativní kvalitě (viz PageSlicePlan.Tiled). Normální stránky
+    // dostanou Single a jedou původní cestou beze změny.
+    val pageSlicer = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext, PageSliceEntryPoint::class.java,
+        ).pageSlicer()
+    }
+    val slicePlan by androidx.compose.runtime.produceState<PageSlicePlan?>(
+        initialValue = null, pageUrl, cropBorders, referer,
+    ) {
+        value = pageSlicer.plan(pageUrl, referer, cropBorders)
+    }
+    val tiledPlan = slicePlan as? PageSlicePlan.Tiled
+
+    // U řezané stránky známe přesný poměr stran hned z plánu - žádný placeholder skok
+    // a overlay má souřadný rámec dřív, než dojedou pixely řezů.
+    LaunchedEffect(tiledPlan) {
+        if (tiledPlan != null) {
+            imageLoaded = true
+            onPageAspectMeasured(tiledPlan.aspect)
+        }
+    }
+
+    // Namereny sirka/vyska pomer realne stranky slouzi jako odhad vysky placeholdru
+    // u dosud nenactenych stranek (viz placeholderAspectRatio vyse) - cim vernejsi
+    // placeholder, tim mensi posuv obsahu, kdyz se stranka doloaduje.
+    LaunchedEffect(imageLoaded, size) {
+        if (imageLoaded && size.width > 0 && size.height > 0) {
+            onPageAspectMeasured(size.width.toFloat() / size.height.toFloat())
+        }
+    }
 
     // Dokud stránka nemá skutečný obrázek (a tedy ani vlastní výšku), Coilův placeholder
     // nemá žádný intrinsic rozměr a Box by se v LazyColumn (viz [WebtoonSegmentPages])
@@ -424,31 +540,49 @@ private fun WebtoonPage(
     val pageModifier = if (imageLoaded) {
         Modifier.fillMaxWidth()
     } else {
-        Modifier.fillMaxWidth().aspectRatio(WEBTOON_PLACEHOLDER_ASPECT_RATIO)
+        Modifier.fillMaxWidth().aspectRatio(placeholderAspectRatio)
     }
 
     Box(modifier = pageModifier) {
-        RetryableAsyncImage(
-            url = pageUrl,
-            contentDescription = stringResource(R.string.reader_page_content_desc, pageIndex + 1),
-            contentScale = ContentScale.FillWidth,
-            cropBorders = cropBorders,
-            // fillMaxSize (ne jen fillMaxWidth) POUZE dokud platí vyhrazený poměr stran výš -
-            // jinak by loading indikátor (matchParentSize v RetryableAsyncImage) zdědil
-            // stejnou nulovou výšku, kterou má tenhle box vyřešit. Po načtení box zase
-            // jen obaluje skutečný obrázek (fillMaxWidth, výška podle obsahu).
-            modifier = if (imageLoaded) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
-            imageModifier = Modifier
-                .fillMaxWidth()
-                .onSizeChanged { size = it },
-            onLoadedChange = { imageLoaded = it },
-            referer = referer,
-        )
+        // slicePlan == null = plán se ještě počítá (decoduje jen hlavičku/bounds). Zatím
+        // nesmíme spustit RetryableAsyncImage - pro vysokou stránku by Coil začal dekódovat
+        // celou ~96 MB bitmapu dřív, než plán vrátí Tiled. Placeholder drží místo.
+        if (tiledPlan != null) {
+            TiledWebtoonPage(
+                plan = tiledPlan,
+                pageUrl = pageUrl,
+                referer = referer,
+                cropBorders = cropBorders,
+                zoomActive = zoomActive,
+                onSizeChanged = { size = it },
+            )
+        } else if (slicePlan == PageSlicePlan.Single) {
+            RetryableAsyncImage(
+                url = pageUrl,
+                contentDescription = stringResource(R.string.reader_page_content_desc, pageIndex + 1),
+                contentScale = ContentScale.FillWidth,
+                cropBorders = cropBorders,
+                // fillMaxSize (ne jen fillMaxWidth) POUZE dokud platí vyhrazený poměr stran výš -
+                // jinak by loading indikátor (matchParentSize v RetryableAsyncImage) zdědil
+                // stejnou nulovou výšku, kterou má tenhle box vyřešit. Po načtení box zase
+                // jen obaluje skutečný obrázek (fillMaxWidth, výška podle obsahu).
+                modifier = if (imageLoaded) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
+                imageModifier = Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { size = it },
+                onLoadedChange = { imageLoaded = it },
+                // Crossfade fade-uje i disk-cache hity - u predstazenych stranek scrollu
+                // "dolehal" obrazek ~300ms po zobrazeni boxu (viz ReaderPager).
+                disableCrossfade = true,
+                referer = referer,
+            )
+        }
         // ContentScale.FillWidth nemá letterbox - vykreslený obrázek VŽDY přesně
         // odpovídá naměřenému `size` (žádné mezery po stranách/nahoře/dole na rozdíl
         // od MangaReaderu, kde se imageRect počítá přes imageDisplayRect), takže stačí
         // holý obdélník (0,0)..(šířka,výška) a stejný sdílený BubbleOverlayLayer jako
-        // v MangaReaderu (ReaderPager.kt) - viz TranslationLayer.kt.
+        // v MangaReaderu (ReaderPager.kt) - viz TranslationLayer.kt. Pro řezanou stránku
+        // je `size` rozměr celého sloupce řezů = rozměr původní stránky.
         if (translateMode && size != IntSize.Zero &&
             shouldShowTranslationOverlay(hasBlocks = translatedBlocks.isNotEmpty(), imageLoaded = imageLoaded)
         ) {
@@ -470,5 +604,183 @@ private fun WebtoonPage(
     }
 }
 
+/**
+ * Řezaná stránka s RUČNÍ virtualizací: vnořený `Column` v položce `LazyColumn` složí
+ * všechny řezy najednou (samotný LazyColumn virtualizuje jen stránky, ne řezy), takže
+ * bez viditelnostního gate by v paměti zůstala celá stránka - a ~96 MB bitmapa, před
+ * kterou řezy chrání, by se vlastně dekódovala po kusech, ale najednou. Proto se z
+ * pozice v okně spočítá rozsah viditelných řezů (+1 rezerva každým směrem) a řezy mimo
+ * něj jsou jen `Spacer` se správným poměrem stran - žádný decode, žádná bitmapa, jen
+ * správná výška. Bitmapy odscrollovaných řezů uvolní Compose+GC hned, případně je krátce
+ * podrží Coil memory cache (LRU).
+ */
+@Composable
+private fun TiledWebtoonPage(
+    plan: PageSlicePlan.Tiled,
+    pageUrl: String,
+    referer: String?,
+    cropBorders: Boolean,
+    zoomActive: Boolean,
+    onSizeChanged: (IntSize) -> Unit,
+) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    var visibleSlices by remember(plan) { mutableStateOf(0..0) }
+    var lastCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    fun updateVisibleSlices(coords: LayoutCoordinates) {
+        val bounds = coords.boundsInWindow()
+        val range = visibleSliceRange(bounds.top, bounds.height, view.height.toFloat(), plan.slices.size)
+        if (range != visibleSlices) visibleSlices = range
+    }
+
+    // Pinch-zoom posouvá stránku přes graphicsLayer předka - onGloballyPositioned na
+    // transformace předků na starších Compose verzích nemusí dobíhat, takže dokud je
+    // zoom aktivní, rozsah přepočítáváme každý frame (bez zoomu loop netiká - vsync
+    // by jinak držel CPU vzhůru i na statické obrazovce).
+    LaunchedEffect(zoomActive, plan) {
+        if (!zoomActive) return@LaunchedEffect
+        while (isActive) {
+            withFrameNanos { }
+            lastCoords?.takeIf { it.isAttached }?.let(::updateVisibleSlices)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onSizeChanged(onSizeChanged)
+            // boundsInWindow → rozsah řezů ve viewportu. onGloballyPositioned se volá při
+            // každém posunu, ale state se mění jen při překročení hranice řezu, takže
+            // scroll nerecomposeuje každý frame.
+            .onGloballyPositioned { coords ->
+                lastCoords = coords
+                updateVisibleSlices(coords)
+            },
+    ) {
+        plan.slices.forEachIndexed { sliceIndex, rect ->
+            val sliceAspect = rect.width().toFloat() / rect.height().toFloat()
+            if (sliceIndex in visibleSlices) {
+                WebtoonPageSlice(
+                    pageUrl = pageUrl,
+                    sliceIndex = sliceIndex,
+                    sliceAspect = sliceAspect,
+                    referer = referer,
+                    cropBorders = cropBorders,
+                )
+            } else {
+                // Mimo viewport: jen vyhrazené místo se správným poměrem - žádná bitmapa.
+                androidx.compose.foundation.layout.Spacer(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(sliceAspect),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Jeden řez extrémně vysoké stránky (viz [PageSlicePlan.Tiled]). Dekóduje se přes
+ * [com.haise.jiyu.source.PageSliceFetcher] v nativní kvalitě; řez se sama drží
+ * správnou výšku přes `aspectRatio`, takže se řezy skládají bez švů i před příchodem
+ * pixelů. Chyba ukáže hubený řádek s "Zkusit znovu" jen pro tenhle řez.
+ */
+@Composable
+private fun WebtoonPageSlice(
+    pageUrl: String,
+    sliceIndex: Int,
+    sliceAspect: Float,
+    referer: String?,
+    cropBorders: Boolean,
+) {
+    val context = LocalContext.current
+    var retryTrigger by remember(sliceIndex) { mutableStateOf(0) }
+    var isError by remember(sliceIndex) { mutableStateOf(false) }
+    var autoRetried by remember(sliceIndex) { mutableStateOf(false) }
+    // Stejná politika jako RetryableAsyncImage: jeden tichý opakovaný pokus, teprve pak
+    // uživatelské tlačítko - přechodný výpadek CDN neblikne chybovým řádkem uprostřed stránky.
+    LaunchedEffect(isError) {
+        if (isError && !autoRetried) {
+            autoRetried = true
+            delay(1_500L)
+            isError = false
+            retryTrigger++
+        }
+    }
+    val request = remember(pageUrl, sliceIndex, referer, cropBorders, retryTrigger) {
+        ImageRequest.Builder(context)
+            .data(PageSliceRequest(pageUrl, sliceIndex, referer, cropBorders))
+            .memoryCacheKey("pageSlice:$pageUrl:$sliceIndex:$cropBorders")
+            .build()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(sliceAspect),
+    ) {
+        AsyncImage(
+            model = request,
+            contentDescription = null,
+            contentScale = ContentScale.FillWidth,
+            modifier = Modifier.fillMaxSize(),
+            onState = { state ->
+                isError = state is AsyncImagePainter.State.Error
+            },
+        )
+        if (isError && autoRetried) {
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                OutlinedButton(onClick = { isError = false; autoRetried = false }) {
+                    Icon(TablerIcons.AlertCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                    Text(stringResource(R.string.common_retry), fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
 /** Šířka/výška typické manga/manhwa stránky na výšku - jen provizorní odhad, než dorazí skutečný obrázek (viz [WebtoonPage]). */
 private const val WEBTOON_PLACEHOLDER_ASPECT_RATIO = 0.7f
+
+/**
+ * Bezpecne meze pro odhad pomeru stranek z namerenych vzorku - stranka uzsi nez 0.5
+ * je u mangy temer nemozna a nad 1.6 jde o zridkavy spread/ilustraci; bez oříznutí
+ * by jedna siřená barevná stránka vychýlila placeholder vsem ostatním.
+ */
+private const val PLACEHOLDER_ASPECT_MIN = 0.5f
+private const val PLACEHOLDER_ASPECT_MAX = 1.6f
+
+/** Kolik stranek pred koncem posledniho segmentu se spusti dotaz na dalsi kapitolu - viz snapshotFlow ve [WebtoonReader]. */
+private const val APPEND_PREFETCH_DISTANCE = 6
+
+/** Horni mez poctu vzorku pomeru stranek pro median placeholderu - viz pageAspectSamples ve [WebtoonReader]. */
+private const val MAX_ASPECT_SAMPLES = 40
+
+/**
+ * Rozsah indexů řezů k dekódování: řezy protínající viewport + 1 rezerva každým směrem
+ * (viz [TiledWebtoonPage]). `pageTopInWindow` = y-souřadnice horního okraje stránky v okně
+ * (záporná = stránka přečuhuje nad obrazovku). Stránka celá mimo viewport vrátí prázdný
+ * rozsah - neviditelné řezy zůstávají jen vyhrazené místo (Spacer), žádný decode.
+ * Internal pro JVM testy - čistá matematika bez Compose.
+ */
+internal fun visibleSliceRange(
+    pageTopInWindow: Float,
+    pageHeightPx: Float,
+    viewportHeightPx: Float,
+    sliceCount: Int,
+): IntRange {
+    if (pageHeightPx <= 0f || sliceCount <= 0) return IntRange.EMPTY
+    val first = ((-pageTopInWindow / pageHeightPx) * sliceCount).toInt()
+    val last = (((viewportHeightPx - pageTopInWindow) / pageHeightPx) * sliceCount).toInt()
+    return (first - 1).coerceAtLeast(0)..(last + 1).coerceAtMost(sliceCount - 1)
+}
+
+/**
+ * Odhad pomeru sirka/vyska pro placeholder nenactene stranky - median namerenych
+ * vzorku (outlier dvoustrana/kratka ilustrace ho nevyhodi), orezany na sane meze,
+ * fallback na fixni odhad dokud nic nenamereno. Viditelne v testech (internal).
+ */
+internal fun medianPlaceholderAspect(samples: List<Float>): Float {
+    if (samples.isEmpty()) return WEBTOON_PLACEHOLDER_ASPECT_RATIO
+    return samples.sorted()[samples.size / 2]
+        .coerceIn(PLACEHOLDER_ASPECT_MIN, PLACEHOLDER_ASPECT_MAX)
+}

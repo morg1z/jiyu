@@ -25,3 +25,22 @@ fun normalizeMangaTitle(title: String): String {
         .replace(Regex("\\s+"), " ")
         .trim()
 }
+
+/**
+ * Slabý "podobný název" filtr pro agregované hledání - některé zdroje dotaz
+ * ignorují a místo výsledků vrátí svůj popular listing ("symbie" -> IDW Sonic).
+ * Název projde, když obsahuje aspoň jeden smysluplný token dotazu (>=3 znaky),
+ * celý normalizovaný dotaz, nebo je název podřetězec dotazu ("absolute batman
+ * issue 1" vs "absolute batman"). Dotaz ze samých krátkých slov nefiltruje.
+ */
+fun titleMatchesQuery(title: String, query: String): Boolean {
+    val qt = normalizeMangaTitle(query)
+    if (qt.isBlank()) return true
+    val tt = normalizeMangaTitle(title)
+    if (tt.isBlank()) return false
+    if (tt.contains(qt) || (tt.length >= MIN_QUERY_TOKEN_LEN && qt.contains(tt))) return true
+    val tokens = qt.split(' ').filter { it.length >= MIN_QUERY_TOKEN_LEN }
+    return tokens.isEmpty() || tokens.any { tt.contains(it) }
+}
+
+private const val MIN_QUERY_TOKEN_LEN = 3

@@ -34,6 +34,7 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
 
     @Volatile private var forward: Boolean = true
     @Volatile private var progress: Float = 0f
+    @Volatile private var mirrored: Boolean = false
 
     /**
      * Zavolat z UI vlákna kdykoliv se změní bitmapy stránek nebo stav tažení - skutečné
@@ -41,13 +42,15 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
      * uvnitř [onDrawFrame] (musí běžet na GL vlákně). `forward=true` = táhne se na DALŠÍ
      * stránku ([GLPageFront] aktivní, [rightPage] podklad), `false` = na PŘEDCHOZÍ
      * ([GLPageLeft] aktivní, [rightPage] zůstává podklad jen vizuálně vzadu/skrytý).
+     * `mirrored` = RTL čtečka - ohyb se zrcadlí horizontálně (viz [GLPage.mirrored]).
      */
-    fun updateState(current: Bitmap, prev: Bitmap?, next: Bitmap?, forward: Boolean, progress: Float) {
+    fun updateState(current: Bitmap, prev: Bitmap?, next: Bitmap?, forward: Boolean, progress: Float, mirrored: Boolean) {
         pendingCurrent = current
         pendingPrev = prev
         pendingNext = next
         this.forward = forward
         this.progress = progress.coerceIn(0f, 1f)
+        this.mirrored = mirrored
     }
 
     override fun onSurfaceCreated(gl: GL10, config: EGLConfig?) {
@@ -90,12 +93,15 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
             frontPage.setBitmap(current)
             lastCurrent = current
         }
-        val prev = pendingPrev
+        // Chybejici sousedni stranka (hranice kapitoly) dostane texturu aktualni stranky -
+        // stejne jako originalni `updatePageRes(0,0,1)` na pozici 0. Bez toho by mimo obrazovku
+        // vykukujici prouzek neaktivni leftPage kreslil texture-id 0 = bilou skvrnu.
+        val prev = pendingPrev ?: pendingCurrent
         if (prev != null && prev !== lastPrev) {
             leftPage.setBitmap(prev)
             lastPrev = prev
         }
-        val next = pendingNext
+        val next = pendingNext ?: pendingCurrent
         if (next != null && next !== lastNext) {
             rightPage.setBitmap(next)
             lastNext = next
@@ -106,16 +112,35 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
         val goingForward = forward
         frontPage.isActive = goingForward
         leftPage.isActive = !goingForward
+        frontPage.mirrored = mirrored
+        leftPage.mirrored = mirrored
+        rightPage.mirrored = false
 
-        val curlValue = GLPage.GRID * (1f - progress)
+        // Neaktivni stranka se vzdy vraci na svuj KLIDOVY curlCirclePosition (front naplocho,
+        // left svinuta mimo obrazovku) - jinak by si po predchozim tahu drzela posledni pozici a
+        // napr. leftPage na konci dokonceneho tahu zpatky by zustala naplocho na -0.001 a
+        // prekryvala by vsechno pod sebou starou prev-texturou.
         if (goingForward) {
-            frontPage.curlCirclePosition = curlValue
+            frontPage.curlCirclePosition = rollCurlPosition(true, progress)
+            leftPage.curlCirclePosition = LEFT_REST
         } else {
-            leftPage.curlCirclePosition = curlValue
+            leftPage.curlCirclePosition = rollCurlPosition(false, progress)
+            frontPage.curlCirclePosition = GLPage.GRID.toFloat()
         }
 
         gl.glClear(GL10.GL_COLOR_BUFFER_BIT or GL10.GL_DEPTH_BUFFER_BIT)
         gl.glLoadIdentity()
+
+        // IDLE stav (progress == 0): surface je mountnuty permanentne a pruhledny - stranky
+        // se NEkresli (transparentni clear -> prosvita ziva Compose stranka pod nimi), jen se
+        // synchronizuji textury. Bez tohohle by prvni curl frame cekal na nahratí ~3 velkych
+        // textur az uprostred gesta a zacatek animace by se vizuálne ztratil.
+        if (progress <= 0f) {
+            frontPage.syncTexture(gl)
+            leftPage.syncTexture(gl)
+            rightPage.syncTexture(gl)
+            return
+        }
 
         // Kazde .draw() obalene zvlast - GLThread nema zadny globalni handler nezachycenych
         // vyjimek jako hlavni vlakno, takze by pad pri vykreslovani JEDNE stranky (napr.
@@ -142,6 +167,29 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
             gl.glPopMatrix()
         } catch (e: Exception) {
             e.report("reader:glcurl:onDrawFrame")
+        }
+    }
+
+    companion object {
+        /** Klidová pozice [GLPageLeft] - svinutá trubička mimo obrazovku vlevo (mirrored:
+         * vpravo). Odpovídá originálnímu `GRID * (PAGE_RGHT/100) = 25 * -0.05`. */
+        const val LEFT_REST: Float = GLPage.GRID * -0.05f
+
+        /**
+         * Mapuje `progress` (0 = klid, 1 = dokončený obrat) na `curlCirclePosition` aktivní
+         * stránky - protějšek originálních `ACTION_MOVE` výpočtů z `PageSurfaceView`, jen se
+         * rozsahem protáhnutým o klidový overshoot [LEFT_REST], aby `progress = 1` znamenalo
+         * úplně dokončený obrat (používá se i dojetí animace po puštění prstu):
+         * - vpřed: [GLPageFront] GRID → [LEFT_REST] (stránka se svinuje zprava a odjede vlevo),
+         * - vzad: [GLPageLeft] [LEFT_REST] → GRID (předchozí stránka se rozbaluje zleva naplocho).
+         */
+        fun rollCurlPosition(forward: Boolean, progress: Float): Float {
+            val span = GLPage.GRID - LEFT_REST
+            return if (forward) {
+                GLPage.GRID - progress.coerceIn(0f, 1f) * span
+            } else {
+                LEFT_REST + progress.coerceIn(0f, 1f) * span
+            }
         }
     }
 }

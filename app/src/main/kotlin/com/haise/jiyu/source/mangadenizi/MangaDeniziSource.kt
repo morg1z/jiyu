@@ -62,12 +62,21 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
     private val base = "https://mangadenizi.net"
     private val catalogPageSize = 15
 
+    // Server je mimoradne pomaly - API odpoved trva bezne 40-90 s (audit
+    // 2026-11), coz je nad readTimeout 30 s sdileneho klienta. Odvozeny klient
+    // (sdili connection pool i dispatcher) jen prodlouzi timeouty, jinak by se
+    // vypis/detail chovaly jako "prazdne".
+    private val apiClient = client.newBuilder()
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(150, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     private fun getJson(url: String): JSONObject {
         val req = Request.Builder().url(url)
             .header("User-Agent", SourceHttp.USER_AGENT_DESKTOP)
             .header("Accept", "application/json")
             .build()
-        val body = client.newCall(req).execute().use { it.bodyOrThrow(url) }
+        val body = apiClient.newCall(req).execute().use { it.bodyOrThrow(url) }
         return JSONObject(body)
     }
 
@@ -132,6 +141,21 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
 
     override val supportsTagFilter: Boolean get() = true
 
+    // /api/v1/web/manga prijima status= (ongoing|completed|hiatus - overeno
+    // zive: status=hiatus vrati jen 3 tituly) a sort= (latest|popular|rating|
+    // name|year - hodnoty z weboveho <select aria-label="Siralama">, overeno
+    // zmenou poradi). Parametr type= API tise ignoruje (type=manga i
+    // type=manhwa vrati identickou stranku), proto se nevystavuje.
+    override val supportsStatusFilter: Boolean get() = true
+    override val availableStatuses: List<String> get() =
+        listOf("ongoing", "completed", "hiatus")
+    override val availableSorts: Set<String> get() = setOf("popular", "latest", "rating", "title")
+
+    private val sortValues = mapOf(
+        "popular" to "popular", "latest" to "latest",
+        "rating" to "rating", "title" to "name",
+    )
+
     override suspend fun getAvailableTags(): List<FilterTag> = withContext(Dispatchers.IO) {
         try {
             cachedTags?.let { return@withContext it }
@@ -144,12 +168,18 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
         try {
             if (filter.genres.isNotEmpty()) {
                 val selected = filter.genres.first()
-                val filtered = fetchFullCatalog().filter { selected in it.categorySlugs }.map { it.manga }
+                val filtered = fetchFullCatalog()
+                    .filter { selected in it.categorySlugs }
+                    .map { it.manga }
+                    .filter { filter.status == null || it.status.equals(filter.status, ignoreCase = true) }
                 val from = (page - 1) * catalogPageSize
                 if (from >= filtered.size) return@withContext emptyList()
                 return@withContext filtered.subList(from, minOf(from + catalogPageSize, filtered.size))
             }
-            val root = getJson("$base/api/v1/web/manga?page=$page")
+            val sort = sortValues[filter.sortBy]?.let { "&sort=$it" }.orEmpty()
+            val status = filter.status?.takeIf { it in availableStatuses }
+                ?.let { "&status=$it" }.orEmpty()
+            val root = getJson("$base/api/v1/web/manga?page=$page$sort$status")
             val data = root.getJSONObject("data").getJSONObject("manga").getJSONArray("data")
             (0 until data.length()).map { itemToManga(data.getJSONObject(it)) }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
@@ -162,9 +192,21 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 
+    // Detail endpoint nese i cely seznam kapitol - getMangaDetails a
+    // getChapterList by jinak tahaly stejny (~40 s pomaly) JSON dvakrat po
+    // sobe. Kratka TTL cache podle URL to deduplikuje.
+    @Volatile private var detailCache: Pair<String, JSONObject>? = null
+
+    private fun mangaJson(url: String): JSONObject {
+        detailCache?.let { (u, j) -> if (u == url) return j }
+        val json = getJson(url).getJSONObject("data").getJSONObject("manga")
+        detailCache = url to json
+        return json
+    }
+
     override suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
         try {
-            val item = getJson(manga.url).getJSONObject("data").getJSONObject("manga")
+            val item = mangaJson(manga.url)
             val genres = item.optJSONArray("categories")?.let { arr ->
                 (0 until arr.length()).mapNotNull { arr.getJSONObject(it).optString("name").takeIf(String::isNotBlank) }
             } ?: emptyList()
@@ -186,7 +228,7 @@ class MangaDeniziSource @Inject constructor(private val client: OkHttpClient) : 
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val item = getJson(manga.url).getJSONObject("data").getJSONObject("manga")
+            val item = mangaJson(manga.url)
             val slug = item.optString("slug")
             val chapters = item.optJSONArray("chapters") ?: return@withContext emptyList()
             (0 until chapters.length()).mapNotNull { i ->

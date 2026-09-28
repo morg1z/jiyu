@@ -168,6 +168,9 @@ class SettingsViewModel @Inject constructor(
     val theme: StateFlow<String> = settings.theme
         .stateIn(viewModelScope, SharingStarted.Eagerly, "system")
 
+    val themeAccent: StateFlow<String> = settings.themeAccent
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.settings.AccentOption.VIOLET)
+
     val readingDirection: StateFlow<String> = settings.readingDirection
         .stateIn(viewModelScope, SharingStarted.Eagerly, "ltr")
 
@@ -249,6 +252,7 @@ class SettingsViewModel @Inject constructor(
 
     fun setTargetLanguage(lang: String)  = viewModelScope.launch { settings.setTargetLanguage(lang) }
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
+    fun setThemeAccent(a: String)        = viewModelScope.launch { settings.setThemeAccent(a) }
     fun setReadingDirection(dir: String) = viewModelScope.launch { settings.setReadingDirection(dir) }
     fun setReadingMode(mode: String)     = viewModelScope.launch { settings.setReadingMode(mode) }
     fun setTapZonesEnabled(enabled: Boolean)      = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
@@ -581,6 +585,18 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setDownloadOnlyWifi(enabled: Boolean) = viewModelScope.launch { settings.setDownloadOnlyWifi(enabled) }
+
+    // ── Předstahování stránek čtené kapitoly jen na WiFi ───────────────────────
+    val prefetchPagesWifiOnly: StateFlow<Boolean> = settings.prefetchPagesWifiOnly
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setPrefetchPagesWifiOnly(enabled: Boolean) = viewModelScope.launch { settings.setPrefetchPagesWifiOnly(enabled) }
+
+    // ── DNS-over-HTTPS (Cloudflare resolver vs. systémové DNS) ────────────────
+    val dnsOverHttpsEnabled: StateFlow<Boolean> = settings.dnsOverHttpsEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setDnsOverHttpsEnabled(enabled: Boolean) = viewModelScope.launch { settings.setDnsOverHttpsEnabled(enabled) }
 
     // ── Automatický přechod na další kapitolu ─────────────────────────────────
     val autoNextChapter: StateFlow<Boolean> = settings.autoNextChapter

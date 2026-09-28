@@ -13,6 +13,13 @@ data class ContinueReadingItem(
     @Embedded val manga: MangaEntity,
     val lastChapterName: String?,
     val lastChapterNumber: Float?,
+    /** `read` poslední rozečtené kapitoly - null, když `lastReadChapterId` neexistuje (LEFT JOIN). */
+    val lastChapterRead: Boolean?,
+    /** 0-based index poslední čtené stránky poslední rozečtené kapitoly. */
+    val lastPageRead: Int?,
+    /** Reálný počet stranek poslední kapitoly - `verifiedPageCount` (online čtení) před
+     * `pageCount` (stažené); null/0 = neznámý (staré záznamy, ještě neotevřená kapitola). */
+    val lastPageCount: Int?,
 )
 
 @Dao
@@ -26,6 +33,9 @@ interface MangaDao {
 
     @Query("SELECT * FROM manga WHERE id = :id")
     suspend fun getById(id: String): MangaEntity?
+
+    @Query("SELECT * FROM manga WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<String>): List<MangaEntity>
 
     @Query("UPDATE manga SET inLibrary = :inLibrary WHERE id = :id")
     suspend fun setInLibrary(id: String, inLibrary: Boolean)
@@ -43,7 +53,9 @@ interface MangaDao {
     fun observeRecentlyRead(): Flow<List<MangaEntity>>
 
     @Query("""
-        SELECT m.*, c.name as lastChapterName, c.chapterNumber as lastChapterNumber
+        SELECT m.*, c.name as lastChapterName, c.chapterNumber as lastChapterNumber,
+               c.read as lastChapterRead, c.lastPageRead as lastPageRead,
+               COALESCE(c.verifiedPageCount, NULLIF(c.pageCount, 0)) as lastPageCount
         FROM manga m
         LEFT JOIN chapter c ON c.id = m.lastReadChapterId
         WHERE m.inLibrary = 1 AND m.lastReadAt > 0
@@ -54,7 +66,9 @@ interface MangaDao {
     /** Jednorázový dotaz na jeden titul se stejným tvarem jako [observeContinueReading] -
      * pro widget s obálkou (CoverWidget), kde je titul předem vybraný v konfiguraci. */
     @Query("""
-        SELECT m.*, c.name as lastChapterName, c.chapterNumber as lastChapterNumber
+        SELECT m.*, c.name as lastChapterName, c.chapterNumber as lastChapterNumber,
+               c.read as lastChapterRead, c.lastPageRead as lastPageRead,
+               COALESCE(c.verifiedPageCount, NULLIF(c.pageCount, 0)) as lastPageCount
         FROM manga m
         LEFT JOIN chapter c ON c.id = m.lastReadChapterId
         WHERE m.id = :mangaId
@@ -130,6 +144,12 @@ interface MangaDao {
     @Query("UPDATE manga SET url = :url, title = :title, coverUrl = COALESCE(:coverUrl, coverUrl) WHERE id = :id")
     suspend fun relinkManga(id: String, url: String, title: String, coverUrl: String?)
 
+    /** Protějšek [relinkManga] pro přesun titulu na JINÝ zdroj (viz MangaRepository.relinkMangaToSource) -
+     * mění navíc sourceId; `id` se NIKDY nemění (stabilní identita - manga_category na ni má FK
+     * bez ON UPDATE CASCADE). */
+    @Query("UPDATE manga SET sourceId = :sourceId, url = :url, title = :title, coverUrl = COALESCE(:coverUrl, coverUrl) WHERE id = :id")
+    suspend fun relinkMangaSource(id: String, sourceId: String, url: String, title: String, coverUrl: String?)
+
     // Doplnek ChapterDao.resetProgressForManga - manga radek se pri odebrani z knihovny
     // take nemaze, takze "Pokracovat X" a cas cteni by jinak po znovu-pridani ukazovaly
     // stary stav z doby pred odebranim.
@@ -150,6 +170,19 @@ interface MangaDao {
 
     @Query("SELECT COUNT(*) FROM manga WHERE inLibrary = 1")
     fun observeLibraryCount(): Flow<Int>
+
+    // ── Statistiky (obrazovka ExtendedStatsScreen) ────────────────────────────
+
+    @Query("SELECT COUNT(*) FROM manga WHERE inLibrary = 1 AND userRating IS NOT NULL AND userRating > 0")
+    suspend fun countRatedInLibrary(): Int
+
+    /** Nejstarší přidání titulu do knihovny - obdoba "member since" ze souhrnu účtu
+     * (addedAt = 0 u starých záznamů z doby před zavedením sloupce, proto filtr). */
+    @Query("SELECT MIN(addedAt) FROM manga WHERE inLibrary = 1 AND addedAt > 0")
+    suspend fun earliestLibraryAddedAt(): Long?
+
+    @Query("SELECT MAX(lastReadAt) FROM manga WHERE inLibrary = 1")
+    suspend fun latestLibraryReadAt(): Long?
 
     // ── Úklid jen prohlížené mangy - viz [deleteBrowsedManga] ──────────────────────────
     /**

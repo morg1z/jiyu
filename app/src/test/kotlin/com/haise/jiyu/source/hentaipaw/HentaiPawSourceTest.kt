@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.hentaipaw
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -44,6 +45,16 @@ class HentaiPawSourceTest {
         </script></body></html>
     """.trimIndent()
 
+    // Vyrez z zive odpovedi https://hentaipaw.com/tags?page=1 - nazev tagu je
+    // v "title" atributu; specialni "/tags/popular" odkaz se preskakuje.
+    private val tagsHtml = """
+        <html><body>
+        <a href="/tags/popular" class="group"><div>popular</div></a>
+        <a href="/tags/186" class="group" title="big breasts"><div>big breasts</div></a>
+        <a href="/tags/718" class="group" title="dark skin"><div>dark skin</div></a>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -51,6 +62,10 @@ class HentaiPawSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path == "/tags" || path.startsWith("/tags?") -> MockResponse().setBody(
+                        if (path.endsWith("page=1")) tagsHtml else ""
+                    )
+                    path.startsWith("/tags/") -> MockResponse().setBody(homeHtml)
                     path.startsWith("/?page=") || path == "/" -> MockResponse().setBody(homeHtml)
                     path.startsWith("/articles/9999") -> MockResponse().setBody(detailHtml)
                     path.startsWith("/viewer") -> MockResponse().setBody(viewerHtml)
@@ -90,6 +105,22 @@ class HentaiPawSourceTest {
         val chapters = source.getChapterList(manga)
         assertEquals(1, chapters.size)
         assertEquals(1f, chapters[0].chapterNumber)
+    }
+
+    @Test
+    fun `getAvailableTags reads numeric ids from the title attribute and skips the popular shortcut`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("186", tags[0].id)
+        assertEquals("big breasts", tags[0].label)
+        assertEquals("718", tags[1].id)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the tag archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("186")))
+        assertEquals(1, result.size)
+        assertEquals("Sample Gallery", result[0].title)
     }
 
     @Test

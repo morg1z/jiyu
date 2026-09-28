@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.weloma
 
+import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.redirectingClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
@@ -56,6 +57,18 @@ class WeLoMaSourceTest {
         append("</body></html>")
     }
 
+    // Homepage obsahuje sekci Genres - zanry poznavame podle data-title="Genre X",
+    // autorove sdili stejny "/l/" prefix, ale data-title="Genre" nemaji.
+    private val homeHtml = """
+        <html><body>
+        <ul><li>Genres</li>
+            <li><a data-title="Genre Action" href="/l/g1">Action</a></li>
+            <li><a data-title="Genre Fantasy" href="/l/g2">Fantasy</a></li>
+            <li><a href="/l/a1">Some Author</a></li>
+        </ul>
+        </body></html>
+    """.trimIndent()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -63,6 +76,8 @@ class WeLoMaSourceTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    path == "/" -> MockResponse().setBody(homeHtml)
+                    path.startsWith("/l/") -> MockResponse().setBody(popularHtml)
                     path.startsWith("/manga-list.html") -> MockResponse().setBody(popularHtml)
                     path == "/m/testid" -> MockResponse().setBody(detailHtml)
                     path == "/c/ch1" -> MockResponse().setBody(pagesHtml)
@@ -121,6 +136,22 @@ class WeLoMaSourceTest {
         assertEquals(2, pages.size)
         assertEquals("https://cdn.example.com/p1.jpg", pages[0].url)
         assertEquals("https://cdn.example.com/p2.jpg", pages[1].url)
+    }
+
+    @Test
+    fun `getAvailableTags returns only data-title Genre links, not authors`() = runTest {
+        val tags = source.getAvailableTags()
+        assertEquals(2, tags.size)
+        assertEquals("g1", tags[0].id)
+        assertEquals("Action", tags[0].label)
+        assertEquals("g2", tags[1].id)
+    }
+
+    @Test
+    fun `getPopular with a selected genre reads the genre archive`() = runTest {
+        val result = source.getPopular(1, MangaFilter(genres = listOf("g1")))
+        assertEquals(1, result.size)
+        assertEquals("Test Series - Raw", result[0].title)
     }
 
     @Test
