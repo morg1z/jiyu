@@ -9,7 +9,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
@@ -205,19 +207,17 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
         try {
             val detailHtml = get(manga.url)
             val comicId = comicIdRegex.find(detailHtml)?.groupValues?.get(1) ?: return@withContext emptyList()
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (page <= 50) {
+            val chapters = fetchPagesBatched(maxPages = 50) { page ->
                 val json = JSONObject(get("$base/api/comics/$comicId/chapters?page=$page"))
                 val fragment = json.optString("html")
                 val doc = Jsoup.parse(fragment, base)
-                doc.select("a[href*=/capitulo/]").forEach { a ->
-                    val href = a.absUrl("href").ifBlank { return@forEach }
-                    val num = Regex("""/capitulo/([\d.]+)""").find(href)?.groupValues?.get(1)?.toFloatOrNull() ?: return@forEach
+                val items = doc.select("a[href*=/capitulo/]").mapNotNull { a ->
+                    val href = a.absUrl("href").ifBlank { return@mapNotNull null }
+                    val num = Regex("""/capitulo/([\d.]+)""").find(href)?.groupValues?.get(1)?.toFloatOrNull() ?: return@mapNotNull null
                     val titleText = a.selectFirst("span.text-lg, span.font-medium")?.text()?.trim()
                     val name = titleText?.ifBlank { null } ?: "Capítulo $num"
                     val dateText = a.selectFirst("time")?.text()?.trim()
-                    chapters += SChapter(
+                    SChapter(
                         sourceId = id,
                         mangaUrl = manga.url,
                         url = href,
@@ -226,8 +226,7 @@ class AstraToonsSource @Inject constructor(private val client: OkHttpClient) : M
                         dateUpload = parseRelativeDatePt(dateText),
                     )
                 }
-                if (!json.optBoolean("hasMore", false)) break
-                page++
+                PageBatch(items, isLast = !json.optBoolean("hasMore", false))
             }
             chapters.distinctBy { it.url }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

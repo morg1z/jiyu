@@ -8,7 +8,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
@@ -179,16 +181,17 @@ class RinkoComicsSource @Inject constructor(private val client: OkHttpClient) : 
             val comicId = doc.selectFirst("#loadMoreChaptersBtn")?.attr("data-comic-id")?.ifBlank { null }
             val nonce = nonceOf(html)
             if (comicId != null && nonce != null) {
-                var offset = 10
-                while (offset <= 2000) {
-                    val json = JSONObject(loadMoreChapters(nonce, comicId, offset))
-                    if (!json.optBoolean("success")) break
+                // Offsetové stránkování po 10 (offset 10 = index 0) - batched.
+                chapters += fetchPagesBatched(firstPage = 0, maxPages = 200) { idx ->
+                    val json = JSONObject(loadMoreChapters(nonce, comicId, 10 + idx * 10))
                     val fragment = json.optJSONObject("data")?.optString("html").orEmpty()
-                    if (fragment.isBlank()) break
-                    val added = Jsoup.parse(fragment).select("li.chapter[data-permalink]")
-                    if (added.isEmpty()) break
-                    added.forEach { el -> chapterFromElement(el, manga.url)?.let { chapters += it } }
-                    offset += 10
+                    val items = if (!json.optBoolean("success") || fragment.isBlank()) {
+                        emptyList()
+                    } else {
+                        Jsoup.parse(fragment).select("li.chapter[data-permalink]")
+                            .mapNotNull { chapterFromElement(it, manga.url) }
+                    }
+                    PageBatch(items, isLast = items.isEmpty())
                 }
             }
             chapters.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }

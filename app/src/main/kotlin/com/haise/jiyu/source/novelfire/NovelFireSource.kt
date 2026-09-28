@@ -10,7 +10,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -172,9 +174,7 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (page < 300) {
+            val chapters = fetchPagesBatched(maxPages = 300) { page ->
                 val url = "$base${manga.url}/chapters?page=$page"
                 var doc = try { Jsoup.parse(get(url)) } catch (e: Exception) { e.rethrowIfControl(); null }
                 var rows = doc?.select("ul.chapter-list li a").orEmpty()
@@ -184,29 +184,28 @@ class NovelFireSource @Inject constructor(private val client: OkHttpClient) : Ma
                     // curl i mobilni UA prochazi) - na p1 jednou zkusime
                     // mobilni UA, az pak se vzdat.
                     doc = try { Jsoup.parse(get(url, SourceHttp.USER_AGENT_ANDROID)) }
-                        catch (e: Exception) { e.rethrowIfControl(); break }
+                        catch (e: Exception) { e.rethrowIfControl(); return@fetchPagesBatched PageBatch(emptyList(), isLast = true) }
                     rows = doc.select("ul.chapter-list li a")
                 }
-                if (rows.isEmpty()) break
-                rows.forEach { a ->
+                val items = rows.map { a ->
                     val href = a.attr("href")
                     val num = a.selectFirst("span.chapter-no")?.text()?.trim()?.toFloatOrNull() ?: 0f
                     val title = a.selectFirst("strong.chapter-title")?.text()?.trim()?.ifBlank { null }
                         ?: "Chapter $num"
                     val dateAttr = a.selectFirst("time.chapter-update")?.attr("datetime")
-                    chapters.add(
-                        SChapter(
-                            sourceId = id,
-                            mangaUrl = manga.url,
-                            url = href,
-                            name = title,
-                            chapterNumber = num,
-                            dateUpload = parseDate(dateAttr),
-                        )
+                    SChapter(
+                        sourceId = id,
+                        mangaUrl = manga.url,
+                        url = href,
+                        name = title,
+                        chapterNumber = num,
+                        dateUpload = parseDate(dateAttr),
                     )
                 }
-                if (doc.selectFirst("li.page-item a[href*=page=${page + 1}]") == null) break
-                page++
+                PageBatch(
+                    items,
+                    isLast = items.isEmpty() || doc!!.selectFirst("li.page-item a[href*=page=${page + 1}]") == null,
+                )
             }
             chapters
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

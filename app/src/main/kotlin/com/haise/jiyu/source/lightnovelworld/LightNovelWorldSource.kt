@@ -8,7 +8,9 @@ import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,15 +90,12 @@ class LightNovelWorldSource @Inject constructor(private val client: OkHttpClient
     // v onclick atributu karty, ne v <a href>.
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (page < 300) {
+            // "Next Page" odkaz je jediný signál další stránky - dávky souběžně,
+            // vyhodnocení v pořadí (prázdné karty nebo chybějící link = konec).
+            val chapters = fetchPagesBatched(maxPages = 300) { page ->
                 val doc = Jsoup.parse(get("$base${manga.url}chapters/?page=$page"))
-                val cards = doc.select("div.chapter-card")
-                if (cards.isEmpty()) break
-                cards.forEach { chapterFromCard(it, manga.url)?.let(chapters::add) }
-                if (doc.selectFirst("a.page-link[title=Next Page]") == null) break
-                page++
+                val items = doc.select("div.chapter-card").mapNotNull { chapterFromCard(it, manga.url) }
+                PageBatch(items, isLast = items.isEmpty() || doc.selectFirst("a.page-link[title=Next Page]") == null)
             }
             chapters
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

@@ -7,6 +7,8 @@ import com.haise.jiyu.source.LanguageMap
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SGroup
 import com.haise.jiyu.source.SManga
@@ -588,20 +590,16 @@ class ComicKSource @Inject constructor(
             // donekonecna na "obnovuji kapitoly" (stejny duvod jako maxPages, jina osa - tenhle
             // strop chrani pred POMALYM, ne jen NEKONECNYM, prubehem).
             withTimeoutOrNull(CHAPTER_LIST_TIMEOUT_MS) {
-                var page = 1
-                while (page <= maxPages) {
+                // Paralelní dávky: u titulu se stovkami kapitol se sekvenční smyčka
+                // po 60 položkách protáhne na desítky sekund (každá stránka = 1 RTT).
+                chapters += fetchPagesBatched(maxPages = maxPages) { page ->
                     val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
-                    val json = getObject(url)
-                    val arr = json.optJSONArray("chapters") ?: return@withTimeoutOrNull
-
-                    for (i in 0 until arr.length()) {
-                        chapterFromJson(arr.getJSONObject(i), manga.url)
-                            ?.let { chapters.add(it) }
-                    }
-
-                    // Méně výsledků než pageSize = poslední stránka
-                    if (arr.length() < pageSize) return@withTimeoutOrNull
-                    page++
+                    val arr = getObject(url).optJSONArray("chapters")
+                    val items = arr?.let { a ->
+                        (0 until a.length()).mapNotNull { i -> chapterFromJson(a.getJSONObject(i), manga.url) }
+                    }.orEmpty()
+                    // Méně výsledků než pageSize (nebo chybějící pole) = poslední stránka
+                    PageBatch(items, isLast = (arr?.length() ?: 0) < pageSize)
                 }
             }
 

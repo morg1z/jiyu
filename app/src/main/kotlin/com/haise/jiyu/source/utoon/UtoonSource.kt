@@ -7,7 +7,9 @@ import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -139,9 +141,7 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
             val nonce = nonceOf(html)
             val categoryId = doc.selectFirst("div.chapters-list")?.attr("data-category")?.ifBlank { null }
             if (nonce != null && categoryId != null) {
-                var page = 1
-                while (page <= 50) {
-                    page++
+                chapters += fetchPagesBatched(firstPage = 2, maxPages = 49) { page ->
                     val json = loadMore(
                         mapOf(
                             "nonce" to nonce,
@@ -152,12 +152,11 @@ class UtoonSource @Inject constructor(private val client: OkHttpClient) : MangaS
                             "lang" to "en",
                         ),
                     )
-                    val data = json.optJSONObject("data") ?: break
-                    val fragmentDoc = Jsoup.parse(data.optString("html"), manga.url)
-                    val pageChapters = fragmentDoc.select("article.chapter-item").mapNotNull { chapterFromArticle(it, manga.url) }
-                    if (pageChapters.isEmpty()) break
-                    chapters += pageChapters
-                    if (!data.optBoolean("has_more", false)) break
+                    val data = json.optJSONObject("data")
+                    val items = Jsoup.parse(data?.optString("html").orEmpty(), manga.url)
+                        .select("article.chapter-item")
+                        .mapNotNull { chapterFromArticle(it, manga.url) }
+                    PageBatch(items, isLast = data == null || items.isEmpty() || !data.optBoolean("has_more", false))
                 }
             }
             chapters.distinctBy { it.url }

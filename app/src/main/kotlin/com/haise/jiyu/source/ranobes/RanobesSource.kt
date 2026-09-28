@@ -10,6 +10,7 @@ import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -135,23 +136,21 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
         try {
             val bookId = Regex("""/novels/(\d+)-""").find(manga.url)?.groupValues?.get(1)
                 ?: return@withContext emptyList()
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            var totalPages: Int
-            do {
+            // Stránka nese "pages_count" - po první stránce lze zbytek dotáhnout souběžně.
+            fun parsePage(page: Int): Pair<List<SChapter>, Int> {
                 val url = if (page == 1) "$base/chapters/$bookId/" else "$base/chapters/$bookId/page/$page/"
-                val html = get(url)
-                val dataJson = extractBalancedJson(html, "__DATA__") ?: break
+                val dataJson = extractBalancedJson(get(url), "__DATA__")
+                    ?: return emptyList<SChapter>() to 1
                 val json = org.json.JSONObject(dataJson)
-                totalPages = json.optInt("pages_count", 1)
                 val arr = json.optJSONArray("chapters") ?: JSONArray()
+                val items = mutableListOf<SChapter>()
                 for (i in 0 until arr.length()) {
                     val c = arr.getJSONObject(i)
                     val link = c.optString("link")
                     if (link.isBlank()) continue
                     val title = c.optString("title").ifBlank { "Chapter" }
                     val num = parseChapterNumber(title) ?: 0f
-                    chapters.add(
+                    items.add(
                         SChapter(
                             sourceId = id,
                             mangaUrl = manga.url,
@@ -162,9 +161,11 @@ class RanobesSource @Inject constructor(private val client: OkHttpClient) : Mang
                         )
                     )
                 }
-                page++
-            } while (page <= totalPages)
-            chapters
+                return items to json.optInt("pages_count", 1)
+            }
+            val (first, totalPages) = parsePage(1)
+            val rest = fetchPagesParallel(2, totalPages.coerceAtMost(200)) { parsePage(it).first }
+            first + rest
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

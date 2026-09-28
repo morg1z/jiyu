@@ -8,6 +8,7 @@ import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -46,6 +47,9 @@ class MangaDexSource @Inject constructor(
     override val homepageUrl get() = "https://mangadex.org"
 
     private val apiBase = "https://api.mangadex.org"
+
+    // Strop paralelních offsetových stránek chapter feedu (viz getChapterList).
+    private val MAX_PAGE_INDEX = 50
     private val coverBase = "https://uploads.mangadex.org/covers"
 
     override val supportsTagFilter: Boolean get() = true
@@ -121,25 +125,28 @@ class MangaDexSource @Inject constructor(
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val mangaId = manga.url.substringAfterLast("/")
-        val allChapters = mutableListOf<SChapter>()
-        var offset = 0
         val limit = 100
         val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
-        while (true) {
-            val url = "$apiBase/manga/$mangaId/feed" +
-                "?translatedLanguage[]=$langCode&order[chapter]=desc&limit=$limit&offset=$offset" +
-                "&contentRating[]=safe&contentRating[]=suggestive&includes[]=scanlation_group"
-            val json = get(url)
-            val results = json.optJSONArray("data") ?: break
-            val total = json.optInt("total", 0)
-            val batch = (0 until results.length()).mapNotNull { i ->
+        fun feedUrl(offset: Int) = "$apiBase/manga/$mangaId/feed" +
+            "?translatedLanguage[]=$langCode&order[chapter]=desc&limit=$limit&offset=$offset" +
+            "&contentRating[]=safe&contentRating[]=suggestive&includes[]=scanlation_group"
+        fun parse(json: JSONObject): List<SChapter> {
+            val results = json.optJSONArray("data") ?: return emptyList()
+            return (0 until results.length()).mapNotNull { i ->
                 chapterFromData(results.getJSONObject(i), manga.url)
             }
-            allChapters.addAll(batch)
-            offset += limit
-            if (allChapters.size >= total || results.length() < limit) break
         }
-        allChapters
+        // První stránka nese "total" - zbývající offsety lze stáhnout souběžně
+        // (u titulu s 1000+ kapitolami = ~10 RTT místo ~10 serializovaných).
+        val first = get(feedUrl(0))
+        val total = first.optInt("total", 0)
+        val firstBatch = parse(first)
+        val lastIndex = ((total - 1) / limit).coerceAtLeast(0)
+        // Strop offsetových stránek - nesmyslný/chybový "total" nesmí roztáhnout
+        // paralelní fan-out do stovky requestů (50 * 100 = 5000 kapitol je strop).
+        firstBatch + fetchPagesParallel(1, minOf(lastIndex, MAX_PAGE_INDEX)) { idx ->
+            parse(get(feedUrl(idx * limit)))
+        }
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = withContext(Dispatchers.IO) {

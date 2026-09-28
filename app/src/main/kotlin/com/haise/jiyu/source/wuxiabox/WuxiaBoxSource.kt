@@ -10,7 +10,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -135,32 +137,27 @@ class WuxiaBoxSource @Inject constructor(private val client: OkHttpClient) : Man
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val slug = manga.url.substringAfterLast("/").removeSuffix(".html")
-            val chapters = mutableListOf<SChapter>()
-            var page = 0
-            while (page < 300) {
+            // Stránky jsou 0-indexované; prázdné řádky = konec.
+            val chapters = fetchPagesBatched(firstPage = 0, maxPages = 300) { page ->
                 val html = get("$base/e/extend/fy.php?page=$page&wjm=$slug")
                 val doc = Jsoup.parse(html, base)
-                val rows = doc.select("ul.chapter-list li")
-                if (rows.isEmpty()) break
-                rows.forEach { li ->
-                    val a = li.selectFirst("a") ?: return@forEach
+                val items = doc.select("ul.chapter-list li").mapNotNull { li ->
+                    val a = li.selectFirst("a") ?: return@mapNotNull null
                     val href = a.attr("href")
                     val num = li.attr("data-chapterno").toFloatOrNull() ?: 0f
                     val title = a.selectFirst("strong.chapter-title")?.text()?.trim()?.ifBlank { null }
                         ?: "Chapter $num"
                     val dateText = a.selectFirst("time.chapter-update")?.text()?.trim()
-                    chapters.add(
-                        SChapter(
-                            sourceId = id,
-                            mangaUrl = manga.url,
-                            url = href,
-                            name = title,
-                            chapterNumber = num,
-                            dateUpload = parseRelativeDate(dateText),
-                        )
+                    SChapter(
+                        sourceId = id,
+                        mangaUrl = manga.url,
+                        url = href,
+                        name = title,
+                        chapterNumber = num,
+                        dateUpload = parseRelativeDate(dateText),
                     )
                 }
-                page++
+                PageBatch(items, isLast = items.isEmpty())
             }
             chapters
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

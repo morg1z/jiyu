@@ -9,6 +9,7 @@ import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.util.normalizeContentType
 import kotlinx.coroutines.Dispatchers
@@ -173,33 +174,31 @@ class QiScansSource @Inject constructor(private val client: OkHttpClient) : Mang
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (true) {
+            fun parsePage(page: Int): Pair<List<SChapter>, Int> {
                 val o = JSONObject(get("$api/series/${manga.url}/chapters?page=$page&perPage=100"))
-                val arr = o.optJSONArray("data") ?: break
-                if (arr.length() == 0) break
-                for (i in 0 until arr.length()) {
-                    val c = arr.optJSONObject(i) ?: continue
-                    val slug = c.optString("slug").ifBlank { continue }
-                    val num = c.optDouble("number").takeIf { !it.isNaN() }?.toFloat() ?: continue
+                val arr = o.optJSONArray("data") ?: return emptyList<SChapter>() to 1
+                val items = (0 until arr.length()).mapNotNull { i ->
+                    val c = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val slug = c.optString("slug").ifBlank { return@mapNotNull null }
+                    val num = c.optDouble("number").takeIf { !it.isNaN() }?.toFloat() ?: return@mapNotNull null
                     // "slug" je jen obecny retezec jako "chapter-52" (overeno zive), NENI
                     // globalne unikatni napric ruznymi seriemi - MangaRepository.chapterId
                     // pouziva "$sourceId::$url" jako DB klic bez ohledu na mangaUrl, proto
                     // se musi prefixovat slugem serie, jinak by dve ruzne serie se stejnym
                     // cislem kapitoly kolidovaly.
-                    chapters += SChapter(
+                    SChapter(
                         sourceId = id, mangaUrl = manga.url, url = "${manga.url}/$slug",
                         name = "Chapter ${if (num == num.toInt().toFloat()) num.toInt().toString() else num.toString()}",
                         chapterNumber = num,
                         dateUpload = parseIsoDate(c.optString("createdAt")),
                     )
                 }
-                val totalPages = o.optInt("totalPages", page)
-                if (page >= totalPages) break
-                page++
+                return items to o.optInt("totalPages", page)
             }
-            chapters.distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
+            // První stránka nese "totalPages" - zbytek se stáhne souběžně.
+            val (first, totalPages) = parsePage(1)
+            val rest = fetchPagesParallel(2, totalPages.coerceAtMost(50)) { parsePage(it).first }
+            (first + rest).distinctBy { it.chapterNumber }.sortedByDescending { it.chapterNumber }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

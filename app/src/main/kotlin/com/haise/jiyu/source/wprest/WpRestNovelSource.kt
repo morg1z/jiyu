@@ -3,7 +3,9 @@ package com.haise.jiyu.source.wprest
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.source.bodyOrThrow
@@ -143,30 +145,30 @@ class WpRestNovelSource(
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val catId = categoryId(resolveUrl(manga.url)) ?: return@withContext emptyList()
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (true) {
+            // WP REST: krátká stránka (<100) = konec; strop 50 stránek (5000 kapitol).
+            // Číslo kapitoly jako fallback závisí na pozici - přečísluje se po složení.
+            val raw = fetchPagesBatched(maxPages = 50) { page ->
                 val url = "$api/posts?categories=$catId&per_page=100&page=$page" +
                     "&orderby=date&order=asc&_fields=id,date,link,slug,title"
                 val posts = JSONArray(getJson(url)).toObjects()
-                if (posts.isEmpty()) break
-                posts.forEach { p ->
-                    val link = p.optString("link").ifBlank { null } ?: return@forEach
+                val items = posts.mapNotNull { p ->
+                    val link = p.optString("link").ifBlank { null } ?: return@mapNotNull null
                     val title = Jsoup.parse(p.optJSONObject("title")?.optString("rendered") ?: "")
                         .text().trim().ifBlank { p.optString("slug") }
-                    chapters += SChapter(
-                        sourceId = id,
-                        mangaUrl = manga.url,
-                        url = link,
-                        name = title,
-                        chapterNumber = Regex("[\\d.,]+").find(title)?.value?.replace(',', '.')?.toFloatOrNull()
-                            ?: (chapters.size + 1).toFloat(),
-                        dateUpload = isoDate(p.optString("date")),
-                    )
+                    Triple(link, title, isoDate(p.optString("date")))
                 }
-                if (posts.size < 100) break
-                page++
-                if (page > 50) break // bezpečnostní limit (100×50 = 5000 kapitol)
+                PageBatch(items, isLast = posts.size < 100)
+            }
+            val chapters = raw.mapIndexed { i, (link, title, date) ->
+                SChapter(
+                    sourceId = id,
+                    mangaUrl = manga.url,
+                    url = link,
+                    name = title,
+                    chapterNumber = Regex("[\\d.,]+").find(title)?.value?.replace(',', '.')?.toFloatOrNull()
+                        ?: (i + 1).toFloat(),
+                    dateUpload = date,
+                )
             }
             // Kontrakt MangaSource = seřazené od nejnovější; API čerpá chronologicky (asc).
             chapters.asReversed()

@@ -7,7 +7,9 @@ import com.haise.jiyu.source.bodyOrThrow
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -86,29 +88,25 @@ class HidamarisouTranslationsSource @Inject constructor(private val client: OkHt
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (true) {
+            // WP REST mimo rozsah vrátí 400 - chyba/krátká stránka = konec.
+            // Počet čísel se po obrácení stejně přepočítá, mezitím stačí placeholder.
+            val chapters = fetchPagesBatched(maxPages = 20) { page ->
                 val json = try {
                     JSONArray(get("${manga.url}&per_page=100&page=$page&_fields=id,date,link,title"))
-                } catch (e: Exception) { e.rethrowIfControl(); break }
-                if (json.length() == 0) break
-                for (i in 0 until json.length()) {
-                    val o = json.optJSONObject(i) ?: continue
-                    val link = o.optString("link").ifBlank { continue }
+                } catch (e: Exception) { e.rethrowIfControl(); return@fetchPagesBatched PageBatch(emptyList(), isLast = true) }
+                val items = (0 until json.length()).mapNotNull { i ->
+                    val o = json.optJSONObject(i) ?: return@mapNotNull null
+                    o.optString("link").ifBlank { return@mapNotNull null }
                     val title = decodeHtmlEntities(o.optJSONObject("title")?.optString("rendered").orEmpty())
                         .ifBlank { "Post ${o.optInt("id")}" }
-                    val dateMillis = parseIsoDate(o.optString("date"))
-                    chapters += SChapter(
+                    SChapter(
                         sourceId = id, mangaUrl = manga.url,
                         url = "$base/wp-json/wp/v2/posts/${o.optInt("id")}",
-                        name = title, chapterNumber = (chapters.size + 1).toFloat(),
-                        dateUpload = dateMillis,
+                        name = title, chapterNumber = 0f,
+                        dateUpload = parseIsoDate(o.optString("date")),
                     )
                 }
-                if (json.length() < 100) break
-                page++
-                if (page > 20) break
+                PageBatch(items, isLast = json.length() < 100)
             }
             // WP REST vraci od nejnovejsiho - appka chce od nejstarsiho pro spravne
             // cislovani kapitol, proto se seznam otoci a precisluje.

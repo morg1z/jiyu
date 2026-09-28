@@ -9,6 +9,7 @@ import com.haise.jiyu.source.SGroup
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.util.parseChapterDate
 import com.haise.jiyu.util.rethrowIfControl
 import kotlinx.coroutines.Dispatchers
@@ -382,23 +383,41 @@ class ComixSource @Inject constructor(
         "page" to listOf(page.toString()),
     )
 
-    /** Nativni podepsane strankovani kapitol - pokracuje, dokud API hlasi dalsi stranku. */
-    private fun collectNativeChapters(first: JSONObject, hid: String, mangaUrl: String): List<SChapter>? {
-        val all = mutableListOf<JSONObject>()
-        var response = first
-        var page = 1
-        while (true) {
+    /** Nativni podepsane strankovani kapitol - "lastPage" z meta umozni dotahnout zbytek soubezne. */
+    private suspend fun collectNativeChapters(first: JSONObject, hid: String, mangaUrl: String): List<SChapter>? {
+        fun unpack(response: JSONObject, page: Int): Triple<List<JSONObject>, Int, Boolean>? {
             val result = response.optJSONObject("result") ?: response
             val items = result.optJSONArray("items") ?: return null
-            (0 until items.length()).mapNotNullTo(all) { items.optJSONObject(it) }
+            val list = (0 until items.length()).mapNotNull { items.optJSONObject(it) }
             val meta = result.optJSONObject("meta") ?: result.optJSONObject("pagination")
             val lastPage = meta?.optInt("lastPage", 0)?.takeIf { it > 0 }
                 ?: meta?.optInt("last_page", 0)?.takeIf { it > 0 }
                 ?: page
             val hasNext = meta?.optBoolean("hasNext", false) == true || page < lastPage
-            if (!hasNext || items.length() == 0 || page >= 200) break
-            page++
-            response = getSigned("manga/$hid/chapters", chapterParams(page)) ?: return null
+            return Triple(list, lastPage, hasNext && items.length() > 0)
+        }
+        val (firstItems, lastPage, firstHasNext) = unpack(first, 1) ?: return null
+        val all = firstItems.toMutableList()
+        if (firstHasNext && lastPage > 1) {
+            // Zname celkovy pocet stranek - dotahneme je po 4 soubezne.
+            try {
+                all += fetchPagesParallel(2, lastPage.coerceAtMost(200)) { page ->
+                    getSigned("manga/$hid/chapters", chapterParams(page))
+                        ?.let { unpack(it, page)?.first }
+                        ?: throw java.io.IOException("chapter page $page failed")
+                }
+            } catch (e: Exception) { e.rethrowIfControl(); return null }
+        } else if (firstHasNext) {
+            // lastPage neznamy (meta chybi a hlasi jen hasNext) - opatrný
+            // sekvenční dojezd jako původně.
+            var page = 2
+            while (page <= 200) {
+                val (items, _, hasNext) = getSigned("manga/$hid/chapters", chapterParams(page))
+                    ?.let { unpack(it, page) } ?: return null
+                all += items
+                if (!hasNext) break
+                page++
+            }
         }
         return all.mapNotNull { chapterToSChapter(it, hid, mangaUrl) }
             .sortedByDescending { it.chapterNumber }

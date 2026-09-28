@@ -4,7 +4,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceHttp
 import com.haise.jiyu.source.bodyOrThrow
@@ -162,38 +164,44 @@ class RanobesComSource(
             val mangaAbsUrl = resolveSourceUrl(baseUrl, manga.url)
             val titleSlug = titleSlug(mangaAbsUrl) ?: return@withContext emptyList()
             val slug = chaptersSlug(Jsoup.parse(get(mangaAbsUrl)), titleSlug)
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (true) {
+            // Další stránka existuje, jen když paginace ukazuje na page/(page+1);
+            // bezpečnostní limit 60. Dávky souběžně, vyhodnocení v pořadí stránek.
+            val chapters = fetchPagesBatched(maxPages = 60) { page ->
                 val url = "$root/chapters/$slug/" + if (page > 1) "page/$page/" else ""
                 val doc = Jsoup.parse(get(url))
-                val items = doc.select(".cat_block.cat_line a, .cat_line a")
-                if (items.isEmpty()) break
-                items.forEach { a ->
-                    val href = a.attr("href").ifBlank { return@forEach }
+                val items = doc.select(".cat_block.cat_line a, .cat_line a").mapNotNull { a ->
+                    val href = a.attr("href").ifBlank { return@mapNotNull null }
                     val title = a.selectFirst(".title")?.text()?.trim()
                         ?: a.attr("title").trim().ifBlank { a.text().trim() }
-                    chapters += SChapter(
-                        sourceId = id,
-                        mangaUrl = manga.url,
-                        url = href,
-                        name = title.ifBlank { "Глава ${chapters.size + 1}" },
-                        // "Том 1. Глава 2" - první číslo je svazek, číslo kapitoly je poslední.
-                        chapterNumber = Regex("[\\d.,]+").findAll(title).lastOrNull()?.value
-                            ?.replace(',', '.')?.toFloatOrNull()
-                            ?: (chapters.size + 1).toFloat(),
-                        dateUpload = parseChapterDate(
+                    Triple(
+                        href,
+                        title,
+                        parseChapterDate(
                             a.selectFirst("small")?.text(),
                             Locale.forLanguageTag("ru"),
                         ),
                     )
                 }
-                if (page > 60) break // bezpečnostní limit
-                // Další stránka existuje, jen když paginace ukazuje na page/(page+1)
-                if (doc.select("a[href*='/chapters/$slug/page/${page + 1}']").isEmpty()) break
-                page++
+                PageBatch(
+                    items,
+                    isLast = items.isEmpty() || doc.select("a[href*='/chapters/$slug/page/${page + 1}']").isEmpty(),
+                )
             }
-            chapters.distinctBy { it.url }
+            // Fallback čísla/názvu závisí na pozici v celém seznamu - přečísluje se
+            // až po složení všech dávek v původním pořadí.
+            chapters.mapIndexed { i, (href, title, date) ->
+                SChapter(
+                    sourceId = id,
+                    mangaUrl = manga.url,
+                    url = href,
+                    name = title.ifBlank { "Глава ${i + 1}" },
+                    // "Том 1. Глава 2" - první číslo je svazek, číslo kapitoly je poslední.
+                    chapterNumber = Regex("[\\d.,]+").findAll(title).lastOrNull()?.value
+                        ?.replace(',', '.')?.toFloatOrNull()
+                        ?: (i + 1).toFloat(),
+                    dateUpload = date,
+                )
+            }.distinctBy { it.url }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

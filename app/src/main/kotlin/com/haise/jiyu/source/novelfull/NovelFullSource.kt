@@ -9,7 +9,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -139,26 +141,24 @@ class NovelFullSource @Inject constructor(private val client: OkHttpClient) : Ma
 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
-            val chapters = mutableListOf<SChapter>()
-            var page = 1
-            while (page <= 50) {
+            // Čísla kapitol se odvozují z pozice v seznamu - dávky stáhneme
+            // souběžně jako URL+name a přečíslujeme až po složení v pořadí.
+            val raw = fetchPagesBatched(maxPages = 50) { page ->
                 val doc = Jsoup.parse(get("$base${manga.url}?page=$page"))
                 val items = doc.select("#list-chapter .row li a")
-                if (items.isEmpty()) break
-                items.forEachIndexed { i, a ->
-                    chapters.add(SChapter(
-                        sourceId = id,
-                        mangaUrl = manga.url,
-                        url = a.attr("href"),
-                        name = a.text().trim(),
-                        chapterNumber = chapters.size.toFloat() + i + 1,
-                        dateUpload = 0L,
-                    ))
-                }
-                if (doc.selectFirst("li.next a") == null) break
-                page++
+                    .map { a -> a.attr("href") to a.text().trim() }
+                PageBatch(items, isLast = items.isEmpty() || doc.selectFirst("li.next a") == null)
             }
-            chapters
+            raw.mapIndexed { i, (href, name) ->
+                SChapter(
+                    sourceId = id,
+                    mangaUrl = manga.url,
+                    url = href,
+                    name = name,
+                    chapterNumber = (i + 1).toFloat(),
+                    dateUpload = 0L,
+                )
+            }
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }
     }
 

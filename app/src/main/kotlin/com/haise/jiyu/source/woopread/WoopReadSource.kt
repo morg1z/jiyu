@@ -9,7 +9,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -107,16 +109,15 @@ class WoopReadSource @Inject constructor(private val client: OkHttpClient) : Man
         )
     }
 
-    private fun fetchAllNovels(): List<SManga> {
-        val out = mutableListOf<SManga>()
-        var page = 1
-        while (page <= 10) {
+    private suspend fun fetchAllNovels(): List<SManga> {
+        // Krátká stránka (<20) = konec - dávky po 4 souběžně.
+        val out = fetchPagesBatched(maxPages = 10) { page ->
             val arr = JSONObject(getRaw("$base/api/novels?page=$page").ifBlank { "{}" })
-                .optJSONArray("novels") ?: break
-            if (arr.length() == 0) break
-            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { novelFromJson(it) }?.let(out::add)
-            if (arr.length() < 20) break
-            page++
+                .optJSONArray("novels")
+            val items = arr?.let { a ->
+                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { novelFromJson(it) } }
+            }.orEmpty()
+            PageBatch(items, isLast = (arr?.length() ?: 0) < 20)
         }
         return out.distinctBy { it.url }
     }

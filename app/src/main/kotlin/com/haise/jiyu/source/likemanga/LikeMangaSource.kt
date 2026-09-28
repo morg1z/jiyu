@@ -9,7 +9,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -164,27 +166,24 @@ class LikeMangaSource @Inject constructor(private val client: OkHttpClient) : Ma
         try {
             val mangaId = Regex("""-(\d+)/?$""").find(manga.url)?.groupValues?.get(1)
                 ?: return@withContext emptyList()
-            val chapters = mutableListOf<SChapter>()
-            var pageNum = 1
             // Seznam kapitol na detailu je strankovany po ~50 pres AJAX (viz
             // load_list_chapter v custom_new.js) - prazdny list_chap = konec.
-            while (true) {
+            val chapters = fetchPagesBatched(maxPages = 100) { pageNum ->
                 val json = JSONObject(get("$base/?act=ajax&code=load_list_chapter&manga_id=$mangaId&page_num=$pageNum&chap_id=0&keyword="))
-                val listHtml = json.optString("list_chap").ifBlank { break }
-                val items = Jsoup.parse(listHtml).select("li.wp-manga-chapter a")
-                if (items.isEmpty()) break
-                items.forEach { a ->
-                    val name = a.text().trim()
-                    chapters += SChapter(
-                        sourceId = id,
-                        mangaUrl = manga.url,
-                        url = a.attr("href"),
-                        name = name,
-                        chapterNumber = Regex("""[Cc]hapter\s*([\d.]+)""").find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f,
-                        dateUpload = 0L,
-                    )
-                }
-                pageNum++
+                val items = Jsoup.parse(json.optString("list_chap"))
+                    .select("li.wp-manga-chapter a")
+                    .map { a ->
+                        val name = a.text().trim()
+                        SChapter(
+                            sourceId = id,
+                            mangaUrl = manga.url,
+                            url = a.attr("href"),
+                            name = name,
+                            chapterNumber = Regex("""[Cc]hapter\s*([\d.]+)""").find(name)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f,
+                            dateUpload = 0L,
+                        )
+                    }
+                PageBatch(items, isLast = items.isEmpty())
             }
             chapters
         } catch (e: Exception) { e.rethrowIfControl(); emptyList() }

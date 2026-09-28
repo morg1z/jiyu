@@ -8,7 +8,9 @@ import com.haise.jiyu.source.FilterTag
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.Page
+import com.haise.jiyu.source.PageBatch
 import com.haise.jiyu.source.SChapter
+import com.haise.jiyu.source.fetchPagesBatched
 import com.haise.jiyu.source.SManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -156,21 +158,19 @@ class ComicsKingdomSource @Inject constructor(private val client: OkHttpClient) 
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         try {
             val termId = manga.url.removePrefix("/")
-            val posts = mutableListOf<JSONObject>()
-            var page = 1
-            while (page <= 40) {
+            // Krátká/prázdná stránka = konec - stahujeme po paralelních dávkách.
+            val posts = fetchPagesBatched(maxPages = 40) { page ->
                 val arr = JSONArray(
                     get("$api/ck_comic?ck_feature_taxonomy=$termId&per_page=100&page=$page&orderby=date&order=desc&_fields=id,date,ck_formatted_date")
                 )
-                if (arr.length() == 0) break
-                (0 until arr.length()).forEach { posts.add(arr.getJSONObject(it)) }
-                if (arr.length() < 100) break
-                page++
+                PageBatch(
+                    (0 until arr.length()).map { arr.getJSONObject(it) },
+                    isLast = arr.length() < 100,
+                )
             }
             // API vraci nejnovejsi prvni - otocime, aby kapitola 1 byla
             // nejstarsi dostupny pásek (konvence stejna jako u ostatnich zdroju).
-            posts.reverse()
-            posts.mapIndexed { i, post ->
+            posts.reversed().mapIndexed { i, post ->
                 SChapter(
                     sourceId = id,
                     mangaUrl = manga.url,
