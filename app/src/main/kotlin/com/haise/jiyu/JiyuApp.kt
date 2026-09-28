@@ -109,7 +109,11 @@ class JiyuApp : Application(), Configuration.Provider {
             ImageLoader.Builder(this)
                 .memoryCache {
                     MemoryCache.Builder(this)
-                        .maxSizePercent(0.20)
+                        // 30 % (driv 20): webtoon stranka ~800x1280 px ≈ 4 MB bitmapy -
+                        // pri 20 % se stranky ~15-25 zpet uz vyhodily a vraceni se nahoru
+                        // znamenalo re-decode z disku (viditelny indikator). Vice drzene
+                        // pameti = "back pages zustanou nactene".
+                        .maxSizePercent(0.30)
                         .build()
                 }
                 .diskCache {

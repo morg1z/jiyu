@@ -230,10 +230,12 @@ fun MangaReader(
 
         HorizontalPager(
             state = pagerState,
-            // Dalsi stranka se sklada (a tudiz i stahuje pres Coil) jeste PRED swipen -
-            // drive se jeji request spustil az s otocenim, takze na neprecachovane strance
-            // bezel sitovy fetch az kdyz uz uzivatel chtel cist (nahlasene "cekani na page").
-            beyondViewportPageCount = 1,
+            // Stranky kolem aktualni se skladaji (a tudiz i stahuji/dekoduji pres Coil)
+            // jeste PRED swipen - drive se jeji request spustil az s otocenim, takze na
+            // neprecachovane strance bezel sitovy fetch az kdyz uz uzivatel chtel cist
+            // (nahlasene "cekani na page"). 2 = dve dopredu i dve zpet - vraceni se
+            // swipen zpet je pak instantni z memory cache misto re-decode.
+            beyondViewportPageCount = 2,
             modifier = Modifier
                 .fillMaxSize()
                 .focusRequester(focusRequester)

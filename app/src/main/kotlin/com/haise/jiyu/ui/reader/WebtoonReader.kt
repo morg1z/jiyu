@@ -894,8 +894,9 @@ internal fun medianPlaceholderAspect(samples: List<Float>): Float {
  *  položka = 1 stránka (nebo hranice kapitoly), takže ~5 stran dopředu ≈ 2-3 obrazovky. */
 private const val WEBTOON_PREFETCH_AHEAD = 5
 
-/** Kolik položek se drží složených ZA první viditelnou - návrat zpět pak čte z paměti. */
-private const val WEBTOON_PREFETCH_BEHIND = 2
+/** Kolik položek se drží složených ZA první viditelnou - návrat zpět pak čte z paměti.
+ *  4 ≈ ~2 obrazovky zpět bez přeskládání; dál zpět se servíruje z Coil memory/disk cache. */
+private const val WEBTOON_PREFETCH_BEHIND = 4
 
 /**
  * Prefetch strategie pro webtoon LazyColumn: skládá položky [WEBTOON_PREFETCH_AHEAD]
