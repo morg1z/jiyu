@@ -16,8 +16,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListPrefetchScope
+import androidx.compose.foundation.lazy.LazyListPrefetchStrategy
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.layout.NestedPrefetchScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -133,7 +137,14 @@ fun WebtoonReader(
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
 ) {
-    val listState = rememberLazyListState()
+    // Vlastni prefetch strategie misto vychoziho (ta sklada jen ~1 polozku dopredu):
+    // slozeni WebtoonPage spousti PageSlicer.plan() + Coil load, takze kdyz se sklada
+    // az tesne pred viditelnym okrajem, stranka pri plynulem scrollu jeste neni hotova
+    // a blikne indikator i kdyz jsou bajty davno v disk cache. Lookahead ~5 dopredu /
+    // 2 zpet = dekodovane bitmapy v memory cache jeste pred doskrolovanim - viz
+    // paralelni sitovy prefetch cele kapitoly v ReaderViewModel.startChapterPrefetch,
+    // ktery pokryva zbytek dopredu.
+    val listState = rememberLazyListState(prefetchStrategy = rememberWebtoonPrefetchStrategy())
     val scope = rememberCoroutineScope()
 
     // Pinch-to-zoom stav pro celý souvislý pás - na rozdíl od MangaReaderu (jedna
@@ -875,4 +886,55 @@ internal fun medianPlaceholderAspect(samples: List<Float>): Float {
     if (samples.isEmpty()) return WEBTOON_PLACEHOLDER_ASPECT_RATIO
     return samples.sorted()[samples.size / 2]
         .coerceIn(PLACEHOLDER_ASPECT_MIN, PLACEHOLDER_ASPECT_MAX)
+}
+
+// ── Look-ahead prefetch strategie LazyColumn ─────────────────────────────────
+
+/** Kolik položek LazyColumn se komponuje dopředu za poslední viditelnou - každá
+ *  položka = 1 stránka (nebo hranice kapitoly), takže ~5 stran dopředu ≈ 2-3 obrazovky. */
+private const val WEBTOON_PREFETCH_AHEAD = 5
+
+/** Kolik položek se drží složených ZA první viditelnou - návrat zpět pak čte z paměti. */
+private const val WEBTOON_PREFETCH_BEHIND = 2
+
+/**
+ * Prefetch strategie pro webtoon LazyColumn: skládá položky [WEBTOON_PREFETCH_AHEAD]
+ * před viewportem a [WEBTOON_PREFETCH_BEHIND] za ním. Složená položka rovnou spustí
+ * `PageSlicer.plan()` a Coil load (viz WebtoonPage), takže při plynułem scrollu je
+ * bitmapa v memory cache ještě než stránka vjede na obrazovku - "vsechno nactene"
+ * misto spinneru na kazde nove strance. Vychozi DefaultLazyListPrefetchStrategy sklada
+ * jen ~1 polozku dopredu, coz stacilo na lehke obsahy, ale na ~2270 px vysoke stranky
+ * s decode byl vzdycky pozadu (live test: po jednom swipu vyletel spinner).
+ *
+ * schedulePrefetch na uz slozeny index je levny no-op; handly se nemusi drzet - prefetch
+ * framework sam rusit nepotrebuje (zpozdene slozeni stranky, pres kterou se preflinglo,
+ * jen predstahne jeji bajty do cache, coz je pozadovane chovani).
+ */
+@Composable
+private fun rememberWebtoonPrefetchStrategy(): LazyListPrefetchStrategy = remember {
+    object : LazyListPrefetchStrategy {
+        override fun LazyListPrefetchScope.onScroll(
+            delta: Float,
+            layoutInfo: LazyListLayoutInfo,
+        ) = scheduleAroundViewport(layoutInfo)
+
+        override fun LazyListPrefetchScope.onVisibleItemsUpdated(
+            layoutInfo: LazyListLayoutInfo,
+        ) = scheduleAroundViewport(layoutInfo)
+
+        override fun NestedPrefetchScope.onNestedPrefetch(firstVisibleItemIndex: Int) {
+            // Webtoon ctecka neni vnorena do jine lazy kolekce - vola se jen zvenku.
+        }
+
+        private fun LazyListPrefetchScope.scheduleAroundViewport(layoutInfo: LazyListLayoutInfo) {
+            val visible = layoutInfo.visibleItemsInfo
+            if (visible.isEmpty()) return
+            val first = visible.first().index
+            val last = visible.last().index
+            val upper = minOf(last + WEBTOON_PREFETCH_AHEAD, layoutInfo.totalItemsCount - 1)
+            for (i in (last + 1)..upper) schedulePrefetch(i)
+            val lower = maxOf(first - WEBTOON_PREFETCH_BEHIND, 0)
+            for (i in (first - 1) downTo lower) schedulePrefetch(i)
+        }
+    }
 }
