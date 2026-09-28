@@ -127,6 +127,62 @@ class MangaRepositoryContentTypeTest {
     }
 
     @Test
+    fun `comick alt title token-subset resolves variant title`() = runTest {
+        // Hlaseny bug: zdroj drzi "+99 Reinforced Wooden Stick", ComicK hlavni nazev
+        // "99 Reinforced Wood Stick" a alt "+99 Wooden Stick" - presna normalizovana
+        // shoda neklapne (wood/wooden), podmnozina tokenu ano.
+        mangaDao.upsert(entity(title = "+99 Reinforced Wooden Stick", type = "MANGA"))
+        coEvery { comickSource.search("+99 Reinforced Wooden Stick", any(), any()) } returns
+            listOf(comickResult("99 Reinforced Wood Stick", "kr",
+                alts = listOf("+99 Wooden Stick", "99ganghwanamumongdungi")))
+
+        repository.verifyContentType("somesite::/m")
+
+        assertEquals("MANHWA", mangaDao.getById("somesite::/m")!!.contentType)
+    }
+
+    @Test
+    fun `comick squash tier resolves glued source title`() = runTest {
+        // Realny pripad z telefonu: comick.art drzi nazev se slepenym pravopisem
+        // "+99 ReinforcedWooden Stick" (bez mezery) - presna ani token-subset shoda
+        // nesedi (reinforcedwooden != reinforced+wooden), squash ano.
+        mangaDao.upsert(entity(title = "+99 ReinforcedWooden Stick", type = "MANGA"))
+        coEvery { comickSource.search("+99 ReinforcedWooden Stick", any(), any()) } returns
+            listOf(comickResult("99 Reinforced Wood Stick", "kr",
+                alts = listOf("+99 Reinforced Wooden Stick")))
+
+        repository.verifyContentType("somesite::/m")
+
+        assertEquals("MANHWA", mangaDao.getById("somesite::/m")!!.contentType)
+    }
+
+    @Test
+    fun `squash tier does not match different titles`() = runTest {
+        // Tituly lisici se o skutecne znaky (ne jen mezery) se nesmi sparit ani
+        // ve squash urovni - "Sword Art" neni "Sword Art Online".
+        mangaDao.upsert(entity(title = "Sword Art", type = "MANGA"))
+        coEvery { comickSource.search(any(), any(), any()) } returns
+            listOf(comickResult("Sword Art Online", "jp"))
+
+        repository.verifyContentType("somesite::/m")
+
+        assertEquals("MANGA", mangaDao.getById("somesite::/m")!!.contentType)
+    }
+
+    @Test
+    fun `single-word titles never match by token subset`() = runTest {
+        // {solo} ⊂ {solo,leveling}, ale jednoslovny nazev se do pulky katalogu vejde -
+        // podmnozina vyzaduje >=2 tokeny, jinak by "Solo" chytilo Solo Leveling apod.
+        mangaDao.upsert(entity(title = "Solo", type = "MANGA"))
+        coEvery { comickSource.search(any(), any(), any()) } returns
+            listOf(comickResult("Solo Leveling", "kr"))
+
+        repository.verifyContentType("somesite::/m")
+
+        assertEquals("MANGA", mangaDao.getById("somesite::/m")!!.contentType)
+    }
+
+    @Test
     fun `comick match through entity alternateTitles`() = runTest {
         // Entity drzi japonsky nazev, ComicK anglicky - paruje se pres alternateTitles.
         mangaDao.upsert(entity(title = "めだかボックス")

@@ -31,6 +31,9 @@ data class MuManga(
      * "OEL", "Artbook", "Doujinshi", ...) - per-titul pravda, používá se pro
      * verifikaci tagu typu v knihovně (MangaRepository.verifyContentType). */
     val type: String? = null,
+    /** Alternativní názvy série z `record.associated` - zdrojový název se často liší
+     * od katalogového, takže bez nich přesná normalizovaná shoda nemusí klapnout. */
+    val alternateTitles: List<String> = emptyList(),
 )
 
 /** Vytaženo z [MangaUpdatesRepository.searchManga] jako čistá funkce, aby šlo otestovat bez OkHttp. */
@@ -38,6 +41,17 @@ internal fun parseMuSearchResults(body: String): List<MuManga> {
     val results = JSONObject(body).optJSONArray("results") ?: return emptyList()
     return (0 until results.length()).map { i ->
         val rec = results.getJSONObject(i).getJSONObject("record")
+        // "associated" obsahuje alternativni nazvy serie - tvar se muze lisit
+        // (objekty {title} i holé stringy), proto obrana na oba tvary.
+        val associated = rec.optJSONArray("associated")
+        val alts = mutableListOf<String>()
+        if (associated != null) {
+            for (j in 0 until associated.length()) {
+                val item = associated.opt(j)
+                val name = (item as? JSONObject)?.optString("title") ?: (item as? String)
+                if (!name.isNullOrBlank()) alts.add(name)
+            }
+        }
         MuManga(
             id = rec.getLong("series_id"),
             title = rec.optString("title"),
@@ -45,6 +59,7 @@ internal fun parseMuSearchResults(body: String): List<MuManga> {
             year = rec.optString("year").toIntOrNull(),
             description = rec.optString("description").take(200).takeIf { it.isNotBlank() },
             type = rec.optString("type").takeIf { it.isNotBlank() },
+            alternateTitles = alts.distinct(),
         )
     }
 }

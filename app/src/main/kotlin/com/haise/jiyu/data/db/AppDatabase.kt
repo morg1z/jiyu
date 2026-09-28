@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 41,
+    version = 43,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -381,6 +381,26 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE manga ADD COLUMN contentTypeVerified INTEGER NOT NULL DEFAULT 0")
             }
         }
+        val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // contentTypeVerified zapsal puvodni matcher, ktery umel jen presnou
+                // normalizovanou shodu a ComicK search nevracel md_titles - tituly jako
+                // "+99 Reinforced Wooden Stick" (ComicK: "99 Reinforced Wood Stick")
+                // se oznacily "overeno" bez nalezu a zustaly spatne navzdy. Po
+                // zlepseni parovani (md_titles + token-subset) se vsechny preveri
+                // pri pristim refreshi - jednorazove, flag se hned zapise znovu.
+                db.execSQL("UPDATE manga SET contentTypeVerified = 0")
+            }
+        }
+        val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Matcher se naucil treti uroven (squash = shoda po odstraneni mezer)
+                // pro zdroje se slepenym pravopisem nazvu - comick.art ma napr.
+                // "+99 ReinforcedWooden Stick", ComicK "... Wooden Stick". Tituly
+                // oznacene "overeno" bez nalezu se po te zmeni na spravny typ.
+                db.execSQL("UPDATE manga SET contentTypeVerified = 0")
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -426,6 +446,8 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_38_39,
             MIGRATION_39_40,
             MIGRATION_40_41,
+            MIGRATION_41_42,
+            MIGRATION_42_43,
         )
     }
 }

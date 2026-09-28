@@ -33,6 +33,8 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.util.normalizeMangaTitle
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
@@ -156,9 +158,14 @@ class MangaRepository @Inject constructor(
 
     suspend fun addToLibrary(manga: SManga) {
         val id = upsertMangaMetadata(manga, forceInLibrary = true)
+        // Ověření typu (až 2 síťové dotazy na katalogy) běží SOUBĚŽNĚ s fetchi
+        // kapitol - jinak by přidání titulu zbytečně čekalo sériově na oboje.
         // Pred refreshChapters - kdyby fetch kapitol selhal, tag se stejne opravi.
-        verifyContentType(id)
-        refreshChapters(id, manga)
+        coroutineScope {
+            val verify = async { runCatching { verifyContentType(id) } }
+            refreshChapters(id, manga)
+            verify.await()
+        }
     }
 
     /**
@@ -169,8 +176,11 @@ class MangaRepository @Inject constructor(
      */
     suspend fun openPreview(manga: SManga): String {
         val id = upsertMangaMetadata(manga, forceInLibrary = false)
-        verifyContentType(id)
-        refreshChapters(id, manga)
+        coroutineScope {
+            val verify = async { runCatching { verifyContentType(id) } }
+            refreshChapters(id, manga)
+            verify.await()
+        }
         return id
     }
 
@@ -426,22 +436,67 @@ class MangaRepository @Inject constructor(
             val muResults = try { mangaUpdatesRepository.searchManga(manga.title) } catch (_: Exception) { null }
             // MU pri chybe vraci tiche emptyList - "odpovedel" pozname jen z neprazdneho vysledku.
             if (!muResults.isNullOrEmpty()) answered = true
-            resolved = muResults.orEmpty().firstNotNullOfOrNull { it.toContentTypeIfMatches(manga) }
+            for (tier in 0..2) {
+                resolved = muResults.orEmpty().firstNotNullOfOrNull { it.toContentTypeIfMatches(manga, tier) }
+                if (resolved != null) break
+            }
         }
         if (!answered) return
         mangaDao.markContentTypeResolved(mangaId, resolved)
     }
 
-    /** Presna shoda normalizovaneho nazvu (hlavni nebo kterekoli alt title) → typ z `country`. */
+    /**
+     * Shoda nazvu s kandydatem z katalogu ve dvou tazich - presna normalizovana shoda
+     * prednostne, pak token-subset. Katalog i zdroj casto pouzivaji jinou variantu
+     * nazvu ("+99 Reinforced Wooden Stick" na zdroji vs ComicK "99 Reinforced Wood
+     * Stick" + alt "+99 Wooden Stick" - podmnozina tokenu chyti pridanou/vyrazenou
+     * pridomku). Falesna shoda (spin-off ma navic slovo, ale stejnou zemi puvodu) je
+     * u TAGU neprujemna levne - proto subset jen zde, ne v relinku, kde by zamenil
+     * serie.
+     */
     private fun resolveTypeFromComicK(manga: MangaEntity, results: List<SManga>): String? {
         val targets = titleCandidates(manga)
-        for (r in results) {
-            val names = (listOf(r.title) + r.alternateTitles).map(::normalizeMangaTitle)
-            if (names.none { it.isNotBlank() && it in targets }) continue
-            // "others"/neznama zeme = zadny nazor - zkusime dalsi vysledek z hledani.
-            contentTypeFromOrigin(r.countryOfOrigin)?.let { return it }
+        for (tier in 0..2) {
+            for (r in results) {
+                val names = (listOf(r.title) + r.alternateTitles).map(::normalizeMangaTitle)
+                if (!anyNameMatches(names, targets, tier)) continue
+                // "others"/neznama zeme = zadny nazor - zkusime dalsi vysledek z hledani.
+                contentTypeFromOrigin(r.countryOfOrigin)?.let { return it }
+            }
         }
         return null
+    }
+
+    /**
+     * Tři úrovně shody názvu, od nejpřísnější: 0 = přesná normalizovaná shoda,
+     * 1 = token-subset ("+99 wooden stick" ⊆ "99 reinforced wooden stick"),
+     * 2 = squash (shoda po odstranění všech mezer - chytí zdroje se slepeným
+     * pravopisem, comick.art má "+99 ReinforcedWooden Stick" vs ComicK
+     * "... Wooden Stick"). Falešná shoda vyžaduje tituly lišící se JEN mezerami,
+     * což je prakticky stejný titul - bezpečná poslední úroveň. Minimální délka
+     * chrání před šumem krátkých názvů.
+     */
+    private fun anyNameMatches(names: List<String>, targets: Set<String>, tier: Int): Boolean =
+        names.any { n ->
+            n.isNotBlank() && when (tier) {
+                0 -> n in targets
+                1 -> targets.any { tokenSubsetMatch(n, it) }
+                else -> targets.any { squashMatch(n, it) }
+            }
+        }
+
+    private fun squashMatch(a: String, b: String): Boolean {
+        val sa = a.replace(" ", "")
+        return sa.length >= 5 && sa == b.replace(" ", "")
+    }
+
+    /** Podmnozina tokenu: "+99 wooden stick" ⊆ "99 reinforced wooden stick". Mensi strana
+     *  musi mit >=2 tokeny - jednoslovny nazev by jinak "sedel" do pulky katalogu. */
+    private fun tokenSubsetMatch(a: String, b: String): Boolean {
+        val ta = a.split(' ').filterTo(LinkedHashSet()) { it.isNotBlank() }
+        val tb = b.split(' ').filterTo(LinkedHashSet()) { it.isNotBlank() }
+        val (smaller, bigger) = if (ta.size <= tb.size) ta to tb else tb to ta
+        return smaller.size >= 2 && bigger.containsAll(smaller)
     }
 
     /** Kód země/jazyka původu z API katalogu → náš tag; vše mimo jp/kr/cn ekvivalentů
@@ -455,8 +510,9 @@ class MangaRepository @Inject constructor(
 
     /** MangaUpdates `type` per serie ("Manga"/"Manhwa"/"Manhua"/"Novel") - ostatni
      * (OEL, Doujinshi, Artbook...) zamerne nemapujeme, nemaji jisty protijek. */
-    private fun MuManga.toContentTypeIfMatches(manga: MangaEntity): String? {
-        if (normalizeMangaTitle(title) !in titleCandidates(manga)) return null
+    private fun MuManga.toContentTypeIfMatches(manga: MangaEntity, tier: Int): String? {
+        val names = (listOf(title) + alternateTitles).map(::normalizeMangaTitle)
+        if (!anyNameMatches(names, titleCandidates(manga), tier)) return null
         return when (type) {
             "Manga"  -> "MANGA"
             "Manhwa" -> "MANHWA"

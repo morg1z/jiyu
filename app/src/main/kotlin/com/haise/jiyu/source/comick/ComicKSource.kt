@@ -688,6 +688,20 @@ class ComicKSource @Inject constructor(
         // souboru - org.json.optString() na poli s JSON hodnotou null vraci doslovny "null".
         val lastChapter = if (comic.isNull("last_chapter")) null else comic.optDouble("last_chapter").takeIf { !it.isNaN() }?.toFloat()
 
+        // md_titles jdou i do alternateTitles - cross-katalog parovani (relink,
+        // verifyContentType) je potrebuje: ComicKuv zobrazovany nazev se casto lisi
+        // od nazvu na zdrojovem webu ("99 Reinforced Wood Stick" vs "+99 Reinforced
+        // Wooden Stick") a bez alt title se presna normalizovana shoda nenajde.
+        val titlesArr = comic.optJSONArray("md_titles")
+        val alternateTitles = mutableListOf<String>()
+        if (titlesArr != null) {
+            for (i in 0 until titlesArr.length()) {
+                val t = titlesArr.optJSONObject(i) ?: continue
+                val name = if (t.isNull("title")) null else t.optString("title").ifBlank { null }
+                if (name != null && name != title) alternateTitles.add(name)
+            }
+        }
+
         return SManga(
             sourceId    = id,
             url         = "$apiBase/comic/$slug",
@@ -696,6 +710,7 @@ class ComicKSource @Inject constructor(
             contentType = contentTypeFromCountry(comic.optString("country")),
             countryOfOrigin = comic.optString("country").takeIf { it.isNotBlank() },
             lastChapter = lastChapter,
+            alternateTitles = alternateTitles.distinct().take(8),
         )
     }
 
