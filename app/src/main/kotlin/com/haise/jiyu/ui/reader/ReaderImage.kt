@@ -38,6 +38,7 @@ import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.haise.jiyu.R
 import com.haise.jiyu.source.SourceRateLimitedException
+import com.haise.jiyu.source.interceptor.SlowdownInterceptor
 import com.haise.jiyu.util.ScrambledImageUrl
 import compose.icons.TablerIcons
 import compose.icons.tablericons.AlertCircle
@@ -74,6 +75,7 @@ internal fun buildPageImageRequest(
     referer: String? = null,
     cropBorders: Boolean = false,
     disableCrossfade: Boolean = false,
+    priority: Boolean = false,
 ): ImageRequest {
     val scramble = ScrambledImageUrl.parse(url)
     val transforms = buildList<Transformation> {
@@ -85,6 +87,9 @@ internal fun buildPageImageRequest(
         .apply { if (transforms.isNotEmpty()) transformations(transforms) }
         .apply { if (disableCrossfade) transitionFactory(Transition.Factory.NONE) }
         .apply { if (!referer.isNullOrBlank()) addHeader("Referer", referer) }
+        // Interaktivni zobrazeni: pri zpomalenem hostiteli (429) preskoci prefetch
+        // frontu - hlavicku cte a pred odeslanim odstrani SlowdownInterceptor.
+        .apply { if (priority) addHeader(SlowdownInterceptor.HEADER_PRIORITY, "1") }
         .build()
 }
 
@@ -113,7 +118,8 @@ internal fun pageAutoRetryDelayMs(error: Throwable?): Long {
 }
 
 private const val AUTO_RETRY_DELAY_MS = 1_500L
-private const val RATE_LIMIT_MIN_DELAY_MS = 4_000L
+/** Minimální odstup po HTTP 429 - sdílený i prefetch smyčkou (ReaderViewModel.startChapterPrefetch). */
+internal const val RATE_LIMIT_MIN_DELAY_MS = 4_000L
 
 
 @Composable
@@ -182,7 +188,9 @@ fun RetryableAsyncImage(
 
     Box(modifier = modifier) {
         val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
-            buildPageImageRequest(context, url, referer, cropBorders, disableCrossfade)
+            // priority=true - tohle je stránka pod prstem; při zpomaleném hostiteli (429)
+            // nesmí čekat za prefetch frontou (viz SlowdownInterceptor.HEADER_PRIORITY).
+            buildPageImageRequest(context, url, referer, cropBorders, disableCrossfade, priority = true)
         }
         AsyncImage(
             model = request,

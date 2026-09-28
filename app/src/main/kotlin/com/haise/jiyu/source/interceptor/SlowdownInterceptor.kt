@@ -15,7 +15,17 @@ class SlowdownInterceptor(
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        var remaining = slowdown.reserve(chain.request().url.host)
+        val incoming = chain.request()
+        // X-Jiyu-Priority oznacuje interaktivni request (stranka pod prstem) - v okne
+        // po 429 jde pred frontou prefetch slotu (viz SourceSlowdown.reserve priority).
+        // Hlavicka je interni - pred odeslanim se odstrani, na server se nepremita.
+        val priority = incoming.header(HEADER_PRIORITY) == "1"
+        val request = if (priority) {
+            incoming.newBuilder().removeHeader(HEADER_PRIORITY).build()
+        } else {
+            incoming
+        }
+        var remaining = slowdown.reserve(request.url.host, priority)
         while (remaining > 0) {
             if (chain.call().isCanceled()) throw IOException("Canceled")
             val step = minOf(remaining, STEP_MS)
@@ -29,10 +39,16 @@ class SlowdownInterceptor(
             }
             remaining -= step
         }
-        return chain.proceed(chain.request())
+        return chain.proceed(request)
     }
 
-    private companion object {
-        const val STEP_MS = 100L
+    companion object {
+        /**
+         * Interní hlavička "skoč před frontu zpomaleného hosta" - nastavují zobrazovací
+         * requesty (buildPageImageRequest priority=true, PageSlicer), prefetch ji nikdy
+         * nemá. Interceptor ji čte a před odesláním odstraní.
+         */
+        const val HEADER_PRIORITY = "X-Jiyu-Priority"
+        private const val STEP_MS = 100L
     }
 }

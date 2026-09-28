@@ -56,8 +56,10 @@ class SourceSlowdownTest {
             .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
             .body("".toResponseBody()).build()
 
-    private fun chain(code: Int = 200, canceled: Boolean = false, vararg headers: Pair<String, String>): Interceptor.Chain {
-        val request = Request.Builder().url("https://site.test/x").build()
+    private fun chain(code: Int = 200, canceled: Boolean = false, priority: Boolean = false, vararg headers: Pair<String, String>): Interceptor.Chain {
+        val request = Request.Builder().url("https://site.test/x")
+            .apply { if (priority) header(SlowdownInterceptor.HEADER_PRIORITY, "1") }
+            .build()
         val call = mockk<Call>()
         every { call.isCanceled() } returns canceled
         val chain = mockk<Interceptor.Chain>()
@@ -112,5 +114,53 @@ class SourceSlowdownTest {
         assertEquals(0L, retryAfterWaitMs(-5))
         assertEquals(30_000L, retryAfterWaitMs(30_000))
         assertEquals(5L * 60 * 1000, retryAfterWaitMs(2L * 60 * 60 * 1000))
+    }
+
+    // ── priority (interaktivní requesty přeskakují frontu) ───────────────────
+
+    @Test
+    fun `priority request skips the reserved queue but keeps the frontier spaced`() {
+        slowdown.noteRateLimited("site.test")
+        slowdown.reserve("site.test") // slot t=0
+        assertEquals(SourceSlowdown.INTERVAL_MS, slowdown.reserve("site.test")) // slot t=1
+        // Prioritní jde hned, i když normální sloty už jsou rezervované dopředu.
+        assertEquals(0L, slowdown.reserve("site.test", priority = true))
+        assertEquals(0L, slowdown.reserve("site.test", priority = true))
+        // ...a normální fronta za nimi pokračuje od narezervované hranice (t=2*INTERVAL).
+        assertEquals(2 * SourceSlowdown.INTERVAL_MS, slowdown.reserve("site.test"))
+    }
+
+    @Test
+    fun `priority request on a healthy host is also immediate`() {
+        assertEquals(0L, slowdown.reserve("site.test", priority = true))
+    }
+
+    @Test
+    fun `the interceptor does not wait for a request marked priority`() {
+        slowdown.noteRateLimited("site.test")
+        slowdown.reserve("site.test") // první slot volný, fronta existuje
+        val slept = mutableListOf<Long>()
+        SlowdownInterceptor(slowdown) { slept += it }.intercept(chain(priority = true)).close()
+        assertEquals(emptyList<Long>(), slept)
+    }
+
+    @Test
+    fun `the interceptor strips the priority header before sending`() {
+        slowdown.noteRateLimited("site.test")
+        var sentRequest: Request? = null
+        val request = Request.Builder().url("https://site.test/x")
+            .header(SlowdownInterceptor.HEADER_PRIORITY, "1")
+            .build()
+        val call = mockk<Call>()
+        every { call.isCanceled() } returns false
+        val chain = mockk<Interceptor.Chain>()
+        every { chain.request() } returns request
+        every { chain.call() } returns call
+        every { chain.proceed(any()) } answers {
+            sentRequest = firstArg()
+            ok(firstArg())
+        }
+        SlowdownInterceptor(slowdown).intercept(chain).close()
+        assertEquals(null, sentRequest?.header(SlowdownInterceptor.HEADER_PRIORITY))
     }
 }

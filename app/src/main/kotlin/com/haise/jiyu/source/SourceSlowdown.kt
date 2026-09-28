@@ -32,10 +32,20 @@ class SourceSlowdown @Inject constructor() {
      * rezervace nakoupily do minut a desitky OkHttp dispatcher vlaken by jen spalo (audit).
      * Pozadavek nad horizont se pusti hned - pripadne 429 znovu nabije okno a fronta se
      * samo-regulacne rozevře, misto aby se dispatcher zaplavil spicemi.
+     *
+     * [priority] = interaktivní požadavek (stránka pod prstem, řez viditelné stránky):
+     * pustí se IHNED před veškerou narezervovanou prefetch frontu a místo čekání za ní
+     * posune hranici [nextSlot] dopředu - normální sloty si díky tomu odstup drží dál.
+     * Bez tohohle po scrub-soku v zpomaleném okně viditelná stránka čekala klidně ~30 s
+     * za frontou prefetch requestů, i když načtená měla být hned.
      */
-    fun reserve(host: String): Long = synchronized(lock) {
+    fun reserve(host: String, priority: Boolean = false): Long = synchronized(lock) {
         val now = nowMs()
         if ((slowedUntil[host] ?: 0L) <= now) return 0L
+        if (priority) {
+            nextSlot[host] = maxOf(nextSlot[host] ?: 0L, now + INTERVAL_MS)
+            return 0L
+        }
         val slot = maxOf(now, nextSlot[host] ?: 0L)
         if (slot - now > MAX_QUEUE_MS) return 0L
         nextSlot[host] = slot + INTERVAL_MS

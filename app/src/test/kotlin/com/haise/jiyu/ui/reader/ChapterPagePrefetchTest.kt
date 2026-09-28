@@ -32,4 +32,38 @@ class ChapterPagePrefetchTest {
     fun `prefetchOrder prazdna kapitola`() {
         assertEquals(emptyList<Int>(), prefetchOrder(pageCount = 0, centerIndex = 0))
     }
+
+    @Test
+    fun `nextPrefetchIndex bere nejblizsi dopredu od centra`() {
+        val remaining = (0 until 15).toMutableSet()
+        // Simulace workera: opakovane pickuje, musi jit 10,11,12... jako prefetchOrder.
+        val order = generateSequence {
+            nextPrefetchIndex(remaining, center = 10, pageCount = 15)?.also { remaining.remove(it) }
+        }.toList()
+        assertEquals(prefetchOrder(15, 10), order)
+    }
+
+    @Test
+    fun `nextPrefetchIndex po skoku ctenare preorientuje frontu`() {
+        // Kapitola se otevřela na 10 a 10-13 uz se stahly; ctenar skoci scrubberem na 50.
+        val remaining = (0 until 60).toMutableSet().apply { removeAll(10..13) }
+        assertEquals(50, nextPrefetchIndex(remaining, center = 50, pageCount = 60))
+        assertEquals(51, nextPrefetchIndex(remaining - 50, center = 50, pageCount = 60))
+    }
+
+    @Test
+    fun `nextPrefetchIndex zpetne stranky jdou az po doprednych a od nejblizsi`() {
+        val remaining = setOf(2, 0, 8, 9)
+        // center=5, N=10: dopredu 8,9 (8 driv), pak zpetne 2,0 (2 je bliz centru).
+        assertEquals(8, nextPrefetchIndex(remaining, center = 5, pageCount = 10))
+        assertEquals(9, nextPrefetchIndex(remaining - 8, center = 5, pageCount = 10))
+        assertEquals(2, nextPrefetchIndex(remaining - 8 - 9, center = 5, pageCount = 10))
+        assertEquals(0, nextPrefetchIndex(remaining - 8 - 9 - 2, center = 5, pageCount = 10))
+    }
+
+    @Test
+    fun `nextPrefetchIndex prazdna fronta vraci null`() {
+        assertEquals(null, nextPrefetchIndex(emptySet(), center = 3, pageCount = 10))
+        assertEquals(null, nextPrefetchIndex(setOf(0), center = 0, pageCount = 0))
+    }
 }

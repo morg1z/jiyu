@@ -339,6 +339,9 @@ class PageSlicer @Inject constructor(
             // stejně vždy jedou z #original bajtů (kvalita před proxy úsporou).
             header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
             header("Range", "bytes=0-${PROBE_BYTES - 1}")
+            // plan() volá jen zobrazovací cesta (stránka při složení) - interaktivní,
+            // při zpomaleném hostiteli přeskočí prefetch frontu.
+            header(com.haise.jiyu.source.interceptor.SlowdownInterceptor.HEADER_PRIORITY, "1")
         }.build()
         try {
             httpClient.newCall(request).execute().use { resp ->
@@ -403,6 +406,8 @@ class PageSlicer @Inject constructor(
             // Originální bajty vždy - přes proxy by se stáhla degradovaná kopie
             // (hlavičku interceptor před odesláním odstraní, viz ImageProxyInterceptor).
             header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+            // Interaktivní cesta (display) - viz probeRemotePlan výše.
+            header(com.haise.jiyu.source.interceptor.SlowdownInterceptor.HEADER_PRIORITY, "1")
         }.build()
         return try {
             httpClient.newCall(request).execute().use { resp ->

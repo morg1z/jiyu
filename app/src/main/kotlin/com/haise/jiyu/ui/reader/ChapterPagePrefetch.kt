@@ -16,9 +16,11 @@ const val PREFETCH_RETRY_DELAY_MS = 2_000L
 
 /**
  * Kolikrát maximálně projde sekvenční prefetch celou kapitolu - pojistka proti mrtvému
- * hostiteli, aby se selhávající stránky nezkoušely donekonečna.
+ * hostiteli, aby se selhávající stránky nezkoušely donekonečna. 5 průchodů s rozevřenými
+ * odstupy po 429 (viz ReaderViewModel.startChapterPrefetch) překryje typické krátké
+ * rate-limit okno CDN; průchody se ukončí hned, jakmile není co zkoušet znovu.
  */
-const val PREFETCH_MAX_PASSES = 3
+const val PREFETCH_MAX_PASSES = 5
 
 /**
  * Kolik stránek se prefetchuje SOUČASNĚ. Dřívější sekvenční smyčka stahovala stránky
@@ -47,4 +49,18 @@ internal fun prefetchOrder(pageCount: Int, centerIndex: Int): List<Int> {
     if (pageCount <= 0) return emptyList()
     val center = centerIndex.coerceIn(0, pageCount - 1)
     return (center until pageCount) + (center - 1 downTo 0)
+}
+
+/**
+ * Vybere další stránku ke stažení ze zbylých indexů - stejné pořadí jako [prefetchOrder]
+ * (dopředu od centra vzestupně, pak zpětně od nejbližší), ale počítané nad SETEM, takže
+ * již stažené indexy se přeskakují. Center se čte živě při každém picku - skok čtenáře
+ * okamžitě přeorientuje frontu. Viditelné v testech (internal).
+ */
+internal fun nextPrefetchIndex(remaining: Set<Int>, center: Int, pageCount: Int): Int? {
+    if (pageCount <= 0) return null
+    val c = center.coerceIn(0, pageCount - 1)
+    // rank: dopredu = it-c (0..), zpet = N + (c-it) - vzdy az za vsemi doprednymi a
+    // zpetne stranky od nejblizsi (c-1) k nejvzdalenejsi (0), presne jako prefetchOrder.
+    return remaining.minByOrNull { if (it >= c) it - c else pageCount + (c - it) }
 }

@@ -4,6 +4,7 @@ import com.haise.jiyu.translate.GlossaryRepository
 import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
 import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
@@ -78,6 +79,11 @@ private const val CHAPTER_LOAD_TIMEOUT_MS = 45_000L
 /** Kolikrat appendNextWebtoonSegment zkusi fetch stranek dalsi kapitoly, nez se vzdá - viz retry smycka (dead-end fix). */
 private const val APPEND_FETCH_ATTEMPTS = 3
 private const val APPEND_RETRY_DELAY_MS = 2_000L
+
+/** Kolik stránek dopředu drží omezený (úsporný/zpoplatněná síť) prefetch - viz [ReaderViewModel.prefetchNextPage]. */
+private const val LIMITED_PREFETCH_AHEAD = 3
+
+private const val TAG = "ReaderPrefetch"
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -1106,8 +1112,12 @@ class ReaderViewModel @Inject constructor(
         }
         // Usporny rezim NEBO zpoplatnena sit (viz shouldLimitPrefetch): jen stranka dopredu
         // pri kazdem otoceni. Normalni rezim: sekvencni prefetch cele kapitoly 0->N jednou za kapitolu.
-        if (shouldLimitPrefetch()) prefetchNextPage(_initialPage.value)
-        else startChapterPrefetch()
+        if (shouldLimitPrefetch()) {
+            Log.d(TAG, "prefetch: OMEZENY rezim (saving=${com.haise.jiyu.util.DeviceResourcePolicy.isSavingResources(context)}, unmetered=${networkMonitor.isUnmetered}, wifiOnly=${prefetchPagesWifiOnly.value}) - jen +$LIMITED_PREFETCH_AHEAD dopredu")
+            prefetchNextPage(_initialPage.value)
+        } else {
+            startChapterPrefetch()
+        }
         lastPageChangeMs = System.currentTimeMillis()
         _loading.value = false
         // Kazde plne nacteni kapitoly (jumpToChapter/navigateNext/navigatePrev/pocatecni otevreni)
@@ -1262,19 +1272,32 @@ class ReaderViewModel @Inject constructor(
             val pages = _pages.value.toList()
             if (pages.isEmpty()) return@launch
             val imageLoader = Coil.imageLoader(context)
-            var queue = prefetchOrder(pages.size, centerIndex)
+            // Zbývající indexy jako SET, ne fixní fronta - každý pick bere stránku
+            // NEJBLÍŽ DOPŘEDU od živé pozice čtenáře (_currentPage), takže skok
+            // scrubberem/rychlý scroll okamžitě přeorientuje vlnu místo aby dojížděla
+            // pořadím z okamžiku otevření kapitoly (dřív se po skoku stránky pod
+            // novou pozicí čekalo na konec staré fronty = "kousek nenačtený").
+            val remaining = ConcurrentHashMap.newKeySet<Int>()
+            remaining += 0 until pages.size
+            remaining -= prefetchedPageIndices
+            Log.d(TAG, "prefetch start: kapitola=${pages.size} stranek, k_stazeni=${remaining.size}, center=$centerIndex")
             for (pass in 1..PREFETCH_MAX_PASSES) {
-                if (queue.isEmpty()) break
-                val cursor = java.util.concurrent.atomic.AtomicInteger(0)
+                if (remaining.isEmpty()) break
                 val failed = java.util.concurrent.ConcurrentLinkedQueue<Int>()
+                val sawRateLimit = java.util.concurrent.atomic.AtomicBoolean(false)
+                val maxRetryAfterMs = java.util.concurrent.atomic.AtomicLong(0)
                 kotlinx.coroutines.coroutineScope {
                     repeat(PREFETCH_PARALLELISM) {
                         launch(kotlinx.coroutines.Dispatchers.IO) {
                             while (true) {
                                 ensureActive()
-                                val i = cursor.getAndIncrement()
-                                if (i >= queue.size) break
-                                val index = queue[i]
+                                val center = _currentPage.value
+                                // Stejné pořadí jako prefetchOrder (dopředu vzestupně, zpět
+                                // od nejbližší), ale přepočítané při KAŽDÉM výběru z živé
+                                // pozice - skok čtenáře okamžitě přeorientuje frontu.
+                                val index = nextPrefetchIndex(remaining, center, pages.size)
+                                    ?: break
+                                if (!remaining.remove(index)) continue
                                 if (index in prefetchedPageIndices) continue
                                 val url = pages.getOrElse(index) { "" }
                                 if (url.isBlank()) continue
@@ -1298,17 +1321,38 @@ class ReaderViewModel @Inject constructor(
                                     .newBuilder()
                                     .size(PREFETCH_DECODE_SIZE)
                                     .build()
-                                if (imageLoader.execute(request) is coil.request.ErrorResult) {
+                                val result = imageLoader.execute(request)
+                                if (result is coil.request.ErrorResult) {
                                     prefetchedPageIndices -= index
                                     failed += index
+                                    val cause = result.throwable
+                                    if (cause is com.haise.jiyu.source.SourceRateLimitedException) {
+                                        sawRateLimit.set(true)
+                                        maxRetryAfterMs.accumulateAndGet(cause.retryAfterMs, ::maxOf)
+                                        // Worker se na chvíli odmlčí - v rate-limit okně další
+                                        // requesty jen prodlužují ban, zobrazovací cesta stránky
+                                        // pod prstem má přednost.
+                                        delay(pageAutoRetryDelayMs(cause))
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                queue = failed.toList()
-                if (queue.isEmpty()) break
-                delay(PREFETCH_RETRY_DELAY_MS)
+                if (failed.isEmpty()) break
+                remaining += failed
+                Log.d(TAG, "prefetch pass $pass: ${failed.size} selhalo (429=${sawRateLimit.get()}), zbyva=${remaining.size}")
+                // Po 429 další průchod rozespat aspoň na RATE_LIMIT_MIN_DELAY_MS
+                // (Retry-After často chybí), jinak klasický krátký delay.
+                delay(
+                    if (sawRateLimit.get()) maxOf(maxRetryAfterMs.get(), RATE_LIMIT_MIN_DELAY_MS)
+                    else PREFETCH_RETRY_DELAY_MS,
+                )
+            }
+            if (remaining.isEmpty()) {
+                Log.d(TAG, "prefetch hotovo: vsechny stranky v cache")
+            } else {
+                Log.w(TAG, "prefetch vzdal: ${remaining.size} stranek se nepovedlo ani po $PREFETCH_MAX_PASSES pruchodech")
             }
         }
     }
@@ -1346,22 +1390,26 @@ class ReaderViewModel @Inject constructor(
 
     /**
      * Úsporný režim - místo sekvenčního prefetchu celé kapitoly (viz [startChapterPrefetch])
-     * předstáhne jen JEDNU stránku dopředu při každém otočení stránky.
+     * předstáhne jen krátké okno stránek dopředu při každém otočení stránky. Okno je
+     * [LIMITED_PREFETCH_AHEAD] stránek, ne jedna - webtoon viewport drží několik stránek
+     * najednou, takže +1 znamenalo nenačtený kousek hned po prvním scrollu.
      */
     private fun prefetchNextPage(currentIndex: Int) {
         val pages = _pages.value
-        val index = currentIndex + 1
-        if (index >= pages.size || index in prefetchedPageIndices) return
-        val url = pages[index]
-        if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) return
-        prefetchedPageIndices += index
-        val request = buildPageImageRequest(context, url, _pageReferer.value, cropBorders.value)
-            .newBuilder()
-            .size(PREFETCH_DECODE_SIZE)
-            .build()
-        viewModelScope.launch {
-            if (Coil.imageLoader(context).execute(request) is coil.request.ErrorResult) {
-                prefetchedPageIndices -= index
+        for (index in (currentIndex + 1)..(currentIndex + LIMITED_PREFETCH_AHEAD)) {
+            if (index >= pages.size) break
+            if (index in prefetchedPageIndices) continue
+            val url = pages[index]
+            if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) continue
+            prefetchedPageIndices += index
+            val request = buildPageImageRequest(context, url, _pageReferer.value, cropBorders.value)
+                .newBuilder()
+                .size(PREFETCH_DECODE_SIZE)
+                .build()
+            viewModelScope.launch {
+                if (Coil.imageLoader(context).execute(request) is coil.request.ErrorResult) {
+                    prefetchedPageIndices -= index
+                }
             }
         }
     }

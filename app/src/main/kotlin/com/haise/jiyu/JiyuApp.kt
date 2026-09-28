@@ -115,11 +115,11 @@ class JiyuApp : Application(), Configuration.Provider {
                 .diskCache {
                     DiskCache.Builder()
                         .directory(cacheDir.resolve("image_cache"))
-                        // 512 MB (driv 256): prefetched kapitoly stranek musi prezit dlouho
-                        // dost, aby se "dalsi kapitola" otevirala z disku bez site; 256 MB
-                        // se pri ~5-15 MB na kapitolu protacelo prilis rychle a vraceni se
-                        // na drivjsi kapitolu znamenalo znovu-stazeni.
-                        .maxSizeBytes(512L * 1024 * 1024)
+                        // 1 GB (driv 512/256): velka webtoon kapitola (~400 hi-res stranek)
+                        // muze mit 150-400 MB a prefetch cele kapitoly + par okolnich ji
+                        // protaci rychle - vraceni se zpet pak znamenalo znovu-stazeni
+                        // ("obrazky maji zustat nactene").
+                        .maxSizeBytes(1024L * 1024 * 1024)
                         .build()
                 }
                 .okHttpClient(imageHttpClient)
