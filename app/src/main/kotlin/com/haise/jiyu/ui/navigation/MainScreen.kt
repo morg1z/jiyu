@@ -139,12 +139,17 @@ fun MainScreen(
         if (!browseModeTipShown && currentRoute == browseRoute) showBrowseTip = true
     }
 
+    // Sheet nabizi jen režimy POVOLENE v Nastaveni > Zdroje (toggly se tam
+    // uz vzajemne nevylucuji - viz SettingsKeys.AGGREGATED_MODES). Radek
+    // "Zdroje jednotlive" je vzdy dostupny jako navrat ke klasickemu rezimu.
+    val aggregatedModes by viewModel.aggregatedModes.collectAsStateWithLifecycle()
     val browseModeRows = listOf(
         BrowseModeRow(AppMode.SOURCES, R.string.settings_sources_mode_sources_title, TablerIcons.World),
+    ) + listOf(
         BrowseModeRow(AppMode.COMICK,  R.string.settings_sources_mode_comick_title,  TablerIcons.Book),
         BrowseModeRow(AppMode.NOVEL,   R.string.settings_sources_mode_novel_title,   TablerIcons.Bookmark),
         BrowseModeRow(AppMode.COMIC,   R.string.settings_sources_mode_comic_title,   TablerIcons.Stack),
-    )
+    ).filter { it.mode in aggregatedModes }
 
     val showNavBar = currentRoute != null &&
         !currentRoute.startsWith(Routes.READER.substringBefore("{")) &&

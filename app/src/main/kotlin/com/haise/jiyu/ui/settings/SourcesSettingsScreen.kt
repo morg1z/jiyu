@@ -71,7 +71,7 @@ fun SourcesSettingsScreen(
 ) {
     val customSources by viewModel.customSources.collectAsStateWithLifecycle()
     val showAdultSources by viewModel.showAdultSources.collectAsStateWithLifecycle()
-    val appMode by viewModel.appMode.collectAsStateWithLifecycle()
+    val aggregatedModes by viewModel.aggregatedModes.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -107,28 +107,29 @@ fun SourcesSettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                // ── Režim appky (ComicK / Novela agregované režimy) ──────────
-                // Dva toggly ve stejné sekci; režimy se vzájemně vylučují -
-                // zapnutí jednoho vypne druhý, oba vypnuté = klasické zdroje
-                // (AppMode.SOURCES).
+                // ── Režim appky (ComicK / Novela / Komiks agregované režimy) ──
+                // Toggly se UZ vzajemne nevylucuji - povolit jde vsechny tri
+                // najednou; mezi povolenymi se pak prepina dlouhym stiskem na
+                // zalozce Prochazet. Vsechny vypnute = klasicke zdroje
+                // (AppMode.SOURCES). Zapnuti režimu ho rovnou aktivuje.
                 SettingsSection(title = stringResource(R.string.settings_sources_mode_section_title)) {
                     AggregatedModeToggle(
                         title = stringResource(R.string.settings_sources_mode_comick_title),
                         description = stringResource(R.string.settings_sources_mode_comick_desc),
-                        checked = appMode == AppMode.COMICK,
-                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.COMICK else AppMode.SOURCES) },
+                        checked = AppMode.COMICK in aggregatedModes,
+                        onCheckedChange = { viewModel.setAggregatedModeEnabled(AppMode.COMICK, it) },
                     )
                     AggregatedModeToggle(
                         title = stringResource(R.string.settings_sources_mode_novel_title),
                         description = stringResource(R.string.settings_sources_mode_novel_desc),
-                        checked = appMode == AppMode.NOVEL,
-                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.NOVEL else AppMode.SOURCES) },
+                        checked = AppMode.NOVEL in aggregatedModes,
+                        onCheckedChange = { viewModel.setAggregatedModeEnabled(AppMode.NOVEL, it) },
                     )
                     AggregatedModeToggle(
                         title = stringResource(R.string.settings_sources_mode_comic_title),
                         description = stringResource(R.string.settings_sources_mode_comic_desc),
-                        checked = appMode == AppMode.COMIC,
-                        onCheckedChange = { viewModel.setAppMode(if (it) AppMode.COMIC else AppMode.SOURCES) },
+                        checked = AppMode.COMIC in aggregatedModes,
+                        onCheckedChange = { viewModel.setAggregatedModeEnabled(AppMode.COMIC, it) },
                     )
                 }
 

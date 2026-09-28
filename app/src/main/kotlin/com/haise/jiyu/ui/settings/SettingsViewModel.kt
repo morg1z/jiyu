@@ -500,7 +500,15 @@ class SettingsViewModel @Inject constructor(
     val appMode: StateFlow<String> = settings.appMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppMode.SOURCES)
 
+    /** Povolené agregované režimy (toggly v Nastavení > Zdroje) - nezaměňovat s
+     *  [appMode], což je právě aktivní režim. Toggly se vzájemně nevylučují. */
+    val aggregatedModes: StateFlow<Set<String>> = settings.aggregatedModes
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     fun setAppMode(mode: String) = viewModelScope.launch { settings.setAppMode(mode) }
+
+    fun setAggregatedModeEnabled(mode: String, enabled: Boolean) =
+        viewModelScope.launch { settings.setAggregatedModeEnabled(mode, enabled) }
 
     // ── Soukromí ──────────────────────────────────────────────────────────────
     /** Potvrzená plnoletost z onboardingu - viz [SettingsKeys.IS_ADULT]. Odemyká přepínač výš. */

@@ -355,6 +355,56 @@ class SettingsRepositoryRoundTripTest {
         }
     }
 
+    @Test
+    fun `aggregated modes - toggles are independent, disabling active falls back`() = runTest {
+        val s = repository()
+        // Čerstvá instalace (appMode=SOURCES, klíč AGGREGATED_MODES chybí) = nic povoleno.
+        assertEquals(emptySet<String>(), s.aggregatedModes.first())
+
+        // Dva toggly zapnuté zároveň - vzájemně se nevylučují.
+        s.setAggregatedModeEnabled(AppMode.COMICK, true)
+        s.setAggregatedModeEnabled(AppMode.NOVEL, true)
+        assertEquals(setOf(AppMode.COMICK, AppMode.NOVEL), s.aggregatedModes.first())
+        // Zapnutí režimu ho rovnou aktivuje.
+        assertEquals(AppMode.NOVEL, s.appMode.first())
+
+        // Vypnutí aktivního režimu padne zpět na klasické zdroje, druhý zůstane povolený.
+        s.setAggregatedModeEnabled(AppMode.NOVEL, false)
+        assertEquals(setOf(AppMode.COMICK), s.aggregatedModes.first())
+        assertEquals(AppMode.SOURCES, s.appMode.first())
+    }
+
+    @Test
+    fun `aggregated modes - legacy install derives set from active appMode`() = runTest {
+        // Stará instalace má jen APP_MODE, AGGREGATED_MODES se odvodí z ní -
+        // aktivní režim musí být povolený, jinak by sheet nenabídl to, co běží.
+        val ds = FakeDataStore()
+        ds.edit { it[SettingsKeys.APP_MODE] = AppMode.COMIC }
+        val s = SettingsRepository(ds)
+
+        assertEquals(setOf(AppMode.COMIC), s.aggregatedModes.first())
+    }
+
+    @Test
+    fun `aggregated modes - setAppMode keeps active mode inside enabled set`() = runTest {
+        val s = repository()
+        s.setAggregatedModeEnabled(AppMode.NOVEL, true)
+
+        // Jakýkoli volající (onboarding, deep link) nastaví aktivní režim, který
+        // v povolené sadě chybí -> doplní se, aby stav nebyl nekonzistentní.
+        s.setAppMode(AppMode.COMIC)
+        assertEquals(setOf(AppMode.NOVEL, AppMode.COMIC), s.aggregatedModes.first())
+        assertEquals(AppMode.COMIC, s.appMode.first())
+    }
+
+    @Test
+    fun `aggregated modes - sources and unknown values are ignored`() = runTest {
+        val s = repository()
+        s.setAggregatedModeEnabled(AppMode.SOURCES, true)
+        s.setAggregatedModeEnabled("bogus-mode", true)
+        assertTrue(s.aggregatedModes.first().isEmpty())
+    }
+
     // ── Hledání ──────────────────────────────────────────────────────────────
 
     @Test

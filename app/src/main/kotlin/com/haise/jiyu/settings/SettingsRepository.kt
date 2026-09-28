@@ -73,6 +73,17 @@ object SettingsKeys {
      * režimu zatím vyhýbá slibovat funkčnost, kterou appka ještě nemá.
      */
     val APP_MODE = stringPreferencesKey("app_mode")
+    /**
+     * Množina povolených agregovaných režimů (podmnožina {comick, novel, comic}).
+     * Režimy se už vzájemně NEVYLUČUJÍ - uživatel jich může zapnout víc najednou a
+     * mezi povolenými pak přepíná dlouhým stiskem na záložce Procházet. [APP_MODE]
+     * drží jen to, který režim je právě aktivní.
+     *
+     * Chybějící klíč = stará instalace: výchozí hodnota se odvodí z [APP_MODE]
+     * (aktivní agregovaný režim = jediný povolený), aby se dosavadní chování
+     * nezměnilo, dokud uživatel na toggly nesáhne.
+     */
+    val AGGREGATED_MODES = stringSetPreferencesKey("aggregated_modes")
     val SHOW_ADULT_SOURCES     = booleanPreferencesKey("show_adult_sources")
     /** Přesměrování domén zdrojů ("zrcadla"), řádky `idZdroje<TAB>host` - viz [decodeDomainOverrides]. */
     val SOURCE_DOMAIN_OVERRIDES = stringPreferencesKey("source_domain_overrides")
@@ -195,6 +206,9 @@ object AppMode {
      * všemi COMIC zdroji, výběr nejlepší kopie titulu - viz ComicResolver). */
     const val COMIC   = "comic"
 }
+
+/** Platné hodnoty pro [SettingsKeys.AGGREGATED_MODES] - všechny režimy kromě SOURCES. */
+internal val AGGREGATED_MODE_VALUES = setOf(AppMode.COMICK, AppMode.NOVEL, AppMode.COMIC)
 
 /** Uložená proxy bez hesla - viz [SettingsRepository.proxy]. [type] je název `ProxyType`. */
 data class StoredProxy(val type: String, val host: String, val port: Int, val user: String?)
@@ -579,8 +593,60 @@ class SettingsRepository @Inject constructor(
     val appMode: Flow<String> =
         dataStore.data.map { it[SettingsKeys.APP_MODE] ?: AppMode.SOURCES }
 
+    /**
+     * Povolené agregované režimy - viz [SettingsKeys.AGGREGATED_MODES]. Hodnoty mimo
+     * {comick, novel, comic} se zahazují (klíč uživatel nemůže upravit jinak než
+     * přes toggly, ale ochrana proti ručně posraným datům / starším verzím).
+     */
+    val aggregatedModes: Flow<Set<String>> =
+        dataStore.data.map { prefs ->
+            val stored = prefs[SettingsKeys.AGGREGATED_MODES]
+            if (stored != null) {
+                stored.filter { it != AppMode.SOURCES && it in AGGREGATED_MODE_VALUES }.toSet()
+            } else {
+                prefs[SettingsKeys.APP_MODE]
+                    ?.takeIf { it != AppMode.SOURCES }
+                    ?.let(::setOf)
+                    ?: emptySet()
+            }
+        }
+
     suspend fun setAppMode(mode: String) =
-        dataStore.edit { it[SettingsKeys.APP_MODE] = mode }
+        dataStore.edit { prefs ->
+            prefs[SettingsKeys.APP_MODE] = mode
+            // Aktivní agregovaný režim musí být zároveň povolený - kdyby klíč
+            // AGGREGATED_MODES už existoval a režim v něm chyběl (libovolný jiný
+            // volající než sheet, např. onboarding), doplň ho.
+            if (mode != AppMode.SOURCES) {
+                prefs[SettingsKeys.AGGREGATED_MODES]?.let { existing ->
+                    if (mode !in existing) prefs[SettingsKeys.AGGREGATED_MODES] = existing + mode
+                }
+            }
+        }
+
+    /**
+     * Toggle v nastavení zdrojů. Zapnutí režim rovnou aktivuje ("zapnout ComicK"
+     * intuitivně znamená "chci ho používat"); vypnutí aktivního režimu padne zpět
+     * na klasické zdroje. Přepínání mezi povolenými pak řeší long-press sheet na
+     * záložce Procházet.
+     */
+    suspend fun setAggregatedModeEnabled(mode: String, enabled: Boolean) {
+        if (mode == AppMode.SOURCES || mode !in AGGREGATED_MODE_VALUES) return
+        dataStore.edit { prefs ->
+            val current = prefs[SettingsKeys.AGGREGATED_MODES]
+                ?: prefs[SettingsKeys.APP_MODE]
+                    ?.takeIf { it != AppMode.SOURCES }
+                    ?.let(::setOf)
+                ?: emptySet()
+            prefs[SettingsKeys.AGGREGATED_MODES] = if (enabled) current + mode else current - mode
+            val active = prefs[SettingsKeys.APP_MODE] ?: AppMode.SOURCES
+            if (enabled) {
+                prefs[SettingsKeys.APP_MODE] = mode
+            } else if (active == mode) {
+                prefs[SettingsKeys.APP_MODE] = AppMode.SOURCES
+            }
+        }
+    }
 
     /**
      * Výchozí true - zdroje s [com.haise.jiyu.source.MangaSource.isAdult] byly přidané na

@@ -22,6 +22,10 @@ class MainViewModel @Inject constructor(
     val appMode: StateFlow<String> = settings.appMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppMode.SOURCES)
 
+    /** Povolene agregovane rezimy - long-press sheet nabizi jen z nich (+ Zdroje). */
+    val aggregatedModes: StateFlow<Set<String>> = settings.aggregatedModes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     /** Prepina agregovane rezimy z long-press sheetu na zalozce Prochazet. */
     fun setAppMode(mode: String) = viewModelScope.launch { settings.setAppMode(mode) }
 
