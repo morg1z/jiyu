@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.haise.jiyu.util.report
@@ -774,8 +775,17 @@ class MangaDetailViewModel @Inject constructor(
             _relinkOffered.value = false
             try {
                 val sManga = SManga(current.sourceId, current.url, current.title, current.coverUrl, current.description, current.status, contentType = current.contentType)
-                repository.refreshChapters(mangaId, sManga)
-                repository.refreshMangaDetails(mangaId, sManga)
+                // Detaily jedou SOUBĚŽNĚ s kapitolami - jsou nezávislé (jiný endpoint,
+                // jiný DB zápis) a sériově by refresh zbytečně platil dva síťové
+                // kolečka. Detaily jsou kosmetické - jejich chyba/zrušení při
+                // selhání kapitol nevadí (refreshMangaDetails sám síťové chyby polyká).
+                kotlinx.coroutines.coroutineScope {
+                    val details = async {
+                        runCatching { repository.refreshMangaDetails(mangaId, sManga) }
+                    }
+                    repository.refreshChapters(mangaId, sManga)
+                    details.await()
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

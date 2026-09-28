@@ -8,6 +8,7 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SGroup
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.bodyOrThrow
+import com.haise.jiyu.source.fetchPagesParallel
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import com.haise.jiyu.util.rethrowIfControl
 import kotlinx.coroutines.Dispatchers
@@ -312,17 +313,16 @@ class ComicKArtSource(
             val slug = manga.url.substringAfterLast("/")
             val collected = mutableListOf<Pair<JSONObject, Int>>() // json, up_count
             withTimeoutOrNull(CHAPTER_LIST_TIMEOUT_MS) {
-                var page = 1
-                var lastPage = 1
-                while (page <= lastPage && page <= MAX_CHAPTER_PAGES) {
-                    val json = getObject("$base/api/comics/$slug/chapter-list?page=$page")
-                    val arr = json.optJSONArray("data") ?: break
-                    for (i in 0 until arr.length()) {
-                        collected.add(arr.getJSONObject(i) to arr.getJSONObject(i).optInt("up_count", 0))
-                    }
-                    val pagination = json.optJSONObject("pagination") ?: break
-                    lastPage = pagination.optInt("last_page", 1)
-                    page++
+                // Stránka 1 zjistí last_page, zbytek se stáhne souběžně - API stránkuje
+                // fixně po 60 a limit= ignoruje (ověřeno živě), takže velký titul
+                // (Solo Leveling = 70 stránek) sekvenciálně trvá desítky sekund.
+                val first = fetchChapterPage(slug, 1) ?: return@withTimeoutOrNull
+                collected.addAll(first.items)
+                val last = first.lastPage.coerceAtMost(MAX_CHAPTER_PAGES)
+                if (last > 1) {
+                    collected.addAll(fetchPagesParallel(2, last) { page ->
+                        fetchChapterPage(slug, page)?.items ?: emptyList()
+                    })
                 }
             }
             // Nejnovější napřed; u více verzí stejné kapitoly dřív ta s více hlasy.
@@ -376,6 +376,19 @@ class ComicKArtSource(
             contentType = contentTypeFromCountry(comic.optString("country")),
             lastChapter = lastChapter,
         )
+    }
+
+    /** Jedna stránka chapter-list: položky (json, up_count) + last_page z pagination. */
+    private class ChapterPage(val items: List<Pair<JSONObject, Int>>, val lastPage: Int)
+
+    private fun fetchChapterPage(slug: String, page: Int): ChapterPage? {
+        val json = getObject("$base/api/comics/$slug/chapter-list?page=$page")
+        val arr = json.optJSONArray("data") ?: return null
+        val items = (0 until arr.length()).map { i ->
+            arr.getJSONObject(i) to arr.getJSONObject(i).optInt("up_count", 0)
+        }
+        val lastPage = json.optJSONObject("pagination")?.optInt("last_page", 1) ?: 1
+        return ChapterPage(items, lastPage)
     }
 
     /** Jedna kapitola z chapter-list - url rovnou ve tvaru stránky kapitoly. */
