@@ -446,11 +446,28 @@ class ReaderViewModel @Inject constructor(
      * odscrollané segmenty.
      */
     private fun putTranslatedPage(chapterId: String, pageIndex: Int, blocks: List<TranslatedBlock>) {
-        // Prázdný list nikdy neukládat - znamená "stránka bez bublin/keše s nulovým
-        // obsahem" a vepsaný záznam {index: []} by jen naplnil mapu o nicneříkající
-        // položku (UI ji čte jako "stránka má překladová data"). Např. per-chapter
-        // swap při přepnutí segmentu by pak tvrdil, že kapitola přeložená je.
-        if (blocks.isEmpty()) return
+        // Prázdný list pro dosud NEZÁZNAMENANOU stránku neukládat - znamená "stránka
+        // bez bublin/keše s nulovým obsahem" a vepsaný záznam {index: []} by jen naplnil
+        // mapu o nicneříkající položku (UI ji čte jako "stránka má překladová data").
+        // Např. per-chapter swap při přepnutí segmentu by pak tvrdil, že kapitola
+        // přeložená je.
+        // ALE: prázdný list pro UŽ emitovanou stránku znamená odebrání - dedup přešité
+        // webtoon bubliny (dropSliceBoundaryDuplicates) může přepisem zprázdnit
+        // předchozí stránku, jejíž JEDINÝ blok byl fragment. Bez smazání by čtečka
+        // držela starý záznam a kreslila duplicitu (audit RWS ch.215 - p231/p232).
+        if (blocks.isEmpty()) {
+            if (chapterId == _currentChapterId.value && pageIndex in _translatedPages.value) {
+                _translatedPages.value = _translatedPages.value - pageIndex
+            }
+            _translatedPagesByChapter.value[chapterId]?.let { chMap ->
+                if (pageIndex in chMap) {
+                    val merged = LinkedHashMap(_translatedPagesByChapter.value)
+                    merged[chapterId] = chMap - pageIndex
+                    _translatedPagesByChapter.value = merged
+                }
+            }
+            return
+        }
         if (chapterId == _currentChapterId.value) {
             _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
         }
@@ -795,6 +812,10 @@ class ReaderViewModel @Inject constructor(
                 targetLanguage = _targetLanguage.value,
                 sourceLanguage = _sourceLanguage.value,
                 forceRefresh = true,
+                // Dedup přešité bubliny může přepsat i PŘEDCHOZÍ stránku (poražený
+                // fragment -> seamCover) - bez re-emise by čtečka držela starý overlay
+                // a vykreslila duplicitní text (viz TranslateRepository.translatePage).
+                onAdjacentPageRewritten = { idx, b -> putTranslatedPage(chapterId, idx, b) },
             )
             if (blocks.isNotEmpty()) putTranslatedPage(chapterId, pageIndex, blocks)
         }
@@ -1108,6 +1129,19 @@ class ReaderViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+        }
+        // Pozice obnovena z lastPageRead muze byt za koncem noveho seznamu stranek
+        // (re-scrape s mene strankami, orezane extras, relink na zdroj s jinou
+        // paginaci). Bez clampu by out-of-range index hned vyhodnotil reachedEnd=true
+        // -> kapitola by se sama oznacila jako prectena a spustila tracker sync i
+        // pripadnou auto-delete registraci, ani ze by uzivatel stranku videl (audit
+        // RD-5). Novel/offline-error cesty maji _pages prazdne - tam je index jedno.
+        if (_pages.value.isNotEmpty()) {
+            val clampedPage = _initialPage.value.coerceIn(0, _pages.value.size - 1)
+            if (clampedPage != _initialPage.value) {
+                _initialPage.value = clampedPage
+                _currentPage.value = clampedPage
             }
         }
         // Usporny rezim NEBO zpoplatnena sit (viz shouldLimitPrefetch): jen stranka dopredu
@@ -1834,6 +1868,10 @@ class ReaderViewModel @Inject constructor(
             val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: ""
 
             var done = 0
+            // onPageReady se může zavolat pro tu samou stránku podruhé - webtoon dedup
+            // přešité bubliny přepíše už emitovaného souseda (viz dropSliceBoundaryDuplicates
+            // v translateChapter). Progress ale počítá jen první emit na stránku.
+            val emittedPages = mutableSetOf<Int>()
             _translationProgress.value = TranslationProgress(done, pages.size)
             try {
                 // translateChapter dávkuje víc stránek do jednoho API volání (viz
@@ -1848,7 +1886,7 @@ class ReaderViewModel @Inject constructor(
                     sourceLanguage = _sourceLanguage.value,
                 ) { pageIndex, blocks ->
                     putTranslatedPage(chapterId, pageIndex, blocks)
-                    done++
+                    if (emittedPages.add(pageIndex)) done++
                     // Job muze dobihat pod jinou kapitolou (nekonecne cteni neprekopava
                     // translationJob - viz onWebtoonVisibleChapterChanged) - progress
                     // ukazovat jen pro tu, kterou UI prave zobrazuje.
@@ -1897,6 +1935,10 @@ class ReaderViewModel @Inject constructor(
             val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: ""
 
             var done = 0
+            // Dedup přešité webtoon bubliny reemituje předchozí stránku (seamCover
+            // přepis) - bez téhle množiny by progress počítal takovou re-emisi jako
+            // novou stránku a přetekl přes total (viz stejný fix o kus výš).
+            val emittedPages = mutableSetOf<Int>()
             _batchProgress.value = TranslationProgress(done, pages.size)
             try {
                 // translateChapter si samo ověří Room cache per stránku (viz
@@ -1911,7 +1953,7 @@ class ReaderViewModel @Inject constructor(
                     sourceLanguage = _sourceLanguage.value,
                 ) { pageIndex, blocks ->
                     putTranslatedPage(chapterId, pageIndex, blocks)
-                    done++
+                    if (emittedPages.add(pageIndex)) done++
                     // Stejny guard jako u translationProgress - batch muze dobihat pod
                     // jinou kapitolou, prubeh se pak nesmi kreslit pod cizim titulkem.
                     if (chapterId == _currentChapterId.value) {

@@ -392,3 +392,167 @@ private fun mergeBubbleGroup(members: List<RawTextBlock>): RawTextBlock {
         } / totalLines,
     )
 }
+
+/** Pásové okraje (zlomek výšky stránky), kde se hledají přešité webtoon duplicity - viz [dropSliceBoundaryDuplicates]. */
+private const val SLICE_EDGE_BAND = 0.03f
+
+/** Minimální vodorovný překryv fragmentů na řezu - pod pojistkou proti legálně opakovanému textu u okraje. */
+private const val SLICE_DUP_MIN_H_OVERLAP = 0.3f
+
+/**
+ * Výsledek [dropSliceBoundaryDuplicates]: bloky aktuální stránky po deduplikaci
+ * (poražené fragmenty se NEmažou - označí se [TranslatedBlock.seamCover], aby render
+ * přes ně položil záplatu a originální lettering nepřesvítal vedle překladu) +
+ * indexy bloků předchozí stránky, které se mají v jejím cache záznamu přepnout na
+ * seamCover.
+ */
+internal data class SliceBoundaryDedup(
+    val kept: List<TranslatedBlock>,
+    val coveredFromCurrent: List<TranslatedBlock>,
+    val coverOnPrevious: Set<Int>,
+    /**
+     * index bloku předchozí stránky -> sjednocený horizontální dosah dedup-páru
+     * (min levého / max pravého okraje obou fragmentů + rezerva). Sedí na VŠECH
+     * spárované bloky předchozí stránky - poražené i vítězné - protože krycí
+     * výplň obou má pokrýt celý přeříznutý řádek, ne jen vlastní OCR výřez
+     * (OCR boxy útržků bývají užší než řádek a kraje písmen pak vykukují).
+     */
+    val spanOnPrevious: Map<Int, Pair<Float, Float>>,
+)
+
+/**
+ * Webtoon řezy: bublina protnutá hranicí dvou po sobě jdoucích obrázků se OCR pozná
+ * DVAKRÁT - fragment na spodním okraji stránky N a na horním okraji stránky N+1.
+ * Každý dostane vlastní překlad a vykreslí se, takže na přešití čtenář vidí tentýž
+ * text dvakrát (audit RWS ch.215: "YOU LIKE THE MANS YOU...?" se vykreslilo jako
+ * "LÍBÍ SE TI MANS, TY…?" v bublině i znovu přes kresbu pod ní; stejně se zdvojilo
+ * "DOSTANOU MALINKATÉ…" přes dvě zvlhlé půlky jedné bubliny).
+ *
+ * Duplicitu poznáme takto: blok ležící na HORNÍM okraji aktuální stránky
+ * (topF < [SLICE_EDGE_BAND]) má na PŘEDCHOZÍ stránce blok na SPODNÍM okraji
+ * (bottomF > 1 - SLICE_EDGE_BAND) se stejným normalizovaným originálem A slušným
+ * vodorovným překryvem ([SLICE_DUP_MIN_H_OVERLAP] - stejná bublina zůstává ve stejném
+ * sloupci; pojistka proti legálně opakovanému textu, co se náhodou trefil do okraje).
+ * Chytá i dvojice z [findCrossPageMerges] - applyCrossPageMerges přepíše oběma
+ * fragmentům raw.text na stejný spojený, takže se do TranslatedBlock.originalText
+ * propíše identický text a tady se spárují znovu, tentokrát na zahození duplicitního
+ * VYKRESLENÍ (merger řešil jen kvalitu překladu - oba fragmenty se stejným překladem
+ * se vykreslily dvakrát do téže přešité bubliny).
+ *
+ * Ze dvojice přežije VĚTŠÍ fragment (vyšší box = víc bubliny vidět = přesnější
+ * tvar/sazba) a nese překlad; menší dostane seamCover - jeho kopie stejného textu
+ * (řezové slicy se v obraze překrývají, textový region existuje na OBou) by jinak
+ * ukazovala nepokrytý originál. Když víc fragmentů na hranici sedí na jeden
+ * předchozí, vezme se první shoda.
+ *
+ * Bezpečné pro stránkovaný režim: tam řez bublinu neprotíná a i kdyby blok náhodou
+ * seděl u okraje, stejný originál na protějším okraji sousední stránky se v paged
+ * komiksu prakticky neobjevuje.
+ */
+internal fun dropSliceBoundaryDuplicates(
+    current: List<TranslatedBlock>,
+    previous: List<TranslatedBlock>,
+): SliceBoundaryDedup {
+    if (current.isEmpty() || previous.isEmpty()) {
+        return SliceBoundaryDedup(current, emptyList(), emptySet(), emptyMap())
+    }
+    val prevBottom = previous.mapIndexedNotNull { i, b ->
+        if (!b.isSfx && !b.seamCover && b.bottomF > 1f - SLICE_EDGE_BAND) i to b else null
+    }
+    if (prevBottom.isEmpty()) return SliceBoundaryDedup(current, emptyList(), emptySet(), emptyMap())
+
+    val coverCurrent = mutableListOf<TranslatedBlock>()
+    val coverPrevIdx = mutableSetOf<Int>()
+    val spanPrev = mutableMapOf<Int, Pair<Float, Float>>()
+    val spanCurrent = mutableMapOf<TranslatedBlock, Pair<Float, Float>>()
+    for (cur in current) {
+        if (cur.isSfx || cur.seamCover || cur.topF >= SLICE_EDGE_BAND) continue
+        if (seamKey(cur.originalText).isEmpty()) continue
+        val match = prevBottom.firstOrNull { (i, p) ->
+            i !in coverPrevIdx &&
+                seamTextMatch(p.originalText, cur.originalText) &&
+                horizontalOverlap(p, cur) >= SLICE_DUP_MIN_H_OVERLAP
+        } ?: continue
+        val (pi, p) = match
+        // Větší fragment vítězí - oříznutý kousek bubliny stejně sedí hůř. Poražený se
+        // NEmaže: označí se seamCover a render přes něj položí jen záplatu (zakryje
+        // duplicitní kopii originálního textu na tomhle řezu), text nekreslí.
+        //
+        // Oběma fragmentům se zapíše sjednocený dosah páru - OCR box útržku pokrývá
+        // jen viditelný kousek přeříznutého řádku, takže kraje písmen by pod vlastním
+        // boxem zůstaly nekryté (rezerva: písmo na řezu přesahuje OCR box o pár %).
+        val span = (
+            (minOf(p.leftF, cur.leftF) - SEAM_SPAN_MARGIN).coerceAtLeast(0f) to
+                (maxOf(p.rightF, cur.rightF) + SEAM_SPAN_MARGIN).coerceAtMost(1f)
+            )
+        spanPrev[pi] = span
+        spanCurrent[cur] = span
+        if (p.bottomF - p.topF >= cur.bottomF - cur.topF) {
+            coverCurrent += cur
+        } else {
+            coverPrevIdx += pi
+        }
+    }
+    val coverSet = coverCurrent.toSet()
+    return SliceBoundaryDedup(
+        // displayText se čistí jako pojistka: i kdyby render cesta seamCover gate
+        // minula, prázdný text se nemá čím vykreslit a prosvítá jen originál -
+        // nikdy duplicitní překlad (viz gate hasTranslatableLetters v
+        // BubbleOverlayLayer).
+        kept = current.map {
+            val span = spanCurrent[it]
+            when {
+                it in coverSet && span != null ->
+                    it.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                it in coverSet -> it.copy(seamCover = true, displayText = "")
+                span != null -> it.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                else -> it
+            }
+        },
+        coveredFromCurrent = coverCurrent,
+        coverOnPrevious = coverPrevIdx,
+        spanOnPrevious = spanPrev,
+    )
+}
+
+/**
+ * Bezpečnostní rezerva kolem sjednoceného dosahu dedup-páru - OCR boxy útržků
+ * končí tesně u viditelných pixelů glyfů a antialias okraje + lehce mimo box
+ * vyčnívající tahy by jinak zůstaly nekryté.
+ */
+private const val SEAM_SPAN_MARGIN = 0.06f
+
+/**
+ * Klíč pro párování fragmentů na řezu - jen písmena/číslice, malá písmena. OCR obou
+ * půlek téže bubliny se liší v interpunkci ("..." vs "…" vs "..?"), mezerách,
+ * apostrofech i velikosti písmen; přísná shoda přes [normalizeOriginal] by takovou
+ * dvojici propustila a oba fragmenty by se vykreslily - přesně hlášená duplicita.
+ */
+private fun seamKey(text: String): String =
+    text.lowercase().filter { it.isLetterOrDigit() }
+
+/** Kolik znaků musí sdílet kratší klíč, aby prefixová shoda mohla za důkaz duplicity. */
+private const val MIN_SEAM_PREFIX = 8
+
+/**
+ * Textová shoda fragmentů na řezu: identické klíče, NEBO kratší je prefix delšího -
+ * oříznutý fragment přečte jen tu část věty, která na jeho slici zůstala vidět
+ * (např. "AND NOW, EVEN THE RES" vs celé "AND NOW, EVEN THE RESIDUAL RECOIL OF...").
+ * Bez prefixu by přesně tyhle řezové dvojice proklouzly. Práh [MIN_SEAM_PREFIX]
+ * chrání před náhodnou shodou krátkých začátků ("IT WAS" vs "IT WASN'T").
+ */
+private fun seamTextMatch(a: String, b: String): Boolean {
+    val ka = seamKey(a)
+    val kb = seamKey(b)
+    if (ka.isEmpty() || kb.isEmpty()) return false
+    if (ka == kb) return true
+    val (shorter, longer) = if (ka.length <= kb.length) ka to kb else kb to ka
+    return shorter.length >= MIN_SEAM_PREFIX && longer.startsWith(shorter)
+}
+
+/** Vodorovný překryv dvou bloků (IoU jen na ose X) - pro [dropSliceBoundaryDuplicates]. */
+private fun horizontalOverlap(a: TranslatedBlock, b: TranslatedBlock): Float {
+    val inter = maxOf(0f, minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF))
+    val union = maxOf(a.rightF, b.rightF) - minOf(a.leftF, b.leftF)
+    return if (union <= 0f) 0f else inter / union
+}

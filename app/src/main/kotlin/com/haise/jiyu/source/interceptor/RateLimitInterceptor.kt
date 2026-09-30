@@ -18,7 +18,7 @@ class RateLimitInterceptor(private val slowdown: SourceSlowdown) : Interceptor {
         val response = chain.proceed(chain.request())
         if (response.code == 429) {
             val retryAfterMs = response.header("Retry-After")?.let { parseRetryAfterMs(it) } ?: 0L
-            slowdown.noteRateLimited(chain.request().url.host)
+            slowdown.noteRateLimited(chain.request().url.host, retryAfterMs)
             response.close()
             throw SourceRateLimitedException(retryAfterMs)
         }

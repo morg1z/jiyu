@@ -19,7 +19,7 @@ import java.io.IOException
 class SourceSlowdownTest {
 
     private var now = 1_000_000L
-    private val slowdown = SourceSlowdown().apply { nowMs = { now } }
+    private val slowdown = SourceSlowdown(null).apply { nowMs = { now } }
 
     @Test
     fun `a host without a rate limit is never slowed`() {
@@ -47,6 +47,69 @@ class SourceSlowdownTest {
         now += SourceSlowdown.SLOWDOWN_WINDOW_MS
         assertEquals("zpomalení vypršelo", 0L, slowdown.reserve("site.test"))
         assertEquals(0L, slowdown.reserve("site.test"))
+    }
+
+    @Test
+    fun `repeated 429 inside the window escalates the interval`() {
+        // Audit comicknew: fixní 1,6 s odstup se nikdy nedostal pod serverový limit,
+        // takže každá nová 429 jen re-armovala okno. Interval se má zdvojnásobovat.
+        slowdown.noteRateLimited("site.test")
+        assertEquals(SourceSlowdown.INTERVAL_MS, slowdown.currentIntervalMs("site.test"))
+        slowdown.noteRateLimited("site.test")
+        assertEquals(2 * SourceSlowdown.INTERVAL_MS, slowdown.currentIntervalMs("site.test"))
+        slowdown.noteRateLimited("site.test")
+        assertEquals(4 * SourceSlowdown.INTERVAL_MS, slowdown.currentIntervalMs("site.test"))
+    }
+
+    @Test
+    fun `interval escalation is capped and resets after the window expires`() {
+        repeat(20) { slowdown.noteRateLimited("site.test") }
+        assertEquals(SourceSlowdown.MAX_INTERVAL_MS, slowdown.currentIntervalMs("site.test"))
+        now += SourceSlowdown.SLOWDOWN_WINDOW_MS
+        assertEquals("po expiraci okna bez 429 zpátky naplno", 0L, slowdown.reserve("site.test"))
+        assertEquals("interval reset", 0L, slowdown.currentIntervalMs("site.test"))
+        // Nová 429 po expiraci začíná opět od základního intervalu.
+        slowdown.noteRateLimited("site.test")
+        assertEquals(SourceSlowdown.INTERVAL_MS, slowdown.currentIntervalMs("site.test"))
+    }
+
+    @Test
+    fun `learned interval persists into a new instance`() {
+        // Audit comicknew: bez perzistence se po restartu stejný burst naboural do 429
+        // znovu. Naučený (eskalovaný) interval se ukládá do filesDir a hydratuje se.
+        val dir = java.nio.file.Files.createTempDirectory("slowdown").toFile()
+        val ctx = mockk<android.content.Context>()
+        every { ctx.filesDir } returns dir
+        val s1 = SourceSlowdown(ctx)
+        repeat(3) { s1.noteRateLimited("site.test") } // 1600 -> 3200 -> 6400
+        val s2 = SourceSlowdown(ctx)
+        assertEquals(6_400L, s2.currentIntervalMs("site.test"))
+        // Hydratovaný host je zpomalený - sloty drží naučený odstup.
+        assertEquals(0L, s2.reserve("site.test")) // první slot volný
+        assertEquals(6_400L, s2.reserve("site.test"))
+        assertEquals(0L, s2.reserve("site.test", priority = true))
+    }
+
+    @Test
+    fun `persisted state older than ttl is dropped`() {
+        val dir = java.nio.file.Files.createTempDirectory("slowdown").toFile()
+        val stale = "{\"t\":${System.currentTimeMillis() - SourceSlowdown.PERSIST_TTL_MS - 1000}," +
+            "\"h\":{\"site.test\":6400}}"
+        java.io.File(dir, SourceSlowdown.PERSIST_FILE).writeText(stale)
+        val ctx = mockk<android.content.Context>()
+        every { ctx.filesDir } returns dir
+        val s = SourceSlowdown(ctx)
+        assertEquals(0L, s.currentIntervalMs("site.test"))
+        assertEquals(0L, s.reserve("site.test"))
+    }
+
+    @Test
+    fun `retry-after is a floor for the interval`() {
+        slowdown.noteRateLimited("site.test", retryAfterMs = 8_000L)
+        assertEquals(8_000L, slowdown.currentIntervalMs("site.test"))
+        // Kratší Retry-Than aktuální interval ho nesníží.
+        slowdown.noteRateLimited("site.test", retryAfterMs = 1_000L)
+        assertEquals(16_000L.coerceAtMost(SourceSlowdown.MAX_INTERVAL_MS), slowdown.currentIntervalMs("site.test"))
     }
 
     // ── interceptory ─────────────────────────────────────────────────────────
@@ -98,8 +161,10 @@ class SourceSlowdownTest {
             RateLimitInterceptor(slowdown).intercept(chain(429, headers = arrayOf("Retry-After" to "30")))
         }
         assertEquals(30_000L, e.retryAfterMs)
-        slowdown.reserve("site.test") // první slot volný
-        assertEquals("host je teď zpomalený", SourceSlowdown.INTERVAL_MS, slowdown.reserve("site.test"))
+        // Retry-After:30 posune celou frontu (cap MAX_QUEUE_MS=30s) i interval (cap 12,8s).
+        assertEquals("fronta posunutá za Retry-After", 30_000L, slowdown.reserve("site.test"))
+        // Další slot (30 s + 12,8 s) je už za horizontem fronty - pustí se hned.
+        assertEquals("za horizontem fronty = bez čekání", 0L, slowdown.reserve("site.test"))
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.haise.jiyu.translate
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -413,9 +414,10 @@ class BubbleTextFitTest {
     @Test
     fun `a word with a soft hyphen measures by its longest SEGMENT, not the whole word`() {
         // "Pante­rí" (5+2 pismen) neni jeden nedelitelny kus - smi se rozlomit presne tam,
-        // kam ukazuje rozdelovnik. Nejdelsi USEK je "Pante" (5 znaku), ne cele slovo (7 znaku).
+        // kam ukazuje rozdelovnik. Nejdelsi USEK je "Pante" (5 znaku), ne cele slovo (7 znaku) -
+        // ale pri zlomu Compose vykresli viditelnou pomlcku, takze se meri "Pante-" (6 znaku).
         val width = longestIndivisibleRunWidthPx("Pante${SH}rí houba") { it.length * 10f }
-        assertEquals(50f, width, 0.01f) // "Pante" = 5 znaku * 10px, delsi nez "rí" (2) i "houba" (5)
+        assertEquals(60f, width, 0.01f) // "Pante-" = 6 znaku * 10px, delsi nez "rí" (2) i "houba" (5)
     }
 
     @Test
@@ -431,7 +433,7 @@ class BubbleTextFitTest {
         // vzdal a vratil velikost, pri ktere Compose vlastni nouzovy zlom slovo rozsekl JINDE,
         // nez kam rozdelovnik ukazoval (nahlaseno: "Pante­rí" -> vykresleno "PANTER"/"Í").
         val text = "Pante${SH}rí houba"
-        val boxWidthPx = 55f // pojme "Pante" (50px) i "houba" (50px) zvlast, ale ne cele "Panterí" (70px)
+        val boxWidthPx = 65f // pojme "Pante-" (60px, s viditelnou pomlckou pri zlomu) i "houba" (50px), ale ne cele "Panterí" (70px)
 
         fun measure(fontSp: Float, maxW: Float, useSegments: Boolean): TextMeasurement {
             val charWidth = fontSp
@@ -553,5 +555,45 @@ class BubbleTextFitTest {
         // fits nikdy neprojde a slov je víc než maxIterations - musí to doběhnout, ne viset.
         val long = (1..60).joinToString(" ") { "SLOVO$it" }
         assertEquals(long, truncateToFit(long, fits = { false }, maxIterations = 24))
+    }
+
+    @Test
+    fun `isMidWordBreak flags letter-to-letter break without a hyphen marker`() {
+        // Audit Vagabondu: "VARO${SH}VÁNÍ" se vykreslilo jako "VAROV"/"ÁNÍ" - nouzový
+        // zlom ZA 'V' na indexu 5 (offset konce řádku = 6, před 'Á'), NE na označeném
+        // soft hyphenu na pozici 4 - ten zůstal neviditelný uprostřed prvního řádku.
+        val text = "VARO${SH}VÁNÍ PRO RODI${SH}ČE"
+        assertTrue(isMidWordBreak(text, 6))
+    }
+
+    @Test
+    fun `isMidWordBreak allows break right after the soft hyphen`() {
+        // Legální zlom "VARO-"/"VÁNÍ": řádek končí znaky "VARO­" (U+00AD se kreslí
+        // jako pomlčka) - index nového řádku ukazuje na 'V'.
+        val text = "VARO${SH}VÁNÍ"
+        assertFalse(isMidWordBreak(text, 5))
+    }
+
+    @Test
+    fun `isMidWordBreak allows break at the soft hyphen itself`() {
+        // Varianta měřiče, co koncový index dá PŘED rozdělovník - zlom "VARO"/"­VÁNÍ".
+        val text = "VARO${SH}VÁNÍ"
+        assertFalse(isMidWordBreak(text, 4))
+    }
+
+    @Test
+    fun `isMidWordBreak allows breaks on spaces, newlines and hard hyphens`() {
+        assertFalse(isMidWordBreak("HELLO WORLD", 6))   // před 'W' je mezera
+        assertFalse(isMidWordBreak("HELLO WORLD", 5))   // před ' ' je 'O' - zlom NA mezeře
+        assertFalse(isMidWordBreak("A\nB", 2))           // nový řádek
+        assertFalse(isMidWordBreak("WELL-KNOWN", 5))    // zlom za tvrdou pomlčkou
+    }
+
+    @Test
+    fun `isMidWordBreak ignores CJK and spaceless indic scripts`() {
+        // Japonština nemá mezery - zlom あ|い je legální, ne nouzový char-break.
+        assertFalse(isMidWordBreak("あいうえお", 2))
+        // Thai (0x0E00-0x17FF) láme zalamovač po slabikách bez mezer.
+        assertFalse(isMidWordBreak("สวัสดีครับ", 3))
     }
 }

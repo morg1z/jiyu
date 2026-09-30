@@ -456,6 +456,15 @@
     <string name="novel_home_loading">Uniendo catálogos de novelas…</string>
     <string name="novel_home_empty">No hay nada aquí.</string>
     <string name="novel_home_retry">Reintentar</string>
+    <string name="novel_home_tab_catalog">Catálogo</string>
+    <string name="novel_home_updates_loading">Buscando últimos capítulos…</string>
+    <string name="comic_home_title">Komiks</string>
+    <string name="comic_home_search_hint">Buscar cómics en todas las fuentes…</string>
+    <string name="comic_home_loading">Uniendo catálogos de cómics…</string>
+    <string name="comic_home_empty">No hay nada aquí.</string>
+    <string name="comic_home_tab_catalog">Catálogo</string>
+    <string name="comic_home_updates_loading">Buscando últimos números…</string>
+    <string name="comic_resolver_title">Komiks</string>
     <string name="novel_resolver_title">Novela</string>
     <string name="settings_sources_mode_sources_title">Fuentes individuales</string>
     <string name="settings_sources_mode_sources_desc">Explora y elige las fuentes una por una - manga, novelas y cómics.</string>
@@ -467,6 +476,8 @@
     <string name="settings_sources_mode_comic_desc">Catálogo unificado de todas las fuentes de cómics - el título se abre en la fuente con la mejor copia disponible.</string>
     <string name="onb_mode_novel_title">Estilo agregado (Novela)</string>
     <string name="onb_mode_novel_desc">Catálogo unificado de todas las fuentes de novelas - el título se abre en la fuente con la mejor copia disponible.</string>
+    <string name="onb_mode_comic_title">Estilo agregado (Komiks)</string>
+    <string name="onb_mode_comic_desc">Catálogo unificado de todas las fuentes de cómics - el título se abre en la fuente con la mejor copia disponible.</string>
 
     <!-- Pantalla de grupo -->
     <string name="group_screen_loading">Cargando grupo…</string>
@@ -802,6 +813,24 @@
     <string name="source_browse_sort_label">Orden</string>
     <string name="source_browse_reset">Restablecer</string>
     <string name="source_browse_apply">Aplicar</string>
+    <string name="source_browse_status_cancelled">Cancelado</string>
+    <string name="source_browse_tags_label">Etiquetas</string>
+    <string name="source_browse_tags_none">Ninguna</string>
+    <string name="source_browse_tags_pick">Elegir etiquetas…</string>
+    <string name="source_browse_tags_selected_count">Seleccionadas: %1$d</string>
+    <string name="source_browse_tags_search_placeholder">Empieza a escribir el nombre de un género</string>
+    <string name="source_browse_tags_empty">Esta fuente no ofrece etiquetas</string>
+    <string name="source_browse_tags_load_failed">No se pudieron cargar las etiquetas</string>
+    <string name="source_browse_tags_exclude_hint">Tocar = incluir, tocar de nuevo = excluir, tercera vez = quitar</string>
+    <string name="source_browse_section_genres">Géneros</string>
+    <string name="source_browse_section_tags">Etiquetas</string>
+    <string name="source_browse_demographic_label">Demografía</string>
+    <string name="source_browse_type_label">Tipo</string>
+    <string name="source_browse_min_chapters_label">Capítulos mín.</string>
+    <string name="source_browse_min_chapters_placeholder">p. ej. 50</string>
+    <string name="source_browse_created_label">Añadido</string>
+    <string name="source_browse_sort_asc">↑ Ascendente</string>
+    <string name="source_browse_sort_desc">↓ Descendente</string>
 
     <!-- Búsqueda global -->
     <string name="search_title">Búsqueda global</string>
@@ -1084,6 +1113,16 @@
         <item quantity="many">en %1$d fuentes</item>
     </plurals>
     <plurals name="novel_failed_sources">
+        <item quantity="one">%1$d fuente no se pudo cargar</item>
+        <item quantity="other">%1$d fuentes no se pudieron cargar</item>
+        <item quantity="many">%1$d fuentes no se pudieron cargar</item>
+    </plurals>
+    <plurals name="comic_on_n_sources">
+        <item quantity="one">en %1$d fuente</item>
+        <item quantity="other">en %1$d fuentes</item>
+        <item quantity="many">en %1$d fuentes</item>
+    </plurals>
+    <plurals name="comic_failed_sources">
         <item quantity="one">%1$d fuente no se pudo cargar</item>
         <item quantity="other">%1$d fuentes no se pudieron cargar</item>
         <item quantity="many">%1$d fuentes no se pudieron cargar</item>

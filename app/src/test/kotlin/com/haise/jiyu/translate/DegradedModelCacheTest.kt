@@ -12,9 +12,11 @@ import org.junit.Test
 
 /**
  * Proxy hlásí upstream model v poli "model" odpovědi (viz translate-proxy/index.ts,
- * GROQ_FALLBACK_MODEL/GEMINI_FALLBACK_MODEL). Překlad ze záložního - slabšího - modelu se má
- * UKÁZAT (lepší než žádný), ale NEULOŽIT do cache, aby stránka po obnovení kvóty dostala
- * kvalitnější překlad hlavního modelu (viz [TranslateRepository.DEGRADED_MODELS]).
+ * GROQ_FALLBACK_MODEL/GEMINI_FALLBACK_MODEL). Překlad ze záložního - slabšího - modelu se
+ * UKÁZÁ i ULOŽÍ: původní "necachovat degradovaný výstup" vedlo k tomu, že při celodenně
+ * vyčerpané kvótě proxy se každé otevření kapitoly překládalo kompletně znovu (minuty
+ * čekání + další spálená kvóta). Kvalitu hlídají per-blok gaty (lint, self-review,
+ * safety gate) a degradace se jen zaznamená do diagnostiky (note="degraded").
  *
  * Konstrukce [TranslateRepository] přímo bez Hiltu - stejný vzor jako [TranslateWithGroqRetryTest].
  * Přeložený text držím pod 40 znaky, aby [isWrongTargetLanguage] skončila předčasně a
@@ -78,13 +80,15 @@ class DegradedModelCacheTest {
     }
 
     @Test
-    fun `degraded fallback model translation is shown but NOT cached`() = runTest {
+    fun `degraded fallback model translation is shown AND cached`() = runTest {
+        // Politika se změnila po auditu Vagabondu: degradace proxy trvá klidně celý den
+        // a necachování znamenalo kompletní re-překlad kapitoly při KAŽDÉM otevření.
         val dao = mockk<com.haise.jiyu.data.db.TranslatedPageDao>(relaxed = true)
         val result = repository(groqReturning("qwen/qwen3.8-27b"), dao)
             .translatePage("page-url", "ch1", "m1", pageIndex = 0)
 
         assertEquals("Krátká odpověď.", result.single().translatedText)
-        coVerify(exactly = 0) { dao.upsert(any()) }
+        coVerify(exactly = 1) { dao.upsert(any()) }
     }
 
     @Test
@@ -110,7 +114,7 @@ class DegradedModelCacheTest {
     @Test
     fun `degraded set matches the proxy fallback models`() {
         // Odráží GROQ_FALLBACK_MODEL/GEMINI_FALLBACK_MODEL v translate-proxy/index.ts -
-        // když se v proxy změní, musí se změnit i tady, jinak se degradace necachuje správně.
+        // sada se používá jen pro diagnostický štítek "degraded" v page záznamu.
         assertTrue("qwen/qwen3.8-27b" in TranslateRepository.DEGRADED_MODELS)
         assertTrue("gemini-3.5-flash-lite" in TranslateRepository.DEGRADED_MODELS)
     }

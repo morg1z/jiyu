@@ -4,22 +4,37 @@ package com.haise.jiyu.translate
 
 /**
  * Rozdělí stránky (v pořadí) do dávek, kde součet délky bublinových textů v jedné dávce
- * nepřekročí [TranslateRepository.CHAPTER_CHUNK_CHAR_LIMIT] - jedna stránka je vždy atomická (nikdy se
+ * nepřekročí [TranslateRepository.CHAPTER_CHUNK_CHAR_LIMIT] a součet bublin nepřekročí
+ * [TranslateRepository.CHAPTER_CHUNK_BUBBLE_LIMIT] - jedna stránka je vždy atomická (nikdy se
  * nerozdělí mezi dvě dávky), stejný princip jako [chunkParagraphs] u novel překladu.
+ *
+ * Proč i limit na počet: výstup modelu má pevný max_tokens a každá bublina stojí v JSON
+ * odpovědi ~60-130 tokenů obálky (id+original+translated+size_tag+is_sfx+syllable_breaks
+ * +notes) bez ohledu na to, jak krátký její text je. Stránka plná dvoupísmenných SFX
+ * ("HUF") má pod 200 znaků, ale třeba 40 bublin -> ~4000 výstupních tokenů a odpověď se
+ * usekne v půlce (audit Vagabond ch.1: 37 bublin zachráněno z prefixu, ocásek dávky šel
+ * celý zbytečně do repair retry).
  */
 internal fun chunkPages(pageIndices: List<Int>, bubblesByPage: Map<Int, List<ClassifiedBubble>>): List<List<Int>> {
     val chunks = mutableListOf<List<Int>>()
     var current = mutableListOf<Int>()
     var currentLen = 0
+    var currentBubbles = 0
     for (pageIndex in pageIndices) {
-        val len = bubblesByPage.getValue(pageIndex).sumOf { it.raw.text.length }
-        if (current.isNotEmpty() && currentLen + len > TranslateRepository.CHAPTER_CHUNK_CHAR_LIMIT) {
+        val pageBubbles = bubblesByPage.getValue(pageIndex)
+        val len = pageBubbles.sumOf { it.raw.text.length }
+        if (current.isNotEmpty() &&
+            (currentLen + len > TranslateRepository.CHAPTER_CHUNK_CHAR_LIMIT ||
+                currentBubbles + pageBubbles.size > TranslateRepository.CHAPTER_CHUNK_BUBBLE_LIMIT)
+        ) {
             chunks += current
             current = mutableListOf()
             currentLen = 0
+            currentBubbles = 0
         }
         current += pageIndex
         currentLen += len
+        currentBubbles += pageBubbles.size
     }
     if (current.isNotEmpty()) chunks += current
     return chunks

@@ -7,7 +7,8 @@ package com.haise.jiyu.translate
  *
  * Princip opačný než u [cleanOcrLatinText]: tady se nic neopravuje, jen se
  * OZNAČÍ podezřelé tokeny - slova, která nejsou ve frekvenčním slovníku
- * (`assets/cs_common_words.txt`, ~35k tvarů z OpenSubtitles) a zároveň
+ * (`assets/cs_common_words.txt`, ~250k nejčastějších tvarů z OpenSubtitles 2018)
+ * a zároveň
  * nevypadají jako vlastní jméno/pojem. Flagovaný blok se v
  * [TranslateRepository] převezme jako `isUntranslated` a dostane repair retry
  * přes zbylé providery v [fillUntranslatedBlocks]; když ani retry nepomůže,
@@ -28,6 +29,7 @@ internal fun suspiciousCzechTokens(
     original: String,
     dictionary: Set<String>,
     englishWords: Set<String> = emptySet(),
+    czechCore: Set<String> = emptySet(),
 ): List<String> {
     if (dictionary.isEmpty()) return emptyList()
     val originalTokens = original.split(LETTER_SPLIT)
@@ -39,10 +41,13 @@ internal fun suspiciousCzechTokens(
         .filter { it.count(Char::isLetter) >= MIN_LINT_TOKEN_LENGTH }
         .map { it.lowercase() }
         .distinct()
-        .filter { token -> token !in dictionary }
         .filter { token ->
-            // Anglický únik - nejdřív, aby ho jmenový filtr nemohl odpustit.
-            if (token in englishWords) return@filter true
+            // Anglický únik - nejdřív, aby ho jmenový filtr ani slovník nemohly
+            // odpustit. Ocásek frekvenčního slovníku obsahuje i angličtinu z titulků
+            // ("enemy", "line" sedí v cs_common_words.txt), takže "je ve slovníku"
+            // nestačí - česká výjimka platí jen pro čisté jádro (top 50k tvarů).
+            if (token in englishWords && token !in czechCore) return@filter true
+            if (token in dictionary) return@filter false
             val plain = normalizeLintToken(token)
             originalTokens.none { orig -> levenshteinAtMost(plain, orig, 2) }
         }
@@ -54,22 +59,26 @@ internal fun suspiciousCzechTokens(
  * musí být ALESPOŇ TRETINA kontrolovaných slov - jedna vyjímaná podoba (vokativ,
  * který slovník nezná, neologismus) celý překlad neshodí, ale samotné
  * "ZATÍŽETE" (1 z 1) nebo "TO JSEM NEMYSL." (1 ze 2) ano.
+ *
+ * Pozn.: dřív tu bylo pravidlo "u bloku s <=5 kontrolovanými slovy stačí JEDNO
+ * podezřelé" - ve spojení s neúplným slovníkem to ale flagovalo i správné
+ * překlady (1 vzácný skloňovaný tvar ze 4-5 slov -> untranslated, viz audit
+ * Vagabond ch.1, kde ~16 bublin skrývalo hotový český překlad). Všechny
+ * zdokumentované zkomoleniny ("ZATÍŽETE", "NEMYSL.", "K ZBRAĎ", "DVAJKRÁT",
+ * "HLUPAKI") jsou 1-3 tokenové a třtinové pravidlo je chytí i bez výjimky.
  */
 internal fun isSuspiciousCzechOutput(
     translated: String,
     original: String,
     dictionary: Set<String>,
     englishWords: Set<String> = emptySet(),
+    czechCore: Set<String> = emptySet(),
 ): Boolean {
     if (dictionary.isEmpty()) return false
     val checked = translated.split(LETTER_SPLIT).count { it.count(Char::isLetter) >= MIN_LINT_TOKEN_LENGTH }
     if (checked == 0) return false
-    val flagged = suspiciousCzechTokens(translated, original, dictionary, englishWords).size
-    // U krátkého bloku (<=5 kontrolovaných slov) stačí JEDNO podezřelé slovo -
-    // třtinový práh tam byl moc shovinavý a nechal projít "K ZBRAĎ", "MYŠLEL",
-    // "DVAJKRÁT", "HLUPAKI" (audit Vagabondu). U delší věty jeden vokativ/
-    // neologismus celý překlad shodit nesmí - tam třetina zůstává.
-    return flagged > 0 && (checked <= SHORT_BLOCK_CHECKED_MAX || flagged * 3 >= checked)
+    val flagged = suspiciousCzechTokens(translated, original, dictionary, englishWords, czechCore).size
+    return flagged > 0 && flagged * 3 >= checked
 }
 
 /**
@@ -79,12 +88,6 @@ internal fun isSuspiciousCzechOutput(
  * malé - a jmenový filtr je pořád aktivní.
  */
 private const val MIN_LINT_TOKEN_LENGTH = 3
-
-/**
- * Kolik kontrolovaných tokenů ještě znamená "krátký blok", kde stačí jedno
- * podezřelé slovo k flagu - viz [isSuspiciousCzechOutput].
- */
-private const val SHORT_BLOCK_CHECKED_MAX = 5
 
 private val LETTER_SPLIT = Regex("[^\\p{L}]+")
 

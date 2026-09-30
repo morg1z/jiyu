@@ -152,9 +152,9 @@ class BubbleClassifierTest {
 
     @Test
     fun `a trailing tilde is stripped before the safety list is consulted`() {
-        // "AH~" je v manhwě běžné - vlnovka se dřív nepočítala mezi ořezávanou interpunkci,
-        // takže se porovnávalo "AH~" a slovo ze seznamu se minulo.
-        assertFalse(BubbleClassifier.classify(rawBlock("AH~"), lineCount = 1).isSfx)
+        // "AH~" je v manhwě běžná vokalizace - vlnovka se ořízne (EDGE_PUNCTUATION)
+        // a "AH" je teď sfxWord: samostatná vokalizace zůstává v originále (v35).
+        assertTrue(BubbleClassifier.classify(rawBlock("AH~"), lineCount = 1).isSfx)
     }
 
     @Test
@@ -546,8 +546,10 @@ class BubbleClassifierTest {
     @Test
     fun `repeated sfx with a one-letter ocr slip is still sfx`() {
         // "GULP GLP" / "BOOM B0OM" - editační vzdálenost 1 od stejného zvuku.
-        assertTrue(BubbleClassifier.classify(rawBlock("GULP GLP"), 1).isSfx)
-        assertTrue(BubbleClassifier.classify(rawBlock("BOOM B0OM"), 1).isSfx)
+        // (fuzzy shoda potřebuje EN slovník jako pojistku proti skutečným slovům,
+        // viz v33 - test ji předává jako produkce).
+        assertTrue(BubbleClassifier.classify(rawBlock("GULP GLP"), 1, testEnglishWords).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("BOOM B0OM"), 1, testEnglishWords).isSfx)
     }
 
     @Test
@@ -577,7 +579,7 @@ class BubbleClassifierTest {
 
     @Test
     fun `allowlisted one or two letter replicas stay dialogue`() {
-        listOf("I", "A", "NO", "OH", "OK", "WE", "GO").forEach { text ->
+        listOf("I", "A", "NO", "OK", "WE", "GO", "YO").forEach { text ->
             assertFalse(
                 "„$text\" je legitimní krátká replika",
                 BubbleClassifier.classify(rawBlock(text), 1).isSfx,
@@ -614,7 +616,7 @@ class BubbleClassifierTest {
     fun `multi-token block of sfx words stays untranslated even in a bubble`() {
         // "(HLIF HLUF)" = OCR varianty "HUF HUF" - staré pravidlo chtělo TOTÉŽ slovo,
         // takže propadlo a model přeložil "(Huf huf)" přes originál.
-        assertTrue(BubbleClassifier.classify(rawBlock("(HLIF HLUF)"), 1).isSfx)
+        assertTrue(BubbleClassifier.classify(rawBlock("(HLIF HLUF)"), 1, testEnglishWords).isSfx)
         assertTrue(BubbleClassifier.classify(rawBlock("HUF HUF"), 1).isSfx)
         assertTrue(BubbleClassifier.classify(rawBlock("BOOM CRASH"), 1).isSfx)
         assertTrue(BubbleClassifier.classify(rawBlock("TROMP TROMP TROMP"), 1).isSfx)
@@ -629,11 +631,21 @@ class BubbleClassifierTest {
     }
 
     @Test
+    fun `standalone interjection vocalizations stay original`() {
+        // Audit Vagabondu v35: "OH…" se přepsalo na "Ach…" přes originál - samostatná
+        // citoslovčitá vokalizace je zvuk, ne věta. Ve větě zůstávají dialogem
+        // (multi-token cesta vyžaduje, aby byly zvuky VŠECHNY tokeny - test níž).
+        listOf("OH…", "OH!", "AH", "UH", "ER…", "EH", "UM…", "OW", "HA", "HAHA", "HEH", "HUH?").forEach { text ->
+            assertTrue("„$text\" je vokalizace, ne replika", BubbleClassifier.classify(rawBlock(text), 1).isSfx)
+        }
+    }
+
+    @Test
     fun `two-word dialogue is never swept into the all-sfx rule`() {
         // Pojistka: i kdyby jedno slovo sedělo o znak na položku slovníku, druhé je
         // chráněná krátká replika nebo slovo se samohláskou - blok jde na překlad.
         listOf(
-            "HEY WAIT", "I SURVIVED", "GIVE ME A BREAK", "HA HA", "HUH HUH",
+            "HEY WAIT", "I SURVIVED", "GIVE ME A BREAK", "OH WHAT",
             "NO STOP", "YOU FOOL",
         ).forEach { text ->
             assertFalse(
@@ -645,8 +657,95 @@ class BubbleClassifierTest {
 
     @Test
     fun `short protected replica inside a multi-token block keeps the block translatable`() {
-        // "HUH" je v commonShortWordsNotSfx - i vedle skutečného zvuku celý blok padá
-        // na dialog (lepší přeložit "HUH POW" než zahodit "HUH").
-        assertFalse(BubbleClassifier.classify(rawBlock("HUH POW"), 1).isSfx)
+        // "WELL" je v commonShortWordsNotSfx - i vedle skutečného zvuku celý blok padá
+        // na dialog (lepší přeložit "WELL POW" než zahodit "WELL").
+        assertFalse(BubbleClassifier.classify(rawBlock("WELL POW"), 1).isSfx)
+    }
+
+    // ── OCR literovka o znak od zvuku (v33): fuzzy shoda lev<=1 proti slovníku zvuků,
+    //    ale JEN když token není skutečné anglické slovo - jinak by se repliky typu
+    //    "SHOOT"/"MISS" polkly a zůstaly anglicky ──
+
+    private val testEnglishWords = setOf(
+        "miss", "shoot", "wish", "door", "break", "blame", "matter", "being",
+        "doing", "bring", "book", "boot", "clan", "horn", "crush", "lunch",
+        "bunch", "fish", "rich", "done", "bone", "trash", "snack", "stack",
+        "gloom", "dome", "grasp", "couch", "chew", "glow", "glue", "dine",
+        "bank", "dig", "cash", "chop", "chick", "clock", "hug", "top", "thus",
+    )
+
+    @Test
+    fun `ocr garble one letter off a known sfx stays original`() {
+        // "HUIF"/"HWIF" = misread "HUF" (font U->I/L záměna) - v bublině, tedy bgUniform,
+        // takže over-art pravidlo na ně nesahá a před v33 šly na překlad ("Huf" se
+        // vykreslilo přes originální lettering). Zkomolenina není ve slovníku -> zvuk.
+        listOf("HUIF", "HUFP", "GUIP", "HWUP").forEach { text ->
+            assertTrue(
+                "„$text\" je zkomolenina zvuku, ne replika",
+                BubbleClassifier.classify(rawBlock(text), 1, testEnglishWords).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `a real english word one letter off an sfx is still dialogue`() {
+        // Druhá strana fuzzy pravidla: lev<=1 kolize se SKUTEČNÝM slovem = replika.
+        // Bez slovníkové pojistky by se "SHOOT"~"SHOOM", "MISS"~"HISS" označily za
+        // zvuk a nikdy se nepřeložily - stejná chyba, jiným směrem.
+        listOf("SHOOT", "MISS", "WISH", "DOOR", "BREAK", "BLAME", "MATTER").forEach { text ->
+            assertFalse(
+                "„$text\" je skutečné slovo - musí se přeložit",
+                BubbleClassifier.classify(rawBlock(text), 1, testEnglishWords).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `fuzzy sfx match is off without a dictionary to avoid eating real words`() {
+        // Bez EN slovníku se fuzzy pravidlo nespustí vůbec - "HUIF" pak propadne jako
+        // text (stejné jako před v33; lepší přeložit šum než spolknout repliku).
+        assertFalse(BubbleClassifier.classify(rawBlock("HUIF"), 1).isSfx)
+    }
+
+    @Test
+    fun `cjk punctuation inside a latin block is ocr noise not dialogue`() {
+        // "LIR..、R." = zbytek japonského letteringu čtený jako latinka - model nad tím
+        // halucinoval "Ugh… uh." přes kresbu (audit Vagabondu). Vnitřní "、" nemá v
+        // latinském textu co dělat.
+        listOf("LIR..、R.", "GO。KA", "TH、UD").forEach { text ->
+            assertTrue(
+                "„$text\" je OCR šum - nechat originál",
+                BubbleClassifier.classify(rawBlock(text), 1, testEnglishWords).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `pure cjk dialogue is untouched by the latin-punctuation rule`() {
+        // Pojistka: celý CJK blok bez latiny se pravidla o šumu netýká.
+        assertFalse(BubbleClassifier.classify(rawBlock("そうか"), 1, testEnglishWords).isSfx)
+    }
+
+    @Test
+    fun `drinking rain and environmental sfx stay original`() {
+        // Uživatel výslovně: "GLP, když prší, když někdo pije - vůbec nepřekládat".
+        listOf("GLP", "GLUG", "GULP", "SWIG", "GUZZLE", "BURP", "BELCH", "SIP",
+            "PATTER", "PITTER", "PITPAT", "PLIP", "SPLISH", "SHHH",
+        ).forEach { text ->
+            assertTrue(
+                "„$text\" je zvuk prostředí - nesmí se překládat ani zakreslovat",
+                BubbleClassifier.classify(rawBlock(text), 1, testEnglishWords).isSfx,
+            )
+        }
+    }
+
+    @Test
+    fun `animal and impact sfx stay original`() {
+        listOf("WOOF", "ARF", "MOO", "KRAK", "THAP", "WHUMP").forEach { text ->
+            assertTrue(
+                "„$text\" je zvuk",
+                BubbleClassifier.classify(rawBlock(text), 1, testEnglishWords).isSfx,
+            )
+        }
     }
 }

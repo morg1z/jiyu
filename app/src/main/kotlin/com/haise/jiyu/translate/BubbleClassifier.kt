@@ -47,9 +47,26 @@ object BubbleClassifier {
         "URR", "URGH", "GAAH", "HAAH", "HYAH", "HYA", "KIYA", "HMPH", "NGH", "MNGH",
         "HNN", "HNNGH", "WHEW", "PHEW", "EEP", "YIPE", "GYAA", "UWAH", "WAAH", "AAH",
         "AHH", "EHH", "OHH", "UHH", "OOF", "OOP", "HAH",
+        // Samostatné citoslovčité vokalizace ("OH…", "HAHA", "HUH?") - nesou emoce, ne
+        // větu; uživatel chce zvuky/vokalizace netknuté (audit: "OH…" se přepsalo na
+        // "Ach…"). V osamoceném bloku = zvuk; ve větě multi-token cesta stejně vyžaduje,
+        // aby byly zvuky VŠECHNY tokeny, takže "OH NO, HE'S HERE" dál přeložíme.
+        "OH", "AH", "UH", "ER", "EH", "UM", "OW", "OWW", "HA", "HAHA", "HEH", "HUH",
+        // Pití/polykání, déšť a další prostředí - uživatel výslovně: GLP/déšť/pití zůstává
+        // originál. ("GLP" chytá i pravidlo bez samohlásky; tyhle tvary samohlásku mají.)
+        "GLUG", "SWIG", "GUZZLE", "BURP", "BELCH", "SIP", "HIC", "PITTER", "PITPAT",
+        "PLIP", "GLOMP", "SPLUTTER", "WOOF", "ARF", "RUFF", "MOO", "COO",
         // OCR varianty pozorované na zařízení (font U->I/L záměna) - "HLUF"/"HLIF"/"IHUF"
         // jsou "HUF" z (HLIF HLUF) auditu; fuzzy lev<=1 v [isSfxToken] pokryje další.
-        "HLUF", "HLIF", "IHUF",
+        // "HIJE"/"HIJA" jsou další deformované čtení "HUE"/"HUF" z v33 auditu - přeložily
+        // se jako "Hija" přes originál.
+        "HLUF", "HLIF", "IHUF", "HIJE", "HIJA", "HIJF", "HLJE", "DNG",
+        // Korejské transliterované zvuky do latinky (manhwa SFX) - audit RWS ch.215:
+        // "DADUN" (더덩 tlumený zadunění) se přeložilo na "BUM" - porušení pravidla.
+        // Kvůli fuzzy lev<=1 v [isSfxToken] se kryjí i OCR deformace ("DADUN"~"DADUM").
+        "DUN", "DDUN", "DUDUN", "DUDUNG", "DADUN", "DADUNG", "KUNG", "KWANG",
+        "KWAANG", "KWAGWANG", "PUK", "PEOK", "TAK", "TTAK", "DEOK", "HWIK",
+        "SYUT", "JJEOK", "GEUK", "KKEOK", "NANANA", "NANAN",
     )
 
     /**
@@ -82,15 +99,15 @@ object BubbleClassifier {
      */
     private val commonShortWordsNotSfx = setOf(
         "HEY", "WAIT", "STOP", "HELP", "RUN", "GO", "NOW", "YES", "NO", "OK", "OKAY",
-        "HUH", "WHAT", "WHO", "WHY", "HOW", "COME", "LOOK", "WATCH", "LISTEN", "DAMN",
+        "WHAT", "WHO", "WHY", "HOW", "COME", "LOOK", "WATCH", "LISTEN", "DAMN",
         // Kontrakce a krátké repliky ≤4 písmen - po zúžení over-art pravidla na
         // "samohláska ⇒ ≤4" pořád potřebují ochranu; delší slova se samohláskou
         // chrání samotné pravidlo (viz audit Vagabondu - "THAT'S…"/"SWORDS?").
         "I'M", "I'LL", "I'VE", "IT'S", "HE'S", "SHE'S", "DON'T", "CAN'T", "WON'T",
         "AIN'T", "WHO'S", "LET'S", "ISN'T", "DIDN'T", "THAT'S", "WHAT'S", "THERE'S",
         "HERE'S", "MA'AM", "SURE", "RIGHT", "WRONG", "SORRY", "THANKS", "PLEASE",
-        "WELL", "FINE", "GEEZ", "JEEZ", "GOSH", "OOPS", "UM", "UH", "ER", "AH", "OH",
-        "EH", "OW", "OWW", "HEH", "HA", "HAHA", "FOOL", "FOOLS", "LIAR", "LIES",
+        "WELL", "FINE", "GEEZ", "JEEZ", "GOSH", "OOPS",
+        "FOOL", "FOOLS", "LIAR", "LIES",
         "GOD", "GODS", "LORD", "KING", "SIR", "HERO", "FOE", "FOES", "MEN", "MAN",
         "SON", "KID", "KIDS", "DOG", "DOGS", "RAT", "PIG", "HELL", "DIE", "DEAD",
         "KILL", "FEAR", "MINE", "OURS", "YOURS", "DEAR", "GIRL", "GIRLS", "BOY",
@@ -109,14 +126,14 @@ object BubbleClassifier {
      * (audit Vagabond kap. 1: uživatel nechce překládat SFX vůbec). Teď stačí, když je
      * každý token sám zvuk - viz [isSfxToken].
      */
-    private fun isAllSfxTokens(core: String): Boolean {
+    private fun isAllSfxTokens(core: String, englishWords: Set<String>): Boolean {
         // Dělící znaky vedle mezer - "GULP-GULP"/"GULP - GULP" nese stejný vzor jako
         // "GULP GULP" a bez nich by uniklo (audit: "GULP GULP" přeložené na "GUP").
         val tokens = core.split(Regex("[\\s\\-–—]+"))
             .map { it.trim(*EDGE_PUNCTUATION) }
             .filter { it.isNotBlank() }
         if (tokens.size < 2) return false
-        return tokens.all { isSfxToken(it.uppercase()) }
+        return tokens.all { isSfxToken(it.uppercase(), englishWords) }
     }
 
     /**
@@ -124,8 +141,11 @@ object BubbleClassifier {
      * tvar <=6 písmen ("KSH") / OCR literovku o jeden znak proti seznamu ("HLUF"~"HUF").
      * [commonShortWordsNotSfx] má přednost před vším - skutečné krátké repliky ("HEY", "HUH")
      * se jako zvuk nikdy neoznačí, ani kdyby ležely o znak od položky slovníku.
+     * Fuzzy shoda se navíc spouští jen s EN slovníkem - skutečné slovo ("MISS") není
+     * zkomolenina, i když sedí o znak na zvuk ("HISS"); bez slovníku by pravidlo
+     * polklo běžné repliky (viz komentář u hlavní cesty v [detectSfx]).
      */
-    private fun isSfxToken(upperToken: String): Boolean {
+    private fun isSfxToken(upperToken: String, englishWords: Set<String> = emptySet()): Boolean {
         if (upperToken in commonShortWordsNotSfx) return false
         if (sfxWords.contains(upperToken) || collapsedSfxWords.contains(collapseRepeats(upperToken))) return true
         val letters = upperToken.filter { it.isLetter() }
@@ -133,7 +153,9 @@ object BubbleClassifier {
             letters.all { it.code <= MAX_LATIN_CODE } &&
             letters.none { it in LATIN_VOWELS }
         ) return true
-        return upperToken.length >= 3 && sfxWords.any { levenshteinAtMost(upperToken, it, 1) }
+        return englishWords.isNotEmpty() && upperToken.length >= 3 &&
+            upperToken.lowercase() !in englishWords &&
+            sfxWords.any { levenshteinAtMost(upperToken, it, 1) }
     }
 
     /**
@@ -161,10 +183,10 @@ object BubbleClassifier {
      * smysl volat [detectTiledWatermarkIndices], protože potřebuje vidět VŠECHNY bloky
      * stránky najednou, ne jeden po druhém.
      */
-    fun classifyPage(rawBlocks: List<RawTextBlock>): List<ClassifiedBubble> {
+    fun classifyPage(rawBlocks: List<RawTextBlock>, englishWords: Set<String> = emptySet()): List<ClassifiedBubble> {
         val watermarkIndices = detectTiledWatermarkIndices(rawBlocks)
         return rawBlocks.mapIndexed { i, raw ->
-            val classified = classify(raw, raw.lineCount)
+            val classified = classify(raw, raw.lineCount, englishWords)
             if (i in watermarkIndices && !classified.isSfx) {
                 classified.copy(isSfx = true, sizeTag = SizeTag.SFX, bubbleType = BubbleType.SFX)
             } else {
@@ -173,10 +195,10 @@ object BubbleClassifier {
         }
     }
 
-    fun classify(raw: RawTextBlock, lineCount: Int): ClassifiedBubble {
+    fun classify(raw: RawTextBlock, lineCount: Int, englishWords: Set<String> = emptySet()): ClassifiedBubble {
         val trimmed = raw.text.trim()
         val letters = trimmed.filter { it.isLetter() }
-        val isSfx = detectSfx(raw, trimmed, letters)
+        val isSfx = detectSfx(raw, trimmed, letters, englishWords)
 
         val sizeTag = when {
             isSfx -> SizeTag.SFX
@@ -235,7 +257,7 @@ object BubbleClassifier {
      * přeskočí - viz [MAX_LATIN_CODE] - takže tam krátké SFX bez uzavřeného seznamu
      * [sfxWords] neodhalí, ale ani nehrozí spolknutí běžné repliky.
      */
-    private fun detectSfx(raw: RawTextBlock, trimmed: String, letters: String): Boolean {
+    private fun detectSfx(raw: RawTextBlock, trimmed: String, letters: String, englishWords: Set<String> = emptySet()): Boolean {
         if (trimmed.isEmpty()) return false
 
         // Čistě symboly/interpunkce - "!!!", "???", "*gasp*" bez písmen kolem
@@ -259,7 +281,7 @@ object BubbleClassifier {
         // takže tahle mezera je obejde VŠECHNY najednou - živý nález: "GULP GULP"
         // (v `sfxWords`, ale s mezerou) prošlo jako obyčejný text a přeložilo se na
         // nesmysl, "(HLIF HLUF)" se přeložilo na "(Huf huf)" a překrylo originál.
-        if (isAllSfxTokens(core)) return true
+        if (isAllSfxTokens(core, englishWords)) return true
 
         // Holé číslo bez jediného písmene - typicky číslo panelu/stránky vypálené do skenu
         // (běžné u starších scanlation releasů jako MangaStream), ne replika. Skutečný dialog
@@ -315,6 +337,26 @@ object BubbleClassifier {
             collapsedSfxWords.contains(collapseRepeats(upperCore))
         ) return true
 
+        // OCR literovka o jeden znak od známého zvuku - "HUIF"~"HUF", "HWIF"~"HUF". Stejná
+        // tolerance, jakou má jeden token v [isSfxToken], jen pro celý blok: bez ní šel
+        // "HUIF" na překlad, vrátil se jako "Huf" a překryl originální lettering (audit
+        // Vagabondu - uživatel: SFX vůbec nepřekládat).
+        //
+        // Pravidlo běží JEN s EN slovníkem v ruce: zvukové zkomoleniny se poznají právě
+        // tím, že nejsou skutečné slovo. Bez slovníku by lev<=1 pohltilo stovky běžných
+        // slov sedících o znak od zvuku ("SHOOT"~"SHOOM", "MISS"~"HISS", "WISH"~"FWISH",
+        // "DOOR"~"DOOM", "BEING"~"BOING", "BREAK"~"CREAK") a repliky by zůstaly anglicky.
+        if (englishWords.isNotEmpty() && upperCore.length >= 3 &&
+            upperCore !in commonShortWordsNotSfx && upperCore.lowercase() !in englishWords &&
+            sfxWords.any { levenshteinAtMost(upperCore, it, 1) }
+        ) return true
+
+        // CJK interpunkce UVNITŘ latinského bloku ("LIR..、R") - pozůstatek OCR šumu z
+        // japonského letteringu; model nad ním halucinoval český text ("Ugh… uh."), který
+        // pak ležel přes kresbu. Samotná CJK interpunkce na kraji se už ořízla (viz
+        // EDGE_PUNCTUATION), uvnitř latinky nemá co dělat.
+        if (letters.any { it.code <= MAX_LATIN_CODE } && core.any { it in CJK_PUNCTUATION }) return true
+
         // CJK zvuky bývají krátký text složený z opakující se znakové sekvence (např. "ドドド"),
         // na rozdíl od běžné repliky, kde se znaky neopakují takhle mechanicky.
         if (core.length in 2..6 && core.any { it.code > 0x3000 } && isRepeatingPattern(core)) return true
@@ -355,6 +397,9 @@ object BubbleClassifier {
         "HI", "ID", "IF", "IN", "IS", "IT", "MA", "ME", "MY", "NO", "OH", "OK",
         "ON", "OR", "OW", "OX", "PA", "SO", "TO", "UH", "UM", "UP", "US", "WE", "YO",
     )
+
+    /** CJK interpunkce - uvnitř latinského bloku je to důkaz OCR šumu (viz [detectSfx]). */
+    private val CJK_PUNCTUATION = charArrayOf('、', '。', '「', '」', '『', '』', '【', '】', '〜')
 
     /** Interpunkce, která může obalovat text zvenčí, aniž by patřila k samotnému slovu. */
     private val EDGE_PUNCTUATION = charArrayOf(

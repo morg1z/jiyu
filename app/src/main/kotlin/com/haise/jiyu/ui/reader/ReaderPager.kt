@@ -173,7 +173,10 @@ fun MangaReader(
     // Auto-advance to next chapter when reaching last page with autoNextChapter enabled.
     // reachedEndManually ensures we only trigger after navigating away from initial page,
     // preventing immediate jump when resuming on the last page.
-    var reachedEndManually by remember { mutableStateOf(false) }
+    // Klic `pages` (nova identita listu = nova kapitola) - bez nej flag prezil prepnuti
+    // kapitoly a kapitola obnovena na posledni strance se sama auto-advancovala dal
+    // po 2,5 s bez otoceni stranky (audit RD-2; stejny vzor jako currentSingleIndex).
+    var reachedEndManually by remember(pages) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(currentSingleIndex, pages.size) {
         if (pages.size > 1 && currentSingleIndex < pages.size - 1) reachedEndManually = true
         if (reachedEndManually && pages.isNotEmpty() && currentSingleIndex == pages.size - 1 && autoNextChapter) {

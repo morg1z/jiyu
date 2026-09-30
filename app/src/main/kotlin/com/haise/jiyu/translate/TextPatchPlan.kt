@@ -66,7 +66,17 @@ fun renderBoxRect(pos: PositionedTranslationBlock): PatchRect =
 fun patchPlan(positioned: List<PositionedTranslationBlock>): Map<Int, PatchRect> =
     positioned.withIndex()
         .filter { (_, pos) -> pos.block.needsPatch() }
-        .associate { (index, pos) -> index to renderBoxRect(pos) }
+        .associate { (index, pos) ->
+            // seamCover: krycí blok fragmentu přešité bubliny. Renderer kreslí jen
+            // jeho vlastní OCR rozsah (viz TranslationOverlay coverOnly), takže
+            // záplata musí být spočítaná přes STEJNÝ výřez - nad rozšířeným regionem
+            // by se při vykreslení deformovala a text pod ní by špatně kryla.
+            if (pos.block.seamCover) {
+                index to PatchRect(pos.block.leftF, pos.block.topF, pos.block.rightF, pos.block.bottomF)
+            } else {
+                index to renderBoxRect(pos)
+            }
+        }
 
 private fun TranslatedBlock.needsPatch(): Boolean =
     !isSfx && !isUntranslated && !isArtText && !bgUniform

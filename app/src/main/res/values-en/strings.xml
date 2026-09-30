@@ -459,6 +459,15 @@
     <string name="novel_home_loading">Merging novel catalogs…</string>
     <string name="novel_home_empty">Nothing here.</string>
     <string name="novel_home_retry">Retry</string>
+    <string name="novel_home_tab_catalog">Catalog</string>
+    <string name="novel_home_updates_loading">Checking latest chapters…</string>
+    <string name="comic_home_title">Komiks</string>
+    <string name="comic_home_search_hint">Search comics across sources…</string>
+    <string name="comic_home_loading">Merging comic catalogs…</string>
+    <string name="comic_home_empty">Nothing here.</string>
+    <string name="comic_home_tab_catalog">Catalog</string>
+    <string name="comic_home_updates_loading">Checking latest issues…</string>
+    <string name="comic_resolver_title">Komiks</string>
     <string name="novel_resolver_title">Novela</string>
     <string name="settings_sources_mode_sources_title">Individual sources</string>
     <string name="settings_sources_mode_sources_desc">Browse and pick sources one by one - manga, novels and comics.</string>
@@ -470,6 +479,8 @@
     <string name="settings_sources_mode_comic_desc">Unified catalog across all comic sources - a title opens on the source with the best available copy.</string>
     <string name="onb_mode_novel_title">Aggregated style (Novela)</string>
     <string name="onb_mode_novel_desc">Unified catalog across all novel sources - a title opens on the source with the best available copy.</string>
+    <string name="onb_mode_comic_title">Aggregated style (Komiks)</string>
+    <string name="onb_mode_comic_desc">Unified catalog across all comic sources - a title opens on the source with the best available copy.</string>
 
     <!-- Group screen -->
     <string name="group_screen_loading">Loading group…</string>
@@ -805,6 +816,24 @@
     <string name="source_browse_sort_label">Sort</string>
     <string name="source_browse_reset">Reset</string>
     <string name="source_browse_apply">Apply</string>
+    <string name="source_browse_status_cancelled">Cancelled</string>
+    <string name="source_browse_tags_label">Tags</string>
+    <string name="source_browse_tags_none">None</string>
+    <string name="source_browse_tags_pick">Pick tags…</string>
+    <string name="source_browse_tags_selected_count">Selected: %1$d</string>
+    <string name="source_browse_tags_search_placeholder">Start typing a genre name</string>
+    <string name="source_browse_tags_empty">This source offers no tags</string>
+    <string name="source_browse_tags_load_failed">Failed to load tags</string>
+    <string name="source_browse_tags_exclude_hint">Tap = include, tap again = exclude, third tap = clear</string>
+    <string name="source_browse_section_genres">Genres</string>
+    <string name="source_browse_section_tags">Tags</string>
+    <string name="source_browse_demographic_label">Demographic</string>
+    <string name="source_browse_type_label">Type</string>
+    <string name="source_browse_min_chapters_label">Min. chapters</string>
+    <string name="source_browse_min_chapters_placeholder">e.g. 50</string>
+    <string name="source_browse_created_label">Added</string>
+    <string name="source_browse_sort_asc">↑ Ascending</string>
+    <string name="source_browse_sort_desc">↓ Descending</string>
 
     <!-- Global search -->
     <string name="search_title">Global search</string>
@@ -1079,6 +1108,14 @@
         <item quantity="other">on %1$d sources</item>
     </plurals>
     <plurals name="novel_failed_sources">
+        <item quantity="one">%1$d source failed to load</item>
+        <item quantity="other">%1$d sources failed to load</item>
+    </plurals>
+    <plurals name="comic_on_n_sources">
+        <item quantity="one">on %1$d source</item>
+        <item quantity="other">on %1$d sources</item>
+    </plurals>
+    <plurals name="comic_failed_sources">
         <item quantity="one">%1$d source failed to load</item>
         <item quantity="other">%1$d sources failed to load</item>
     </plurals>

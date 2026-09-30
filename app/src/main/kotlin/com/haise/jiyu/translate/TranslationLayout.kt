@@ -45,7 +45,7 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
     // "PTÁM SE TĚ." v jedné bublině). Vrací seznam STEJNÉ délky - indexy v positioned
     // klíčují TextPatchProvider záplaty a přemapování by je rozbilo; absorbovaný blok se
     // jen nechá vykreslit jako dosud (renderer ho přeskočí přes bubbleSkipReason).
-    val effectiveBlocks = mergeUntranslatedSiblingBlocks(blocks)
+    val effectiveBlocks = mergeUntranslatedSiblingBlocks(blocks).map(::dropDegenerateShape)
     val shapeBased = effectiveBlocks.filter { it.shape != null }
     val heuristicBased = effectiveBlocks.filter { it.shape == null }
 
@@ -74,6 +74,56 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
 
 /** Kolik procent užšího z obou rectů se musí vodorovně překrývat, aby šlo o jednu bublinu. */
 private const val SIBLING_MIN_HORIZONTAL_OVERLAP = 0.45f
+
+/**
+ * Obrys bubliny musí svůj text fyzicky obsahovat - pokud je obalový obdélník tvaru menší
+ * než ~55 % OCR boxu textu v jednom rozměru, není to bublina, ale rozpadlý konturový
+ * fragment (bod/čárka z flood-fillu). Audit Vagabondu ch.1: bloku "SOMEONE" detekce
+ * přiřadila tvar o rozměru 0,05 % x 0,2 % stránky - vykreslený box i clip spadly na bod a
+ * překlad "Někdo" byl na stránce mikroskopický/neviditelný, takže vypadal nepřeloženě.
+ * Zahodit tvar = blok projde heuristikou a kreslí se přes záplatu jako lettering na kresbě.
+ */
+private const val SHAPE_MIN_TEXT_COVER = 0.55f
+
+/**
+ * Obrácený extrém [SHAPE_MIN_TEXT_COVER]: flood-fill "unikl" z bubliny do okolní
+ * kresby - obrys je násobně větší než text a text nesedí uvnitř jeho středu, ale u
+ * kraje. Audit RWS ch.215: NARRATION blok na tmavé scéně dostal obrys přes
+ * 0..1 × 0.21-0.99 stránky (plocha ~6x větší než text, text nalepený nahoře) a
+ * výplň oříznutá touhle konturou zakryla půlku obrázku místo bubliny; vepsaný
+ * obdélník pak vysázel překlad doprostřed kresby, ne do bubliny. Takový tvar se
+ * zahodí a blok přejde na heuristiku/záplatu přes vlastní OCR oblast.
+ *
+ * Legitimní velká bublina (výkřik v obraťáku, bublina s ocáskem) drží text zhruba
+ * uprostřed - proto velikostní poměr ALONE nestačí, kombinuje se s decentrováním.
+ */
+private const val SHAPE_LEAK_AREA_RATIO = 4f
+private const val SHAPE_LEAK_HEIGHT_RATIO = 2.5f
+private const val SHAPE_LEAK_OFFCENTER_F = 0.22f
+
+// internal (ne private): stejnou pojistku používá i TextPatchProvider na obrys
+// znovunalezený při vykreslení - flood-fill tam může uniknout stejně jako při OCR
+// a bez kontroly by se zahozený leak vrátil přes recoveredShape (viz audit p77).
+internal fun isDegenerateShapeForText(shape: List<BubbleShapePoint>, b: TranslatedBlock): Boolean {
+    if (shape.size < 2) return true
+    val shapeW = shape.maxOf { it.rightF } - shape.minOf { it.leftF }
+    val shapeH = shape.last().yF - shape.first().yF
+    val textW = (b.rightF - b.leftF).coerceAtLeast(0f)
+    val textH = (b.bottomF - b.topF).coerceAtLeast(0f)
+    if (shapeW < textW * SHAPE_MIN_TEXT_COVER || shapeH < textH * SHAPE_MIN_TEXT_COVER) return true
+    // Uniklý obrys: plocha mnohonásobně větší než text, hodně vysoký A text u kraje.
+    if (shapeW * shapeH > textW * textH * SHAPE_LEAK_AREA_RATIO && shapeH > textH * SHAPE_LEAK_HEIGHT_RATIO) {
+        val shapeMid = (shape.first().yF + shape.last().yF) / 2f
+        val textMid = (b.topF + b.bottomF) / 2f
+        if (kotlin.math.abs(textMid - shapeMid) > shapeH * SHAPE_LEAK_OFFCENTER_F) return true
+    }
+    return false
+}
+
+private fun dropDegenerateShape(b: TranslatedBlock): TranslatedBlock {
+    val shape = b.shape ?: return b
+    return if (isDegenerateShapeForText(shape, b)) b.copy(shape = null) else b
+}
 
 /** Svislá mezera mezi půlkami jedné bubliny v násobcích řádkové výšky sourozence. */
 private const val SIBLING_MAX_GAP_LINES = 1.5f
@@ -114,7 +164,10 @@ internal fun mergeUntranslatedSiblingBlocks(blocks: List<TranslatedBlock>): List
         for (ti in blocks.indices) {
             if (ti == ui) continue
             val t = blocks[ti]
-            if (t.isSfx || t.isUntranslated) continue
+            // seamCover fragment nikdy neni cilem - jeho box je kryci rezim nad vlastnim
+            // OCR rozsahem (viz TranslationOverlay coverOnly); absorbovany sourozenec
+            // by ho roztahl a zaplata by zakryla kus kresby navic.
+            if (t.isSfx || t.isUntranslated || t.seamCover) continue
             if (centerInsideShapeRow(u, t)) { bestTi = ti; break }
             val overlapX = minOf(u.rightF, t.rightF) - maxOf(u.leftF, t.leftF)
             val narrowerW = minOf(u.rightF - u.leftF, t.rightF - t.leftF)

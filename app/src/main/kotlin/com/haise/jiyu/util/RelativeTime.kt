@@ -1,7 +1,7 @@
 package com.haise.jiyu.util
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.haise.jiyu.R
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -27,13 +27,14 @@ internal fun relativeTimeBucket(diffMinutes: Long): RelativeTimeBucket = when {
 @Composable
 fun relativeTimeLabel(timeMs: Long): String {
     if (timeMs <= 0L) return ""
-    val context = LocalContext.current
+    // stringResource (ne LocalContext.getString) - reaguje na zmenu locale za behu;
+    // lint LocalContextGetResourceValueCall.
     val bucket = relativeTimeBucket((System.currentTimeMillis() - timeMs) / 60_000L)
     return when (bucket.unit) {
-        RelativeTimeUnit.NOW -> context.getString(R.string.relative_time_now)
-        RelativeTimeUnit.MINUTES -> context.getString(R.string.relative_time_minutes, bucket.value)
-        RelativeTimeUnit.HOURS -> context.getString(R.string.relative_time_hours, bucket.value)
-        RelativeTimeUnit.DAYS -> context.getString(R.string.relative_time_days, bucket.value)
+        RelativeTimeUnit.NOW -> stringResource(R.string.relative_time_now)
+        RelativeTimeUnit.MINUTES -> stringResource(R.string.relative_time_minutes, bucket.value)
+        RelativeTimeUnit.HOURS -> stringResource(R.string.relative_time_hours, bucket.value)
+        RelativeTimeUnit.DAYS -> stringResource(R.string.relative_time_days, bucket.value)
         RelativeTimeUnit.DATE -> SimpleDateFormat("d. M. yyyy", Locale.getDefault()).format(Date(timeMs))
     }
 }

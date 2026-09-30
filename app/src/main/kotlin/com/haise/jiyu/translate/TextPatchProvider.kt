@@ -207,9 +207,16 @@ class TextPatchProvider @Inject constructor(
                 others = allRaw.filterIndexed { j, _ -> j != i },
                 onReject = { rejectReason = it },
             )
-            if (r != null) recovered[i] = r else {
+            // Stejná pojistka jako dropDegenerateShape při OCR: flood-fill může uniknout
+            // z bubliny do kresby i tady (tmavá scéna s dominantním kbelíkem projde
+            // "no_dominant_color" brankou a poměrový strop 60x je moc povolný pro obrys
+            // ~6x větší než text). Bez kontroly by se zahozený leak vrátil přes
+            // recoveredShape a zakryl půlku stránky (audit RWS ch.215 p77).
+            if (r != null && !isDegenerateShapeForText(r.shape, positioned[i].block)) {
+                recovered[i] = r
+            } else {
                 rejected++
-                recoveryRejects[i] = rejectReason ?: "unknown"
+                recoveryRejects[i] = if (r == null) rejectReason ?: "unknown" else "shape_leaked"
             }
         }
         // Observabilita stejného stylu jako ShapeCoverage v OcrEngine: kolik shapeless

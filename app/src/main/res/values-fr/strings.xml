@@ -456,6 +456,15 @@
     <string name="novel_home_loading">Fusion des catalogues de romans…</string>
     <string name="novel_home_empty">Rien ici.</string>
     <string name="novel_home_retry">Réessayer</string>
+    <string name="novel_home_tab_catalog">Catalogue</string>
+    <string name="novel_home_updates_loading">Chargement des derniers chapitres…</string>
+    <string name="comic_home_title">Komiks</string>
+    <string name="comic_home_search_hint">Rechercher des comics dans toutes les sources…</string>
+    <string name="comic_home_loading">Fusion des catalogues de comics…</string>
+    <string name="comic_home_empty">Rien ici.</string>
+    <string name="comic_home_tab_catalog">Catalogue</string>
+    <string name="comic_home_updates_loading">Chargement des derniers numéros…</string>
+    <string name="comic_resolver_title">Komiks</string>
     <string name="novel_resolver_title">Novela</string>
     <string name="settings_sources_mode_sources_title">Sources individuelles</string>
     <string name="settings_sources_mode_sources_desc">Parcours et choisis les sources une par une - manga, romans et comics.</string>
@@ -467,6 +476,8 @@
     <string name="settings_sources_mode_comic_desc">Catalogue unifié de toutes les sources de comics - le titre s\'ouvre sur la source avec la meilleure copie disponible.</string>
     <string name="onb_mode_novel_title">Style agrégé (Novela)</string>
     <string name="onb_mode_novel_desc">Catalogue unifié de toutes les sources de romans - le titre s\'ouvre sur la source avec la meilleure copie disponible.</string>
+    <string name="onb_mode_comic_title">Style agrégé (Komiks)</string>
+    <string name="onb_mode_comic_desc">Catalogue unifié de toutes les sources de comics - le titre s\'ouvre sur la source avec la meilleure copie disponible.</string>
 
     <!-- Page du groupe -->
     <string name="group_screen_loading">Chargement du groupe…</string>
@@ -802,6 +813,24 @@
     <string name="source_browse_sort_label">Tri</string>
     <string name="source_browse_reset">Réinitialiser</string>
     <string name="source_browse_apply">Appliquer</string>
+    <string name="source_browse_status_cancelled">Annulé</string>
+    <string name="source_browse_tags_label">Étiquettes</string>
+    <string name="source_browse_tags_none">Aucune</string>
+    <string name="source_browse_tags_pick">Choisir des étiquettes…</string>
+    <string name="source_browse_tags_selected_count">Sélection : %1$d</string>
+    <string name="source_browse_tags_search_placeholder">Commencez à taper le nom d\'un genre</string>
+    <string name="source_browse_tags_empty">Cette source ne propose pas d\'étiquettes</string>
+    <string name="source_browse_tags_load_failed">Impossible de charger les étiquettes</string>
+    <string name="source_browse_tags_exclude_hint">Appuyer = inclure, encore = exclure, une troisième fois = effacer</string>
+    <string name="source_browse_section_genres">Genres</string>
+    <string name="source_browse_section_tags">Étiquettes</string>
+    <string name="source_browse_demographic_label">Démographie</string>
+    <string name="source_browse_type_label">Type</string>
+    <string name="source_browse_min_chapters_label">Nb min. de chapitres</string>
+    <string name="source_browse_min_chapters_placeholder">ex. 50</string>
+    <string name="source_browse_created_label">Ajouté</string>
+    <string name="source_browse_sort_asc">↑ Croissant</string>
+    <string name="source_browse_sort_desc">↓ Décroissant</string>
 
     <!-- Recherche globale -->
     <string name="search_title">Recherche globale</string>
@@ -1084,6 +1113,16 @@
         <item quantity="many">sur %1$d sources</item>
     </plurals>
     <plurals name="novel_failed_sources">
+        <item quantity="one">%1$d source n\'a pas pu être chargée</item>
+        <item quantity="other">%1$d sources n\'ont pas pu être chargées</item>
+        <item quantity="many">%1$d sources n\'ont pas pu être chargées</item>
+    </plurals>
+    <plurals name="comic_on_n_sources">
+        <item quantity="one">sur %1$d source</item>
+        <item quantity="other">sur %1$d sources</item>
+        <item quantity="many">sur %1$d sources</item>
+    </plurals>
+    <plurals name="comic_failed_sources">
         <item quantity="one">%1$d source n\'a pas pu être chargée</item>
         <item quantity="other">%1$d sources n\'ont pas pu être chargées</item>
         <item quantity="many">%1$d sources n\'ont pas pu être chargées</item>

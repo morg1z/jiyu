@@ -234,11 +234,14 @@ fun MangaDetailScreen(
     }
 
     // Uspesny presun na jiny zdroj - zavrit sheet/dialog a potvrdit v snackbaru.
+    // stringResource v kompozici (ne context.getString v efektu) - reaguje na zmenu
+    // locale za behu, lint LocalContextGetResourceValueCall.
+    val relinkAppliedText = relinkApplied?.let { stringResource(R.string.detail_relink_applied, it) }
     LaunchedEffect(relinkApplied) {
-        relinkApplied?.let { name ->
+        relinkAppliedText?.let { text ->
             showRelinkSheet = false
             relinkConfirm = null
-            snackbarHostState.showSnackbar(context.getString(R.string.detail_relink_applied, name))
+            snackbarHostState.showSnackbar(text)
             viewModel.consumeRelinkApplied()
         }
     }

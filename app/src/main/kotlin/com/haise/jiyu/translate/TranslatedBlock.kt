@@ -76,4 +76,23 @@ data class TranslatedBlock(
      */
     val offsetXDp: Float = 0f,
     val offsetYDp: Float = 0f,
+    /**
+     * Poražený fragment webtoon bubliny přešité řezem mezi stránkami (viz
+     * [dropSliceBoundaryDuplicates]): tentýž text se vykreslí na sousední stránce a
+     * TADY se vykreslí jen výplň/záplata přes originální lettering - bez ní by na
+     * přešití zůstala vidět původní angličtina vedle českého překladu (audit RWS
+     * ch.215 - bublina četla 2 řádky EN + 3 řádky CZ). Render: patch přes box,
+     * žádný text, žádné tap-to-original.
+     */
+    val seamCover: Boolean = false,
+    /**
+     * Sjednocený horizontální dosah dedup-páru na řezu (min levého, max pravého okraje
+     * obou fragmentů + bezpečnostní rezerva) - viz [dropSliceBoundaryDuplicates]. OCR boxy
+     * útržků pokrývají jen prostředek přeříznutého řádku, takže kraje originálních písmen
+     * by jinak vykukovaly po stranách krytí (audit RWS ch.215: "HU…ON'T" na p91/92).
+     * Render kryjící výplň rozšiřuje na tenhle rozsah místo vlastního OCR boxu.
+     * Null = blok není součástí řezového páru / starý cache záznam.
+     */
+    val seamSpanLF: Float? = null,
+    val seamSpanRF: Float? = null,
 )

@@ -32,6 +32,9 @@ internal fun List<TranslatedBlock>.toCacheJson(): String = JSONArray().also { ar
             put("lc", b.lineCount)
             put("type", b.bubbleType.name)
             put("untrans", b.isUntranslated)
+            put("seamCover", b.seamCover)
+            b.seamSpanLF?.let { put("spanL", it.toDouble()) }
+            b.seamSpanRF?.let { put("spanR", it.toDouble()) }
             put("bgUniform", b.bgUniform)
             put("nlh", b.nativeLineHeightF.toDouble())
             b.shape?.let { shape ->
@@ -51,8 +54,16 @@ internal fun List<TranslatedBlock>.toCacheJson(): String = JSONArray().also { ar
     }
 }.toString()
 
-/** disp/bg/sfx/lc/shape/type chybí ve starších cache záznamech - optXxx s výchozí hodnotou stejnou jako [TranslatedBlock] defaults, ať se nic nerozbije. */
-internal fun TranslatedPageEntity.toBlocks(): List<TranslatedBlock> = try {
+/**
+ * Deserializace uložených bloků. `null` = poškozený/nečitelný záznam - volající ho
+ * má brát jako cache MISS (stránka se přeloží znovu a řádek se přepíše). Dřív se
+ * vracel `emptyList()`, což [TranslateRepository.getCachedPage] hlásil jako platný
+ * cache hit - rozbitý řádek pak znamenal trvale prázdnou stránku, která se nikdy
+ * nepřepočítala (audit TR-4).
+ * disp/bg/sfx/lc/shape/type chybí ve starších cache záznamech - optXxx s výchozí
+ * hodnotou stejnou jako [TranslatedBlock] defaults, ať se nic nerozbije.
+ */
+internal fun TranslatedPageEntity.toBlocks(): List<TranslatedBlock>? = try {
     val arr = JSONArray(blocksJson)
     List(arr.length()) { i ->
         val o = arr.getJSONObject(i)
@@ -94,12 +105,17 @@ internal fun TranslatedPageEntity.toBlocks(): List<TranslatedBlock> = try {
             // znamená, že fitter spadne na dřívější chování (hledej rovnou největší
             // velikost, co se vejde), dokud se stránka znovu nepřeloží.
             nativeLineHeightF = o.optDouble("nlh", 0.0).toFloat(),
+            // Starší cache záznamy nemají "seamCover" - default false (žádný blok se nikdy
+            // neoznačil za krycí fragment), takže se vykreslují jako dosud.
+            seamCover = o.optBoolean("seamCover", false),
+            // Starší cache záznamy nemají "spanL"/"spanR" - null = blok není řezový pár
+            // nebo pochází z dedupu bez spanu, krytí drží vlastní OCR rozsah jako dosud.
+            seamSpanLF = if (o.has("spanL")) o.getDouble("spanL").toFloat() else null,
+            seamSpanRF = if (o.has("spanR")) o.getDouble("spanR").toFloat() else null,
         )
     }
 } catch (e: Exception) {
-    // Poškozený/nečitelný cache záznam. Prázdný seznam je správná reakce (stránka se
-    // přeloží znovu), ale tiše to spolknout znamenalo, že se rozbitá serializace nikdy
-    // neprojevila jinak než "překlad se občas záhadně dělá znovu".
+    // Poškozený/nečitelný cache záznam - null = cache miss, viz docstring výše.
     e.report("translate:cache:deserialize")
-    emptyList()
+    null
 }

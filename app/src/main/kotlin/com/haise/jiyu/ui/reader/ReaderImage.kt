@@ -106,12 +106,14 @@ internal fun pageAutoRetryCount(error: Throwable?): Int =
 /**
  * Prodleva před automatickým opakováním. U 429 respektuje `Retry-After` ze serveru
  * (a drží aspoň [RATE_LIMIT_MIN_DELAY_MS] - hlavička často chybí nebo je "1s" i když
- * limit trvá déle). Běžné chyby čekají pevných 1,5 s.
+ * limit trvá déle) a s každým pokusem [attempt] odstup zdvojnásobí (4 s -> 8 s -> 16 s)
+ * - audit comicknew: plošné 4 s retry dopadly do stále aktivního limitu a jen ho
+ * prodloužily. Běžné chyby čekají pevných 1,5 s.
  */
-internal fun pageAutoRetryDelayMs(error: Throwable?): Long {
+internal fun pageAutoRetryDelayMs(error: Throwable?, attempt: Int = 0): Long {
     val retryAfter = (error as? SourceRateLimitedException)?.retryAfterMs ?: 0L
     return if (error is SourceRateLimitedException) {
-        maxOf(retryAfter, RATE_LIMIT_MIN_DELAY_MS)
+        maxOf(retryAfter, RATE_LIMIT_MIN_DELAY_MS shl attempt)
     } else {
         AUTO_RETRY_DELAY_MS
     }
@@ -179,7 +181,7 @@ fun RetryableAsyncImage(
         // autoRetries se navyšuje až PO delay - jinak by podmínka error UI
         // (autoRetries >= max) blýskla během čekání na opakovaný pokus.
         if (isError && autoRetries < pageAutoRetryCount(errorCause)) {
-            kotlinx.coroutines.delay(pageAutoRetryDelayMs(errorCause))
+            kotlinx.coroutines.delay(pageAutoRetryDelayMs(errorCause, autoRetries))
             autoRetries++
             isError = false
             retryTrigger++
@@ -188,9 +190,15 @@ fun RetryableAsyncImage(
 
     Box(modifier = modifier) {
         val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
-            // priority=true - tohle je stránka pod prstem; při zpomaleném hostiteli (429)
-            // nesmí čekat za prefetch frontou (viz SlowdownInterceptor.HEADER_PRIORITY).
-            buildPageImageRequest(context, url, referer, cropBorders, disableCrossfade, priority = true)
+            // priority=true pro prvni pokus - stránka pod prstem nesmí čekat za prefetch
+            // frontou (SlowdownInterceptor.HEADER_PRIORITY). OPAKOVANÉ pokusy po chybě
+            // jdou bez priority: do hostitele, co právě vrací 429, se neléze před frontou
+            // (okamžitý pokus jen přidal další 429 a re-armoval zpomalovací okno - audit
+            // comicknew), správně si počkají na svůj slot jako prefetch.
+            buildPageImageRequest(
+                context, url, referer, cropBorders, disableCrossfade,
+                priority = autoRetries == 0,
+            )
         }
         AsyncImage(
             model = request,
@@ -226,7 +234,10 @@ fun RetryableAsyncImage(
                     Spacer(Modifier.height(8.dp))
                     Text(stringResource(R.string.reader_page_load_failed), color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { isError = false; retryTrigger++ }) {
+                    // autoRetries = 0: bez resetu by selhavsi rucni pokus zustal na maxu a
+                    // dalsi chyba by ukazala error UI rovnou bez auto-retry cyklu (audit
+                    // RD-14; WebtoonPageSlice to dela spravne, tady to chybelo).
+                    OutlinedButton(onClick = { autoRetries = 0; isError = false; retryTrigger++ }) {
                         Text(stringResource(R.string.common_retry))
                     }
                 }

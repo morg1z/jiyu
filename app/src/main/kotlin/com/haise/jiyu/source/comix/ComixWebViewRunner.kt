@@ -92,12 +92,12 @@ class ComixWebViewRunner @Inject constructor(
                         webView.post { webView.destroy() }
                     }
 
-                    val bridge = object {
+                    val bridge = object : ComixBridge {
                         @JavascriptInterface
-                        fun pass(json: String) = finish(parseCapture(json), null)
+                        override fun pass(json: String) = finish(parseCapture(json), null)
 
                         @JavascriptInterface
-                        fun fail(message: String) = finish(null, message)
+                        override fun fail(message: String) = finish(null, message)
                     }
 
                     setup(webView, bridge)
@@ -146,8 +146,22 @@ class ComixWebViewRunner @Inject constructor(
         } ?: throw ComixCaptureException("timeout after ${timeoutMs}ms")
     }
 
-    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
-    private fun setup(webView: WebView, bridge: Any) {
+    /**
+     * JS↔Kotlin bridge pro Comix capture. Pojmenovane rozhrani (ne `Any`) - lint
+     * `JavascriptInterface` check na `Object` anotace nevidel a hazel error, pritom
+     * anotace na metodach byly. Za běhu se to chovalo stejne (reflexe cte runtime
+     * tridu), jen presnejsi typ umoznuje lintu overit anotace staticky.
+     */
+    private interface ComixBridge {
+        @JavascriptInterface
+        fun pass(json: String)
+
+        @JavascriptInterface
+        fun fail(message: String)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setup(webView: WebView, bridge: ComixBridge) {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.blockNetworkImage = true // obrazky stranky nepotrebujeme - setrime data

@@ -105,7 +105,7 @@ class TranslateRepository @Inject constructor(
     }
 
     /**
-     * CS frekvenční slovník (~35k tvarů, `assets/cs_common_words.txt`) pro výstupní
+     * CS frekvenční slovník (~160k tvarů, `assets/cs_common_words.txt`) pro výstupní
      * lint [suspiciousCzechTokens] - pozná zkomoleniny typu "ZATÍŽETE"/"NEMYSL"/
      * "MUSELI". Stejný lazy/sdílený vzor jako [enOcrDictionary]; bez assetu se lint
      * přeskočí (prázdný slovník -> flaguje nic).
@@ -125,6 +125,49 @@ class TranslateRepository @Inject constructor(
     }
 
     /**
+     * Jádro CS slovníku (top ~50k tvarů, `assets/cs_core_words.txt`) - čistá hlava
+     * frekvenčního seznamu, kam titulkový šum ještě nedosáhl. Lint ho používá jako
+     * výjimku z anglického-leak flagu: slovo v `en_common_words.txt` se odpustí jen
+     * když je tady ("ale", "to"), nikdy jen protože se objevilo v ocásku velkého
+     * slovníku (tam jsou i "enemy"/"line" z titulků).
+     */
+    @Volatile
+    private var csCoreWordlist: Set<String>? = null
+
+    private fun csCoreWordlist(): Set<String> {
+        csCoreWordlist?.let { return it }
+        val loaded = runCatching {
+            context.assets.open(CS_CORE_WORDLIST_ASSET).bufferedReader().useLines { lines ->
+                lines.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            }
+        }.getOrNull()
+        if (loaded != null) csCoreWordlist = loaded
+        return loaded.orEmpty()
+    }
+
+    /**
+     * Stránky (cacheId), u kterých se v téhle session už jednou retryly `isUntranslated`
+     * bloky - viz cache-hit větev v [translatePage] a cache průchod v [translateChapter].
+     * Bez ní by se trvale nepřeložitelný text pokoušel znovu při KAŽDÉM zobrazení stránky
+     * nebo každém spuštění batch překladu.
+     */
+    private val untransRetriedPages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Má stránka blok označený `isUntranslated` (model vrátil echo/zkomoleninu), který
+     * dává smysl zkoušet znovu? SFX/art bloky se nepočítají - ty se nepřekládají záměrně.
+     * Poražený seamCover fragment taky ne - ten je schovaný pod krycí výplní a jeho
+     * překlad nese viditelný vítěz na sousední stránce (která se retryne sama, když
+     * je untrans). Blok bez jediného písmene (samotná interpunkce) taky ne - ten by
+     * jen znovu proběhl a znovu skončil untrans.
+     */
+    private fun hasRetryableUntrans(blocks: List<TranslatedBlock>): Boolean =
+        blocks.any {
+            it.isUntranslated && !it.isSfx && !it.isArtText && !it.seamCover &&
+                hasTranslatableLetters(it.originalText)
+        }
+
+    /**
      * Označí bloky, jejichž český překlad obsahuje podezřelé tokeny ([isSuspiciousCzechOutput]),
      * jako `isUntranslated` - tak projdou repair retry přes [fillUntranslatedBlocks] a když
      * ani jiný provider lepší výsledek nedá, čtenář uvidí originál místo zkomoleniny
@@ -142,7 +185,7 @@ class TranslateRepository @Inject constructor(
         val result = blocks.mapIndexed { i, b ->
             if (b.isSfx || b.isUntranslated || b.isArtText) {
                 b
-            } else if (isSuspiciousCzechOutput(b.translatedText, classified[i].raw.text, dictionary, enOcrDictionary())) {
+            } else if (isSuspiciousCzechOutput(b.translatedText, classified[i].raw.text, dictionary, enOcrDictionary(), csCoreWordlist())) {
                 changed = true
                 b.copy(isUntranslated = true)
             } else b
@@ -158,7 +201,7 @@ class TranslateRepository @Inject constructor(
      */
     private fun isRetryResultSuspicious(translated: String, source: String, targetLanguage: String): Boolean =
         targetLanguage == "Czech" &&
-            isSuspiciousCzechOutput(translated, source, csWordlist(), enOcrDictionary())
+            isSuspiciousCzechOutput(translated, source, csWordlist(), enOcrDictionary(), csCoreWordlist())
 
     /**
      * Self-review pass (WP11): stejný free proxy řetězec nechá model zkontrolovat vlastní
@@ -193,6 +236,7 @@ class TranslateRepository @Inject constructor(
         val verdicts = TranslationReview.parse(raw) ?: return blocks
         if (verdicts.isEmpty()) return blocks
         val csDict = csWordlist()
+        val csCore = csCoreWordlist()
         val enDict = enOcrDictionary()
         val out = blocks.toMutableList()
         var changed = false
@@ -211,7 +255,7 @@ class TranslateRepository @Inject constructor(
                     val fixed = r.fixed.trim()
                     if (fixed.isNotEmpty() && !hasLeakedToken(fixed) &&
                         !isSuspiciousVerbatimCopy(classified[i].raw.text, fixed) &&
-                        !isSuspiciousCzechOutput(fixed, classified[i].raw.text, csDict, enDict)
+                        !isSuspiciousCzechOutput(fixed, classified[i].raw.text, csDict, enDict, csCore)
                     ) {
                         changed = true
                         out[i] = out[i].copy(
@@ -321,8 +365,24 @@ class TranslateRepository @Inject constructor(
         // jako pri normalnim cache-miss, takze existujici radek proste prepise (upsert =
         // REPLACE podle primarniho klice cacheId). Zadny novy zapis navic netreba.
         forceRefresh: Boolean = false,
+        /**
+         * Ozve se, když dedup přešité bubliny přepíše cache PŘEDCHOZÍ stránky
+         * (poražený fragment dostane seamCover - viz dropSliceBoundaryDuplicates). Bez
+         * re-emise by čtečka držela in-memory starý seznam a fragment se vykreslil
+         * dvakrát - jednou překlad z winner stránky, jednou starý overlay souseda
+         * (audit RWS ch.215 - duplicitní text na přešití, jednou bíle jednou černě).
+         */
+        onAdjacentPageRewritten: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit = { _, _ -> },
     ): List<TranslatedBlock> {
-        if (!forceRefresh) getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage, pageUrl)?.let { return it }
+        if (!forceRefresh) getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage, pageUrl)?.let { cached ->
+            // Echo retry: cache stránky s isUntranslated bloky (model vrátil echo) se
+            // považuje za hotovou jen po první retry v session - jinak by taková
+            // bublina zůstala EN napořád (audit RWS ch.215 p91: "HUMANS, DON'T" drželo
+            // EN přes všechna další otevření). Set.add -> true jen při prvním pokusu;
+            // trvale nepřeložitelný text tak nevolá API při každém zobrazení stránky.
+            val key = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage)
+            if (!hasRetryableUntrans(cached) || !untransRetriedPages.add(key)) return cached
+        }
         // Když jsou odstavení všichni cloud provideři, nemá smysl volat jejich řetězec,
         // ale on-device překlad (ML Kit) se zkusí jako poslední možnost, když je k dispozici.
         if (providerHealth.allUnavailable() && groqClient.isConfigured) throw RateLimitedException()
@@ -353,7 +413,10 @@ class TranslateRepository @Inject constructor(
 
         val glossary = glossaryFor(mangaId, targetLanguage)
         val mangaContext = mangaContextFor(mangaId)
-        val classifiedRaw = BubbleClassifier.classifyPage(rawBlocks.withCleanedOcrText(enOcrDictionary()))
+        val classifiedRaw = BubbleClassifier.classifyPage(
+            rawBlocks.withCleanedOcrText(enOcrDictionary()),
+            englishWords = enOcrDictionary(),
+        )
         // Hustá seznamová stránka (obsah kapitol/titulní list s oblouky drobného textu -
         // audit Vagabondu: TOC dostal šedé patche a gibberish "ZacZachycéneí kapitolaí").
         // Nemá co překládat - všechny bloky se označí jako "preserve" (SFX), takže se
@@ -372,14 +435,19 @@ class TranslateRepository @Inject constructor(
         // Návaznost při čtení stránku po stránce: co zaznělo na té předchozí. Bere se jen
         // z cache - dohledávat ji překladem by znamenalo přeložit stránku, kterou čtenář
         // možná vůbec neotevře. Na začátku kapitoly (a při skoku doprostřed) prostě není.
-        val recentLines = if (pageIndex > 0) {
-            val previous = getCachedPage(chapterId, pageIndex - 1, targetLanguage, sourceLanguage, pageUrl = null)
-            GeminiUltraPrompt.recentContextLines(
-                previous.orEmpty().filter { !it.isSfx && !it.isUntranslated }.map { it.translatedText },
-            )
+        // Slouží zároveň pro deduplikaci přešitých webtoon fragmentů (viz níž).
+        // previousRaw = cache záznam BEZ napařených ručních oprav - při deduplikaci se z
+        // něj může fragment odebrat a přepsat; psát napařené opravy zpátky do strojové
+        // cache by posuny/editace zdvojilo (naparují se znovu při každém čtení).
+        val previousRaw = if (pageIndex > 0) {
+            dao.getById(cacheId(chapterId, pageIndex - 1, targetLanguage, sourceLanguage))?.deserialize().orEmpty()
         } else {
             emptyList()
         }
+        val previousBlocks = previousRaw.withManualEdits(chapterId, pageIndex - 1)
+        val recentLines = GeminiUltraPrompt.recentContextLines(
+            previousBlocks.filter { !it.isSfx && !it.isUntranslated }.map { it.translatedText },
+        )
 
         // GeminiUltraPrompt je napsaný natvrdo pro češtinu (znakové limity a kompresní
         // pravidla mají české příklady) - pro jiný cílový jazyk zůstáváme na obecném
@@ -387,9 +455,9 @@ class TranslateRepository @Inject constructor(
         //
         // Pokud není nakonfigurovaný žádný cloudový provider (Supabase/Groq/Gemini),
         // rovnou zkusíme on-device ML Kit překlad, aby uživatel viděl alespoň náhled.
-        // Upstream modely, které na stránce doopravdy odpověděly - podle nich se pozná,
-        // jestli výsledek padl na slabý záložní model proxy a NEcachuje se (viz
-        // DEGRADED_MODELS a rozhodnutí u dao.upsert níž).
+        // Upstream modely, které na stránce doopravdy odpověděly - degradace na slabý
+        // záložní model proxy se zaznamená do diagnostiky (viz "degraded" note v page
+        // záznamu a DEGRADED_MODELS), výsledek se ale cachuje stejně.
         val usedModels = mutableListOf<String>()
         val onModel: (String?) -> Unit = { m -> if (m != null) usedModels += m }
         val chainBlocks = if (!groqClient.isConfigured) {
@@ -457,7 +525,97 @@ class TranslateRepository @Inject constructor(
         // Kanonické tvary jmen + konzistence frází (WP13) a nakonec render safety gate
         // (WP9 - placeholder/echo leak -> untranslated, ".." -> "…").
         val blocks = applyChapterConsistency(reviewed, classified, nameRegistry).applyRenderSafetyGate()
-        TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, classified, blocks, note = if (densePage) "dense_skip" else null, ocrRawCount = rawBlocks.size)
+
+        // Webtoon řez: bublina protnutá spodním okrajem předchozí stránky a horním okrajem
+        // téhle se OCR'd dvakrát a oba fragmenty by se vykreslily -> dvojitý text na
+        // přešití (audit RWS ch.215). Přežije větší fragment a nese překlad; menší se
+        // označí seamCover (render přes něj položí jen záplatu, originál neprosvítá).
+        // Prohraje-li fragment NA PŘEDCHOZÍ stránce, přepíšeme její cache záznam.
+        val dedup = dropSliceBoundaryDuplicates(blocks, previousBlocks)
+        var dedupedBlocks = dedup.kept
+        if (dedup.coverOnPrevious.isNotEmpty() || dedup.spanOnPrevious.isNotEmpty()) {
+            // Zapisuje se do RAW záznamu (previousRaw), ne z previousBlocks - indexy sedí
+            // 1:1 (withManualEdits jen mapuje, neřadí), ale previousBlocks by do strojové
+            // cache zapekl ruční opravy.
+            val marked = previousRaw.mapIndexed { i, b ->
+                val span = dedup.spanOnPrevious[i]
+                when {
+                    // Poražený fragment: seamCover + span. Vítěz na předchozí stránce:
+                    // jen span - jeho krytí má taky pokrýt celý přeříznutý řádek.
+                    i in dedup.coverOnPrevious && span != null ->
+                        b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                    i in dedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
+                    span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                    else -> b
+                }
+            }
+            dao.upsert(
+                TranslatedPageEntity(
+                    id = cacheId(chapterId, pageIndex - 1, targetLanguage, sourceLanguage),
+                    blocksJson = marked.serialize(),
+                ),
+            )
+            // Bez re-emise by čtečka držela in-memory starý seznam a fragment by se
+            // vykreslil dvakrát (starý overlay + winner na téhle stránce).
+            onAdjacentPageRewritten(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1))
+        }
+
+        // Symetricky i proti NASLEDUJICI strance: kdyz se tahle stránka překládá až po
+        // následující (čtenář skočil doprostřed kapitoly / scrolluje pozpátku), pár
+        // N(dole)/N+1(nahore) by prev-dedup výš neviděl a oba fragmenty by se vykreslily.
+        // Voláme dropSliceBoundaryDuplicates s prohozenými rolemi: "current"=next stránka
+        // (její horní fragmenty), "previous"=tahle (její spodní fragmenty).
+        val nextRaw = dao.getById(
+            cacheId(chapterId, pageIndex + 1, targetLanguage, sourceLanguage),
+        )?.deserialize().orEmpty()
+        if (nextRaw.isNotEmpty()) {
+            // Dedup nad RAW záznamem (ne nad withManualEdits) - ruční opravy nemění
+            // originalText ani geometrii, takže výsledek je identický a indexy jsou
+            // zarovnané s nextRaw z definice.
+            val nextDedup = dropSliceBoundaryDuplicates(nextRaw, dedupedBlocks)
+            if (nextDedup.coverOnPrevious.isNotEmpty() || nextDedup.spanOnPrevious.isNotEmpty()) {
+                // Spodní fragmenty TEHLE stránky prohrály proti next - označíme je
+                // (do vlastního výsledku i cache zápisu níž se propíšou). Span sedí i na
+                // vítězných blocích téhle stránky - jejich krytí má pokrýt celý řádek.
+                dedupedBlocks = dedupedBlocks.mapIndexed { i, b ->
+                    val span = nextDedup.spanOnPrevious[i]
+                    when {
+                        i in nextDedup.coverOnPrevious && span != null ->
+                            b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                        i in nextDedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
+                        span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                        else -> b
+                    }
+                }
+            }
+            // nextDedup.kept obsahuje next stránku s označenými prohrou i jen-span změnami
+            // (vítěz na next stránce bez seamCover - jeho krycí výplň má díky spanu pokrýt
+            // celý přeříznutý řádek). Rozdíl oproti nextRaw = cokoliv se mělo persistovat.
+            if (nextDedup.kept != nextRaw) {
+                dao.upsert(
+                    TranslatedPageEntity(
+                        id = cacheId(chapterId, pageIndex + 1, targetLanguage, sourceLanguage),
+                        blocksJson = nextDedup.kept.serialize(),
+                    ),
+                )
+                onAdjacentPageRewritten(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1))
+            }
+        }
+        TranslationDiagnostics.recordPage(
+            context, chapterId, pageIndex, targetLanguage, classified, dedupedBlocks,
+            note = listOfNotNull(
+                if (densePage) "dense_skip" else null,
+                // Degradovaný model se cachuje stejně (viz komentář u dao.upsert níž), ale
+                // v diagnostice zůstane označený, ať jde poznat, odkud výsledek pochází.
+                if (usedModels.any { it in DEGRADED_MODELS }) "degraded" else null,
+                // Přešitá webtoon bublina: fragment téhle stránky přešel do režimu
+                // seamCover (jen záplata) nebo pokryl fragment předchozí - ať jde
+                // v diagnostice poznat, kde se dvojice sešla.
+                if (dedup.coveredFromCurrent.isNotEmpty()) "slice_dup_covered" else null,
+                if (dedup.coverOnPrevious.isNotEmpty()) "slice_dup_won" else null,
+            ).joinToString("+").ifEmpty { null },
+            ocrRawCount = rawBlocks.size,
+        )
 
         // translateWithGemini/translateWithGroq mají svoje vlastní "accept-best-available" -
         // po vyčerpání retry řetězce použijí i výsledek ve špatném jazyce, aby jedna
@@ -466,18 +624,20 @@ class TranslateRepository @Inject constructor(
         // TEĎ, jen se takový výsledek neuloží natrvalo - příští (nevynucené) otevření
         // stejné stránky tak dostane novou šanci na správný překlad, místo aby zůstalo
         // navždy zamrzlé na jednou vadné odpovědi.
-        val cacheableText = blocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
-        // Zápis do cache jen u plnohodnotné odpovědi - výsledek ze záložního (slabšího)
-        // modelu proxy se ukáže, ale neuloží, aby se po obnovení kvóty stránka překlopila
-        // zpátky na kvalitnější model (viz DEGRADED_MODELS).
-        if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)
-            && usedModels.none { it in DEGRADED_MODELS }) {
-            dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = blocks.serialize()))
+        val cacheableText = dedupedBlocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
+        // Degradovaný model (viz DEGRADED_MODELS) se ULOŽÍ stejně - dřív se výsledek z
+        // záložního modelu zahazoval, aby příští otevření zkusilo lepší model. V praxi ale
+        // proxy při vyčerpané denní kvótě jede degradovaně celý den, takže se každé otevření
+        // kapitoly překládalo kompletně znovu (minuty čekání + další spálená kvóta, která
+        // degradaci držela dál). Kvalitu už hlídají per-blok gaty výše (lint, self-review,
+        // safety gate) a refresh existuje přes manuální "přeložit znovu" na stránce.
+        if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
+            dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = dedupedBlocks.serialize()))
         }
         // Ručně opravené bubliny se napařují AŽ TEĎ, na čerstvý strojový překlad, a do cache
         // se schválně neukládají - cache se při zvednutí PIPELINE_VERSION zahodí, kdežto oprava
         // má přežit. Viz [ManualTranslationEntity].
-        return blocks.withManualEdits(chapterId, pageIndex)
+        return dedupedBlocks.withManualEdits(chapterId, pageIndex)
     }
 
     /** Napařuje uložené ruční opravy textu ([applyManualEdits]) a pozice ([applyManualPositionOffsets]). */
@@ -555,7 +715,16 @@ class TranslateRepository @Inject constructor(
         val uncached = mutableListOf<Int>()
         for (pageIndex in pages.indices) {
             val cached = getCachedPage(chapterId, pageIndex, targetLanguage, sourceLanguage, pages[pageIndex])
-            if (cached != null) onPageReady(pageIndex, cached) else uncached += pageIndex
+            if (cached != null) {
+                onPageReady(pageIndex, cached)
+                // Echo retry - viz translatePage: stránka s untrans bloky se do fronty
+                // přidá i přes cache-hit a dávka ji přepočítá (emit cached už proběhl,
+                // takže čtenář mezitím vidí stávající originál místo čekání na nic).
+                // Jednou za session - trvale nepřeložitelný text tak nežere volání
+                // při každém spuštění překladu kapitoly.
+                val key = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage)
+                if (hasRetryableUntrans(cached) && untransRetriedPages.add(key)) uncached += pageIndex
+            } else uncached += pageIndex
         }
         if (uncached.isEmpty()) return
 
@@ -625,7 +794,10 @@ class TranslateRepository @Inject constructor(
                     } ?: emptyList()
                     // TOC/titulní stránky se nepřekládají (viz isDenseTextPage u
                     // translatePage) - jen by spotřebovaly volání a dostaly šedé patche.
-                    val cls = BubbleClassifier.classifyPage(raw.withCleanedOcrText(enOcrDictionary()))
+                    val cls = BubbleClassifier.classifyPage(
+                        raw.withCleanedOcrText(enOcrDictionary()),
+                        englishWords = enOcrDictionary(),
+                    )
                     val dense = isDenseTextPage(cls)
                     PageOcrResult(
                         pageIndex,
@@ -690,10 +862,12 @@ class TranslateRepository @Inject constructor(
         var chapterUntranslated = 0
 
         chunkPages(translatable, bubblesByPage).forEachIndexed { chunkIndex, chunk ->
-            if (chunkIndex > 0) delay(800L)
             // Zbytek kapitoly by jen rychle "doběhl" s prázdnými výsledky - radši srozumitelná
-            // hláška o limitu. Viz [ProviderHealth.allUnavailable].
+            // hláška o limitu. Viz [ProviderHealth.allUnavailable]. Check musi byt PRED
+            // delay(800) - s mrtvym retezcem se zbytecne cekalo 800 ms na kazdy chunk
+            // (audit TR-15).
             if (providerHealth.allUnavailable() && groqClient.isConfigured) throw RateLimitedException()
+            if (chunkIndex > 0) delay(800L)
             val flatBubbles = chunk.flatMap { bubblesByPage.getValue(it) }
 
             // Stejný fallback řetězec jako translatePage - viz komentář tam ("ultra" prompt
@@ -707,7 +881,8 @@ class TranslateRepository @Inject constructor(
             // Pokud není nakonfigurovaný cloud (Supabase/Groq/Gemini), rovnou zkusíme
             // on-device ML Kit překlad.
             // Upstream modely použité pro TUTO dávku - degradace na slabý záložní model
-            // proxy znamená necachovat výsledky všech stránek dávky (viz DEGRADED_MODELS).
+            // proxy se teď jen zaznamená do diagnostiky (viz DEGRADED_MODELS a "degraded"
+            // note v page záznamu), výsledek se cachuje stejně.
             val chunkModels = mutableListOf<String>()
             val onModel: (String?) -> Unit = { m -> if (m != null) chunkModels += m }
             val chainBlocks = if (!groqClient.isConfigured) {
@@ -744,11 +919,87 @@ class TranslateRepository @Inject constructor(
             val blocks = applyChapterConsistency(reviewed, flatBubbles, nameRegistry).applyRenderSafetyGate()
             // Degradace platí pro celou dávku najednou - bubliny z ní se rozdělují po
             // stránkách až dodatečně, takže slabý model zasáhl i stránky, kde se nic
-            // nepřeložilo jinak.
+            // nepřeložilo jinak. Do cache se ukládá stejně (viz dao.upsert níž) - tahle
+            // proměnná je čistě diagnostická (note v page záznamu).
             val chunkDegraded = chunkModels.any { it in DEGRADED_MODELS }
             val perPage = splitBlocksByPage(chunk, chunk.map { bubblesByPage.getValue(it).size }, blocks)
-            for ((pageIndex, pageBlocks) in perPage) {
-                TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, bubblesByPage[pageIndex].orEmpty(), pageBlocks, note = if (ocrDense[pageIndex] == true) "dense_skip" else null, ocrRawCount = ocrRawCounts[pageIndex] ?: 0)
+            for ((pageIndex, untrimmedPageBlocks) in perPage) {
+                // Webtoon řezy: bublina protnutá hranicí stránky N/N+1 se OCR'd dvakrát a
+                // každý fragment se vykreslí -> dvojitý překlad na přešití (audit RWS
+                // ch.215). Předchůdce je v cache (z minulé dávky/běhu) NEBO právě teď
+                // upsertnutý na konci předchozí iterace tahle smyčky. Větší fragment
+                // přežije a nese překlad; menší dostane seamCover - render přes něj
+                // položí jen záplatu, aby nepřesvítal originál (kdyby se blok jen
+                // smazal, na přešití zůstala číst původní angličtina). Prohrál-li
+                // fragment NA PŘEDCHOZÍ stránce, její cache záznam přepíšeme a readeru
+                // pošleme opravený seznam (putTranslatedPage jen přepíše mapu; progress
+                // se přitom nesmí navyšovat - viz emittedPages v ReaderViewModel).
+                val previousRaw = dao.getById(
+                    cacheId(chapterId, pageIndex - 1, targetLanguage, sourceLanguage),
+                )?.deserialize().orEmpty()
+                val dedup = dropSliceBoundaryDuplicates(untrimmedPageBlocks, previousRaw)
+                var pageBlocks = dedup.kept
+                if (dedup.coverOnPrevious.isNotEmpty() || dedup.spanOnPrevious.isNotEmpty()) {
+                    val marked = previousRaw.mapIndexed { i, b ->
+                        val span = dedup.spanOnPrevious[i]
+                        when {
+                            i in dedup.coverOnPrevious && span != null ->
+                                b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                            i in dedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
+                            span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                            else -> b
+                        }
+                    }
+                    dao.upsert(
+                        TranslatedPageEntity(
+                            id = cacheId(chapterId, pageIndex - 1, targetLanguage, sourceLanguage),
+                            blocksJson = marked.serialize(),
+                        ),
+                    )
+                    onPageReady(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1))
+                }
+                // Symetricky i proti NASLEDUJICI strance: muze uz byt v cache z minuleho
+                // behu, kdyz tenhle zkusil stranku, co predtim selhala (napr. bitmapa se
+                // nestahla -> zadny cache zaznam). Bez kontroly by se dvojice fragmentu
+                // na rezu N/N+1 vykreslila obema smery (viz translatePage vyse).
+                val nextRaw = dao.getById(
+                    cacheId(chapterId, pageIndex + 1, targetLanguage, sourceLanguage),
+                )?.deserialize().orEmpty()
+                if (nextRaw.isNotEmpty()) {
+                    val nextDedup = dropSliceBoundaryDuplicates(nextRaw, pageBlocks)
+                    if (nextDedup.coverOnPrevious.isNotEmpty() || nextDedup.spanOnPrevious.isNotEmpty()) {
+                        pageBlocks = pageBlocks.mapIndexed { i, b ->
+                            val span = nextDedup.spanOnPrevious[i]
+                            when {
+                                i in nextDedup.coverOnPrevious && span != null ->
+                                    b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                                i in nextDedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
+                                span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                                else -> b
+                            }
+                        }
+                    }
+                    // kept != nextRaw = nové seamCover nebo jen-span změny na next stránce.
+                    if (nextDedup.kept != nextRaw) {
+                        dao.upsert(
+                            TranslatedPageEntity(
+                                id = cacheId(chapterId, pageIndex + 1, targetLanguage, sourceLanguage),
+                                blocksJson = nextDedup.kept.serialize(),
+                            ),
+                        )
+                        onPageReady(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1))
+                    }
+                }
+                TranslationDiagnostics.recordPage(
+                    context, chapterId, pageIndex, targetLanguage, bubblesByPage[pageIndex].orEmpty(), pageBlocks,
+                    note = listOfNotNull(
+                        if (ocrDense[pageIndex] == true) "dense_skip" else null,
+                        if (chunkDegraded) "degraded" else null,
+                        if (dedup.coveredFromCurrent.isNotEmpty()) "slice_dup_covered" else null,
+                        if (dedup.coverOnPrevious.isNotEmpty()) "slice_dup_won" else null,
+                    ).joinToString("+").ifEmpty { null },
+                    ocrRawCount = ocrRawCounts[pageIndex] ?: 0,
+                )
                 chapterBlocks += pageBlocks.size
                 chapterTranslated += pageBlocks.count { !it.isSfx && !it.isUntranslated }
                 chapterSfx += pageBlocks.count { it.isSfx }
@@ -756,9 +1007,10 @@ class TranslateRepository @Inject constructor(
                 if (pageBlocks.isNotEmpty()) {
                     // Stejný důvod jako u translatePage výš - accept-best-available výsledek se
                     // pořád zobrazí (onPageReady níž), jen se neuloží natrvalo do cache.
-                    // Totéž pro degradovaný model - viz DEGRADED_MODELS.
+                    // Degradovaný model se ukládá taky - viz komentář u translatePage: jinak se
+                    // při celodenně vyčerpané kvótě každé otevření kapitoly překládalo znovu.
                     val cacheableText = pageBlocks.filter { !it.isSfx }.joinToString(" ") { it.translatedText }
-                    if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode) && !chunkDegraded) {
+                    if (!isWrongTargetLanguage(cacheableText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
                         dao.upsert(TranslatedPageEntity(id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage), blocksJson = pageBlocks.serialize()))
                     }
                 }
@@ -1557,17 +1809,71 @@ class TranslateRepository @Inject constructor(
          *   "(Huf huf)" se dokonce vykreslilo přes originál). [isAllSfxTokens] místo
          *   opakování TÉHOŽ slova teď přijímá jakoukoli kombinaci zvukových tokenů s
          *   OCR tolerancí lev<=1 - "HLIF HLUF" už nejde na model, zůstává originál.
+         * v32: Rozbitý český slovník lintu - `cs_common_words.txt` postrádal top
+         *   frekventovaná slova ("ale", "tady", "aby", "věc", "tráva", "svazek",
+         *   "dej", "zemřu"...), takže [isSuspiciousCzechOutput] flagoval prakticky
+         *   každou správnou větu ("Nechte mě tady." - "tady" mimo slovník; "Ale ..." -
+         *   "ale" navíc v EN slovníku jako homografum). Blok dostal isUntranslated,
+         *   repair retry vyrobil další českou větu, kterou lint flagoval znovu, a
+         *   čtenář viděl angličtinu přestože v cache seděl hotový překlad (~16 bublin
+         *   na Vagabond ch.1). Nový slovník = top 50k tvarů OpenSubtitles 2018 místo
+         *   poškozených 35k. Zároveň zrušeno pravidlo "1 podezřelé slovo flaguje
+         *   <=5slovný blok" (zbylý false-positive zdroj po opravě slovníku - "ztrátové
+         *   straně"); třtinový práh dokumentované zkomoleniny pokrývá dál.
+         * v33: BubbleClassifier - hlavní cesta detectSfx dostala fuzzy shodu lev<=1
+         *   proti sfxWords ("HUIF"~"HUF" předtím prošlo jako text -> "Huf" překryl
+         *   lettering) a pravidlo "CJK interpunkce uvnitř latinky = OCR šum"
+         *   ("LIR..、R" -> model halucinoval "Ugh… uh." přes kresbu). Fuzzy shoda
+         *   běží jen s EN slovníkem - skutečné slovo lev<=1 od zvuku ("SHOOT"~"SHOOM",
+         *   "MISS"~"HISS") je replika, ne zkomolenina. slovník CS lintu rozšířen z
+         *   50k na 250k frekvenčních tvarů - "poseté"/"mrtvolami" (ř. 50k+/117k) už
+         *   neflagují hotový překlad. isSfx se ukládá do cache, proto invalidace.
+         * v34: Slovník CS lintu 50k->250k (v33 běžel ještě s 50k - "poseté"/"mrtvolami"
+         *   flagovaly platný překlad "THIS AREA'S SPRAWLED WITH CORPSE") a sfxWords
+         *   doplněné o pozorované OCR varianty ("HIJE"->"Hija" přes kresbu). Flagy
+         *   isUntranslated/isSfx jsou v cache, proto další invalidace.
+         * v35: Samostatné citoslovčité vokalizace ("OH…", "AH", "UH", "HA", "HAHA",
+         *   "HUH?", "OW", "ER", "EH", "UM", "OWW", "HEH") přesunuté z chráněných
+         *   replik do sfxWords - uživatel chce zvuky/vokalizace vždy v originále,
+         *   překládat se mají jen věty. Osamocený blok "OH…" se překládal na "Ach…".
+         *   Flag isSfx je v cache, proto další invalidace.
+         * v36: Korejské transliterované zvuky do sfxWords (DUN/DDUN/DUDUN/DADUN,
+         *   KUNG/KWANG/KWAANG, PUK/TAK/HWIK/SYUT apod.) - audit RWS ch.215:
+         *   "DADUN" (더덩) se překládalo na "BUM". isSfx je v cache → invalidace.
+         * v37: Webtoon řezy - bublina protnutá spodním okrajem stránky N a horním okrajem
+         *   N+1 se OCR'd dvakrát a oba fragmenty se vykreslily (audit RWS ch.215:
+         *   "LÍBÍ SE TI MANS, TY…?" jednou v bublině a podruhé přes kresbu; dvojitý
+         *   "DOSTANOU MALINKATÉ…" přes přešití). dropSliceBoundaryDuplicates přežije
+         *   větší fragment, menší zahodí / přepíše cache předchozí stránky. Uložený
+         *   seznam bloků se mění → invalidace.
+         * v38: Samotné smazání poraženého fragmentu odhalilo kopii originálního
+         *   lettering pod overlay (řezové slicy se překrývají, textový region existuje
+         *   na obou) - přešitá bublina četla 2 řádky EN nad českým překladem. Poražený
+         *   fragment se teď NEmaže, jen se označí seamCover → render položí jen
+         *   záplatu přes jeho box. Nové persistované pole → invalidace.
+         * v39: Uvolněné párování fragmentů na řezu (seamTextMatch - jen
+         *   písmena/číslice + prefixová shoda oříznutých útržků): přísná shoda přes
+         *   normalizeOriginal propustila OCR varianty ("...?" vs "…?", oříznutý
+         *   konec věty) → staré cache záznamy můžou obsahovat nededuplikované
+         *   páry, které by se vykreslily dvakrát. A symetrický dedup i proti
+         *   NÁSLEDUJÍCÍ stránce (skok doprostřed/čtení pozpátku).
+         * v40: Poražený fragment navíc dostává prázdný displayText - pojistka,
+         *   aby se překlad nemohl vykreslit ani cestou, co by seamCover gate
+         *   minula (v39 cache drželo na seamCover blocích text ještě plný).
+         * v41: Řezové fragmenty dostávají seamSpanLF/RF - sjednocený horizontální
+         *   dosah dedup-páru + rezerva, aby krycí výplň pokryla celý přeříznutý
+         *   řádek (kraje "HU…ON'T" vykukovaly za užším OCR boxem útržku).
          */
-        internal const val PIPELINE_VERSION = 31
+        internal const val PIPELINE_VERSION = 41
 
         /**
          * Záložní modely, na které proxy sama přepne při přetížení hlavního (viz
          * GROQ_FALLBACK_MODEL/GEMINI_FALLBACK_MODEL v supabase/functions/translate-proxy/index.ts)
-         * a které hlásí v poli "model" odpovědi. Jejich výstup se ukáže (lepší degradovaný
-         * překlad než žádný), ale NEcachuje - až se hlavní model vrátí, má stránka při
-         * příštím zobrazení dostat jeho kvalitnější překlad místo navždy uloženého
-         * degradovaného. Zahrnuje i stránky, kde jen ČÁST dávky (retry/gap-fill) doběhla
-         * na slabém modelu - složený výsledek je taky degradovaný.
+         * a které hlásí v poli "model" odpovědi. Jejich výstup se ukáže i cachuje
+         * (kvalitu už hlídá lint + self-review per blok; bez cache by se každé otevření
+         * kapitoly překládalo znova a pálilo kvótu, která degradaci drží) - degradace
+         * se zapíše do diagnostiky jako note="degraded". Kvalitnější překlad se dobere
+         * při ručním "přeložit znovu" na stránce, nebo při dalším version bumpu.
          */
         internal val DEGRADED_MODELS = setOf("gemini-3.5-flash-lite", "qwen/qwen3.8-27b")
 
@@ -1592,6 +1898,15 @@ class TranslateRepository @Inject constructor(
          * [GeminiTranslateClient.translateBubbles] `e.report(...)`), ne tichým selháním.
          */
         internal const val CHAPTER_CHUNK_CHAR_LIMIT = 1800
+
+        /**
+         * Horní strop POČTU bublin v jedné API dávce - doplňuje [CHAPTER_CHUNK_CHAR_LIMIT],
+         * protože výstupní JSON obálka stojí ~60-130 tokenů na bublinu i u dvoupísmenného
+         * textu. 28 × ~130 tokenů ≈ 3,6k výstupních tokenů - bezpečně pod nejnižším
+         * max_tokens stropem (4096 u Groq/OpenRouter). Jedna hustá stránka limit překročit
+         * může (stránka je atomická) - její přebytek doběhne salvage+repair cestou.
+         */
+        internal const val CHAPTER_CHUNK_BUBBLE_LIMIT = 28
 
         /**
          * Tvrdý strop na stažení bitmapy + OCR JEDNÉ stránky (viz [translateChapter],
@@ -1627,11 +1942,19 @@ class TranslateRepository @Inject constructor(
         private const val EN_WORDLIST_ASSET = "en_common_words.txt"
 
         /**
-         * Asset s ~35k nejčastějšími českými slovními tvary (jedno na řádek, lowercase,
-         * frekvenční seznam z OpenSubtitles) - výstupní lint [suspiciousCzechTokens],
-         * viz [csWordlist].
+         * Asset s ~160k nejčastějšími českými slovními tvary (jedno na řádek,
+         * lowercase, frekvenční seznam z OpenSubtitles) - výstupní lint
+         * [suspiciousCzechTokens], viz [csWordlist]. Hranice 160k kryje řidčí
+         * skloňované tvary ("poseté" ~133k), ale ještě ne typosy ocásku
+         * ("nemysl" ~231k).
          */
         private const val CS_WORDLIST_ASSET = "cs_common_words.txt"
+
+        /**
+         * Čisté jádro CS slovníku (top 50k frekvencí) pro výjimku z EN-leak flagu
+         * v [suspiciousCzechTokens] - viz [csCoreWordlist].
+         */
+        private const val CS_CORE_WORDLIST_ASSET = "cs_core_words.txt"
     }
 
     // ── Light novel překlad (prostý text, ne obrázek) ────────────────────────
@@ -1698,19 +2021,13 @@ class TranslateRepository @Inject constructor(
             suspend fun isBadBatch(candidate: List<String>) =
                 candidate.size != chunk.size || isWrongTargetLanguage(candidate.joinToString(" "), targetLanguage, identifyLanguage = ::identifyLanguageCode)
 
-            // Degradace na záložní model proxy (viz DEGRADED_MODELS) - výsledek se použije
-            // pro tohle zobrazení, ale kapitola se necachuje, stejná filozofie jako
-            // accept-best-available u špatného jazyka výš.
-            val chunkModels = mutableListOf<String>()
-            val onModel: (String?) -> Unit = { m -> if (m != null) chunkModels += m }
-            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
+            var translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "groq", mangaContext = mangaContext, previousLines = previousLines)
             if (isBadBatch(translated)) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "openrouter", mangaContext = mangaContext, previousLines = previousLines)
             }
             if (isBadBatch(translated)) {
-                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines, onModel = onModel)
+                translated = groqClient.translateNovelBatch(texts, targetLanguage, sourceLanguage, glossary, provider = "mistral", mangaContext = mangaContext, previousLines = previousLines)
             }
-            if (chunkModels.any { it in DEGRADED_MODELS }) cacheable = false
             // Strukturalni selhani na VSECH providerech (spatny pocet odstavcu v odpovedi) -
             // drive `return null` zahodilo i vsechny uz uspesne prelozene predchozi chunky
             // cele kapitoly (nahlaseno v auditu). Misto toho se pro tenhle kus pouzije puvodni
@@ -1806,7 +2123,8 @@ class TranslateRepository @Inject constructor(
 
     private fun List<TranslatedBlock>.serialize(): String = toCacheJson()
 
-    private fun TranslatedPageEntity.deserialize(): List<TranslatedBlock> = toBlocks()
+    /** null = poškozený záznam = cache miss (viz [toBlocks]); volající `.orEmpty()` si poradí. */
+    private fun TranslatedPageEntity.deserialize(): List<TranslatedBlock>? = toBlocks()
 }
 
 /**

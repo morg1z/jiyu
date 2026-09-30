@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -18,10 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,6 +77,7 @@ import com.haise.jiyu.translate.estimateNativeFontPx
 import com.haise.jiyu.translate.fitFontSizeToBox
 import com.haise.jiyu.translate.hasLeakedToken
 import com.haise.jiyu.translate.hasTranslatableLetters
+import com.haise.jiyu.translate.isMidWordBreak
 import com.haise.jiyu.translate.fitFixedLinesToShape
 import com.haise.jiyu.translate.fitTextToShape
 import com.haise.jiyu.translate.isSuspiciouslyTinyBubbleBox
@@ -85,6 +87,7 @@ import com.haise.jiyu.translate.longestIndivisibleRunWidthPx
 import com.haise.jiyu.translate.matchOriginalCase
 import com.haise.jiyu.translate.minTranslationFontSp
 import com.haise.jiyu.translate.patchMeanArgb
+import com.haise.jiyu.translate.PatchRect
 import com.haise.jiyu.translate.renderBoxRect
 import dagger.hilt.android.EntryPointAccessors
 import com.haise.jiyu.translate.snapBubbleBg
@@ -118,6 +121,16 @@ private val TRANSLATION_TEXT_HORIZONTAL_PADDING = 4.dp
 
 /** Svislý padding uvnitř přeloženého boxu - text nesmí sahat až na horní/dolní okraj, jinak ho obrys bubliny ořízne. */
 private val TRANSLATION_TEXT_VERTICAL_PADDING = 2.dp
+
+/** O kolik dovnitř se ořízne clip obrysu bubliny - viz [BubbleClipShape]. Chrání tenký černý okraj balónku před přepsáním výplní. */
+private val BUBBLE_CLIP_INSET = 2.dp
+
+/**
+ * Fragment coverOnly tak blízko okraje stránky (<4 %) leží na řezu sliců - krytí se
+ * dotáhne až k okraji (viz `box` v [TranslationOverlay]), aby na řezu nezůstal nekrytý
+ * proužek původního textu.
+ */
+private const val SEAM_EDGE_FRACTION = 0.04f
 
 /**
  * Jak velký podíl vepsaného obdélníku (viz [largestInscribedRect]) se skutečně použije na text.
@@ -289,16 +302,22 @@ fun BubbleOverlayLayer(
         // OF SEKIGAHARA" - proto radši přeskočíme a originál zůstane nedotčený.
         val isArtLettering = pos.block.shape == null && !pos.block.bgUniform && recoveredShape == null
         val skipArtLettering = isArtLettering && fix?.patch == null
-        // isUntranslated = model vrátil UNTRANSLATED_MARKER (nečitelné OCR) - stejně jako u
-        // SFX bublin appka radši nic nekreslí a nechá prosvítat originál, než aby ukázala
-        // doslovný anglický placeholder tam, kde měl být český text (viz TranslateRepository).
-        // Blok bez jediného písmene (samotná tečka/uvozovka) nemá co překládat a vykreslit ho jde
-        // jen špatně - viz [hasTranslatableLetters]. Originál prosvítá, interpunkce tedy zůstane
-        // přesně tam, kam ji nakreslil autor.
-        // hasLeakedToken: poslední obrana před vykreslením placeholderu (__g8__, ⟦JIYU_PROTECT_n⟧,
-        // [UNTRANSLATED]) - gate v repozitáři takový blok označí untranslated, ale cache zapsaná
-        // starou verzí nebo ruční edit by ho mohla přinést bez flagu. Přeskočit = originál zůstane.
-        if (!pos.block.isSfx && !pos.block.isArtText && !pos.block.isUntranslated && !skipArtLettering &&
+        // seamCover: poražený fragment přešité webtoon bubliny - překlad se vykreslil na
+        // sousední stránce, TADY se položí jen záplata přes kopii originálního textu.
+        // Kryjeme VŽDY (i bez záplaty jednolitou výplní) - alternativa je viditelný
+        // anglický originál vedle češtiny, což je přesně ten bug, kvůli kterému dedup
+        // vznikl (audit RWS ch.215 - "AND NOW, EVEN THE RESIDUAL RECOIL OF" nad
+        // českým překladem). Bez textu, bez tap/long-press gest.
+        if (pos.block.seamCover) {
+            TranslationOverlay(
+                pos = pos,
+                imageRect = imageRect,
+                patch = fix?.patch,
+                recoveredShape = recoveredShape,
+                recoveredBgArgb = fix?.recovered?.interiorArgb,
+                coverOnly = true,
+            )
+        } else if (!pos.block.isSfx && !pos.block.isArtText && !pos.block.isUntranslated && !skipArtLettering &&
             hasTranslatableLetters(pos.block.displayText) && !hasLeakedToken(pos.block.displayText)) {
             // Blok s obnoveným obrysem se vykreslí přesně jako bublina s tvarem z OCR:
             // box = obalový obdélník obrysu (žádná heuristická expanze mimo bublinu),
@@ -372,9 +391,17 @@ private class BubbleClipShape(
         val rightMaxF = points.maxOf { it.rightF }
         val spanF = (rightMaxF - leftMinF).coerceAtLeast(0.0001f)
 
-        fun py(p: BubbleShapePoint) = ((p.yF - shapeTopF) / yRange) * size.height
-        fun pxLeft(p: BubbleShapePoint) = ((p.leftF - leftMinF) / spanF) * size.width
-        fun pxRight(p: BubbleShapePoint) = ((p.rightF - leftMinF) / spanF) * size.width
+        // Inset clipu DOVNITŘ obrysu - flood-fill detekce vrací hranu kdesi uprostřed
+        // antialiased černého okraje bubliny, takže výplň oříznutá přesně podle ní půlku
+        // obrysu překryje a ten vizuálně "zmizí" (audit RWS ch.215 p125 - oválným bublinám
+        // se smazal celý obrys). ~2dp mezera je bílá na bílém = neviditelná, obrys zůstane.
+        val insetPx = with(density) { BUBBLE_CLIP_INSET.toPx() }
+        fun py(p: BubbleShapePoint) =
+            insetPx + ((p.yF - shapeTopF) / yRange) * (size.height - insetPx * 2).coerceAtLeast(1f)
+        fun pxLeft(p: BubbleShapePoint) =
+            insetPx + ((p.leftF - leftMinF) / spanF) * (size.width - insetPx * 2).coerceAtLeast(1f)
+        fun pxRight(p: BubbleShapePoint) =
+            insetPx + ((p.rightF - leftMinF) / spanF) * (size.width - insetPx * 2).coerceAtLeast(1f)
 
         val path = Path()
         path.moveTo(pxLeft(points.first()), py(points.first()))
@@ -413,6 +440,13 @@ fun TranslationOverlay(
     recoveredBgArgb: Int? = null,
     /** Vlastní font uživatele (viz CustomFontRepository); null = vestavěná sada podle typu bubliny. */
     customFontFile: java.io.File? = null,
+    /**
+     * Krycí režim pro poražený fragment přešité webtoon bubliny ([TranslatedBlock.seamCover]):
+     * vykreslí jen box se záplatou/výplní přes kopii originálního textu - bez textu
+     * (překlad nese vítězný fragment na sousední stránce) a bez tap/long-press gest,
+     * protože tady není co flipovat ani editovat.
+     */
+    coverOnly: Boolean = false,
     onTap: () -> Unit = {},
     /** Dlouhy stisk = rucni oprava prekladu teto bubliny. */
     onLongPress: () -> Unit = {},
@@ -437,20 +471,89 @@ fun TranslationOverlay(
     //
     // Obrys pro vykreslení = obrys z OCR, případně obrys znovunalezený při vykreslení
     // (viz recoverBubble) - pro render je to totéž, jen pochází z jiného místa pipeline.
-    val shape = pos.block.shape ?: recoveredShape
-    val bleed = if (shape != null || patch != null) 0.dp else TRANSLATION_BOX_BLEED
+    // coverOnly (poražený řezový fragment): bez tvaru - kryjeme jen vlastní OCR
+    // výřez blokem zaobleného obdélníku. Použít obrys (z OCR i recovery) by obrys
+    // přemapovalo na tenký útržek a kontura by krytí zkreslila.
+    val shape = if (coverOnly) null else (pos.block.shape ?: recoveredShape)
+    // coverOnly ignoruje záplatu (viz níž) - bez ní je krycí výřez na heuristice,
+    // tedy bleed jako u shapeless bloku, aby kryl i lem antialiasu tahů útržku.
+    val bleed = if (shape != null || (patch != null && !coverOnly)) 0.dp else TRANSLATION_BOX_BLEED
     // U víceřádkových bloků (bez tvaru/záplaty) se svislý bleed zvětší o JEDEN řádek
     // originálu nahoru i dolů - OCR box víceřádkového textu občas ořízne vrchní/spodní
     // glyfy o chlup, nebo sloučený blok nezahrnuje krajní řádek, a originál pak prosvítá
     // těsně nad/pod výplní (audit Vagabondu: "MATA-HACHI'S BEEN" nad překladem). Řádek
     // navíc je bezpečný: výplň je jednolitá barva bubliny, takže přesah vypadá jako
     // součást bubliny, ne jako cizí nálepka. Cap 24dp = pojistka u obrích titulků.
-    val bleedY = if (bleed > 0.dp && pos.block.lineCount > 1 && pos.block.nativeLineHeightF > 0f) {
+    // coverOnly vynechává řádkový bleedY - útržek je na hraně slicu a přesah o celý
+    // řádek by překryl VÍTĚZNÝ fragment sousední stránky, který nese viditelný překlad.
+    val bleedY = if (bleed > 0.dp && !coverOnly && pos.block.lineCount > 1 && pos.block.nativeLineHeightF > 0f) {
         bleed + (pos.block.nativeLineHeightF * imageRect.height).dp.coerceAtMost(24.dp)
     } else bleed
     // Jediný zdroj pravdy pro "jak velký kus stránky bublina zakryje" - stejnou funkci
     // používá TextPatchProvider, aby se obojí nemohlo rozejít.
-    val box = renderBoxRect(pos)
+    // seamCover výjimka: kryjeme JEN vlastní OCR rozsah fragmentu (kopie originálního
+    // textu na řezu). Rozšířený region (maxBottomF sahá klidně k dalšímu bloku/pod
+    // bublinu) by jednolitou výplní zakryl kus kresby, kterou ten fragment vůbec
+    // neobsahuje - audit RWS ch.215 ("zakrylo půlku fotky").
+    // Řezový útržek (poražený seamCover I vítěz přilepený na okraj stránky): jeho OCR box
+    // bývá UŽŠÍ než přeříznutý řádek textu - kraje písmen pak vykukují po stranách krytí
+    // (audit RWS ch.215: "HU...ON'T" po stranách češtiny na p91). Krytí proto rozšiřujeme
+    // na seamSpan - sjednocený dosah dedup-páru persistovaný při označení. Bez něj jako
+    // fallback bounding box vlastního oříznutého obrysu (výplň stejně clipne na interiér).
+    val fragShape = pos.block.shape
+    val seamFrag = coverOnly ||
+        pos.block.topF < SEAM_EDGE_FRACTION ||
+        pos.block.bottomF > 1f - SEAM_EDGE_FRACTION
+    val spanL = pos.block.seamSpanLF
+    val spanR = pos.block.seamSpanRF
+    val box = renderBoxRect(pos).let { base ->
+        val blk = pos.block
+        when {
+            seamFrag && spanL != null && spanR != null -> {
+                // Svisle kryjeme přes celý dosah oříznutého obrysu na slicu, ne jen přes
+                // OCR box - řádky originálu tesně pod/nad boxem útržku (audit RWS ch.215:
+                // zbytek "CONTAMINATION AND" pod českým textem na seamu 89/90) patří do
+                // téže bubliny a jinak by prosvítaly. Bez obrysu zůstává box + okraj.
+                val shapeTop = fragShape?.minOf { it.yF }
+                val shapeBottom = fragShape?.maxOf { it.yF }
+                val topEdge = blk.topF < SEAM_EDGE_FRACTION
+                val bottomEdge = blk.bottomF > 1f - SEAM_EDGE_FRACTION
+                PatchRect(
+                    spanL,
+                    when {
+                        coverOnly && topEdge -> 0f
+                        coverOnly -> minOf(blk.topF, shapeTop ?: blk.topF)
+                        else -> minOf(base.topF, shapeTop ?: base.topF)
+                    },
+                    spanR,
+                    when {
+                        coverOnly && bottomEdge -> 1f
+                        coverOnly -> maxOf(blk.bottomF, shapeBottom ?: blk.bottomF)
+                        else -> maxOf(base.bottomF, shapeBottom ?: base.bottomF)
+                    },
+                )
+            }
+            seamFrag && fragShape != null -> PatchRect(
+                fragShape.minOf { it.leftF },
+                if (blk.topF < SEAM_EDGE_FRACTION) 0f else fragShape.minOf { it.yF },
+                fragShape.maxOf { it.rightF },
+                if (blk.bottomF > 1f - SEAM_EDGE_FRACTION) 1f else fragShape.maxOf { it.yF },
+            )
+            // coverOnly bez tvaru: kryjeme vlastní OCR rozsah + dotáhneme k okraji stránky,
+            // aby na řezu nezůstal nekrytý proužek originálu.
+            coverOnly -> PatchRect(
+                blk.leftF,
+                if (blk.topF < SEAM_EDGE_FRACTION) 0f else blk.topF,
+                blk.rightF,
+                if (blk.bottomF > 1f - SEAM_EDGE_FRACTION) 1f else blk.bottomF,
+            )
+            else -> base
+        }
+    }
+    // Clip: obrys útržku je oříznutý okrajem slicu - se spanem (užším než plný obrys
+    // v širších místech bubliny) by vyřízl krytí zpátky na úzký pruh, takže u spanu
+    // clipujeme jen zaobleným obdélníkem boxu.
+    val spanClipped = spanL != null && spanR != null
     // Rucni posun (viz ManualTranslationEntity.offsetXDp/offsetYDp, item "position offset") -
     // pricte se AZ TADY, na koncovou vypoctenou pozici, takze nezasahuje do zadneho z vypoctu
     // vys (bleed, shape-clip, atd.) - jen posune uz hotovy box o kus stranou/dolu/nahoru.
@@ -466,13 +569,36 @@ fun TranslationOverlay(
     // maxBottomF, protože jednolitá výplň plynule splyne s bublinou a pokrývá celou oblast,
     // ne jen písmena. U textu přes kresbu naopak zůstáváme na vlastním OCR rozsahu, aby
     // záplata/pozadí nezakrývalo víc kresby, než je nutné.
-    val effectiveMinBottomF = if (shape != null || pos.block.bgUniform) pos.maxBottomF else pos.block.bottomF
-    val minH = (imageRect.height * (effectiveMinBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleedY * 2
-    val maxH = (imageRect.height * (pos.maxBottomF - pos.minTopF)).dp.coerceAtLeast(0.dp) + bleedY * 2
+    val effectiveMinBottomF = when {
+        coverOnly -> box.bottomF
+        // Řezový útržek se známým dosahem (span/obrys): celé jeho území na slicu je
+        // zbytek originálu -> výplň musí pokrýt vždy celý box, ne jen tolik, kolik
+        // potřebuje text. Jinak pod krátkým překladem prosvítá řádek EN
+        // (ch.215: "CONTAMINATION AND" pod českým textem na seamu).
+        seamFrag && (spanClipped || fragShape != null) -> box.bottomF
+        // Řezový útržek bez dosahu: box se smrsknul na bounding box obrysu -
+        // maxBottomF z layoutu by přelezlo pod útržek a minH > maxH. Cap na box.bottomF.
+        seamFrag -> minOf(pos.maxBottomF, box.bottomF)
+        shape != null || pos.block.bgUniform -> pos.maxBottomF
+        else -> pos.block.bottomF
+    }
+    val minH = (imageRect.height * (effectiveMinBottomF - box.topF)).dp.coerceAtLeast(0.dp) + bleedY * 2
+    val maxH = (imageRect.height * (box.bottomF - box.topF)).dp.coerceAtLeast(0.dp) + bleedY * 2
     if (isSuspiciouslyTinyBubbleBox(w.value, maxH.value)) {
         logTinyBubbleBox(pos.block.originalText, w.value, minH.value, maxH.value, shape != null)
     }
-    val clipShape = shape?.let { BubbleClipShape(it, pos.minTopF, pos.maxBottomF) } ?: RoundedCornerShape(3.dp)
+    // Pro coverOnly drží box vlastní OCR rozsah (viz výše) - clipShape k němu mapujeme
+    // stejně, aby kontura seděla na výřez fragmentu, ne na rozšířený region.
+    // Řezové útržky s vlastním obrysem (vč. coverOnly) clipují tím obrysem - box už je
+    // bounding box obrysu, takže mapování sedí přesně a krytí neuteče mimo bublinu.
+    // Výjimka: se spanem je box záměrně ŠIRŠÍ než oříznutý obrys útržku (kraje přeříznutého
+    // řádku), takže clip na útržkový obrys by krytí zase zúžil - držíme zaoblený obdélník.
+    val clipShape = when {
+        spanClipped -> RoundedCornerShape(3.dp)
+        seamFrag && fragShape != null -> BubbleClipShape(fragShape, box.topF, box.bottomF)
+        shape != null -> BubbleClipShape(shape, box.topF, box.bottomF)
+        else -> RoundedCornerShape(3.dp)
+    }
     // Svislý gradient (horní/dolní polovina vzorkovaného prstence, viz OcrEngine.sampleBackgroundColor)
     // místo jednolité barvy - obě strany se "přichytí" na bílou/černou nezávisle (snapBubbleBg),
     // takže obyčejné bubliny zůstávají plnou barvou stejně jako dřív, gradient se projeví jen
@@ -574,7 +700,16 @@ fun TranslationOverlay(
                 // kdežto jednolitá výplň by z nich udělala bílou nálepku (viz [patchPlan]).
                 // Jednolité pozadí kreslí gradient jako dosud, tam je k nerozeznání od originálu.
                 .let { m ->
-                    if (patch != null) {
+                    // coverOnly (poražený řezový fragment): NIKDY záplatu - inpainting
+                    // v tenkém útržku nemá okolní kontext a zanechává rozmazané zbytky
+                    // původních písmen ("s____y" duchové pod překladem - audit RWS
+                    // ch.215 p90). Plná výplň barvou interiéru je uvnitř bubliny čistá.
+                    // Stejný důvod platí pro VÍTĚZNÝ blok přilepený na okraj stránky -
+                    // horní I spodní: jeho záplata vznikla z útržku přes řez sliců,
+                    // bez kontextu za řezem - na p91 zůstaly zbytky "HUMANS, DON'T"
+                    // a na p89 celý neinpaintovaný řádek "CONTAMINATION AND" pod
+                    // češtinou. Výplň barvou interiéru je zakryje čistě.
+                    if (patch != null && !coverOnly && !seamFrag) {
                         m.paint(
                             painter = BitmapPainter(patch.asImageBitmap()),
                             sizeToIntrinsics = false,
@@ -606,13 +741,20 @@ fun TranslationOverlay(
                 // ne zoom/navigaci.
                 // Dlouhy stisk NAD BUBLINOU stini sdileni stranky z MangaReaderu - stejny
                 // vedomy kompromis jako u tapu vys: presne nad bublinou chceme jeji akce.
-                .pointerInput(onTap, onLongPress) {
-                    detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
+                .let { m ->
+                    // seamCover nemá co flipovat/editovat - gesta by tu jen stínila
+                    // page-level tap zóny bez jakéhokoliv efektu.
+                    if (coverOnly) m else m.pointerInput(onTap, onLongPress) {
+                        detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
+                    }
                 }
                 .padding(horizontal = TRANSLATION_TEXT_HORIZONTAL_PADDING, vertical = TRANSLATION_TEXT_VERTICAL_PADDING),
             contentAlignment = Alignment.Center,
         ) {
-            AnimatedContent(
+            // Krycí režim (seamCover): jen záplata/výplň přes kopii originálního
+            // textu - překlad se vykreslil na sousední stránce, druhý text by tu
+            // vytvořil přesně tu duplicitu, kterou dedup na řezech řeší.
+            if (!coverOnly) AnimatedContent(
                 targetState = isFlipped,
                 transitionSpec = {
                     (scaleIn(initialScale = 0.85f) + fadeIn())
@@ -807,8 +949,16 @@ private fun AutoFitTranslatedText(
     if (textArgbOverride != null) {
         val tc = Color(textArgbOverride)
         val textLum = 0.299f * tc.red + 0.587f * tc.green + 0.114f * tc.blue
-        textColor = tc
-        strokeColor = if (textLum > 0.5f) Color.Black else Color.White
+        // Vzorkování barvy písma z kresby může seknout do pozadí (hlavně tmavý lettering na
+        // tmavé scéně - audit Vagabondu: "DALŠÍ BANDITA?" přišel s textem skoro stejně
+        // tmavým jako záplata a překlad byl neviditelný). Podezřele nízký kontrast
+        // -> fallback na černou/bílou podle jasu pozadí, stejně jako bez override.
+        // Práh 0.35: na auditované stránce držel i šedé písmo na tmavé kresbě
+        // (rozdíl ~0.25 prošel při 0.22) a překlad četl hůř než originál pod ním.
+        textColor = if (kotlin.math.abs(textLum - luminance) < 0.35f) {
+            if (luminance < 0.5f) Color.White else Color.Black
+        } else tc
+        strokeColor = if (0.299f * textColor.red + 0.587f * textColor.green + 0.114f * textColor.blue > 0.5f) Color.Black else Color.White
     } else {
         textColor = if (luminance < 0.5f) Color.White else Color.Black
         strokeColor = if (luminance < 0.5f) Color.Black else Color.White
@@ -980,10 +1130,19 @@ private fun AutoFitTranslatedText(
         val longestWordWidthPx = longestIndivisibleRunWidthPx(measuredText) { segment ->
             textMeasurer.measure(text = segment, style = style, softWrap = false).size.width.toFloat()
         }
+        // Kontrola REÁLNÝCH pozic zlomů, ne jen šířek: longestWordWidthPx odhaduje, že
+        // slovo půjde zalomit na soft hyphenu ("VARO-" se vejde) - ale když renderer
+        // úsek s vykreslenou pomlčkou vyhodnotí o chlup širší, zalomí slovo nouzově
+        // JINDE ("VAROV"/"ÁNÍ" - audit Vagabondu, varovný proužek na obálce). Zlom
+        // mezi dvěma písmeny bez U+00AD/mezery je takový nouzový char-break.
+        val hasMidWordBreak = (0 until measured.lineCount - 1).any { i ->
+            isMidWordBreak(measuredText, measured.getLineEnd(i, visibleEnd = true))
+        }
         TextMeasurement(
             totalHeightPx = measured.size.height + strokeReservePx,
             lines = lines,
             longestWordWidthPx = longestWordWidthPx + strokeReservePx,
+            hasMidWordBreak = hasMidWordBreak,
         )
     }
     val fitResult = remember(text, widthPx, maxHeightPx, maxFontSp, fontFamily, preferredFontSp) {
@@ -1002,11 +1161,25 @@ private fun AutoFitTranslatedText(
     // se ani na podlaze nevejde, zkrátit slova od konce s výpustkou místo viditelně
     // useknutého řádku. Celý originál je pořád o klepnutí daleko (flip na originál).
     val fittedText = remember(text, fitResult.fontSp, widthPx, maxHeightPx) {
-        truncateToFit(text) { candidate ->
-            val m = measureBlock(candidate, fitResult.fontSp, widthPx.toFloat())
+        val candidate = truncateToFit(text) { c ->
+            val m = measureBlock(c, fitResult.fontSp, widthPx.toFloat())
             m.totalHeightPx <= maxHeightPx.toFloat() &&
-                m.longestWordWidthPx <= widthPx.toFloat() + 0.5f
+                m.longestWordWidthPx <= widthPx.toFloat() + 0.5f &&
+                !m.hasMidWordBreak
         }
+        // Poslední pojistka proti zlomu slova uprostřed: když fitter skončil na podlaze a
+        // ani tak se nejdelší slovo nevejde do šířky (nebo měřič v layoutu pořád láme
+        // slova mimo označené zlomy - hasMidWordBreak), Compose ho při vykreslení nouzově
+        // láme po písmenech (audit Vagabondu: úzký varovný proužek vypsal "VAROV"/"ÁNÍ"/
+        // "RODIČ"/"E" svisle). truncateToFit tady už nepomůže - strukturovaný text s "\n"
+        // ani samotné slovo se zkrátit nedají. Radši samotná výpustka než nečitelné písmo;
+        // celý originál je pořád na klepnutí (flip).
+        if (fitResult.fontSp <= minFontSp) {
+            val floorMeasure = measureBlock(candidate, fitResult.fontSp, widthPx.toFloat())
+            if (floorMeasure.longestWordWidthPx > widthPx.toFloat() + 0.5f ||
+                floorMeasure.hasMidWordBreak
+            ) "…" else candidate
+        } else candidate
     }
 
     Box(
@@ -1019,6 +1192,9 @@ private fun AutoFitTranslatedText(
             fontFamily = fontFamily,
             textColor = textColor,
             strokeColor = strokeColor,
+            // Zalamování se měří proti stejné šířce, jakou použil fitter (viz measureBlock) -
+            // jinak by text mohl zalomit jinak než při výběru velikosti.
+            maxWidthPx = widthPx.toFloat(),
         )
     }
 }
@@ -1036,9 +1212,12 @@ private const val STROKE_WIDTH_FACTOR = 0.12f
 /**
  * Vykreslí text DVAKRÁT přes sebe - nejdřív obrysovou vrstvu (opačná barva než výplň podle
  * jasu pozadí), pak výplň navrch - pro čitelnost přes komplexní/vzorované pozadí bubliny.
- * [TextStyle.drawStyle] umí jen JEDEN styl na jedno volání Text (buď Fill, nebo Stroke), takže
- * obrys+výplň v jednom Text nejde - dvě překrývající se Text vrstvy jsou jednodušší a
- * spolehlivější než snaha o "vlastní" kreslení přes Canvas/drawWithContent.
+ *
+ * Přes jeden změřený [TextLayoutResult] nakreslený dvakrát na Canvas - NIKDY přes dva
+ * překrývající se Text composables. Dva Texty totiž nejsou pixel-align zaručené: Stroke
+ * drawStyle nechává písmo "hubené" a fill Text v jiné composable pozici se umí o 1-3 px
+ * rozejít (audit RWS ch.215 - "bílý duch pod černým textem", čtenářsky "napsané dvakrát").
+ * Jeden layoutResult = stejné souřadnice glyfů pro oba průchody, rozjíždění je vyloučené.
  */
 @Composable
 private fun StrokedTranslatedText(
@@ -1048,44 +1227,51 @@ private fun StrokedTranslatedText(
     textColor: Color,
     strokeColor: Color,
     preWrapped: Boolean = false,
+    maxWidthPx: Float = Float.MAX_VALUE,
 ) {
     val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
     val strokeWidthPx = with(density) { maxOf(2.dp.toPx(), fontSp.sp.toPx() * STROKE_WIDTH_FACTOR) }
 
-    // preWrapped: řádky už zalomila tvarová sazba ([fitTextToShape]) podle šířky bubliny v dané výšce. Compose je
-    // nesmí zalamovat podruhé - stačí, aby byl řádek o pixel širší než přidělený box (rozdíl měření vs. vykreslení,
-    // obrys), a slovo se rozseklo uprostřed po písmenech ("POSLEDNÍC"/"H", "UPRCHLÍK"/"Ů"). softWrap = false +
-    // neomezená šířka nechá řádek dopadnout přesně tak, jak byl navržen; obrys bubliny stejně ořezává BubbleClipShape.
-    val wrapModifier = if (preWrapped) Modifier.wrapContentWidth(unbounded = true) else Modifier
-    val softWrap = !preWrapped
-
-    Box(modifier = wrapModifier, contentAlignment = Alignment.Center) {
-        Text(
+    // preWrapped: řádky už zalomila tvarová sazba ([fitTextToShape]) podle šířky bubliny v dané
+    // výšce. Compose je nesmí zalamovat podruhé - softWrap=false + neomezená šířka nechá řádek
+    // dopadnout přesně tak, jak byl navržen (jinak se slovo rozseklo uprostřed po písmenech -
+    // "POSLEDNÍC"/"H"); obrys bubliny stejně ořezává BubbleClipShape.
+    val layout = remember(text, fontSp, fontFamily, preWrapped, maxWidthPx) {
+        textMeasurer.measure(
             text = text,
-            textAlign = TextAlign.Center,
-            softWrap = softWrap,
-            overflow = TextOverflow.Visible,
             style = TextStyle(
-                color = strokeColor,
                 fontSize = fontSp.sp,
                 lineHeight = (fontSp * 1.25f).sp,
                 fontFamily = fontFamily,
-                drawStyle = Stroke(width = strokeWidthPx, join = StrokeJoin.Round),
+                // Každý řádek vlastní vycentrovaný (ne jen blok jako celek) - víceřádkový text
+                // v bublině je jinak zarovnaný doleva a krajní řádky lepí/přetékají oblý okraj
+                // bubliny (viz "K VEČEŘI..." uříznuté "K"). Centrování per-řádek odpovídá
+                // klasickému komiksovému letteringu.
+                textAlign = TextAlign.Center,
+            ),
+            softWrap = !preWrapped,
+            overflow = TextOverflow.Visible,
+            constraints = Constraints(
+                maxWidth = if (maxWidthPx.isFinite()) {
+                    // Stejná rezerva na obrys, jakou používá fitter (viz measureBlock) -
+                    // jinak by zalamování vykresleného textu mohlo vyjít jinak než při
+                    // výběru velikosti písma a krajní řádek by se přeskládal.
+                    (maxWidthPx - strokeWidthPx).toInt().coerceAtLeast(1)
+                } else {
+                    Constraints.Infinity
+                },
             ),
         )
-        Text(
-            text = text,
-            color = textColor,
-            softWrap = softWrap,
-            overflow = TextOverflow.Visible,
-            fontSize = fontSp.sp,
-            lineHeight = (fontSp * 1.25f).sp,
-            fontFamily = fontFamily,
-            // Každý řádek vlastní vycentrovaný (ne jen blok jako celek) - víceřádkový text
-            // v bublině je jinak zarovnaný doleva a krajní řádky lepí/přetékají oblý okraj
-            // bubliny (viz "K VEČEŘI..." uříznuté "K"). Centrování per-řádek odpovídá
-            // klasickému komiksovému letteringu.
-            textAlign = TextAlign.Center,
+    }
+    val w = with(density) { layout.size.width.toDp() }
+    val h = with(density) { layout.size.height.toDp() }
+    Canvas(Modifier.size(w, h)) {
+        drawText(
+            textLayoutResult = layout,
+            color = strokeColor,
+            drawStyle = Stroke(width = strokeWidthPx, join = StrokeJoin.Round),
         )
+        drawText(textLayoutResult = layout, color = textColor)
     }
 }

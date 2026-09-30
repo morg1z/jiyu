@@ -167,6 +167,96 @@ class TranslationLayoutTest {
     }
 
     @Test
+    fun `degenerate shape much smaller than its text falls back to heuristic layout`() {
+        // Audit Vagabondu ch.1 ("SOMEONE'S THERE"): OCR box "SOMEONE" byl zdravý
+        // (14 % šířky stránky), ale detekce bubliny vrátila tvar o velikosti bodu
+        // (0,05 % x 0,2 %). S takovým tvarem by se box i clip zmenšily na bod a
+        // překlad byl na stránce neviditelný - tvar, co neobsáhne vlastní text, se má
+        // zahodit a blok přejít na heuristiku (záplata přes vlastní OCR oblast).
+        val degenerate = listOf(
+            BubbleShapePoint(0.56f, 0.483f, 0.485f),
+            BubbleShapePoint(0.57f, 0.483f, 0.486f),
+        )
+        val block = TranslatedBlock(
+            originalText = "SOMEONE", translatedText = "Někdo",
+            leftF = 0.486f, topF = 0.563f, rightF = 0.626f, bottomF = 0.582f,
+            shape = degenerate,
+            bgUniform = false,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+
+        assertTrue("degenerate shape must be dropped", positioned.block.shape == null)
+        // Heuristický box musí krýt aspoň vlastní OCR rozsah textu, ne bod.
+        assertTrue(positioned.rightF - positioned.leftF >= block.rightF - block.leftF - 1e-4f)
+        assertTrue(positioned.maxBottomF - positioned.minTopF >= block.bottomF - block.topF - 1e-4f)
+    }
+
+    @Test
+    fun `leaked shape much larger than text falls back to heuristic layout`() {
+        // Audit RWS ch.215 str. 77: NARRATION blok na tmavé scéně - flood-fill unikl
+        // z bubliny a obrys pokryl 0..1 × 0.21-0.99 stránky. Výplň oříznutá touto
+        // konturou zakryla půlku obrázku a překlad se vysázel doprostřed kresby
+        // místo do bubliny. Tvar obří + text u jeho kraje = zahodit.
+        val leaked = listOf(
+            BubbleShapePoint(0.2125f, 0.05f, 0.95f),
+            BubbleShapePoint(0.40f, 0.0f, 1.0f),
+            BubbleShapePoint(0.70f, 0.0f, 1.0f),
+            BubbleShapePoint(0.99375f, 0.02f, 0.9f),
+        )
+        val block = TranslatedBlock(
+            originalText = "BUT THEY CAN'T MOVE A LARGE AMOUNT OF PEOPLE TO A DIFFERENT DIMENSION LIKE I CAN",
+            translatedText = "Ale nedokážou přesunout spoustu lidí do jiné dimenze tak jako já.",
+            leftF = 0.1525f, topF = 0.2609375f, rightF = 0.835f, bottomF = 0.459375f,
+            shape = leaked,
+            bgUniform = false,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+
+        assertTrue("leaked shape must be dropped", positioned.block.shape == null)
+        // Heuristický box zůstane kolem vlastního OCR rozsahu - žádná půlka stránky.
+        assertTrue(positioned.maxBottomF - positioned.minTopF < 0.4f)
+    }
+
+    @Test
+    fun `tall shape with centered text is kept`() {
+        // Obrácený případ: velká bublina (výkřik) - text sedí uprostřed obrysu, takže
+        // i když je tvar násobně vyšší než text, není to leak a zahodit se nesmí.
+        val big = listOf(
+            BubbleShapePoint(0.10f, 0.30f, 0.70f),
+            BubbleShapePoint(0.30f, 0.25f, 0.75f),
+            BubbleShapePoint(0.50f, 0.25f, 0.75f),
+            BubbleShapePoint(0.65f, 0.30f, 0.70f),
+        )
+        val block = TranslatedBlock(
+            originalText = "AAAH!", translatedText = "ÁÁÁ!",
+            leftF = 0.35f, topF = 0.36f, rightF = 0.60f, bottomF = 0.40f,
+            shape = big,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue(positioned.block.shape != null)
+    }
+
+    @Test
+    fun `shape properly containing its text is kept`() {
+        // Kontrola, že se zahazují jen rozpadlé tvary - reálný obrys bubliny (větší než
+        // OCR box textu, jak má být) se používá dál jako dosud.
+        val shape = listOf(
+            BubbleShapePoint(0.50f, 0.44f, 0.68f),
+            BubbleShapePoint(0.58f, 0.42f, 0.70f),
+            BubbleShapePoint(0.62f, 0.44f, 0.68f),
+        )
+        val block = TranslatedBlock(
+            originalText = "hi", translatedText = "ahoj",
+            leftF = 0.50f, topF = 0.55f, rightF = 0.62f, bottomF = 0.57f,
+            shape = shape,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue(positioned.block.shape != null)
+        assertEquals(0.42f, positioned.leftF, 0.001f)
+        assertEquals(0.70f, positioned.rightF, 0.001f)
+    }
+
+    @Test
     fun `blocks with and without shape can coexist in the same page`() {
         val shape = listOf(BubbleShapePoint(0.10f, 0.10f, 0.30f), BubbleShapePoint(0.15f, 0.10f, 0.30f))
         val plain = block(0.60f, 0.60f, 0.80f, 0.65f)

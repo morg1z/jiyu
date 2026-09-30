@@ -16,7 +16,34 @@ data class TextMeasurement(
     val totalHeightPx: Float,
     val lines: List<LineMetrics>,
     val longestWordWidthPx: Float = 0f,
+    // Měřič sám při zalamování rozsekl slovo uprostřed (nouzový char-break) - viz
+    // [isMidWordBreak]. Silnější signál než longestWordWidthPx: kontroluje REÁLNÉ pozice
+    // zlomů v naměřeném layoutu, takže odchytí i případ, kdy úsek před soft hyphenem
+    // "vejde se" podle měření, ale renderer ho stejně zalomí jinde (audit Vagabondu:
+    // "VARO­VÁNÍ" -> vykresleno "VAROV"/"ÁNÍ" místo "VARO-"/"VÁNÍ").
+    val hasMidWordBreak: Boolean = false,
 )
+
+/**
+ * Je zlom na pozici [breakOffset] (index prvního znaku NOVÉHO řádku) nelegální zlom
+ * uprostřed slova? Legální zlomy: na mezeře, konci řádku "\n", za/peřd soft hyphenem
+ * (U+00AD - renderer tam kreslí viditelnou pomlčku) a za tvrdou pomlčkou "-".
+ * Nelegální: písmeno|písmeno bez značky zlomu - Compose to dělá jako nouzový wrap, když
+ * se ani úsek s pomlčkou nevejde do šířky (vznikne "VAROV"/"ÁNÍ" místo "VARO-"/"VÁNÍ").
+ *
+ * Písmena omezuju na < U+3000 (latinka/řečtina/cyrilice/arabština...) - CJK znaky smí
+ * zalomit kdekoliv (japonština nemá mezery), jinak by každý CJK řádek "selhal".
+ */
+internal fun isMidWordBreak(text: String, breakOffset: Int): Boolean {
+    val prev = text.getOrNull(breakOffset - 1) ?: return false
+    val next = text.getOrNull(breakOffset) ?: return false
+    if (prev == '\u00AD' || next == '\u00AD' || prev == '-' ||
+        prev.isWhitespace() || next.isWhitespace()
+    ) return false
+    fun hardWordChar(c: Char): Boolean =
+        c.isLetterOrDigit() && c.code < 0x3000 && c.code !in 0x0900..0x17FF
+    return hardWordChar(prev) && hardWordChar(next)
+}
 
 /** Vybraná velikost písma + šířka, na kterou se text má zalomit (viz [fitFontSizeToBox]). */
 data class ShapeFitResult(val fontSp: Float, val widthPx: Float)
@@ -160,7 +187,16 @@ fun minTranslationFontSp(textScale: Float): Float =
 internal fun longestIndivisibleRunWidthPx(text: String, measureSegment: (String) -> Float): Float =
     text.split(' ', '\n')
         .filter { it.isNotBlank() }
-        .flatMap { hyphenationSegments(it) }
+        .flatMap { word ->
+            val segments = hyphenationSegments(word)
+            // Když Compose láme na soft hyphenu, na konec řádku vykreslí VIDITELNOU
+            // pomlčku - měření holého úseku ji nezapočítá, takže úsek "projde"
+            // kontrolou a při renderu s pomlčkou přeteče: slovo se pak nouzově
+            // rozsekne o znak ZA rozdělovníkem ("VARO­VÁNÍ" -> "VAROV"/"ÁNÍ",
+            // "RODI­ČE" -> "RODIČ"/"E" - audit Vagabondu, varovný proužek na obálce).
+            // Úsek před zlomem proto měříme s pomlčkou navrch.
+            segments.mapIndexed { i, s -> if (i < segments.lastIndex) "$s-" else s }
+        }
         .filter { it.isNotEmpty() }
         .maxOfOrNull { measureSegment(it) } ?: 0f
 
@@ -243,6 +279,9 @@ fun fitFontSizeToBox(
         if (measured.totalHeightPx > maxHeightPx) return false
         // Rezerva 0.5px na zaokrouhlení mezi měřením a skutečným vykreslením.
         if (measured.longestWordWidthPx > boxWidthPx + 0.5f) return false
+        // Měřič sám musel slovo rozsekat uprostřed (nouzový char-break) - renderer udělá
+        // totéž. Zmenšit písmo a zkusit znovu; na podlaze sejmout pojistkou volajícího.
+        if (measured.hasMidWordBreak) return false
         return true
     }
 
