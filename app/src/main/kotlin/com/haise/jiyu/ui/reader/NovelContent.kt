@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -81,6 +85,12 @@ fun NovelContent(
     onToggleGlossaryProtectExact: (GlossaryEntity) -> Unit = {},
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
+    // Audit RD-6: pozice v novele = (index odstavce, pixel offset v nem) - obnovi se
+    // z chapter.lastPageRead/lastScrollOffset a hlasi se zpet do VM
+    // (onNovelProgressChanged), jinak novela nikdy nezapisuje postup/historii.
+    initialIndex: Int = 0,
+    initialScrollOffset: Int = 0,
+    onProgressChanged: (index: Int, offsetPx: Int, totalItems: Int) -> Unit = { _, _, _ -> },
 ) {
     var fontSize by remember { mutableStateOf(16f) }
     var lineSpacing by remember { mutableStateOf(1.6f) }
@@ -280,9 +290,28 @@ fun NovelContent(
                     if (direction == TurnDirection.NEXT) onNext() else onPrev()
                 },
                 curlStyle = curlStyle,
+                // Curl strankuje interne - hlasi (index stranky, 0, pocet stranek).
+                onProgressChanged = { idx, total -> onProgressChanged(idx, 0, total) },
             )
         } else {
+            // rememberLazyListState s ulozenou pozici - bez nej se novela vzdy
+            // otevre odshora a ulozeny postup se hned prepise nulou (RD-6).
+            val listState = rememberLazyListState(
+                initialFirstVisibleItemIndex = initialIndex.coerceAtLeast(0),
+                initialFirstVisibleItemScrollOffset = initialScrollOffset.coerceAtLeast(0),
+            )
+            // Report jen pri zmene indexu odstavce - pixelove offsety resi debounce
+            // v ReaderViewModel.saveWebtoonScrollOffset; celkove pocet = odstavce +
+            // koncovy nav radka (item v items() pod tim) neni odstavec - hlasi se
+            // jen odstavcova cast: index posledniho odstavce = paragraphs.lastIndex,
+            // a reachedEnd v VM spusti read=true az na poslednim odstavci.
+            LaunchedEffect(listState, paragraphs.size) {
+                snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                    .distinctUntilChanged()
+                    .collect { (idx, off) -> onProgressChanged(idx, off, paragraphs.size) }
+            }
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {

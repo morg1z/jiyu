@@ -55,6 +55,9 @@ fun PageCurlNovelReader(
     bgColor: Color,
     onChapterBoundary: (TurnDirection) -> Unit,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
+    // Report pozice pro persistenci postupu (audit RD-6) - novela bez tohohle nikdy
+    // nezapisovala read/historii/lastPageRead.
+    onProgressChanged: (pageIndex: Int, totalPages: Int) -> Unit = { _, _ -> },
 ) {
     val resolvedCurlStyle = resolveCurlStyle(curlStyle)
     val density = LocalDensity.current
@@ -110,6 +113,11 @@ fun PageCurlNovelReader(
         DisposableEffect(text) { onDispose { settleJob?.cancel() } }
 
         val currentPageIndex = findPageIndexForOffset(pages, readingOffset)
+        // Report zmeny stranky nahoru (RD-6) - LaunchedEffect na indexu, takze se
+        // vola jen pri skutecnem otoceni stranky, ne na kazdy pixel tazeni.
+        LaunchedEffect(currentPageIndex, pages.size) {
+            if (pages.isNotEmpty()) onProgressChanged(currentPageIndex, pages.size)
+        }
         val currentPage = pages[currentPageIndex.coerceIn(pages.indices)]
         // Bezpečnostní pojistka navíc (i když `pages` je vždy odvozeno ze stejného `text`,
         // který se tu čte) - substring nikdy nespadne, i kdyby se výše uvedená synchronizace

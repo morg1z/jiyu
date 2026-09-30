@@ -739,16 +739,19 @@ class ReaderViewModel @Inject constructor(
     }
 
     // ── Tap-to-flip (bublina <-> originál) ───────────────────────────────────
-    // Klíč "$pageIndex:$bubbleIndex" je stabilní jen v rámci JEDNÉ kapitoly (viz reset
-    // v loadChapter výše) - bubbleIndex je pozice bubliny v cachovaném/deserializovaném
-    // seznamu TranslatedBlock pro danou stránku, což je deterministické, dokud se stránka
-    // znovu nepřeloží (jiný počet/pořadí bublin by pak ukazovalo špatnou bublinu jako
-    // "otočenou" - přijatelné riziko, protože retranslate stejné stránky je vzácný).
+    // Klíč "$chapterId:$pageIndex:$bubbleIndex" - chapterId je nutny od auditu RD-10:
+    // v nekonecnem webtoon scrollu se pageIndex/bubbleIndex opakuje v KAZDEM segmentu,
+    // takze plochy klic "3:1" flipoval bublinu zaroven na strance 3 aktualni kapitoly
+    // i strance 3 predchozi/nasledujici. bubbleIndex je pozice bubliny v
+    // cachovaném/deserializovaném seznamu TranslatedBlock pro danou stránku, což je
+    // deterministické, dokud se stránka znovu nepřeloží (jiný počet/pořadí bublin by
+    // pak ukazovalo špatnou bublinu jako "otočenou" - přijatelné riziko, protože
+    // retranslate stejné stránky je vzácný).
     private val _flippedBubbles = MutableStateFlow<Set<String>>(emptySet())
     val flippedBubbles: StateFlow<Set<String>> = _flippedBubbles.asStateFlow()
 
-    fun toggleBubbleFlip(pageIndex: Int, bubbleIndex: Int) {
-        val key = "$pageIndex:$bubbleIndex"
+    fun toggleBubbleFlip(chapterId: String, pageIndex: Int, bubbleIndex: Int) {
+        val key = "$chapterId:$pageIndex:$bubbleIndex"
         _flippedBubbles.value = _flippedBubbles.value.let { current ->
             if (key in current) current - key else current + key
         }
@@ -764,11 +767,14 @@ class ReaderViewModel @Inject constructor(
      * Prázdný text opravu zruší, ale strojový překlad se vrátí až po znovunačtení stránky -
      * původní strojový text už v paměti není a tahat ho z cache kvůli tomu zvlášť nestojí za to.
      */
-    fun saveBubbleEdit(pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
-        val chapterId = currentChapter?.id ?: return
+    fun saveBubbleEdit(chapterId: String, pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
         viewModelScope.launch {
             translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text, offsetXDp, offsetYDp)
-            val blocks = _translatedPages.value[pageIndex] ?: return@launch
+            // Bloky cteme z per-chapter mapy, ne z _translatedPages - v nekonecnem
+            // webtoon scrollu muze editovana bublina patrit odscrollanemu segmentu
+            // JINE kapitoly, nez je aktualni (audit RD-4); _translatedPages je vzdy
+            // jen aktualni kapitola.
+            val blocks = _translatedPagesByChapter.value[chapterId]?.get(pageIndex) ?: return@launch
             val trimmed = text.trim()
             if (trimmed.isBlank()) return@launch
             val updated = blocks.map { block ->
@@ -799,10 +805,16 @@ class ReaderViewModel @Inject constructor(
      * strojový překlad se nenapaří (identita se neshoduje) - stejné omezení, jaké
      * [manualEditId] má odjakživa.
      */
-    fun retranslatePage(pageIndex: Int) {
-        val chapterId = currentChapter?.id ?: return
+    fun retranslatePage(chapterId: String, pageIndex: Int) {
         val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
-        val pageUrl = _pages.value.getOrNull(pageIndex) ?: return
+        // Stranky cilove kapitoly: pro aktualni z _pages, pro odscrollany webtoon
+        // segment z jeho ulozeneho seznamu (audit RD-4 - _pages drzi jen aktualni
+        // kapitolu, takze index z jineho segmentu by sil na cizi URL).
+        val pageUrl = if (chapterId == _currentChapterId.value) {
+            _pages.value.getOrNull(pageIndex)
+        } else {
+            _webtoonSegments.value.firstOrNull { it.chapterId == chapterId }?.pages?.getOrNull(pageIndex)
+        } ?: return
         viewModelScope.launch {
             val blocks = translateRepository.translatePage(
                 pageUrl = pageUrl,
@@ -1723,6 +1735,43 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Progress z light-novel ctecky (audit RD-6): NovelContent hlasi index odstavce,
+     * pixel offset polozky a celkovy pocet odstavcu. Jde pres stejny sekveneni kanal
+     * jako strankovani mange (pageProgressEvents -> processPageProgress), takze
+     * novela se konecne oznaci prectenou na poslednim odstavci, dostane historii,
+     * tracker sync i auto-delete registraci. `index` = lastPageRead, `itemOffset`
+     * = lastScrollOffset -> oboje se pri otevreni kapitoly obnovi jako pozice.
+     * `countAsPage = false`: posun mezi odstavci neni "prectena stranka" pro statistiky.
+     */
+    fun onNovelProgressChanged(index: Int, itemOffset: Int, totalItems: Int) {
+        // Stejny guard jako ve webtoonu - snapshotFlow hlasi i offset (pixel) zmeny,
+        // takze event se posila jen pri zmene indexu odstavce.
+        if (index != _currentPage.value) {
+            _currentPage.value = index
+            val now = System.currentTimeMillis()
+            val deltaMs = if (lastPageChangeMs > 0) minOf(now - lastPageChangeMs, 3 * 60_000L) else 0L
+            lastPageChangeMs = now
+            val chapter = currentChapter ?: return
+            pageProgressEvents.trySend(
+                PageProgressEvent(
+                    index = index,
+                    pageCount = totalItems,
+                    chapter = chapter,
+                    manga = currentManga,
+                    incognito = _incognitoMode.value,
+                    now = now,
+                    deltaMs = deltaMs,
+                    countAsPage = false,
+                ),
+            )
+        }
+        // updateScrollOffset je debounce-ovany (600 ms) uz uvnitr - viz
+        // saveWebtoonScrollOffset; nazev je historicky, funkce je obecna
+        // (chapterId + offset), pro novelu pouzita taky.
+        saveWebtoonScrollOffset(itemOffset)
+    }
+
     fun onPageChanged(index: Int) {
         _currentPage.value = index
         // Normalni rezim: sekvencni prefetch kapitoly bezi sam od loadChapter, otočení
@@ -1763,6 +1812,9 @@ class ReaderViewModel @Inject constructor(
         val incognito: Boolean,
         val now: Long,
         val deltaMs: Long,
+        // false = novel odstavec (RD-6) - neni to "stranka" pro statistiky prectenych
+        // stranek, ale zbytek pipeline (read flag, historie, trackery) bezi stejne.
+        val countAsPage: Boolean = true,
     )
 
     private suspend fun processPageProgress(event: PageProgressEvent) {
@@ -1793,7 +1845,7 @@ class ReaderViewModel @Inject constructor(
                 settings.addReadingTime(event.deltaMs)
                 repository.addMangaReadingTime(chapter.mangaId, event.deltaMs)
             }
-            settings.addPagesRead(1)
+            if (event.countAsPage) settings.addPagesRead(1)
             if (manga != null) {
                 historyRepository.record(
                     ReadHistoryEntity(

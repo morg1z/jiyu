@@ -85,8 +85,10 @@ fun ReaderScreen(
     val batchProgress       by viewModel.batchProgress.collectAsStateWithLifecycle()
     val showOriginal        by viewModel.showOriginal.collectAsStateWithLifecycle()
     val reverseLayout       by viewModel.reverseLayout.collectAsStateWithLifecycle()
-    val readingMode         by viewModel.readingMode.collectAsStateWithLifecycle()
-    val initialPage         by viewModel.initialPage.collectAsStateWithLifecycle()
+    // Per-manga "Webtoon" override z detailu titulu - ReaderContent musi cist tuhle
+    // kombinovanou hodnotu, ne surove settings.readingMode, jinak je override mrtvy
+    // (audit RD-1).
+    val isWebtoonMode       by viewModel.isWebtoonMode.collectAsStateWithLifecycle()
     val currentPage         by viewModel.currentPage.collectAsStateWithLifecycle()
     val hasPrevChapter      by viewModel.hasPrevChapter.collectAsStateWithLifecycle()
     val hasNextChapter      by viewModel.hasNextChapter.collectAsStateWithLifecycle()
@@ -269,6 +271,11 @@ fun ReaderScreen(
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
+                // Audit RD-6: obnoveni a persist postupu i u novel (drive se nikdy
+                // nezapisoval lastPageRead/lastScrollOffset/read/historie).
+                initialIndex = currentPage,
+                initialScrollOffset = webtoonScrollOffset,
+                onProgressChanged = { idx, off, total -> viewModel.onNovelProgressChanged(idx, off, total) },
             )
             comickUnavailable -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
@@ -301,7 +308,12 @@ fun ReaderScreen(
             }
             else -> ReaderContent(
                 pages = pages,
-                initialPage = initialPage,
+                // Seed = ziva pozice (currentPage), ne ulozene initialPage: pri prepnuti
+                // reader modu (paged<->webtoon) se nova ctecka zkomponuje a ma chytit
+                // aktualni stranku, ne stranku pri otevreni kapitoly (audit RD-3).
+                // Pri prvnim otevreni kapitoly se hodnoty rovnaji (loadChapter je
+                // nastavuje stejne), takze se tim nic nemeni.
+                initialPage = currentPage,
                 currentPage = currentPage,
                 translateMode = translateMode,
                 translationProgress = translationProgress,
@@ -311,7 +323,7 @@ fun ReaderScreen(
                 batchProgress = batchProgress,
                 showOriginal = showOriginal,
                 reverseLayout = reverseLayout,
-                readingMode = readingMode,
+                webtoonMode = isWebtoonMode,
                 chapterTitle = chapterTitle,
                 mangaTitle = mangaTitle,
                 onOpenManga = { mangaId?.let(onOpenManga) },
@@ -386,9 +398,9 @@ fun ReaderScreen(
                 commentsSupported = commentsSupported,
                 onShowComments = { viewModel.loadChapterComments() },
                 flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = { pageIndex, bubbleIndex -> viewModel.toggleBubbleFlip(pageIndex, bubbleIndex) },
-                onEditBubble = { pageIndex, originalText, currentText, offsetXDp, offsetYDp ->
-                    bubbleEdit = BubbleEditState(pageIndex, originalText, currentText, offsetXDp, offsetYDp)
+                onToggleBubbleFlip = { chId, pageIndex, bubbleIndex -> viewModel.toggleBubbleFlip(chId, pageIndex, bubbleIndex) },
+                onEditBubble = { chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp ->
+                    bubbleEdit = BubbleEditState(chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp)
                 },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
@@ -405,11 +417,11 @@ fun ReaderScreen(
                 initialOffsetYDp = edit.offsetYDp,
                 onDismiss = { bubbleEdit = null },
                 onSave = { newText, offsetXDp, offsetYDp ->
-                    viewModel.saveBubbleEdit(edit.pageIndex, edit.originalText, newText, offsetXDp, offsetYDp)
+                    viewModel.saveBubbleEdit(edit.chapterId, edit.pageIndex, edit.originalText, newText, offsetXDp, offsetYDp)
                     bubbleEdit = null
                 },
                 onRetranslatePage = {
-                    viewModel.retranslatePage(edit.pageIndex)
+                    viewModel.retranslatePage(edit.chapterId, edit.pageIndex)
                     bubbleEdit = null
                 },
             )
@@ -503,6 +515,10 @@ fun ReaderScreen(
  */
 /** Stav otevřeného [BubbleEditDialog] - viz [BubbleOverlayLayer.onEditBubble]. */
 private data class BubbleEditState(
+    // chapterId je nutne - v nekonecnem webtoon scrollu muze long-press na bublinu
+    // patrit odscrollanemu segmentu JINE kapitoly, nez je aktualni; bez nej by se
+    // oprava zapsala pod currentChapterId (audit RD-4).
+    val chapterId: String,
     val pageIndex: Int,
     val originalText: String,
     val currentText: String,
@@ -511,10 +527,10 @@ private data class BubbleEditState(
 ) {
     companion object {
         val Saver: Saver<BubbleEditState?, Any> = listSaver(
-            save = { state -> if (state == null) emptyList() else listOf(state.pageIndex, state.originalText, state.currentText, state.offsetXDp, state.offsetYDp) },
+            save = { state -> if (state == null) emptyList() else listOf(state.chapterId, state.pageIndex, state.originalText, state.currentText, state.offsetXDp, state.offsetYDp) },
             restore = { list ->
                 if (list.isEmpty()) null
-                else BubbleEditState(list[0] as Int, list[1] as String, list[2] as String, list[3] as Float, list[4] as Float)
+                else BubbleEditState(list[0] as String, list[1] as Int, list[2] as String, list[3] as String, list[4] as Float, list[5] as Float)
             },
         )
     }

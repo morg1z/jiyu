@@ -12,3 +12,17 @@ data class WebtoonSegment(
     val chapterName: String,
     val pages: List<String>,
 )
+
+/**
+ * Projektuje globalni [flippedBubbles] klice ("$chapterId:$pageIndex:$bubbleIndex",
+ * viz ReaderViewModel.toggleBubbleFlip) na plochy format "$pageIndex:$bubbleIndex",
+ * ktery ocekava BubbleOverlayLayer - pro JEDNU kapitolu (aktualni u paged ctecek,
+ * segment u webtoonu). Klice ostatnich kapitol se zahodi, takze se flip nepreliva
+ * mezi segmenty se stejnymi indexy (audit RD-10).
+ */
+fun flippedKeysForChapter(flipped: Set<String>, chapterId: String): Set<String> {
+    val prefix = "$chapterId:"
+    return flipped.mapNotNullTo(LinkedHashSet(flipped.size)) { key ->
+        if (key.startsWith(prefix)) key.substring(prefix.length) else null
+    }
+}

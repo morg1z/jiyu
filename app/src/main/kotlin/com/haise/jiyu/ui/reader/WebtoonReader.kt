@@ -114,8 +114,11 @@ fun WebtoonReader(
     cropBorders: Boolean = false,
     volumeKeysNav: Boolean = true,
     flippedBubbles: Set<String> = emptySet(),
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    // chapterId v callbacku - kazdy segment ma vlastni pageIndex/bubbleIndex
+    // prostor, takze bez nej by tap na bublinu v odscrollanem segmentu psal do
+    // aktualni kapitoly (audit RD-4/RD-10).
+    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
+    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
     // True po dobu, co ViewModel stahuje a připojuje další segment (viz
     // ReaderViewModel.appendNextWebtoonSegment) - bez indikace uživatel na konci
     // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
@@ -252,6 +255,9 @@ fun WebtoonReader(
     // Progress zapis bezi dal pres snapshotFlow vyse - stejne jako u normalniho scrollu.
     LaunchedEffect(scrubToFraction) {
         val fraction = scrubToFraction ?: return@LaunchedEffect
+        // RD-23: scrub vydany behem 8-pokusoveho restore loopu vyse by dalsi iteraci
+        // scrollToItem prepsal - pocka se na dokonceni obnovy pozice, pak se aplikuje.
+        while (isRestoringPosition) delay(50L)
         val total = listState.layoutInfo.totalItemsCount
         if (total > 1) {
             listState.scrollToItem((fraction * (total - 1)).toInt().coerceIn(0, total - 1))
@@ -266,6 +272,8 @@ fun WebtoonReader(
     // (vraci null), zkusi se sousedni stranky.
     LaunchedEffect(jumpToPage) {
         val page = jumpToPage ?: return@LaunchedEffect
+        // RD-23 - viz scrubToFraction vyse (skok behem obnovy pozice by se prepsal).
+        while (isRestoringPosition) delay(50L)
         val first = listState.firstVisibleItemIndex
         val range = mapFlatIndex(first)?.let { (chapterId, _) ->
             segmentRanges.firstOrNull { it.chapterId == chapterId }
@@ -428,13 +436,17 @@ private fun LazyListScope.webtoonSegmentItems(
     textScale: Float,
     cropBorders: Boolean,
     flippedBubbles: Set<String>,
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
+    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit,
+    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     referer: String?,
     placeholderAspectRatio: Float,
     onPageAspectMeasured: (Float) -> Unit,
 ) {
     val chapterTranslations = translatedPagesByChapter[segment.chapterId] ?: emptyMap()
+    // Flip set je globalni s klicem "$chapterId:..." - pro tenhle segment se
+    // projektuje na plochy "pageIndex:bubbleIndex" a callbacky se obali o
+    // chapterId segmentu (audit RD-4/RD-10).
+    val segmentFlipped = flippedKeysForChapter(flippedBubbles, segment.chapterId)
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
         WebtoonPage(
             pageUrl = pageUrl,
@@ -444,9 +456,9 @@ private fun LazyListScope.webtoonSegmentItems(
             translatedBlocks = chapterTranslations[index] ?: emptyList(),
             textScale = textScale,
             cropBorders = cropBorders,
-            flippedBubbles = flippedBubbles,
-            onToggleBubbleFlip = onToggleBubbleFlip,
-            onEditBubble = onEditBubble,
+            flippedBubbles = segmentFlipped,
+            onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(segment.chapterId, pi, bi) },
+            onEditBubble = { pi, ot, ct, x, y -> onEditBubble(segment.chapterId, pi, ot, ct, x, y) },
             referer = referer,
             placeholderAspectRatio = placeholderAspectRatio,
             onPageAspectMeasured = onPageAspectMeasured,

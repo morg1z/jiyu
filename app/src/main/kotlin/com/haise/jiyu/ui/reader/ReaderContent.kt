@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.GlossaryEntity
-import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.launch
 
@@ -57,7 +56,10 @@ fun ReaderContent(
     batchProgress: TranslationProgress?,
     showOriginal: Boolean,
     reverseLayout: Boolean,
-    readingMode: String,
+    // Efektivni webtoon mod VCETNE per-manga override z detailu titulu
+    // (ReaderViewModel.isWebtoonMode) - ne surove settings.readingMode, jinak je
+    // "Webtoon" volba u titulu mrtva (audit RD-1).
+    webtoonMode: Boolean,
     chapterTitle: String,
     mangaTitle: String = "",
     onOpenManga: () -> Unit = {},
@@ -126,8 +128,10 @@ fun ReaderContent(
     commentsSupported: Boolean = false,
     onShowComments: () -> Unit = {},
     flippedBubbles: Set<String> = emptySet(),
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    // chapterId v callbacku - v nekonecnem webtoon scrollu muze bublina patrit
+    // odscrollanemu segmentu jine kapitoly, nez je aktualni (audit RD-4/RD-10).
+    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
+    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
     onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
@@ -143,7 +147,7 @@ fun ReaderContent(
     var webtoonFlatIndex by remember { mutableStateOf(0) }
     var webtoonItemCount by remember { mutableStateOf(0) }
     var webtoonScrubTarget by remember { mutableStateOf<Float?>(null) }
-    val isWebtoon = readingMode == ReadingMode.WEBTOON
+    val isWebtoon = webtoonMode
 
     // Přednačítání stránek řeší ReaderViewModel.prefetchPagesFrom (jedno místo, stejný
     // cache klíč včetně cropBorders). Druhá paralelní fronta tady stahovala stejné
@@ -175,7 +179,13 @@ fun ReaderContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         val effectiveTranslateMode = translateMode && !showOriginal
-        if (readingMode == ReadingMode.WEBTOON) {
+        // Paged/curl ctecky ukazuji vzdy jen AKTUALNI kapitolu - bubble callbacky se
+        // tu obali jejim currentChapterId a flip set se projektuje na
+        // "pageIndex:bubbleIndex" klice te kapitoly (viz ReaderViewModel.flipKeyFor
+        // / flippedKeysForChapter). Webtoon si chapterId resi per segment sam.
+        val pagedChapterId = currentChapterId ?: ""
+        val pagedFlipped = flippedKeysForChapter(flippedBubbles, pagedChapterId)
+        if (isWebtoon) {
             // Prazdne webtoonSegments (volajici je jeste nepredava) = spadni zpatky na jeden
             // segment postaveny z `pages`/`currentChapterId`/`chapterTitle` - stejne chovani
             // jako pred zavedenim segmentu.
@@ -238,9 +248,9 @@ fun ReaderContent(
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
                 curlStyle = curlStyle,
-                flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = onToggleBubbleFlip,
-                onEditBubble = onEditBubble,
+                flippedBubbles = pagedFlipped,
+                onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(pagedChapterId, pi, bi) },
+                onEditBubble = { pi, ot, ct, x, y -> onEditBubble(pagedChapterId, pi, ot, ct, x, y) },
                 referer = referer,
             )
         } else {
@@ -267,8 +277,8 @@ fun ReaderContent(
                 onAutoNextChapter = onAutoNextChapter,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
-                flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = onToggleBubbleFlip,
+                flippedBubbles = pagedFlipped,
+                onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(pagedChapterId, pi, bi) },
                 referer = referer,
             )
         }
