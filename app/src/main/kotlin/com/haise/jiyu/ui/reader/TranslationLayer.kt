@@ -241,9 +241,12 @@ fun BubbleOverlayLayer(
     // od zobrazovací cesty) crop okrajů nikdy neaplikuje, takže bitmapa, ze které se řeže, je
     // vždy ta PŮVODNÍ, neořízlá. `positioned` výš je ale přemapovaný na ořízlý prostor kvůli
     // zobrazení - kdyby se stejný (přemapovaný) seznam použil i tady, záplata by se vyřízla
-    // ze ŠPATNÝCH pixelů. Pořadí/počet bloků je mezi oběma seznamy shodné (stejné `blocks`,
-    // remapForCrop nemění shape==null vs != null, takže se `layoutTranslationBlocks` rozdělí
-    // stejně), takže `bubbleIndex` sedí na oba.
+    // ze ŠPATNÝCH pixelů. Pozice i-tého prvku v obou seznamech ale NENÍ stabilní identita:
+    // remapForCrop sice nemění "shape == null" flag přímo, ale clamp souřadnic může
+    // překlapnout verdikt `isDegenerateShapeForText`/`mergeUntranslatedSiblingBlocks` a
+    // změnit tak rozdělení shapeBased/heuristicBased - tentýž blok pak v `positioned` a
+    // `originalPositioned` stojí na jiném indexu (audit F13). Proto se fixy klíčují přes
+    // `PositionedTranslationBlock.sourceIndex` = pozice v `blocks`, shodná v obou layotech.
     val originalPositioned = remember(blocks) { layoutTranslationBlocks(blocks) }
 
     // Záplaty se počítají až tady, při zobrazení, a žijí jen v paměti - do Room nic nepřibývá,
@@ -270,7 +273,10 @@ fun BubbleOverlayLayer(
             withContext(Dispatchers.IO) {
                 TranslationDiagnostics.recordRender(context, url, pageIndex, originalPositioned, result)
             }
-            result
+            // Klíče převedeme z pozice v `originalPositioned` na sourceIndex - renderer
+            // níže hledá přes `fixes[pos.sourceIndex]` (pos pochází z `positioned`,
+            // oříznutý layout). -1 se nikdy netrefí a je bezpečný.
+            result.mapKeys { (i, _) -> originalPositioned[i].sourceIndex }
         }
     }
     // Vlastní font uživatele (viz CustomFontRepository, item 15) - stejný EntryPoint důvod
@@ -283,8 +289,11 @@ fun BubbleOverlayLayer(
         ).customFontRepository()
     }
     val customFontFile by customFontRepository.activeFontFile.collectAsStateWithLifecycle(initialValue = null)
-    positioned.forEachIndexed { bubbleIndex, pos ->
-        val fix = fixes[bubbleIndex]
+    positioned.forEach { pos ->
+        // Stabilní identita přes re-layout: pozice v `blocks`, ne v `positioned`
+        // (výstup je přerovnaný - shape bloky první - a klíč by se po re-emisi posunul).
+        val bubbleIndex = pos.sourceIndex
+        val fix = fixes[pos.sourceIndex]
         // Obnovený obrys (viz recoverBubble v TextPatchProvider) je spočítaný nad
         // ORIGINÁLNÍ, neořízlou bitmapou - pro vykreslení se remapuje do oříznutého
         // prostoru stejně jako bloky (viz remapForCrop). Počítá se PŘED render gate,
@@ -338,9 +347,11 @@ fun BubbleOverlayLayer(
                 imageRect = imageRect,
                 textScale = textScale,
                 isFlipped = "$pageIndex:$bubbleIndex" in flippedBubbles,
-                // Klíčem je pozice v `positioned` - stejně, jako je klíčuje TextPatchProvider.
-                // Dřív se dohledávalo přes blocks.indexOf(pos.block), jenže dva shodné bloky
-                // jsou si podle data class rovny a druhý z nich pak dostal cizí záplatu.
+                // Klíčem je `sourceIndex` = pozice v `blocks` - stejně, jako se klíčuje
+                // mapa záplat výš. Dřív se dohledávalo přes blocks.indexOf(pos.block),
+                // jenže dva shodné bloky jsou si podle data class rovny a druhý z nich
+                // pak dostal cizí záplatu; pozice v `positioned` zase není stabilní vůči
+                // přerovnání dvou layoutů (original vs crop-remap).
                 patch = fix?.patch,
                 patchTextArgb = fix?.textArgb,
                 recoveredShape = recoveredShape,

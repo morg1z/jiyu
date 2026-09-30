@@ -19,6 +19,20 @@ data class PositionedTranslationBlock(
     val rightF: Float,
     val maxBottomF: Float,
     val minTopF: Float = topF,
+    /**
+     * Pozice bloku ve VSTUPNÍM seznamu [layoutTranslationBlocks] - ne pozice v tomhle
+     * výstupu. Výstup je přerovnaný (bloky s obrysem jdou před heuristické, viz
+     * [layoutTranslationBlocks]), takže pozice v `positioned` NENÍ stabilní identita:
+     * při ořezu okrajů (BubbleOverlayLayer) se layout počítá dvakrát na trochu jiné
+     * geometrii a `dropDegenerateShape`/`mergeUntranslatedSiblingBlocks` můžou verdikt
+     * překlapnout - stejný index ve dvou seznamech pak ukazuje na JINOU bublinu a
+     * záplata/obnovený obrys přistanou na špatném místě (cílený audit F13). Klíčuj
+     * vše, co se přenáší mezi dvěma layouty (záplaty, recovery, flip stav), přes
+     * `sourceIndex` - ten je vůči přerovnání imunní, protože oba pre-passy
+     * ([mergeUntranslatedSiblingBlocks], [dropDegenerateShape]) drží 1:1 pořadí vůči
+     * vstupu. -1 = blok mimo [layoutTranslationBlocks] (ručně sestavené seznamy).
+     */
+    val sourceIndex: Int = -1,
 )
 
 /**
@@ -46,11 +60,13 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
     // klíčují TextPatchProvider záplaty a přemapování by je rozbilo; absorbovaný blok se
     // jen nechá vykreslit jako dosud (renderer ho přeskočí přes bubbleSkipReason).
     val effectiveBlocks = mergeUntranslatedSiblingBlocks(blocks).map(::dropDegenerateShape)
-    val shapeBased = effectiveBlocks.filter { it.shape != null }
-    val heuristicBased = effectiveBlocks.filter { it.shape == null }
+    // index == pozice ve VSTUPNÍM `blocks` (oba pre-passy drží 1:1 pořadí) - nese se
+    // do PositionedTranslationBlock.sourceIndex, viz jeho doc komentář proč.
+    val shapeBased = effectiveBlocks.mapIndexedNotNull { i, b -> if (b.shape != null) IndexedValue(i, b) else null }
+    val heuristicBased = effectiveBlocks.mapIndexedNotNull { i, b -> if (b.shape == null) IndexedValue(i, b) else null }
 
     val shapePositioned = resolveShapeOverlaps(
-        shapeBased.map { b ->
+        shapeBased.map { (sourceIndex, b) ->
             val shape = b.shape!!
             PositionedTranslationBlock(
                 block = b,
@@ -59,6 +75,7 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
                 rightF = shape.maxOf { it.rightF },
                 maxBottomF = shape.last().yF,
                 minTopF = shape.first().yF,
+                sourceIndex = sourceIndex,
             )
         },
     )
@@ -67,7 +84,7 @@ fun layoutTranslationBlocks(blocks: List<TranslatedBlock>): List<PositionedTrans
     // V takovem layoutu je volna expanze bez souseda destruktivni (kazdy box se roztahne
     // do radky vedle) - vypne se jen no-neighbor fallback; expanze k realnym sousedum
     // pres midpoint mezer zustava, protoze ta nikdy kolizi nevyrobi.
-    val denseList = isDenseListPage(heuristicBased.filter { !it.isSfx })
+    val denseList = isDenseListPage(heuristicBased.map { it.value }.filter { !it.isSfx })
 
     return shapePositioned + layoutHeuristic(heuristicBased, shapePositioned, denseList)
 }
@@ -149,7 +166,10 @@ internal fun mergeUntranslatedSiblingBlocks(blocks: List<TranslatedBlock>): List
         // Čistě interpunkční SFX ("!", "…") se neabsorbuje - samotný vykřičník může
         // být legitimní dramatická bublina a překrytí by ho zahodilo; jen útržky
         // s písmenem ("F", "S") jsou odřezek sazby, co do sousední masky patří.
-        isUntranslated || (isSfx && shape == null && originalText.count { it.isLetter() } in 1..2)
+        // seamCover fragment se NIKDY neabsorbuje - jeho území kryje vlastní záplata
+        // (coverOnly režim) a absorpcí by se maska souseda natáhla přes šev navíc,
+        // takže by se tentýž řez překryl dvakrát (audit F13).
+        !seamCover && (isUntranslated || (isSfx && shape == null && originalText.count { it.isLetter() } in 1..2))
     if (blocks.none { it.isAbsorbableFragment() }) return blocks
 
     val absorbedInto = mutableMapOf<Int, Int>()
@@ -341,7 +361,7 @@ internal fun isDenseListPage(blocks: List<TranslatedBlock>): Boolean {
 private const val NEIGHBOR_DISTANCE_CAP_MULTIPLIER = 6f
 
 private fun layoutHeuristic(
-    blocks: List<TranslatedBlock>,
+    blocks: List<IndexedValue<TranslatedBlock>>,
     shapeObstacles: List<PositionedTranslationBlock> = emptyList(),
     denseList: Boolean = false,
 ): List<PositionedTranslationBlock> {
@@ -350,9 +370,11 @@ private fun layoutHeuristic(
 
     val obstacleRects = shapeObstacles.map { it.toObstacleRect() }
 
-    val positioned = blocks.map { b ->
+    val positioned = blocks.map { (sourceIndex, b) ->
         val bRect = b.toRect()
-        val peerRects = blocks.filter { it !== b }.map { it.toRect() } + obstacleRects
+        // Sourozenci = stejná vstupní množina - porovnává se přes sourceIndex
+        // (identity bloků), ne přes `!==` na IndexedValue obálky.
+        val peerRects = blocks.filter { it.index != sourceIndex }.map { it.value.toRect() } + obstacleRects
 
         // SFX blok se sam nevykresluje - nema smysl mu expandovat (nevyditelny box by jen
         // zbytecne tiskl sousedni dialogove boxy na stranu). Drzi vlastni OCR rect a slouzi
@@ -365,6 +387,7 @@ private fun layoutHeuristic(
                 rightF = b.rightF,
                 maxBottomF = b.bottomF,
                 minTopF = b.topF,
+                sourceIndex = sourceIndex,
             )
         }
 
@@ -447,6 +470,7 @@ private fun layoutHeuristic(
             rightF = finalRight,
             maxBottomF = maxBottom,
             minTopF = minTop,
+            sourceIndex = sourceIndex,
         )
     }.toMutableList()
 
