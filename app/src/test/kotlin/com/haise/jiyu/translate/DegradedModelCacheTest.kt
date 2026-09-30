@@ -39,7 +39,7 @@ class DegradedModelCacheTest {
             coEvery { it.load(any()) } returns mockk<Bitmap>()
         }
         val ocrEngine = mockk<OcrEngine>().also {
-            coEvery { it.recognize(any(), any(), any()) } returns listOf(rawBlock)
+            coEvery { it.recognize(any(), any(), any(), any()) } returns listOf(rawBlock)
         }
         val glossaryRepository = mockk<GlossaryRepository>().also {
             coEvery { it.getMap(any(), any()) } returns emptyMap()

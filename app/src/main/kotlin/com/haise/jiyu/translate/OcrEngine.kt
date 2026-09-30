@@ -19,6 +19,8 @@ import com.haise.jiyu.util.DeviceResourcePolicy
 import com.haise.jiyu.util.report
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -317,6 +319,13 @@ class OcrEngine @Inject constructor(
         bitmap: Bitmap,
         language: String = "Japanese",
         visionOcrFallback: (suspend (Bitmap) -> String?)? = null,
+        /**
+         * Průběžně dostává nejlepší dosud rozpoznanou podobu stránky - voláno po každé
+         * dokončené japonské bublině a po merge řádků. TranslateRepository z ní při
+         * timeoutu stránky poskládá částečný výsledek, místo aby 40s rozpoznané práce
+         * propadlo jako "bez textu" (audit OCR-3).
+         */
+        onPartial: ((List<RawTextBlock>) -> Unit)? = null,
     ): List<RawTextBlock> = withContext(Dispatchers.IO) {
         val w = bitmap.width.toFloat()
         val h = bitmap.height.toFloat()
@@ -392,7 +401,17 @@ class OcrEngine @Inject constructor(
             emptyList()
         }
         val merged = if (resolvedLanguage == "Japanese" && onDeviceModelsOk) {
-            sortIntoReadingOrder(recognizeJapaneseWithMangaOcr(bitmap, allLines, yoloBoxes, visionOcrFallback), rightToLeft = true)
+            // Kazda dokoncena bublina se hned hlasi jako castecny vysledek - japonska
+            // cesta ma per-bublinu strop 8 s a 5+ tezkych bublin pretece strankovy
+            // timeout, takze bez sinku by se rozpoznany text zahodil cely (OCR-3).
+            val partialAcc = mutableListOf<RawTextBlock>()
+            sortIntoReadingOrder(
+                recognizeJapaneseWithMangaOcr(bitmap, allLines, yoloBoxes, visionOcrFallback) { block ->
+                    partialAcc += block
+                    onPartial?.invoke(sortIntoReadingOrder(partialAcc.toList(), rightToLeft = true))
+                },
+                rightToLeft = true,
+            )
         } else {
             sortIntoReadingOrder(
                 // Po řádkovém merge ještě sloučíme bloky padající do STEJNÉHO YOLO boxu -
@@ -421,6 +440,9 @@ class OcrEngine @Inject constructor(
                 rightToLeft = isRightToLeftScript(resolvedLanguage),
             )
         }
+        // Kompletni slouceny seznam (pred anotaci barev/tvaru) - posledni a nejlepsi
+        // castecny vysledek, ktery pri timeoutu jeste muze poslouzit (OCR-3).
+        onPartial?.invoke(merged)
         logIfSuspiciousReadingOrder(merged)
         // Prvni pruchod: klasicke (flood-fill / edge-aware) pokusy o tvar pro kazdy blok. Bloky,
         // kde OBA selzaly, se sesbiraji do `needsMaskSegmenter` - GPL model (viz nize) se pak
@@ -566,10 +588,17 @@ class OcrEngine @Inject constructor(
      * [RawTextBlock.lineCount] - viz [PositionedTranslationBlock.minTopF] v TranslationLayout.kt.)
      */
     private suspend fun recognizeLines(language: String, image: InputImage, w: Float, h: Float): List<RawTextBlock> {
+        // Kdyz strankovy timeout uz vyprsel, nema smysl startovat nativni ML Kit task -
+        // ten se zrusit neda a bez checku by zbytecne bezel na pozadi (audit OCR-5).
+        currentCoroutineContext().ensureActive()
         val result = suspendCancellableCoroutine { cont ->
-            recognizerFor(language).process(image)
+            val task = recognizerFor(language).process(image)
                 .addOnSuccessListener { cont.resume(it) }
                 .addOnFailureListener { cont.resumeWithException(it) }
+            // ML Kit Task cancel() NEMA - po zruseni stranky nativni prace dobehne na
+            // pozadi a resume na mrtve continuation je no-op. Handler task drzi nazivu
+            // az do dokonceni/zruseni, aby GC task nezahodil driv, nez listenery dobehly.
+            cont.invokeOnCancellation { task }
         }
         return result.textBlocks.flatMap { it.lines }.mapNotNull { line ->
             val box = line.boundingBox ?: return@mapNotNull null
@@ -614,8 +643,11 @@ class OcrEngine @Inject constructor(
         mlKitLines: List<RawTextBlock>,
         boxes: List<DetectedBubbleBox>,
         visionOcrFallback: (suspend (Bitmap) -> String?)? = null,
+        /** Každá dokončená bublina - pro průběžné částečné výsledky (audit OCR-3). */
+        onBubbleDone: ((RawTextBlock) -> Unit)? = null,
     ): List<RawTextBlock> {
-        return boxes.mapNotNull { box ->
+        val out = mutableListOf<RawTextBlock>()
+        for (box in boxes) {
             val crop = cropBubbleBoxWithMargin(bitmap, box)
             // Bez finally { crop.recycle() } schválně: recognizeCropWithMlKit níž nemá
             // invokeOnCancellation na svém suspendCancellableCoroutine, takže při zrušení
@@ -639,10 +671,8 @@ class OcrEngine @Inject constructor(
             val text = mangaOcrText.takeUnless { it.isNullOrBlank() }
                 ?: mlKitText.takeUnless { it.isNullOrBlank() }
                 ?: visionText
-            if (text.isNullOrBlank()) {
-                null
-            } else {
-                RawTextBlock(
+            if (!text.isNullOrBlank()) {
+                val block = RawTextBlock(
                     text = text,
                     leftF = box.leftF,
                     topF = box.topF,
@@ -650,8 +680,11 @@ class OcrEngine @Inject constructor(
                     bottomF = box.bottomF,
                     lineCount = lineCountForBox(box, mlKitLines),
                 )
+                out += block
+                onBubbleDone?.invoke(block)
             }
         }
+        return out
     }
 
     /**
@@ -682,10 +715,14 @@ class OcrEngine @Inject constructor(
     private suspend fun recognizeCropWithMlKit(crop: Bitmap): String? {
         val image = InputImage.fromBitmap(crop, 0)
         val result: Text = try {
+            // Stejny duvod jako v recognizeLines - task uz se nespusti, kdyz je
+            // korutina mrtva (audit OCR-5).
+            currentCoroutineContext().ensureActive()
             suspendCancellableCoroutine { cont ->
-                japaneseRecognizer.process(image)
+                val task = japaneseRecognizer.process(image)
                     .addOnSuccessListener { cont.resume(it) }
                     .addOnFailureListener { cont.resumeWithException(it) }
+                cont.invokeOnCancellation { task }
             }
         } catch (e: CancellationException) {
             throw e
