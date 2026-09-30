@@ -177,7 +177,6 @@ class TachiyomiBackupImporter @Inject constructor(
         url.contains("mangadex.org")        -> "mangadex"
         url.contains("mangaplus")           -> "mangaplus"
         url.contains("webtoons")            -> "webtoons"
-        url.contains("bato.to")             -> "batoto"
         else                                -> null
     }
 }

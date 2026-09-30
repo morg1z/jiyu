@@ -23,7 +23,6 @@
     "description": "Rychlé aktualizace, mnoho scanlation skupin (vestavěný zdroj)",
     "nsfw": false
   },
-
   {
     "id": "asurascans",
     "name": "Asura Scans",
@@ -560,7 +559,6 @@
     "description": "Manga pro dospělé — 18+",
     "nsfw": true
   },
-
   {
     "id": "komikcast",
     "name": "KomikCast",
@@ -633,7 +631,6 @@
     "description": "Baca manga bahasa Indonesia",
     "nsfw": false
   },
-
   {
     "id": "lectormanga",
     "name": "LectorManga",
@@ -672,14 +669,6 @@
     "baseUrl": "https://mangaesp.co",
     "language": "es",
     "description": "Manga en español",
-    "nsfw": false
-  },
-  {
-    "id": "inmanga",
-    "name": "InManga",
-    "baseUrl": "https://inmanga.com",
-    "language": "es",
-    "description": "Manga online en español",
     "nsfw": false
   },
   {
@@ -746,7 +735,6 @@
     "description": "Manga en español",
     "nsfw": false
   },
-
   {
     "id": "mangalivre",
     "name": "Manga Livre",
@@ -827,7 +815,6 @@
     "description": "Scanlation brasileiro de manhwa",
     "nsfw": false
   },
-
   {
     "id": "scanvf",
     "name": "ScanVF",
@@ -892,7 +879,6 @@
     "description": "Scan manga en français",
     "nsfw": false
   },
-
   {
     "id": "mangade",
     "name": "Manga-Scantrad DE",
@@ -917,7 +903,6 @@
     "description": "Manga für deutsche Fans",
     "nsfw": false
   },
-
   {
     "id": "nekopost_th",
     "name": "NekoPost",
@@ -934,7 +919,6 @@
     "description": "อ่านมังงะภาษาไทย",
     "nsfw": false
   },
-
   {
     "id": "mangakalite",
     "name": "MangaKalite",
@@ -959,7 +943,6 @@
     "description": "Türkçe manga oku",
     "nsfw": false
   },
-
   {
     "id": "mangascan_it",
     "name": "MangaScan IT",
@@ -984,7 +967,6 @@
     "description": "Leggi manga in italiano",
     "nsfw": false
   },
-
   {
     "id": "mangapolska",
     "name": "Manga Polska",
@@ -1001,7 +983,6 @@
     "description": "Czytaj mangę po polsku",
     "nsfw": false
   },
-
   {
     "id": "remanga",
     "name": "ReManga",
@@ -1026,7 +1007,6 @@
     "description": "Большая библиотека манги",
     "nsfw": false
   },
-
   {
     "id": "truyenqq",
     "name": "TruyenQQ",
@@ -1043,7 +1023,6 @@
     "description": "Đọc manga tiếng Việt",
     "nsfw": false
   },
-
   {
     "id": "mangakakalot_com",
     "name": "MangaKakalot.com",
@@ -1173,22 +1152,6 @@
     "nsfw": false
   },
   {
-    "id": "mangapark",
-    "name": "MangaPark",
-    "baseUrl": "https://mangapark.net",
-    "language": "en",
-    "description": "Manga reader s verzováním — vlastní engine",
-    "nsfw": false
-  },
-  {
-    "id": "batoto",
-    "name": "Bato.to",
-    "baseUrl": "https://bato.to",
-    "language": "all",
-    "description": "Komunitní manga hosting, 40+ jazyků — vlastní engine",
-    "nsfw": false
-  },
-  {
     "id": "dynastyscans",
     "name": "Dynasty Scans",
     "baseUrl": "https://dynasty-scans.com",
@@ -1218,22 +1181,6 @@
     "baseUrl": "https://novelfull.com",
     "language": "en",
     "description": "Light novel & web novel — textový formát",
-    "nsfw": false
-  },
-  {
-    "id": "evilmanga",
-    "name": "Evil Manga",
-    "baseUrl": "https://evil-manga.eu",
-    "language": "cs",
-    "description": "Český manga web s vlastním enginem.",
-    "nsfw": false
-  },
-  {
-    "id": "mangaboomers",
-    "name": "Manga Boomers",
-    "baseUrl": "https://manga-boomers.cz",
-    "language": "cs",
-    "description": "Česká manga scanlation skupina.",
     "nsfw": false
   }
 ]

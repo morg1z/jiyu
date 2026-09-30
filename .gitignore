@@ -41,3 +41,7 @@ relnotes.tmp
 /md.html
 /wb.html
 .aider*
+
+# Crash/recording artefakty a scratch DB z lokalniho ladeni (faze 9 auditu).
+/replay_pid*.log
+/work.db

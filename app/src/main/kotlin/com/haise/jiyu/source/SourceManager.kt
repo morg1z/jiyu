@@ -312,15 +312,15 @@ class SourceManager @Inject constructor(
         comixSource,
         // Bato.to odstraněno 2026-07-27 - z vývojářského stroje šlo jen o "connection
         // timed out" (možná blokace datacenter IP), ale uživatel potvrdil, že appka na
-        // reálném telefonu Bato.to taky nenačte. Viz BatoToSource.kt (ponecháno pro
-        // případ, že by se to v budoucnu vrátilo).
+        // reálném telefonu Bato.to taky nenačte. Skeleton třídy smazán ve fázi 9
+        // auditu - implementaci má historie gitu, kdyby se zdroj vracel.
         webtoonSource,
         dynastySource,
         // MangaPark odstraněno 2026-08-24 - domena mangapark.page uz neni skutecny
         // manga web, ale SEO/AI-generovana "content farm" stranka (masivni klicovkovy
         // text "MangaPark vs MangaDex vs Manganelo", genericke FAQ, zadne skutecne
-        // odkazy na kapitoly) - proto "zadne vysledky" hlasene uzivatelem. Viz
-        // MangaParkSource.kt (ponechano pro pripad navratu na funkcni domenu).
+        // odkazy na kapitoly) - proto "zadne vysledky" hlasene uzivatelem. Skeleton
+        // třídy smazán ve fázi 9 auditu (historie gitu ho má).
         novelFullSource,
         freeWebNovelSource,
         mangagoSource,
@@ -504,7 +504,8 @@ class SourceManager @Inject constructor(
         // renderovaný (AngularJS "Factory/Controller" SPA), reálný POST endpoint
         // "/manga/GetMangasConsultResult" existuje, ale přesný JSON tvar
         // "filterSettings" parametru se nepodařilo v rozumném čase zjistit
-        // (needs bigger investigation). Viz InMangaSource.kt (ponecháno).
+        // (needs bigger investigation). Skeleton třídy smazán ve fázi 9 auditu -
+        // historie gitu ho má, kdyby se někdy dodělával.
         // ── Noví kandidáti (jednoduchý vlastní scraping) ─────────────────────
         mangaDotNetSource,
         kaliScanSource,
@@ -600,7 +601,7 @@ class SourceManager @Inject constructor(
         // skutecnou posledni stranku.
         projectSukiSource,
         // Rokari Comics (rokaricomics.com) - stejna Mangathemesia/"Mangastream"
-        // sablona jako GalaxyMangaSource/RawKumaSource, ale status/typ jsou v
+        // sablona jako Galaxy Manga výše, ale status/typ jsou v
         // <table><tr><td> radcich misto div.imptdt.
         MangaThemesiaSource("rokaricomics", "Rokari Comics", "https://rokaricomics.com", client, userAgent = SourceHttp.USER_AGENT_DESKTOP_124, sendReferer = true, genreArchive = true),
         kdtScansSource,
@@ -637,8 +638,8 @@ class SourceManager @Inject constructor(
         // vráceny 2026-07-27 na uživatelův popud, ale živý test v appce/emulátoru
         // potvrdil stejné selhání jako u evilmanga i s Kotatsu-style AJAX
         // archivem, takže odstraněny znovu).
-        // Viz *Source.kt třídy jednotlivých zdrojů (ponechány pro případ, že by
-        // appka v budoucnu routovala requesty přes WebView).
+        // Skeletony tříd těchto zdrojů byly smazány ve fázi 9 auditu - implementace
+        // má historie gitu, kdyby appka v budoucnu routovala requesty přes WebView.
         //
         // madaradex: NEODSTRANĚN jako "CF-gated" web, ale CDN subdoména
         // (cdn.madaradex.org) sama vrací 403 i se správným Refererem (vlastní WAF
@@ -649,20 +650,22 @@ class SourceManager @Inject constructor(
         // (api.mghubcdn.com/graphql) vrací HTTP 200, ale tělo je anti-adblock/bot
         // "Redirecting..." JS interstitial (ne Cloudflare - jiný, nebrandovaný bot
         // gate), takže JSONObject parsing tiše selže a getPopular() vrátí prázdno.
-        // Appka nemá infrastrukturu pro řešení tohoto typu JS gate. Viz MangaHubSource.kt.
+        // Appka nemá infrastrukturu pro řešení tohoto typu JS gate. Skeleton smazán
+        // ve fázi 9 auditu (historie gitu).
         //
         // rawkuma: web se přestěhoval na rawkuma.net s kompletně jinou strukturou
         // (WordPress + htmx, archiv karty se dohrávají přes skrytý JS lazyload
         // mechanismus, ne standardní hx-get), navíc opakované curl requesty
         // narazily na skutečný Cloudflare "you have been blocked" hard-block -
-        // vyžadovalo by kompletní přepis srovnatelný s mangadenizi. Viz RawKumaSource.kt.
+        // vyžadovalo by kompletní přepis srovnatelný s mangadenizi. Skeleton smazán
+        // ve fázi 9 auditu (historie gitu).
         //
         // mangaboomers: manga-boomers.cz je Vue SPA, seznam titulů jde přes
         // "/api/mangalist" (funguje), ale detail/kapitoly ("/api/mangaInfo",
         // "/api/loadChapters") vyžadují neznámý tvar POST parametru - vyzkoušeny
         // běžné varianty (id, mangaId, manga_id, JSON body, cookie session), žádná
         // nefunguje. Bez čitelné kapitoly by appka jen "prohlížela", proto odstraněno.
-        // Viz MangaBoomersSource.kt.
+        // Skeleton smazán ve fázi 9 auditu (historie gitu).
         //
         // mangablaze: web běží na hluboce přetémovaném/bespoke Madara (vlastní
         // a.acard/.ac-t karty, detail/kapitola nesedí na žádný výchozí Madara
