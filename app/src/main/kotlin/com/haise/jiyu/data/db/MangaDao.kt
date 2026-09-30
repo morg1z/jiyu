@@ -213,6 +213,17 @@ interface MangaDao {
           AND lastReadAt = 0
           AND id NOT IN (SELECT DISTINCT mangaId FROM read_history)
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_category)
+          -- User-authored data: poznamka/tag/glosar/manualni preklad jsou jedina cast
+          -- databaze, kterou stroj sam nevyrobi - browsed cleanup je musi chranit stejne
+          -- jako knihovnu/historii, jinak preview->poznamka->restart = navzdy smazano
+          -- (audit DB-1).
+          AND id NOT IN (SELECT DISTINCT mangaId FROM manga_note)
+          AND id NOT IN (SELECT DISTINCT mangaId FROM manga_tag)
+          AND id NOT IN (SELECT DISTINCT mangaId FROM glossary_entry)
+          AND id NOT IN (
+              SELECT DISTINCT mangaId FROM chapter
+              WHERE id IN (SELECT DISTINCT chapterId FROM manual_translation)
+          )
           AND id NOT IN (
               SELECT DISTINCT mangaId FROM chapter
               WHERE localPath IS NOT NULL OR downloadStatus IN ('QUEUED', 'DOWNLOADING')

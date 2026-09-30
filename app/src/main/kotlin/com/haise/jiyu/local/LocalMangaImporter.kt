@@ -3,6 +3,8 @@ package com.haise.jiyu.local
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.room.withTransaction
+import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
@@ -21,6 +23,7 @@ class LocalMangaImporter @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val mangaDao: MangaDao,
     private val chapterDao: ChapterDao,
+    private val db: AppDatabase,
 ) {
     private val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "webp", "avif", "bmp")
 
@@ -86,35 +89,53 @@ class LocalMangaImporter @Inject constructor(
             val mangaId  = "local::$sanitized"
             val chapterId = "local_ch::$sanitized"
 
-            mangaDao.upsert(
-                MangaEntity(
-                    id = mangaId,
-                    sourceId = "local",
-                    url = sanitized,
-                    title = mangaTitle,
-                    coverUrl = "file://${images.first().absolutePath}",
-                    description = null,
-                    status = null,
-                    inLibrary = true,
-                    addedAt = System.currentTimeMillis(),
-                )
-            )
-            chapterDao.upsertAll(
-                listOf(
-                    ChapterEntity(
-                        id = chapterId,
-                        mangaId = mangaId,
+            // Transakce + merge s existujici radkou: re-import stejneho archivu driv upsertoval
+            // cerstvou MangaEntity s defaulty - tise to smazalo userRating/readingStatus/
+            // trackerIds/isFavorite/readerDirectionOverride/readingTimeMs/addedAt, u kapitoly
+            // read/lastPageRead (audit DB-8). Merge zachova vsechna uzivatelska pole a
+            // aktualizuje jen importovana (titul, obalku, stranky).
+            db.withTransaction {
+                val existingManga = mangaDao.getById(mangaId)
+                mangaDao.upsert(
+                    existingManga?.copy(
+                        title = mangaTitle,
+                        coverUrl = "file://${images.first().absolutePath}",
+                        inLibrary = true,
+                    ) ?: MangaEntity(
+                        id = mangaId,
                         sourceId = "local",
-                        url = "",
-                        name = "Lokální soubor",
-                        chapterNumber = 1f,
-                        dateUpload = System.currentTimeMillis(),
-                        downloadStatus = DownloadStatus.DOWNLOADED,
-                        localPath = outputDir.absolutePath,
-                        pageCount = images.size,
+                        url = sanitized,
+                        title = mangaTitle,
+                        coverUrl = "file://${images.first().absolutePath}",
+                        description = null,
+                        status = null,
+                        inLibrary = true,
+                        addedAt = System.currentTimeMillis(),
                     )
                 )
-            )
+                val existingChapter = chapterDao.getById(chapterId)
+                chapterDao.upsertAll(
+                    listOf(
+                        existingChapter?.copy(
+                            dateUpload = System.currentTimeMillis(),
+                            downloadStatus = DownloadStatus.DOWNLOADED,
+                            localPath = outputDir.absolutePath,
+                            pageCount = images.size,
+                        ) ?: ChapterEntity(
+                            id = chapterId,
+                            mangaId = mangaId,
+                            sourceId = "local",
+                            url = "",
+                            name = "Lokální soubor",
+                            chapterNumber = 1f,
+                            dateUpload = System.currentTimeMillis(),
+                            downloadStatus = DownloadStatus.DOWNLOADED,
+                            localPath = outputDir.absolutePath,
+                            pageCount = images.size,
+                        )
+                    )
+                )
+            }
             chapterId
         }
     }

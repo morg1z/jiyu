@@ -115,6 +115,35 @@ class ChapterDaoTest {
     }
 
     @Test
+    fun `relink onto an already existing chapter id survives the collision`() = runTest {
+        // Audit DB-2: canonical kapitola se mezitim objevila samostatne (napr. paraleni
+        // refresh), takze UPDATE pk->pk narazi na existujici radek. Bez OR REPLACE by
+        // SQLITE_CONSTRAINT_PRIMARYKEY shodila celou relink transakci v MangaRepository
+        // a nechala polovicne prelinkovana data.
+        dao.insertNewOnly(listOf(chapter("old-id", read = true, status = DownloadStatus.DOWNLOADED, chapterNumber = 5f)))
+        dao.insertNewOnly(listOf(chapter("new-id", chapterNumber = 5f)))
+
+        dao.relink(
+            oldId = "old-id",
+            newId = "new-id",
+            newSourceId = "test",
+            newUrl = "https://new.example.com/ch5",
+            newName = "Chapter 5",
+            dateUpload = 123456L,
+            scanlationGroup = null,
+            volume = null,
+            groupsJson = null,
+        )
+
+        val relinked = dao.getById("new-id")!!
+        // Prelinkovany radek vyhral a udrzel si svuj uzivatelsky stav.
+        assertEquals(true, relinked.read)
+        assertEquals(DownloadStatus.DOWNLOADED, relinked.downloadStatus)
+        assertEquals("https://new.example.com/ch5", relinked.url)
+        assertNull(dao.getById("old-id"))
+    }
+
+    @Test
     fun `setVerifiedPageCount writes count and isFallback without touching other fields`() = runTest {
         dao.insertNewOnly(listOf(chapter("ch-1", read = true, status = DownloadStatus.DOWNLOADED)))
 

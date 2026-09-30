@@ -33,9 +33,11 @@ import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.mangadex.MangaDexSource
 import com.haise.jiyu.util.normalizeMangaTitle
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.debounce
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
@@ -53,6 +55,8 @@ private const val DETAILS_TTL_MS = 5L * 60 * 1000
 private const val LISTING_TTL_MS = 3L * 60 * 1000
 private const val LISTING_MAX = 48
 private const val DETAILS_MAX = 16
+// Audit DB-3 - viz observeUpdates().
+private const val AGGREGATE_DEBOUNCE_MS = 300L
 
 /** Typy, kde má katalogová verifikace smysl - NOVEL/COMIC zdroje jsou téměř vždy
  *  uniformní (celý web je jeden typ) a oraculům chybí signál pro western comics. */
@@ -88,7 +92,14 @@ class MangaRepository @Inject constructor(
     suspend fun getAllLibraryManga(): List<MangaEntity> = mangaDao.getAllLibrary()
     suspend fun getAllLibraryGenres(): List<String> = mangaDao.getAllLibraryGenres()
     suspend fun getAllLibraryAuthors(): List<String> = mangaDao.getAllLibraryAuthors()
-    fun observeUpdates(): Flow<List<com.haise.jiyu.data.db.UpdateItem>> = chapterDao.observeUpdates()
+    // Audit DB-3: Room invaliduje tyto flow pri KAZDEM zapisu do chapter tabulky -
+    // reader na kazde otočeni stranky zapisuje lastPageRead/lastScrollOffset, takze se
+    // agregatni dotazy (GROUP BY pres cely chapter, korelovane subdotazy v observeUpdates)
+    // prepocitavaly i behem cteni, kdyz je Updates/knihovna videt. Debounce sbali burst
+    // zapisu do jednoho prepoctu; obsahove se nic nemeni (obsah se cte az po ustaleni).
+    @OptIn(FlowPreview::class)
+    fun observeUpdates(): Flow<List<com.haise.jiyu.data.db.UpdateItem>> =
+        chapterDao.observeUpdates().debounce(AGGREGATE_DEBOUNCE_MS)
     suspend fun markEverythingRead() = chapterDao.markAllRead()
     fun observeRecentlyRead(): Flow<List<MangaEntity>> = mangaDao.observeRecentlyRead()
     fun observeContinueReading(): Flow<List<com.haise.jiyu.data.db.ContinueReadingItem>> = mangaDao.observeContinueReading()
@@ -115,8 +126,12 @@ class MangaRepository @Inject constructor(
     /** Dávkuje po 400, aby nenarazila na SQLite strop na počet parametrů (999). */
     suspend fun getChaptersByIds(ids: List<String>): List<ChapterEntity> =
         ids.chunked(400).flatMap { chapterDao.getByIds(it) }
-    fun observeUnreadCounts(): Flow<List<MangaUnreadCount>> = chapterDao.observeUnreadCounts()
-    fun observeTotalCounts(): Flow<List<MangaTotalCount>> = chapterDao.observeTotalCounts()
+    @OptIn(FlowPreview::class)
+    fun observeUnreadCounts(): Flow<List<MangaUnreadCount>> =
+        chapterDao.observeUnreadCounts().debounce(AGGREGATE_DEBOUNCE_MS)
+    @OptIn(FlowPreview::class)
+    fun observeTotalCounts(): Flow<List<MangaTotalCount>> =
+        chapterDao.observeTotalCounts().debounce(AGGREGATE_DEBOUNCE_MS)
     fun observeDownloadedCountPerManga(): Flow<List<MangaDownloadedCount>> = chapterDao.observeDownloadedCountPerManga()
     fun observeNonEmptyDownloads(): Flow<List<ChapterEntity>> = chapterDao.observeNonEmptyDownloads()
     fun observeDownloadedCount(): Flow<Int> = chapterDao.observeDownloadedCount()

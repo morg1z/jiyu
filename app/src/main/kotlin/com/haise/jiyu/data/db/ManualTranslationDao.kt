@@ -37,8 +37,10 @@ interface ManualTranslationDao {
      * `oldChapterId` je vždy jeho přesná předpona, takže `substr` odřízne jen ji a `newChapterId`
      * se přilepí místo ní, aby `id` zůstalo ve stejném formátu i po relinku.
      */
+    // OR REPLACE - viz ChapterDao.relink (audit DB-2): kolize noveho id by jinak
+    // shodila celou relink transakci.
     @Query("""
-        UPDATE manual_translation
+        UPDATE OR REPLACE manual_translation
         SET id = :newChapterId || substr(id, length(:oldChapterId) + 1),
             chapterId = :newChapterId
         WHERE chapterId = :oldChapterId

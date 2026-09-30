@@ -32,8 +32,10 @@ interface TranslatedPageDao {
      * Porovnání přes `substr(...) = ...` místo `LIKE` schválně - chapterId je "$sourceId::$url"
      * (viz MangaRepository.chapterId) a URL běžně obsahuje `%`/`_`, což by LIKE vyhodnotil jako
      * wildcard místo doslovného znaku a match by byl špatný. */
+    // OR REPLACE - viz ChapterDao.relink (audit DB-2): kolize noveho id by jinak
+    // shodila celou transakci; cacha stranka se da vzdy pregenerovat.
     @Query("""
-        UPDATE translated_page
+        UPDATE OR REPLACE translated_page
         SET id = :newChapterId || substr(id, length(:oldChapterId) + 1)
         WHERE substr(id, 1, length(:oldChapterId) + 2) = :oldChapterId || '::'
     """)

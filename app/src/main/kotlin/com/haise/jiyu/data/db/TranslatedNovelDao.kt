@@ -30,8 +30,9 @@ interface TranslatedNovelDao {
 
     /** Viz [com.haise.jiyu.data.db.TranslatedPageDao.relinkChapter] - stejná úvaha (`id` je
      * "$chapterId::$sourceLang::$targetLang", `substr` porovnání místo `LIKE` kvůli `%`/`_` v URL). */
+    // OR REPLACE - viz ChapterDao.relink (audit DB-2).
     @Query("""
-        UPDATE translated_novel
+        UPDATE OR REPLACE translated_novel
         SET id = :newChapterId || substr(id, length(:oldChapterId) + 1)
         WHERE substr(id, 1, length(:oldChapterId) + 2) = :oldChapterId || '::'
     """)

@@ -29,7 +29,9 @@ interface ReadHistoryDao {
      * tady navíc primární klíč, ale SQLite dovolí UPDATE i na PK sloupec. Bez tohohle by po
      * relinku (viz MangaRepository.recoverMangaLink) historie čtení ukazovala na neexistující
      * staré id kapitoly. */
-    @Query("UPDATE read_history SET chapterId = :newChapterId WHERE chapterId = :oldChapterId")
+    // OR REPLACE - viz ChapterDao.relink (audit DB-2): kolize chapterId PK by jinak
+    // shodila celou relink transakci.
+    @Query("UPDATE OR REPLACE read_history SET chapterId = :newChapterId WHERE chapterId = :oldChapterId")
     suspend fun relinkChapter(oldChapterId: String, newChapterId: String)
 
     @Query("DELETE FROM read_history")

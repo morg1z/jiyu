@@ -93,8 +93,13 @@ interface ChapterDao {
      * MangaRepository.recoverMangaLink/relinkMangaToSource) - záměrně NEMĚNÍ read/lastPageRead/
      * lastReadAt/lastScrollOffset/downloadStatus/localPath/pageCount/discoveredAt, aby uživatel
      * o postup čtení/stažené soubory nepřišel. */
+    // OR REPLACE: kdyz kapitola s newId uz existuje (canonical kapitola se mezitim
+    // objevila samostatne), plain UPDATE vyhodi SQLITE_CONSTRAINT_PRIMARYKEY a shodi
+    // celou relink transakci v MangaRepository (audit DB-2). REPLACE kolizni radek
+    // smaze a prejmenuje stary - postup/stazeni stareho radku se zachovava, coz je
+    // presne semantika, kterou docstring slibuje.
     @Query("""
-        UPDATE chapter SET id = :newId, sourceId = :newSourceId, url = :newUrl, name = :newName,
+        UPDATE OR REPLACE chapter SET id = :newId, sourceId = :newSourceId, url = :newUrl, name = :newName,
                dateUpload = :dateUpload, scanlationGroup = :scanlationGroup, volume = :volume,
                groupsJson = :groupsJson
         WHERE id = :oldId

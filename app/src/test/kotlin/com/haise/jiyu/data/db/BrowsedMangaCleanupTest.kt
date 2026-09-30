@@ -9,6 +9,8 @@ import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
+import com.haise.jiyu.data.db.entity.MangaNoteEntity
+import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -148,6 +150,60 @@ class BrowsedMangaCleanupTest {
     }
 
     @Test
+    fun `a manga with a user note survives`() = runTest {
+        // Audit DB-1: uzivatel u preview-mangy napsal poznamku - je to user-authored data
+        // a mangu tak musi uklid chranit, i kdyz neni v knihovne.
+        dao.upsert(manga("noted"))
+        db.mangaNoteDao().upsert(MangaNoteEntity(mangaId = "noted", content = "pokracovat od ch. 12"))
+        assertEquals(0, db.deleteBrowsedManga())
+        assertNotNull(dao.getById("noted"))
+        assertNotNull(db.mangaNoteDao().getAll().firstOrNull { it.mangaId == "noted" })
+    }
+
+    @Test
+    fun `a manga with a user tag survives`() = runTest {
+        dao.upsert(manga("tagged"))
+        db.mangaTagDao().insert(MangaTagEntity(mangaId = "tagged", tag = "dark fantasy"))
+        assertEquals(0, db.deleteBrowsedManga())
+        assertNotNull(dao.getById("tagged"))
+    }
+
+    @Test
+    fun `a manga with a glossary entry survives`() = runTest {
+        dao.upsert(manga("glossed"))
+        db.glossaryDao().upsert(
+            GlossaryEntity(id = "glossed::term::Czech", mangaId = "glossed", sourceTerm = "Term", targetTerm = "Pojem", targetLanguage = "Czech"),
+        )
+        assertEquals(0, db.deleteBrowsedManga())
+        assertNotNull(dao.getById("glossed"))
+    }
+
+    @Test
+    fun `a manga whose chapter has a manual translation survives`() = runTest {
+        dao.upsert(manga("handedited"))
+        db.chapterDao().upsertAll(listOf(chapter("ch1", "handedited")))
+        db.manualTranslationDao().upsert(
+            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L),
+        )
+        assertEquals(0, db.deleteBrowsedManga())
+        assertNotNull(dao.getById("handedited"))
+        assertNotNull(db.manualTranslationDao().forPage("ch1", 0).firstOrNull())
+    }
+
+    @Test
+    fun `a truly unreferenced browsed manga is still deleted`() = runTest {
+        // Regrese DB-1: nove exclusion podminky nesmi udelat uklid mrtvym - manga bez
+        // jakehokoliv zapisu se ma mazat dal.
+        dao.upsert(manga("keep", inLibrary = true))
+        dao.upsert(manga("junk1"))
+        dao.upsert(manga("junk2"))
+        assertEquals(2, db.deleteBrowsedManga())
+        assertNull(dao.getById("junk1"))
+        assertNull(dao.getById("junk2"))
+        assertNotNull(dao.getById("keep"))
+    }
+
+    @Test
     fun `chapters of a deleted manga go with it`() = runTest {
         dao.upsert(manga("browsed"))
         db.chapterDao().upsertAll(listOf(chapter("ch1", "browsed"), chapter("ch2", "browsed")))
@@ -170,23 +226,29 @@ class BrowsedMangaCleanupTest {
     }
 
     @Test
-    fun `glossary entries of a deleted manga are cleaned up, not left as orphans`() = runTest {
-        dao.upsert(manga("browsed"))
+    fun `deleteChildrenOfManga still removes glossary entries when a manga is deleted directly`() = runTest {
+        // DB-1: glossary uz chrani mangu proti browsed-uklidu, takze ji to nikdy nesmaze;
+        // deleteChildrenOfManga je ale porad pojistka pro jine cesty mazani (neprincipialni
+        // orphan cleanup) - overuje se primo.
+        dao.upsert(manga("doomed", inLibrary = true))
         db.glossaryDao().upsert(
-            GlossaryEntity(id = "browsed::term::Czech", mangaId = "browsed", sourceTerm = "Term", targetTerm = "Pojem", targetLanguage = "Czech"),
+            GlossaryEntity(id = "doomed::term::Czech", mangaId = "doomed", sourceTerm = "Term", targetTerm = "Pojem", targetLanguage = "Czech"),
         )
-        db.deleteBrowsedManga()
-        assertEquals(emptyList<GlossaryEntity>(), db.glossaryDao().getForMangaAndLanguage("browsed", "Czech"))
+        dao.deleteChildrenOfManga(listOf("doomed"))
+        dao.deleteMangaByIds(listOf("doomed"))
+        assertEquals(emptyList<GlossaryEntity>(), db.glossaryDao().getForMangaAndLanguage("doomed", "Czech"))
+        assertNull(dao.getById("doomed"))
     }
 
     @Test
-    fun `manual translations of a deleted manga's chapters are cleaned up, not left as orphans`() = runTest {
-        dao.upsert(manga("browsed"))
-        db.chapterDao().upsertAll(listOf(chapter("ch1", "browsed")))
+    fun `deleteChildrenOfManga still removes manual translations when a manga is deleted directly`() = runTest {
+        dao.upsert(manga("doomed2", inLibrary = true))
+        db.chapterDao().upsertAll(listOf(chapter("ch1", "doomed2")))
         db.manualTranslationDao().upsert(
             ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L),
         )
-        db.deleteBrowsedManga()
+        dao.deleteChildrenOfManga(listOf("doomed2"))
+        dao.deleteMangaByIds(listOf("doomed2"))
         assertEquals(emptyList<ManualTranslationEntity>(), db.manualTranslationDao().forPage("ch1", 0))
     }
 }
