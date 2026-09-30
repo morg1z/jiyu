@@ -365,6 +365,12 @@ class ReaderViewModel @Inject constructor(
     // skoncil cteni), ne prubezne behem pohybu.
     private var scrollPersistJob: Job? = null
 
+    /**
+     * Joby běžících/čekajících [retranslatePage] per chapterId - viz komentář v
+     * [retranslatePage].
+     */
+    private val retranslatePageJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
     fun saveWebtoonScrollOffset(offset: Int) {
         val chapterId = currentChapter?.id ?: return
         if (_incognitoMode.value) return
@@ -800,6 +806,11 @@ class ReaderViewModel @Inject constructor(
      * [manualEditId] má odjakživa.
      */
     fun retranslatePage(chapterId: String, pageIndex: Int) {
+        // Joby běžících/čekajících retranslatePage per chapterId (audit TR-6):
+        // překlady se v TranslateRepository serializují per-chapter mutexem, takže
+        // opakované klepnutí by se bez storna zařadilo do fronty a každý pokus by
+        // znovu spálil OCR+API volání. Nový požadavek na stejnou kapitolu starý
+        // zruší - čekající i běžící (OCR/API cesty jsou cancellable).
         val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
         // Stranky cilove kapitoly: pro aktualni z _pages, pro odscrollany webtoon
         // segment z jeho ulozeneho seznamu (audit RD-4 - _pages drzi jen aktualni
@@ -809,7 +820,8 @@ class ReaderViewModel @Inject constructor(
         } else {
             _webtoonSegments.value.firstOrNull { it.chapterId == chapterId }?.pages?.getOrNull(pageIndex)
         } ?: return
-        viewModelScope.launch {
+        retranslatePageJobs[chapterId]?.cancel()
+        val job = viewModelScope.launch {
             val blocks = translateRepository.translatePage(
                 pageUrl = pageUrl,
                 chapterId = chapterId,
@@ -825,6 +837,10 @@ class ReaderViewModel @Inject constructor(
             )
             if (blocks.isNotEmpty()) putTranslatedPage(chapterId, pageIndex, blocks)
         }
+        retranslatePageJobs[chapterId] = job
+        // Odstanit jen SVOJÍ položku - po cancel a okamžitém novém tapu by jinak
+        // starý job smazal záznam nového jobu a další cancel by ho už netrefil.
+        job.invokeOnCompletion { retranslatePageJobs.remove(chapterId, job) }
     }
 
     fun clearTranslationError() { _translationError.value = null }

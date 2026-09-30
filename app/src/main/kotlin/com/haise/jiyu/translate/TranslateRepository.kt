@@ -23,7 +23,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -162,6 +164,33 @@ class TranslateRepository @Inject constructor(
      * nebo každém spuštění batch překladu.
      */
     private val untransRetriedPages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Per-chapter mutex serializující překladové zápisy (audit TR-6). Před tím nic
+     * nechránilo souběžné [translatePage]/[translateChapter]/[translateNovelChapter]
+     * nad stejnou kapitolou - reálně se potkávají: auto-překlad při otevření,
+     * "Přeložit vše", [ReaderViewModel.retranslatePage], preload další kapitoly
+     * a TranslateChapterWorker ze stažené kapitoly. Všechny čtou/píší stejné
+     * `translated_page` řádky (cacheId = chapterId|pageIndex|jazyky) a seam-dedup
+     * navíc dělá read-modify-write na SUSEDNÍ stránky (previousRaw/nextRaw), takže
+     * se souběžné běhy vzájemně přebíjely - přešitá bublina pak mohla zůstat
+     * vykreslená dvakrát (starý overlay + nový vítěz).
+     *
+     * Klíč je jen chapterId (jazyky schválně kolabují do stejného mutexu): překlad
+     * stejné kapitoly do jiného jazyka by jinak souběžně zdvojil OCR nad stejnými
+     * bitmapami i tlak na API kvótu. Čekání v [Mutex.withLock] je cancellable -
+     * zrušená korutina ve frontě se uklidí sama.
+     *
+     * POZOR: [getCachedPage] záměrně lock NEBERE - volá se uvnitř zamčených sekcí
+     * (úvodní cache průchod translateChapter by se jinak zdeadlockoval) i z read
+     * path čtečky. Jeho shape-migration upsert je idempotentní přepis starého
+     * formátu na nový - residuální race s probíhajícím překladem existuje, ale
+     * prohraje jen proti čerstvému překladu (ten má novější formát už vždy).
+     */
+    private val chapterTranslationMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    private fun chapterMutex(chapterId: String): Mutex =
+        chapterTranslationMutexes.getOrPut(chapterId) { Mutex() }
 
     /**
      * Má stránka blok označený `isUntranslated` (model vrátil echo/zkomoleninu), který
@@ -370,6 +399,27 @@ class TranslateRepository @Inject constructor(
         pageIndex: Int,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
+        forceRefresh: Boolean = false,
+        onAdjacentPageRewritten: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit = { _, _ -> },
+    ): List<TranslatedBlock> =
+        // TR-6: celá read-modify-write sekvence pod per-chapter mutexem - viz
+        // chapterTranslationMutexes. Seam-dedup tu čte/přepisuje i SUSEDNÍ stránky,
+        // takže nestačí serializovat jen stejný pageIndex.
+        chapterMutex(chapterId).withLock {
+            translatePageSerialized(
+                pageUrl, chapterId, mangaId, pageIndex,
+                targetLanguage, sourceLanguage, forceRefresh, onAdjacentPageRewritten,
+            )
+        }
+
+    /** Tělo [translatePage] - běží už pod per-chapter mutexem, viz wrapper výše. */
+    private suspend fun translatePageSerialized(
+        pageUrl: String,
+        chapterId: String,
+        mangaId: String,
+        pageIndex: Int,
+        targetLanguage: String,
+        sourceLanguage: String,
         // Uzivatelem vyzadane "preloz znovu" (viz ReaderViewModel.retranslatePage) - obejde
         // cache-hit zkratku nize, ale ulozeni vysledku (dao.upsert nize) uz je STEJNA cesta
         // jako pri normalnim cache-miss, takze existujici radek proste prepise (upsert =
@@ -743,6 +793,24 @@ class TranslateRepository @Inject constructor(
         mangaId: String,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
+        onPageReady: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit,
+    ) {
+        // TR-6: per-chapter mutex kolem CELE kapitoly (úvodní cache průchod + OCR
+        // dávka + per-chunk upserty + seam-dedup sousedů). Souběžné volání pro
+        // jinou kapitolu běží paralelně dál; pro stejnou se počká - výsledek pak
+        // dostane z cache, kterou první běh právě zaplnil.
+        chapterMutex(chapterId).withLock {
+            translateChapterSerialized(pages, chapterId, mangaId, targetLanguage, sourceLanguage, onPageReady)
+        }
+    }
+
+    /** Tělo [translateChapter] - běží už pod per-chapter mutexem, viz wrapper výše. */
+    private suspend fun translateChapterSerialized(
+        pages: List<String>,
+        chapterId: String,
+        mangaId: String,
+        targetLanguage: String,
+        sourceLanguage: String,
         onPageReady: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit,
     ) {
         val uncached = mutableListOf<Int>()
@@ -2050,6 +2118,21 @@ class TranslateRepository @Inject constructor(
         text: String,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
+        forceRefresh: Boolean = false,
+    ): String? =
+        // TR-6: stejný per-chapter mutex jako manga cesta - preload další kapitoly
+        // a uživatelem vynucený retranslate se nesmí potkat nad stejným novelDao řádkem.
+        chapterMutex(chapterId).withLock {
+            translateNovelChapterSerialized(chapterId, mangaId, text, targetLanguage, sourceLanguage, forceRefresh)
+        }
+
+    /** Tělo [translateNovelChapter] - běží už pod per-chapter mutexem, viz wrapper výše. */
+    private suspend fun translateNovelChapterSerialized(
+        chapterId: String,
+        mangaId: String,
+        text: String,
+        targetLanguage: String,
+        sourceLanguage: String,
         // Uzivatelem vyzadane "preloz kapitolu znovu" (viz ReaderViewModel.retranslateNovelChapter) -
         // stejny vzor jako translatePage's forceRefresh. Ulozeni vysledku (novelDao.upsert nize)
         // uz je STEJNA cesta jako pri normalnim cache-miss (upsert = REPLACE podle primarniho
