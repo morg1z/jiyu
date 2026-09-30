@@ -8,7 +8,6 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.comick.ResolvedCandidate
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.toList
@@ -61,8 +60,7 @@ class NovelResolverTest {
     fun setUp() {
         sourceManager = mockk()
         settings = SettingsRepository(FakeDataStore())
-        val cloudflareInterceptor = mockk<CloudflareInterceptor>(relaxed = true)
-        resolver = NovelResolver(sourceManager, settings, cloudflareInterceptor)
+        resolver = NovelResolver(sourceManager, settings)
     }
 
     @Test
@@ -149,7 +147,7 @@ class NovelResolverTest {
 
         assertTrue(resolver.findCandidates("Solo Leveling", requestedChapterNumber = 5f)[0].hasRequestedChapter)
         // Novy resolver objekt - cache z minuleho dotazu by jinak vratila drivejsi flag.
-        val fresh = NovelResolver(sourceManager, settings, mockk(relaxed = true))
+        val fresh = NovelResolver(sourceManager, settings)
         assertTrue(!fresh.findCandidates("Solo Leveling", requestedChapterNumber = 7f)[0].hasRequestedChapter)
     }
 
@@ -179,5 +177,27 @@ class NovelResolverTest {
         val result = resolver.findCandidates("Solo Leveling")
 
         assertEquals(1, result.count { it.source.id == "a" })
+    }
+
+    @Test
+    fun `an empty result is re-searched after the negative cache TTL expires`() = runTest {
+        // SRC-4: "zadny zdroj to nema" nesmi zustat vazene na cely beh procesu -
+        // po TTL se sweep zkusi znovu (transientni vypadek muze pominout).
+        var now = 1_000_000L
+        resolver.nowMs = { now }
+        val source = FakeNovelSource("a", "A") // search vraci prazdno
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(source)
+
+        resolver.findCandidates("Missing Novel")
+        assertEquals(1, source.searchCalls)
+
+        // V ramci TTL se negativni vysledek servuje z cache.
+        resolver.findCandidates("Missing Novel")
+        assertEquals(1, source.searchCalls)
+
+        // Po TTL se hleda znovu.
+        now += 10 * 60 * 1000L + 1
+        resolver.findCandidates("Missing Novel")
+        assertEquals(2, source.searchCalls)
     }
 }

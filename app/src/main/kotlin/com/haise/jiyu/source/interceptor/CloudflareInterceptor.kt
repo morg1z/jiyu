@@ -75,22 +75,18 @@ class CloudflareInterceptor @Inject constructor(
     private val hostLocks = com.haise.jiyu.util.boundedLruMap<String, Any>(MAX_HOSTS)
 
     /**
-     * Kdyz appka na pozadi souběžně prohledává desitky zdrojů najednou (ComicKChapterResolver -
-     * hledani realneho zdroje pro ComicK titul), interaktivni Cloudflare vyzva (viz
-     * [CloudflareChallengeBridge]) by uzivatele bombardovala dialogy od zdroju, o ktere se
-     * vubec nezajima - jeden po druhem, jak se na synchronizovanem bridge stridaji (uzivatelsky
-     * pozadavek: "skáče to od různých zdrojů"). Kdyz je tenhle flag zapnuty, tichy WebView pokus
-     * (bezinterakcni Managed Challenge) porad probehne, ale interaktivni fallback se preskoci -
-     * zdroj, ktery potrebuje skutecnou CAPTCHU, se proste bere jako nedostupny pro tenhle pokus
-     * (presne jako kdyby spadl na chybu site), misto aby prekazel. Explicitni prime prochazeni
-     * jednoho zdroje (SourceBrowseScreen) tenhle flag nenastavuje - tam interaktivni vyzva davat
-     * smysl porad ma, uzivatel si ho vybral sam.
+     * Hromadne sweepy pres desitky zdroju najednou (ComicKChapterResolver, CrossSourceSearch,
+     * Comic/Novel resolver) interaktivni vyzvu potlacuji pres [InteractiveChallengePolicy.suppressed] -
+     * priznak je ThreadLocal vazany na korutinu sweepu, takze potlaceni plati jen pro pozadavky
+     * tohohle hledani a nikdy nezasahne do soubezne PRIMEHO prochazeni zdroje uzivatelem ve
+     * foregroundu (driv to delal globalni `suppressInteractiveChallenge` flag - audit SRC-2:
+     * behem okna sweepu dostal i uzivateluv foreground request jen potlacenou cestu a o dva
+     * soubezne sweepy se flag navzajem predcasne vypinal). Tichy WebView pokus (bezinterakcni
+     * Managed Challenge) v potlacenem kontextu porad probehne, jen se preskoci dialog -
+     * zdroj, ktery potrebuje skutecnou CAPTCHU, se bere jako nedostupny pro tenhle pokus.
      */
-    @Volatile var suppressInteractiveChallenge: Boolean = false
-
-    /** Globální příznak (ComicK resolver) nebo kontext pozadí - viz [InteractiveChallengePolicy]. */
     private val interactiveSuppressed: Boolean
-        get() = suppressInteractiveChallenge || InteractiveChallengePolicy.isSuppressed
+        get() = InteractiveChallengePolicy.isSuppressed
 
     // Načte se líně při prvním požadavku (na vlákně OkHttp), ne v konstruktoru - ten běží při startu
     // Hiltu na main vlákně a runBlocking nad DataStore by tam blokoval start aplikace.
@@ -197,7 +193,7 @@ class CloudflareInterceptor @Inject constructor(
             }
 
             if (cookies == null) {
-                // Kdyz to bylo "jen" potlacene (viz suppressInteractiveChallenge), nejde o
+                // Kdyz to bylo "jen" potlacene (viz InteractiveChallengePolicy.suppressed), nejde o
                 // skutecne zjisteny trvaly block - do failureCache se to nedava, aby pozdejsi
                 // PRIME prochazeni tohohle zdroje (mimo hromadne hledani) porad dostalo sanci
                 // na skutecnou interaktivni vyzvu, misto aby ho cooldown preskocil bez ptani.

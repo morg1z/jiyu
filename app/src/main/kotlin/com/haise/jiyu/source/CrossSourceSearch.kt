@@ -2,7 +2,7 @@ package com.haise.jiyu.source
 
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.deserializeAltTitles
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.coroutineScope
@@ -58,7 +58,6 @@ data class RelinkCandidate(
 @Singleton
 class CrossSourceSearch @Inject constructor(
     private val sourceManager: SourceManager,
-    private val cloudflareInterceptor: CloudflareInterceptor,
 ) {
 
     /**
@@ -72,13 +71,12 @@ class CrossSourceSearch @Inject constructor(
      * než omylem přesunout na 18+ web).
      */
     fun seeds(manga: MangaEntity, originalSource: MangaSource?): Flow<RelinkSeed> = channelFlow {
-        // Stejné potlačení interaktivní Cloudflare výzvy jako resolver - hromadný sweep nesmí
-        // vyvolat dialog od zdroje, který uživatel zrovna neprohlíží. Finally vždy vrátí.
-        cloudflareInterceptor.suppressInteractiveChallenge = true
-        try {
+        // Potlačení interaktivní Cloudflare výzvy je scope-bound na korutinu sweepu
+        // (ThreadLocal v InteractiveChallengePolicy) - hromadný sweep nesmí vyvolat dialog
+        // od zdroje, který uživatel zrovna neprohlíží, ale jeho vlastní foreground requesty
+        // to nikdy nezasáhne (na rozdíl od dřívějšího globálního flagu - audit SRC-2).
+        InteractiveChallengePolicy.suppressed {
             sweep(manga, originalSource) { send(it) }
-        } finally {
-            cloudflareInterceptor.suppressInteractiveChallenge = false
         }
     }
 
@@ -88,11 +86,20 @@ class CrossSourceSearch @Inject constructor(
         onFound: suspend (RelinkSeed) -> Unit,
     ) = coroutineScope {
         val semaphore = Semaphore(5)
-        val normalizedTargets = (listOf(manga.title) + deserializeAltTitles(manga.alternateTitles))
+        val titles = (listOf(manga.title) + deserializeAltTitles(manga.alternateTitles))
+        val normalizedTargets = titles
             .map { normalizeMangaTitle(it) }
             .filter { it.isNotBlank() }
             .toSet()
         if (normalizedTargets.isEmpty()) return@coroutineScope
+        // Dotaz se zkousi s kazdym nazvem titulu (hlavni + alternativni), ne jen s hlavnim -
+        // cilovy zdroj muze titul evidovat pod alternativou, se kterou search(manga.title)
+        // nic nenajde (audit SRC-3). Omezeno na MAX_QUERY_TITLES v ramci per-source timeoutu,
+        // takze cena sweepu zustava stejne ohranicena jako driv.
+        val queryTitles = titles
+            .filter { normalizeMangaTitle(it).isNotBlank() }
+            .distinctBy { normalizeMangaTitle(it) }
+            .take(MAX_QUERY_TITLES)
         val eligible = sourceManager.getAllForCrossSourceSearch()
             .filter { it.id != manga.sourceId && it.id != "comick" && it.includeInGlobalSearch && !it.isBroken }
             .filter { isSameContentGroup(it.contentType, manga.contentType) }
@@ -106,11 +113,15 @@ class CrossSourceSearch @Inject constructor(
                 semaphore.withPermit {
                     try {
                         withTimeoutOrNull(PER_SOURCE_TIMEOUT_MS) {
-                            val results = source.search(manga.title)
-                            val match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
-                                ?: return@withTimeoutOrNull
-                            val chapters = source.getChapterList(match)
-                            if (chapters.isNotEmpty()) onFound(RelinkSeed(source, match, chapters))
+                            var match: SManga? = null
+                            for (query in queryTitles) {
+                                val results = source.search(query)
+                                match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
+                                if (match != null) break
+                            }
+                            val found = match ?: return@withTimeoutOrNull
+                            val chapters = source.getChapterList(found)
+                            if (chapters.isNotEmpty()) onFound(RelinkSeed(source, found, chapters))
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
@@ -131,5 +142,7 @@ class CrossSourceSearch @Inject constructor(
     private companion object {
         /** Na zdroj - sweep běží paralelně (5), ale jeden visící web nesmí zdržet celek. */
         const val PER_SOURCE_TIMEOUT_MS = 8_000L
+        /** Kolik ruznych nazvu titulu se na jeden zdroj zkusi jako dotaz (viz SRC-3). */
+        const val MAX_QUERY_TITLES = 4
     }
 }

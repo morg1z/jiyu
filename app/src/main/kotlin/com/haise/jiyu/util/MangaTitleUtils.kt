@@ -29,9 +29,12 @@ fun normalizeMangaTitle(title: String): String {
 /**
  * Slabý "podobný název" filtr pro agregované hledání - některé zdroje dotaz
  * ignorují a místo výsledků vrátí svůj popular listing ("symbie" -> IDW Sonic).
- * Název projde, když obsahuje aspoň jeden smysluplný token dotazu (>=3 znaky),
- * celý normalizovaný dotaz, nebo je název podřetězec dotazu ("absolute batman
- * issue 1" vs "absolute batman"). Dotaz ze samých krátkých slov nefiltruje.
+ * Název projde, když obsahuje celý normalizovaný dotaz, je název podřetězec
+ * dotazu ("absolute batman issue 1" vs "absolute batman"), nebo trefí aspoň
+ * polovinu smysluplných tokenů dotazu (>=3 znaky) - u dotazu s jedním tokenem
+ * stačí jeho jediný hit (dřív stačil JEDINÝ hit i u vícetokenového dotazu, takže
+ * "solo leveling ragnarok" prošlo i přes "Ragnarok Online" - audit AGG-1).
+ * Dotaz ze samých krátkých slov nefiltruje.
  */
 fun titleMatchesQuery(title: String, query: String): Boolean {
     val qt = normalizeMangaTitle(query)
@@ -39,8 +42,10 @@ fun titleMatchesQuery(title: String, query: String): Boolean {
     val tt = normalizeMangaTitle(title)
     if (tt.isBlank()) return false
     if (tt.contains(qt) || (tt.length >= MIN_QUERY_TOKEN_LEN && qt.contains(tt))) return true
-    val tokens = qt.split(' ').filter { it.length >= MIN_QUERY_TOKEN_LEN }
-    return tokens.isEmpty() || tokens.any { tt.contains(it) }
+    val tokens = qt.split(' ').filter { it.length >= MIN_QUERY_TOKEN_LEN }.distinct()
+    if (tokens.isEmpty()) return true
+    val matched = tokens.count { tt.contains(it) }
+    return matched * 2 >= tokens.size
 }
 
 private const val MIN_QUERY_TOKEN_LEN = 3

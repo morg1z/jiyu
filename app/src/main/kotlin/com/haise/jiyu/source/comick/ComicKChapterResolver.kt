@@ -7,7 +7,7 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.isSameContentGroup
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.coroutineScope
@@ -60,7 +60,6 @@ class ComicKChapterResolver @Inject constructor(
     private val sourceManager: SourceManager,
     private val settings: SettingsRepository,
     private val comicKSource: ComicKSource,
-    private val cloudflareInterceptor: CloudflareInterceptor,
 ) {
     private data class CachedCandidate(
         val source: MangaSource,
@@ -68,6 +67,9 @@ class ComicKChapterResolver @Inject constructor(
         val chapters: List<SChapter>,
         val isDirectMirror: Boolean = false,
     )
+
+    /** Položka cache s časem vzniku - potřebné pro TTL negativních výsledků (SRC-4). */
+    private class CacheEntry(val candidates: List<CachedCandidate>, val createdAtMs: Long)
 
     // Ohranicena LRU cache - appka za dobu behu muze projit desitky/stovky ComicK titulu, bez
     // stropu by mapa rostla neomezene po celou dobu behu procesu (stejny audit nalez jako
@@ -77,11 +79,14 @@ class ComicKChapterResolver @Inject constructor(
     // ComicKChapterResolverTest). LinkedHashMap s access-order=true + removeEldestEntry je
     // stejna LRU sémantika, ale čistý JDK, funguje shodně v testu i za běhu appky.
     private val cache = java.util.Collections.synchronizedMap(
-        object : LinkedHashMap<String, List<CachedCandidate>>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<CachedCandidate>>): Boolean =
+        object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>): Boolean =
                 size > MAX_CACHED_TITLES
         },
     )
+
+    /** Čas se v testech nahrazuje (simulace vypršení negativní cache). */
+    internal var nowMs: () -> Long = { System.currentTimeMillis() }
 
     /**
      * Stejné jako dřívější `findCandidates`, jen misto cekani na uplne vsechny zdroje najednou
@@ -106,10 +111,16 @@ class ComicKChapterResolver @Inject constructor(
     ): Flow<ResolvedCandidate> = channelFlow {
         val favorites = settings.favoriteSourceIds.first()
         val cached = cache.get(comicKMangaId)
-        if (cached != null) {
-            cached.forEach { send(toResolvedCandidate(it, favorites, requestedChapterNumber)) }
+        // Negativni vysledek (prazdny seznam) ma TTL - transientni vypadek site nebo
+        // docasne nedostupne zdroje nesmi navzdy (do restartu appky) zablokovat titul
+        // jako "zadny zdroj to nema" (audit SRC-4). Pozitivni vysledek je porad session-long.
+        if (cached != null && (cached.candidates.isNotEmpty() ||
+                nowMs() - cached.createdAtMs < NEGATIVE_CACHE_TTL_MS)
+        ) {
+            cached.candidates.forEach { send(toResolvedCandidate(it, favorites, requestedChapterNumber)) }
             return@channelFlow
         }
+        if (cached != null) cache.remove(comicKMangaId)
         val found = java.util.Collections.synchronizedList(mutableListOf<CachedCandidate>())
         searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens) { candidate ->
             // Dedupe podle source.id: comick.art muze prijit dvakrat - z probe faze 0
@@ -126,8 +137,8 @@ class ComicKChapterResolver @Inject constructor(
         }
         // I prazdny vysledek se cachuje (negativni cache) - bez tohohle drahe cross-source
         // hledani přes VŠECHNY zdroje probíhalo znovu při každém otevření titulu bez shody,
-        // ne jen jednou (audit nalez).
-        cache.put(comicKMangaId, found.toList())
+        // ne jen jednou (audit nalez). Negativni polozka ale ma TTL, viz cteni vyse.
+        cache.put(comicKMangaId, CacheEntry(found.toList(), nowMs()))
     }
 
     private fun toResolvedCandidate(c: CachedCandidate, favorites: Set<String>, requestedChapterNumber: Float?): ResolvedCandidate =
@@ -173,15 +184,13 @@ class ComicKChapterResolver @Inject constructor(
         onFound: suspend (CachedCandidate) -> Unit,
     ) {
         // Hromadne prohledavani desitek zdroju najednou nema interaktivni Cloudflare vyzvu
-        // (viz CloudflareInterceptor.suppressInteractiveChallenge) prekazet uzivateli dialogem
-        // od zdroje, ktery zrovna nehleda - zdroj, co potrebuje skutecnou CAPTCHU, se proste
-        // preskoci jako nedostupny pro tenhle pokus. Finally i pri zruseni (viz SourceResolverViewModel
-        // early-exit) flag spolehlive vrati zpet, aby normalni prime prochazeni zdroje dal fungovalo.
-        cloudflareInterceptor.suppressInteractiveChallenge = true
-        try {
+        // prekazet uzivateli dialogem od zdroje, ktery zrovna nehleda - zdroj, co potrebuje
+        // skutecnou CAPTCHU, se proste preskoci jako nedostupny pro tenhle pokus. Potlaceni
+        // je scope-bound na korutinu sweepu (InteractiveChallengePolicy ThreadLocal) -
+        // soubezne prime prochazeni zdroje uzivatelem ve foregroundu tim neni nikdy
+        // dotceno (driv globalni flag, audit SRC-2).
+        InteractiveChallengePolicy.suppressed {
             searchAndFetchStreamingInternal(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens, onFound)
-        } finally {
-            cloudflareInterceptor.suppressInteractiveChallenge = false
         }
     }
 
@@ -227,8 +236,16 @@ class ComicKChapterResolver @Inject constructor(
         // v adult zdrojich (uzivatelsky pozadavek); u neznameho ratingu se pro jistotu
         // hleda vsude, aby transientni vypadek nesmzal zdroje ne-adult titulu.
         val isConfirmedAdult = isAdultRating(titleInfo.contentRating)
-        val searchTitle = alternateTitles.firstOrNull() ?: comicKTitle
         val normalizedTargets = (alternateTitles + comicKTitle).map { normalizeMangaTitle(it) }.toSet()
+        // Dotaz se zkousi postupne se vsemi nazvy titulu, ne jen s prvnim altem - zdroj
+        // muze titul evidovat pod jinou alternativou, se kterou prvni query nic nenajde
+        // (audit SRC-3). Poradi zachovava drivejsi prioritu (prvni alt = default nazev,
+        // pak ostatni alty, nakonec comicKTitle); strop MAX_QUERY_TITLES a per-source
+        // timeout drzi cenu sweepu stejnou jako driv.
+        val queryTitles = (alternateTitles + comicKTitle)
+            .filter { it.isNotBlank() }
+            .distinctBy { normalizeMangaTitle(it) }
+            .take(MAX_QUERY_TITLES)
         val eligible = sourceManager.getAllForCrossSourceSearch()
             .filter { it.id != "comick" && it.includeInGlobalSearch && isSameContentGroup(it.contentType, comicKContentType) }
             // Ne-adult ComicK titul nikdy neprohledává isAdult zdroje (i kdyz je uzivatel
@@ -258,8 +275,12 @@ class ComicKChapterResolver @Inject constructor(
                     semaphore.withPermit {
                         try {
                             withTimeoutOrNull(8_000) {
-                                val results = source.search(searchTitle, 1, MangaFilter())
-                                val match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
+                                var match: SManga? = null
+                                for (query in queryTitles) {
+                                    val results = source.search(query, 1, MangaFilter())
+                                    match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
+                                    if (match != null) break
+                                }
                                 match?.let { m -> onFound(CachedCandidate(source, m, source.getChapterList(m))) }
                             }
                         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -331,6 +352,10 @@ class ComicKChapterResolver @Inject constructor(
 
         val ADULT_CONTENT_RATINGS = setOf("erotica", "pornographic")
         const val MAX_CACHED_TITLES = 128
+        /** Kolik ruznych nazvu titulu se na jeden zdroj zkusi jako dotaz (viz SRC-3). */
+        const val MAX_QUERY_TITLES = 4
+        /** TTL negativniho (prazdneho) vysledku sweepu - po jejim vyprseni se titul zkusi znovu (SRC-4). */
+        const val NEGATIVE_CACHE_TTL_MS = 10 * 60 * 1000L
         /** Timeout fáze 0 (comick.art slug probe) - probe teď GATEuje start sweepu
          * (comick.art = vzdy prvni zdroj, viz searchAndFetchStreamingInternal), takze
          * jeho strop je zaroven nejhorsi zpozdeni zbytku hledani pri visicim mirroru.

@@ -65,4 +65,19 @@ class MangaTitleUtilsTest {
         // Jednotokenovy fuzzy hit - token dotazu je podretezec nazvu
         org.junit.Assert.assertTrue(titleMatchesQuery("Solo Leveling: Ragnarok", "solo"))
     }
+
+    @Test
+    fun `titleMatchesQuery requires a majority of tokens for multi-token queries`() {
+        // AGG-1: jeden sdileny token ("ragnarok", "the", "god") nesmi propustit nesouvisly
+        // titul z fallback listingu zdroje, ktery dotaz ignoruje.
+        org.junit.Assert.assertFalse(titleMatchesQuery("Ragnarok Online", "solo leveling ragnarok"))
+        org.junit.Assert.assertFalse(titleMatchesQuery("Leveling Up Alone", "solo leveling ragnarok"))
+        org.junit.Assert.assertFalse(titleMatchesQuery("The God Chronicles", "god of war ragnarok"))
+        // Vetsina tokenu trefena - porad projde (titul se shoduje jen castecne).
+        org.junit.Assert.assertTrue(titleMatchesQuery("Solo Ragnarok Story", "solo leveling ragnarok"))
+        // Dvoutokenovy dotaz se chova jako driv - jeden hit staci (50 % = any).
+        org.junit.Assert.assertTrue(titleMatchesQuery("Batman Beyond", "absolute batman"))
+        // Kontainment obema smery porad projde.
+        org.junit.Assert.assertTrue(titleMatchesQuery("Solo Leveling", "solo leveling ragnarok"))
+    }
 }

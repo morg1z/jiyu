@@ -7,7 +7,6 @@ import com.haise.jiyu.source.MangaSource
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.toList
@@ -63,11 +62,9 @@ class ComicKChapterResolverTest {
         // zpátky na comicKTitle samotný a titul se bere jako ne-adult, což zachovává
         // chování testů psaných před zavedením alt. názvů/adult filtru.
         coEvery { comicKSource.getTitleInfo(any()) } returns ComicKTitleInfo(emptyList(), null)
-        // relaxed = true - test se zajima jen o vyhledavaci logiku, ne o skutecne potlaceni
-        // Cloudflare vyzev (suppressInteractiveChallenge je jen var property nastavovana kolem
-        // hledani, viz ComicKChapterResolver.searchAndFetchStreaming).
-        val cloudflareInterceptor = mockk<CloudflareInterceptor>(relaxed = true)
-        resolver = ComicKChapterResolver(sourceManager, settings, comicKSource, cloudflareInterceptor)
+        // Potlaceni interaktivni Cloudflare vyzvy uz neni zalezitost konstruktoru resolveru -
+        // od SRC-2 je scope-bound pres InteractiveChallengePolicy (ThreadLocal korutiny).
+        resolver = ComicKChapterResolver(sourceManager, settings, comicKSource)
     }
 
     @Test
@@ -506,6 +503,101 @@ class ComicKChapterResolverTest {
 
         assertEquals(1, result.size)
         assertEquals("comickart", result[0].source.id)
+    }
+
+    @Test
+    fun `the search falls back to later alternate titles when the first query finds nothing`() = runTest {
+        // SRC-3: zdroj eviduje titul pod druhym altem - drive se hledal jen prvni
+        // alt nazev a titul se prohlasil za nenalezeny, i kdyz zdroj ho mel.
+        coEvery { comicKSource.getTitleInfo("u1") } returns ComicKTitleInfo(listOf("Obscure Name", "Solo Leveling"), null)
+        val queries = mutableListOf<String>()
+        val source = object : MangaSource {
+            override val id = "src-a"
+            override val name = "Site A"
+            override val contentType = "MANHWA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> {
+                queries += query
+                return if (query == "Solo Leveling") {
+                    listOf(SManga(id, "u1", "Solo Leveling", null))
+                } else emptyList()
+            }
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            override suspend fun getChapterList(manga: SManga) = listOf(chapter(1f))
+            override suspend fun getPageList(chapter: SChapter) = emptyList<com.haise.jiyu.source.Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(source)
+
+        val result = resolver.findCandidates(
+            "comick-id-alt-fallback", "u1", "I am the only the one who levels up", "MANHWA", requestedChapterNumber = null,
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("src-a", result[0].source.id)
+        assertEquals(listOf("Obscure Name", "Solo Leveling"), queries)
+    }
+
+    @Test
+    fun `an empty result is re-searched after the negative cache TTL expires`() = runTest {
+        // SRC-4: negativni cache ("zadny zdroj to nema") ma TTL - transientni vypadek
+        // nesmi titul navzdy oznacit za nenalezeny.
+        var now = 1_000_000L
+        resolver.nowMs = { now }
+        var searchCalls = 0
+        val countingSource = object : MangaSource {
+            override val id = "src-a"
+            override val name = "Site A"
+            override val contentType = "MANHWA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> {
+                searchCalls++
+                return emptyList()
+            }
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            override suspend fun getChapterList(manga: SManga) = emptyList<SChapter>()
+            override suspend fun getPageList(chapter: SChapter) = emptyList<com.haise.jiyu.source.Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(countingSource)
+
+        resolver.findCandidates("comick-id-neg", "u1", "Nothing Anywhere", "MANHWA", requestedChapterNumber = null)
+        assertEquals(1, searchCalls)
+
+        // V ramci TTL se dotaz servuje z cache - bez noveho sweepu.
+        resolver.findCandidates("comick-id-neg", "u1", "Nothing Anywhere", "MANHWA", requestedChapterNumber = null)
+        assertEquals(1, searchCalls)
+
+        // Po TTL se sweep spusti znovu - titul dostane novou sanci.
+        // (NEGATIVE_CACHE_TTL_MS = 10 min, je v private companion - proto literal.)
+        now += 10 * 60 * 1000L + 1
+        resolver.findCandidates("comick-id-neg", "u1", "Nothing Anywhere", "MANHWA", requestedChapterNumber = null)
+        assertTrue(searchCalls > 1)
+    }
+
+    @Test
+    fun `a positive result stays cached even past the negative TTL`() = runTest {
+        var now = 1_000_000L
+        resolver.nowMs = { now }
+        var searchCalls = 0
+        val countingSource = object : MangaSource {
+            override val id = "src-a"
+            override val name = "Site A"
+            override val contentType = "MANHWA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> {
+                searchCalls++
+                return listOf(SManga(id, "u1", "Solo Leveling", null))
+            }
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            override suspend fun getChapterList(manga: SManga) = listOf(chapter(1f))
+            override suspend fun getPageList(chapter: SChapter) = emptyList<com.haise.jiyu.source.Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(countingSource)
+
+        resolver.findCandidates("comick-id-pos", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+        now += 10 * 60 * 1000L + 1
+        resolver.findCandidates("comick-id-pos", "u1", "Solo Leveling", "MANHWA", requestedChapterNumber = null)
+
+        assertEquals(1, searchCalls)
     }
 
     private fun chapter(number: Float) = SChapter(

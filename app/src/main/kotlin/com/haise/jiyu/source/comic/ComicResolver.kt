@@ -7,7 +7,7 @@ import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.comick.ResolvedCandidate
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.coroutineScope
@@ -39,18 +39,23 @@ import kotlin.math.floor
 class ComicResolver @Inject constructor(
     private val sourceManager: SourceManager,
     private val settings: SettingsRepository,
-    private val cloudflareInterceptor: CloudflareInterceptor,
 ) {
     private data class CachedCandidate(val source: MangaSource, val manga: SManga, val chapters: List<SChapter>)
+
+    /** Položka cache s časem vzniku - potřebné pro TTL negativních výsledků (SRC-4). */
+    private class CacheEntry(val candidates: List<CachedCandidate>, val createdAtMs: Long)
 
     // Stejná LRU sémantika jako ComicKChapterResolver (LinkedHashMap access-order,
     // čistý JDK - android.util.LruCache je v JVM testech no-op).
     private val cache = java.util.Collections.synchronizedMap(
-        object : LinkedHashMap<String, List<CachedCandidate>>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<CachedCandidate>>): Boolean =
+        object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>): Boolean =
                 size > MAX_CACHED_TITLES
         },
     )
+
+    /** Čas se v testech nahrazuje (simulace vypršení negativní cache). */
+    internal var nowMs: () -> Long = { System.currentTimeMillis() }
 
     /**
      * Prohledá všechny COMIC zdroje a emituje kandidáty průběžně (stejný vzor
@@ -63,10 +68,15 @@ class ComicResolver @Inject constructor(
         val favorites = settings.favoriteSourceIds.first()
         val cacheKey = normalizeMangaTitle(comicTitle)
         val cached = cache.get(cacheKey)
-        if (cached != null) {
-            cached.forEach { send(toResolvedCandidate(it, favorites, requestedChapterNumber)) }
+        // Negativni vysledek ma TTL - transientni vypadek nesmi navzdy oznacit titul
+        // jako "zadny zdroj to nema" (audit SRC-4). Pozitivni je porad session-long.
+        if (cached != null && (cached.candidates.isNotEmpty() ||
+                nowMs() - cached.createdAtMs < NEGATIVE_CACHE_TTL_MS)
+        ) {
+            cached.candidates.forEach { send(toResolvedCandidate(it, favorites, requestedChapterNumber)) }
             return@channelFlow
         }
+        if (cached != null) cache.remove(cacheKey)
         val found = java.util.Collections.synchronizedList(mutableListOf<CachedCandidate>())
         searchAndFetchStreaming(comicTitle) { candidate ->
             val isNew = synchronized(found) {
@@ -77,8 +87,8 @@ class ComicResolver @Inject constructor(
             }
             if (isNew) send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
         }
-        // Negativní výsledek se cachuje stejně jako pozitivní.
-        cache.put(cacheKey, found.toList())
+        // Negativní výsledek se cachuje stejně jako pozitivní, ale s TTL (viz čtení výše).
+        cache.put(cacheKey, CacheEntry(found.toList(), nowMs()))
     }
 
     private fun toResolvedCandidate(c: CachedCandidate, favorites: Set<String>, requestedChapterNumber: Float?): ResolvedCandidate =
@@ -104,8 +114,10 @@ class ComicResolver @Inject constructor(
         comicTitle: String,
         onFound: suspend (CachedCandidate) -> Unit,
     ) = coroutineScope {
-        cloudflareInterceptor.suppressInteractiveChallenge = true
-        try {
+        // Potlaceni interaktivni Cloudflare vyzvy je scope-bound na korutinu sweepu
+        // (InteractiveChallengePolicy ThreadLocal) - soubezne prime prochazeni uzivatelem
+        // ve foregroundu neni dotceno (driv globalni flag, audit SRC-2).
+        InteractiveChallengePolicy.suppressed {
             val semaphore = Semaphore(5)
             val normalizedTarget = normalizeMangaTitle(comicTitle)
             // includeInGlobalSearch se záměrně NEfiltruje - dedikovaný comic sweep
@@ -131,13 +143,13 @@ class ComicResolver @Inject constructor(
                     }
                 }
             }.forEach { it.join() }
-        } finally {
-            cloudflareInterceptor.suppressInteractiveChallenge = false
         }
     }
 
     private companion object {
         const val MAX_CACHED_TITLES = 128
         const val PER_SOURCE_TIMEOUT_MS = 8_000L
+        /** TTL negativniho (prazdneho) vysledku sweepu - po jejim vyprseni se titul zkusi znovu (SRC-4). */
+        const val NEGATIVE_CACHE_TTL_MS = 10 * 60 * 1000L
     }
 }

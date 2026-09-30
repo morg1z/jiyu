@@ -1,7 +1,6 @@
 package com.haise.jiyu.source
 
 import com.haise.jiyu.data.db.entity.MangaEntity
-import com.haise.jiyu.source.interceptor.CloudflareInterceptor
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.toList
@@ -38,8 +37,7 @@ private class FakeSource(
 class CrossSourceSearchTest {
 
     private val sourceManager: SourceManager = mockk()
-    private val cloudflareInterceptor = mockk<CloudflareInterceptor>(relaxed = true)
-    private val search = CrossSourceSearch(sourceManager, cloudflareInterceptor)
+    private val search = CrossSourceSearch(sourceManager)
 
     private fun chapter(number: Float, sourceId: String = "src-a") = SChapter(
         sourceId = sourceId, mangaUrl = "u1", url = "c$number", name = "Ch $number",
@@ -217,6 +215,35 @@ class CrossSourceSearchTest {
         val seeds = search.seeds(mangaEntity(sourceId = "gone"), originalSource = null).toList()
 
         assertEquals(listOf("src-a"), seeds.map { it.source.id })
+    }
+
+    @Test
+    fun `the alternate title is tried as a search query when the main title finds nothing`() = runTest {
+        // SRC-3: zdroj eviduje titul jen pod alternativnim nazvem - drive se hledalo jen
+        // manga.title, takze relink selhal, i kdyz alternativa sedela presne.
+        val entity = mangaEntity(title = "I Level Up Alone").copy(alternateTitles = """["Solo Leveling"]""")
+        val queries = mutableListOf<String>()
+        val altOnly = object : MangaSource {
+            override val id = "src-a"
+            override val name = "Site A"
+            override val contentType = "MANHWA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> {
+                queries += query
+                return if (query == "Solo Leveling") {
+                    listOf(SManga(id, "u1", "Solo Leveling", null))
+                } else emptyList()
+            }
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            override suspend fun getChapterList(manga: SManga) = listOf(chapter(1f))
+            override suspend fun getPageList(chapter: SChapter) = emptyList<Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(origin, altOnly)
+
+        val seeds = search.seeds(entity, origin).toList()
+
+        assertEquals(listOf("src-a"), seeds.map { it.source.id })
+        assertEquals(listOf("I Level Up Alone", "Solo Leveling"), queries)
     }
 
     @Test
