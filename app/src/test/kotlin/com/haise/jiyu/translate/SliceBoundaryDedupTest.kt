@@ -147,4 +147,101 @@ class SliceBoundaryDedupTest {
         val cur = listOf(curFragment)
         assertEquals(cur, dropSliceBoundaryDuplicates(cur, emptyList()).kept)
     }
+
+    // --- TR-1: dedup pásmo je sjednocené s merge pásmem (5 %, dřív 3 %) ---------
+
+    @Test
+    fun `TR-1 - fragment in the 3-5 percent top band is deduplicated`() {
+        // CrossPageBubbleMerger spáruje fragmenty už od topF <= 0.05 a oběma zapíše
+        // stejný mergedText. Dedup pásmo 0.03 takový pár propustilo a oba fragmenty
+        // se vykreslily - duplicitní text na švu.
+        val prevEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0.90f, 0.7f, 0.985f)
+        val curEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0.042f, 0.7f, 0.10f)
+        val result = dropSliceBoundaryDuplicates(listOf(curEdge), listOf(prevEdge))
+        assertEquals(1, result.coveredFromCurrent.size + result.coverOnPrevious.size)
+    }
+
+    @Test
+    fun `TR-1 - prev fragment ending at 0_96 (3-5 percent band) is deduplicated`() {
+        // Symetricky z druhé strany: prev fragment končí v zóně 0.95-0.97, kterou
+        // staré dedup pásmo nevidělo, ale merger ano.
+        val prevEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0.91f, 0.7f, 0.962f)
+        val curEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0f, 0.7f, 0.06f)
+        val result = dropSliceBoundaryDuplicates(listOf(curEdge), listOf(prevEdge))
+        assertEquals(1, result.coveredFromCurrent.size + result.coverOnPrevious.size)
+    }
+
+    @Test
+    fun `TR-1 - fragment beyond the 5 percent band is still untouched`() {
+        // Pásmo se rozšířilo na 5 %, ne donekonečna - blok za hranicí zůstává mimo.
+        val prevEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0.90f, 0.7f, 0.99f)
+        val curEdge = block("SPLIT BUBBLE TEXT", 0.3f, 0.06f, 0.7f, 0.12f)
+        val result = dropSliceBoundaryDuplicates(listOf(curEdge), listOf(prevEdge))
+        assertEquals(listOf(curEdge), result.kept)
+        assertTrue(result.coverOnPrevious.isEmpty())
+    }
+
+    // --- TR-2: další continuation fragmenty téže merge skupiny ----------------
+
+    @Test
+    fun `TR-2 - second continuation fragment is covered even after prev fragment lost`() {
+        // Jedna bublina přešitá dvakrát: prev fragment + DVA continuation fragmenty
+        // na téhle stránce, všem merger zapsal identický mergedText. První cur je
+        // vyšší než prev -> prev prohraje (coverOnPrevious) a je "spotřebovaný".
+        // Dřív pak druhý continuation nenašel protějšek a zůstal neoznačený ->
+        // stejný překlad se vykreslil dvakrát na jedné stránce.
+        val prevSmall = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0.96f, 0.7f, 0.99f)
+        val curTall = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0f, 0.7f, 0.08f)
+        val curSecond = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0.03f, 0.7f, 0.045f)
+        val result = dropSliceBoundaryDuplicates(listOf(curTall, curSecond), listOf(prevSmall))
+
+        assertEquals(setOf(0), result.coverOnPrevious)
+        // První (větší) cur vyhrál a nese překlad; druhý continuation je seamCover.
+        assertFalse(result.kept[0].seamCover)
+        assertTrue(result.kept[1].seamCover)
+        assertEquals("", result.kept[1].displayText)
+        assertEquals(listOf(curSecond), result.coveredFromCurrent)
+    }
+
+    @Test
+    fun `TR-2 - two continuations both covered when prev fragment is taller`() {
+        // Předchozí fragment vyhrál - vítěz se nespotřebovává, takže obě continuation
+        // prohrály už normální cestou (regresní kotva: fix musí zachovat i tohle).
+        val prevTall = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0.90f, 0.7f, 0.99f)
+        val curA = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0f, 0.7f, 0.04f)
+        val curB = block("ONE SENTENCE SPLIT ACROSS THREE SLICES", 0.3f, 0.02f, 0.7f, 0.05f)
+        val result = dropSliceBoundaryDuplicates(listOf(curA, curB), listOf(prevTall))
+
+        assertTrue(result.coverOnPrevious.isEmpty())
+        assertTrue(result.kept.all { it.seamCover })
+        assertEquals(2, result.coveredFromCurrent.size)
+    }
+
+    @Test
+    fun `TR-2 - same text in a different column is not covered via consumed match`() {
+        // Pojistka: fallback na "spotřebovaný" prev fragment nesmí pokrýt blok, co
+        // se překrývá málo - jiný sloupec = pravděpodobně legit opakování textu.
+        val prevSmall = block("REPEAT PHRASE HERE", 0.3f, 0.96f, 0.7f, 0.99f)
+        val curTall = block("REPEAT PHRASE HERE", 0.3f, 0f, 0.7f, 0.08f)
+        val curOtherColumn = block("REPEAT PHRASE HERE", 0.75f, 0.02f, 0.95f, 0.045f)
+        val result = dropSliceBoundaryDuplicates(
+            listOf(curTall, curOtherColumn), listOf(prevSmall),
+        )
+        assertFalse(result.kept[0].seamCover)
+        assertFalse(result.kept[1].seamCover)
+    }
+
+    @Test
+    fun `TR-2 - prefix-only match against a consumed prev fragment is not covered`() {
+        // Oříznutý text sdílející jen prefix s PORAŽENÝM fragmentem se nesmí skrýt -
+        // poražený se sám nevykresluje, takže duplicita nevzniká (strict seamKey).
+        val prevSmall = block("AND NOW, EVEN THE RESIDUAL RECOIL OF YOUR ATTACKS", 0.3f, 0.96f, 0.7f, 0.99f)
+        val curTall = block("AND NOW, EVEN THE RESIDUAL RECOIL OF YOUR ATTACKS", 0.3f, 0f, 0.7f, 0.08f)
+        val curPrefixOnly = block("AND NOW, EVEN THE RES", 0.3f, 0.03f, 0.7f, 0.045f)
+        val result = dropSliceBoundaryDuplicates(
+            listOf(curTall, curPrefixOnly), listOf(prevSmall),
+        )
+        assertFalse(result.kept[0].seamCover)
+        assertFalse(result.kept[1].seamCover)
+    }
 }

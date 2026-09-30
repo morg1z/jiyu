@@ -83,7 +83,8 @@ class TranslateChapterSerializationTest {
             client.translateBatch(any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             arg<(String?) -> Unit>(7)("openai/gpt-oss-120b")
-            listOf("Krátká odpověď.")
+            // TR-7: poziční řetězec odmítá odpověď s jiným počtem položek než vstup.
+            List(arg<List<String>>(0).size) { "Krátká odpověď." }
         }
     }
 

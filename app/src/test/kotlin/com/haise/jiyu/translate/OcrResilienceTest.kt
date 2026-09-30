@@ -76,7 +76,9 @@ class OcrResilienceTest {
                 // Krátká odpověď pod 40 znaky -> isWrongTargetLanguage skončí předčasně
                 // a nikdy nespustí ML Kit LanguageIdentification (v JVM testu neexistuje).
                 arg<(String?) -> Unit>(7)("openai/gpt-oss-120b")
-                listOf("Krátká odpověď.")
+                // TR-7: poziční řetězec odmítá odpověď s jiným počtem položek než
+                // vstup - mock musí vrátit tolik překladů, kolik se poslalo.
+                List(arg<List<String>>(0).size) { "Krátká odpověď." }
             }
         }
         return TranslateRepository(

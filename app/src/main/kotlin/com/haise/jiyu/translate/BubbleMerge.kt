@@ -393,8 +393,16 @@ private fun mergeBubbleGroup(members: List<RawTextBlock>): RawTextBlock {
     )
 }
 
-/** Pásové okraje (zlomek výšky stránky), kde se hledají přešité webtoon duplicity - viz [dropSliceBoundaryDuplicates]. */
-private const val SLICE_EDGE_BAND = 0.03f
+/**
+ * Pásové okraje (zlomek výšky stránky), kde se hledají přešité webtoon duplicity - viz
+ * [dropSliceBoundaryDuplicates]. MUSÍ být aspoň tak široké jako [EDGE_TOUCH_FRACTION]
+ * u [findCrossPageMerges]: merger spáruje fragmenty v pásu 5% a oběma zapíše stejný
+ * mergedText - kdyby dedup hledal jen v užším pásmu (dřív 3%), fragment v zóně 3-5%
+ * měl identický text, ale se sourozencem se nespároval a vykreslil duplicitu (audit
+ * TR-1). Dedup pásmo širší než merge je neškodné - stejný text + sloupcový překryv
+ * ([SLICE_DUP_MIN_H_OVERLAP]) u opačných okrajů znamená tentýž přeříznutý řádek.
+ */
+private const val SLICE_EDGE_BAND = EDGE_TOUCH_FRACTION
 
 /** Minimální vodorovný překryv fragmentů na řezu - pod pojistkou proti legálně opakovanému textu u okraje. */
 private const val SLICE_DUP_MIN_H_OVERLAP = 0.3f
@@ -472,7 +480,28 @@ internal fun dropSliceBoundaryDuplicates(
             i !in coverPrevIdx &&
                 seamTextMatch(p.originalText, cur.originalText) &&
                 horizontalOverlap(p, cur) >= SLICE_DUP_MIN_H_OVERLAP
-        } ?: continue
+        }
+        if (match == null) {
+            // TR-2: prev fragment sdílející text už PROHRÁL souboj o přežití se
+            // sourozencem (sedí v coverPrevIdx) - ale pokud nese IDENTICKÝ seamKey,
+            // jde o další continuation téže merge skupiny: applyCrossPageMerges
+            // zapsal všem fragmentům stejný mergedText, takže bez pokrytí by se
+            // tentýž překlad na téhle stránce vykreslil podruhé/navíc. Vyžaduje se
+            // plná shoda klíče, ne jen prefix - prefixová shoda s poraženým (který
+            // se sám nevykresluje) duplicitu neprokazuje a mohla by skrýt legit text.
+            val consumed = prevBottom.firstOrNull { (i, p) ->
+                i in coverPrevIdx &&
+                    seamKey(p.originalText) == seamKey(cur.originalText) &&
+                    horizontalOverlap(p, cur) >= SLICE_DUP_MIN_H_OVERLAP
+            } ?: continue
+            val span = (
+                (minOf(consumed.second.leftF, cur.leftF) - SEAM_SPAN_MARGIN).coerceAtLeast(0f) to
+                    (maxOf(consumed.second.rightF, cur.rightF) + SEAM_SPAN_MARGIN).coerceAtMost(1f)
+                )
+            spanCurrent[cur] = span
+            coverCurrent += cur
+            continue
+        }
         val (pi, p) = match
         // Větší fragment vítězí - oříznutý kousek bubliny stejně sedí hůř. Poražený se
         // NEmaže: označí se seamCover a render přes něj položí jen záplatu (zakryje

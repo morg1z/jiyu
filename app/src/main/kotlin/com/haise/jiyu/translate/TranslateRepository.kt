@@ -200,10 +200,13 @@ class TranslateRepository @Inject constructor(
      * je untrans). Blok bez jediného písmene (samotná interpunkce) taky ne - ten by
      * jen znovu proběhl a znovu skončil untrans.
      */
-    private fun hasRetryableUntrans(blocks: List<TranslatedBlock>): Boolean =
+    internal fun hasRetryableUntrans(blocks: List<TranslatedBlock>): Boolean =
         blocks.any {
             it.isUntranslated && !it.isSfx && !it.isArtText && !it.seamCover &&
-                hasTranslatableLetters(it.originalText)
+                // TR-13: stejný práh jako fillUntranslatedBlocks (>=2 písmena) - blok
+                // s jedním písmenem by stránku držel "retryable" donekonečna, ale
+                // repair cesta ho nikdy neopraví, takže retry bylo jen mrhání API.
+                it.originalText.count { c -> c.isLetter() } >= 2
         }
 
     /**
@@ -330,11 +333,12 @@ class TranslateRepository @Inject constructor(
      * Aplikuje registr jmen kapitoly/stránky ([ChapterNameRegistry], WP13) na hotové bloky:
      * (1) poškozené varianty jmen v překladu se sjednotí na kanonický tvar ze zdroje
      *     ("TSIJJIKAZE"->"TSUJIKAZE"), (2) identická zdrojová fráze dostane identický
-     *     překlad ("NO WAY I'M GONNA DIE!" se podruhé přeloží stejně; pokud byl její
-     *     první výskyt vyhodnocen jako untranslated, stejně dopadne i druhý - a naopak
-     *     z cache se může do-přeložit blok, který model tentokrát vynechal).
+     *     překlad ("NO WAY I'M GONNA DIE!" se podruhé přeloží stejně; z cache se může
+     *     do-přeložit blok, který model tentokrát vynechal - a od TR-14 se retroaktivně
+     *     do-překládá i DŘÍV zaznamenaný untranslated výskyt, když překlad dodal až
+     *     pozdější výskyt téže fráze).
      */
-    private fun applyChapterConsistency(
+    internal fun applyChapterConsistency(
         blocks: List<TranslatedBlock>,
         classified: List<ClassifiedBubble>,
         registry: ChapterNameRegistry,
@@ -367,7 +371,27 @@ class TranslateRepository @Inject constructor(
                 isArtText = b.isArtText || isArtTextEcho(classified[i].raw.text, named),
             )
         }
-        return if (changed) out else blocks
+        // TR-14: phraseCache se plní průběžně - první výskyt fráze, co byl
+        // untranslated, minul cache-hit i když ji pozdější výskyt přeložil
+        // (jednosměrný zápis: wasTranslated=false nic neukládá). Druhý průchod
+        // nad právě těmi bloky je zdarma a doplní jim překlad z už zaplněné
+        // cache, ať stejná věta nesvítí na stránce jednou česky, jednou anglicky.
+        val retried = out.mapIndexed { i, b ->
+            if (b.isSfx || b.isArtText || !b.isUntranslated) return@mapIndexed b
+            val (consistent, fromCache) = registry.consistentTranslation(
+                classified[i].raw.text, b.translatedText, wasTranslated = false,
+            )
+            if (!fromCache) return@mapIndexed b
+            val named = registry.normalizeText(consistent)
+            changed = true
+            b.copy(
+                translatedText = named,
+                displayText = ensureFallbackHyphens(named),
+                isUntranslated = false,
+                isArtText = b.isArtText || isArtTextEcho(classified[i].raw.text, named),
+            )
+        }
+        return if (changed) retried else blocks
     }
 
     /**
@@ -1374,7 +1398,11 @@ class TranslateRepository @Inject constructor(
             previousLines = previousLines,
             onModel = reportModel,
         )
-        if (toTranslate.isNotEmpty() && translations.isEmpty()) return null
+        // TR-7: odpověď se páruje POZICÍ - jiný počet položek než se poslalo znamená,
+        // že model položku vynechal a každá následující odpověď sedí na cizí bublinu
+        // (Groq/OpenRouter/Mistral nemají echo-guard [originalMatches] jako Gemini
+        // cesta). Celá dávka je nedůvěryhodná - řetězec zkusí dalšího providera.
+        if (translations.size != toTranslate.size) return null
 
         // Jeden (ne opakovaný) retry pro bubliny, co selžou kvalitativní kontrolu - stejná
         // disciplína jako translateWithGemini's missing/mergeRetry, jen bez závislosti na
@@ -1508,7 +1536,9 @@ class TranslateRepository @Inject constructor(
             sourceLanguage = sourceLanguage,
             glossary = glossary,
         )
-        if (toTranslate.isNotEmpty() && translations.isEmpty()) return null
+        // TR-7: poziční párování - jiný počet položek než se poslalo = posunuté
+        // překlady na cizí bubliny (viz translateWithGroq). Celá dávka se zahodí.
+        if (translations.size != toTranslate.size) return null
 
         var ti = 0
         return classified.map { c ->
@@ -1609,13 +1639,26 @@ class TranslateRepository @Inject constructor(
         val toTranslate = classified.filter { !it.isSfx }
         if (toTranslate.isEmpty()) return classified.map { sfxBlock(it) }
 
-        val translations = onDeviceTranslator.translate(
-            texts = toTranslate.map { it.raw.text },
-            sourceLanguage = sourceLanguage,
-            targetLanguage = targetLanguage,
-            glossary = glossaryFor(mangaId, targetLanguage),
-        )
+        val translations = try {
+            onDeviceTranslator.translate(
+                texts = toTranslate.map { it.raw.text },
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                glossary = glossaryFor(mangaId, targetLanguage),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // ML Kit init na zařízení bez Play services (degooglované ROMy) nebo
+            // při absenci modelů může hodit IllegalStateException - poslední záchrana
+            // řetězce nesmí shodit celou stránku, jen vrátí "nepřeloženo".
+            e.report("translate:ondevice")
+            return null
+        }
         if (translations.all { it.isNullOrBlank() }) return null
+        // TR-7: poziční párování - kratší/delší odpověď by posunula překlady na cizí
+        // bubliny (stejná pojistka jako translateWithGroq/translateWithByok).
+        if (translations.size != toTranslate.size) return null
 
         var ti = 0
         return classified.map { c ->
@@ -1666,21 +1709,27 @@ class TranslateRepository @Inject constructor(
         pageUrl: String? = null,
     ): List<TranslatedBlock>? {
         val id = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage)
-        val cached = dao.getById(id)?.deserialize()?.withManualEdits(chapterId, pageIndex) ?: return null
-        if (pageUrl == null) return cached
+        // TR-3: migrace tvarů i její upsert MUSÍ běžet nad SUROVÝM cache záznamem.
+        // Dřív se detectShapesOnly volalo nad bloky s napařenými manual edity a
+        // výsledek se zapsal zpátky do strojové cache - uživatelova oprava se tak
+        // trvale vpálila do strojového překladu a smazání editu ji neschovalo.
+        // Manual edity se proto aplikují až na hodnotu, která se vrací čtečce.
+        val raw = dao.getById(id)?.deserialize() ?: return null
+        if (pageUrl == null) return raw.withManualEdits(chapterId, pageIndex)
 
-        val needsShapeMigration = cached.any { !it.isSfx && it.shape == null }
-        if (!needsShapeMigration) return cached
+        val needsShapeMigration = raw.any { !it.isSfx && it.shape == null }
+        if (!needsShapeMigration) return raw.withManualEdits(chapterId, pageIndex)
 
         // translateChapter volá getCachedPage SEKVENČNĚ pro každou stránku (viz cache-check
         // smyčka) ještě PŘED paralelní dávkou nepřeložených stránek - stejný strop jako tam,
         // ať zaseklá migrace jedné staré stránky nezablokuje i tenhle úvodní průchod.
-        return withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
-            val bitmap = pageBitmapLoader.load(pageUrl) ?: return@withTimeoutOrNull cached
-            val migrated = ocrEngine.detectShapesOnly(bitmap, cached)
-            dao.upsert(TranslatedPageEntity(id = id, blocksJson = migrated.serialize()))
-            migrated
-        } ?: cached
+        val migrated = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
+            val bitmap = pageBitmapLoader.load(pageUrl) ?: return@withTimeoutOrNull null
+            val m = ocrEngine.detectShapesOnly(bitmap, raw)
+            dao.upsert(TranslatedPageEntity(id = id, blocksJson = m.serialize()))
+            m
+        }
+        return (migrated ?: raw).withManualEdits(chapterId, pageIndex)
     }
 
     private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String, sourceLanguage: String) =
@@ -2001,8 +2050,26 @@ class TranslateRepository @Inject constructor(
          * v41: Řezové fragmenty dostávají seamSpanLF/RF - sjednocený horizontální
          *   dosah dedup-páru + rezerva, aby krycí výplň pokryla celý přeříznutý
          *   řádek (kraje "HU…ON'T" vykukovaly za užším OCR boxem útržku).
+         * v42: Seam dedup + provider/pipeline opravy (audit TR-1/2/3/7/8/13/14),
+         *   všechno mění uložená data.
+         *   (1) Dedup pásmo je sjednocené s merge pásmem (EDGE_TOUCH_FRACTION 5%,
+         *   dřív dedup 3%) - fragment v zóně 3-5% dostal z mergeru identický
+         *   mergedText, ale dedup ho přeskočil a překlad se vykreslil na švu
+         *   dvakrát. (2) Další continuation fragment téže merge skupiny se pokryje
+         *   i když jeho protějšek už prohrál souboj - dřív zůstal nepokrytý a stejný
+         *   text se kreslil tolikrát, kolik měla věta řezových pokračování.
+         *   (3) Shape migrace v getCachedPage ukládá RAW bloky - dřív se do cache
+         *   vpálil i manuální edit a po jeho smazání se strojový překlad nevrátil.
+         *   (4) Poziční provider cesty (Groq/OpenRouter/Mistral/BYOK/on-device)
+         *   odmítají odpověď s jiným počtem položek, než se poslalo - vynechaná
+         *   položka uprostřed jinak posunula každý další překlad na cizí bublinu.
+         *   (5) SFX se už neposílají do Gemini promptu vůbec (dřív zabíraly id
+         *   sloty a model je "překládal" nadarmo). (6) Práh retry-ability je
+         *   sjednocený s repair cestou (>=2 písmena). (7) Fráze, jejíž první výskyt
+         *   zůstal untranslated a pozdější se přeložil, se retroaktivně
+         *   do-překládá z phrase cache.
          */
-        internal const val PIPELINE_VERSION = 41
+        internal const val PIPELINE_VERSION = 42
 
         /**
          * Záložní modely, na které proxy sama přepne při přetížení hlavního (viz

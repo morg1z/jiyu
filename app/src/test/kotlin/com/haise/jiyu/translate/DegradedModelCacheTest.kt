@@ -75,7 +75,8 @@ class DegradedModelCacheTest {
         } coAnswers {
             // onModel je 8. parametr (index 7) - proxy nahlášený model se předává ven.
             arg<(String?) -> Unit>(7)(model)
-            listOf("Krátká odpověď.")
+            // TR-7: poziční řetězec odmítá odpověď s jiným počtem položek než vstup.
+            List(arg<List<String>>(0).size) { "Krátká odpověď." }
         }
     }
 

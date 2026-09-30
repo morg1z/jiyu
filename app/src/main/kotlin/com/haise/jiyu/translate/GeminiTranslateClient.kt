@@ -47,7 +47,9 @@ class GeminiTranslateClient @Inject constructor(
 
     /**
      * Přeloží dávku bublin jedné stránky. SFX bubliny (viz [ClassifiedBubble.isSfx]) se
-     * do requestu vůbec nezahrnují - filtruje [GeminiUltraPrompt.buildUserPrompt].
+     * do requestu vůbec nezahrnují - filtruje se `bubbles` před
+     * [GeminiUltraPrompt.buildUserPrompt] a id odpovědí se přemapují zpátky na
+     * pozice v nefiltrovaném seznamu (viz [remapToOriginalIndices]).
      *
      * @param provider "gemini" (výchozí), "groq" nebo "openrouter" - viz komentář u třídy. Groq i
      *   OpenRouter model se nastavují server-side (Groq: "openai/gpt-oss-120b" jako
@@ -68,20 +70,29 @@ class GeminiTranslateClient @Inject constructor(
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
     ): GeminiTranslationResponse? = withContext(Dispatchers.IO) {
-        val toTranslate = bubbles.filterIndexed { _, b -> !b.isSfx }
+        // TR-8: do promptu jdou jen skutečně překládané bubliny. Dřív se posílal celý
+        // `bubbles` včetně SFX - model je "překládal", odpověď se pak zahazovala přes
+        // sfxBlock, takže se plýtvalo tokeny i id sloty (docstring výš uváděl opak).
+        // Ids v promptu/odpovědi jsou teď pozice ve FILTROVANÉM seznamu - po parse se
+        // přemapují zpátky na indexy v původním `bubbles`, jak volající přes byId[i]
+        // očekává, ať repository cesta zůstane beze změny.
+        val toTranslate = bubbles.filter { !it.isSfx }
         if (!isConfigured || toTranslate.isEmpty()) return@withContext null
         // Provider, o kterém z předchozí dávky víme, že odmítá obsluhu, se přeskočí bez
         // jediného requestu - tohle je hlavní úspora u dlouhé kapitoly, viz ProviderHealth.
         if (!providerHealth.isAvailable(provider)) return@withContext null
+        val origIndex = bubbles.mapIndexedNotNull { i, b -> if (!b.isSfx) i else null }
 
         val raw = sendPrompt(
             system = GeminiUltraPrompt.buildSystemPrompt(glossary, mangaContext),
-            user = GeminiUltraPrompt.buildUserPrompt(bubbles, previousLines),
+            user = GeminiUltraPrompt.buildUserPrompt(toTranslate, previousLines),
             provider = provider,
         ) ?: return@withContext null
 
         return@withContext try {
-            GeminiUltraPrompt.parseResponse(raw.text).copy(model = raw.model)
+            GeminiUltraPrompt.parseResponse(raw.text)
+                .remapToOriginalIndices(origIndex)
+                .copy(model = raw.model)
         } catch (e: Exception) {
             // Useknutá odpověď (model narazil na output limit) - kompletní bubliny z
             // validního prefixu zachráníme, ocásek dořekne opravný dotaz v repository.
@@ -90,7 +101,7 @@ class GeminiTranslateClient @Inject constructor(
             if (salvaged != null && salvaged.bubbles.isNotEmpty()) {
                 Log.w(LOG_TAG, "translate:$provider: useknutá odpověď - zachráněno ${salvaged.bubbles.size} bublin z prefixu")
                 e.report("translate:gemini:parseResponse:provider=$provider:salvaged")
-                return@withContext salvaged.copy(model = raw.model)
+                return@withContext salvaged.remapToOriginalIndices(origIndex).copy(model = raw.model)
             }
             // Neparsovatelná odpověď - nemá smysl retryovat, model to znovu nespraví.
             // Hlásíme ale ven: tohle je přesně ten druh tiché chyby, kdy se překlad
@@ -118,6 +129,15 @@ class GeminiTranslateClient @Inject constructor(
             provider = provider,
         )?.text
     }
+
+    /**
+     * Přemapuje `id` v odpovědi z pozic ve filtrovaném seznamu (bez SFX - ten dostal
+     * [GeminiUltraPrompt.buildUserPrompt]) zpátky na pozice v původním seznamu
+     * bublin, jak je repository páruje přes `byId[i]`. Id mimo rozsah (halucinace
+     * modelu) zůstane jak je - prostě se nepáruje a skončí jako chybějící.
+     */
+    private fun GeminiTranslationResponse.remapToOriginalIndices(origIndex: List<Int>): GeminiTranslationResponse =
+        copy(bubbles = bubbles.map { b -> b.copy(id = origIndex.getOrElse(b.id) { b.id }) })
 
     private data class RawReply(val text: String, val model: String?)
 
