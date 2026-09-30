@@ -183,15 +183,13 @@ class SettingsViewModel @Inject constructor(
     val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
-    val tapZoneLeftFraction: StateFlow<Float> = settings.tapZoneLeftFraction
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
-
-    val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
-
     val tapZoneGrid: StateFlow<com.haise.jiyu.ui.reader.TapZoneGrid> = settings.tapZoneGrid
         .map { com.haise.jiyu.ui.reader.TapZoneGrid.deserialize(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.ui.reader.TapZoneGrid())
+
+    /** Jazyk přeložených kapitol na MangaDexu - viz SettingsRepository.mangadexChapterLanguage. */
+    val mangadexChapterLanguage: StateFlow<String> = settings.mangadexChapterLanguage
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "English")
 
     val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
@@ -258,9 +256,8 @@ class SettingsViewModel @Inject constructor(
     fun setReadingDirection(dir: String) = viewModelScope.launch { settings.setReadingDirection(dir) }
     fun setReadingMode(mode: String)     = viewModelScope.launch { settings.setReadingMode(mode) }
     fun setTapZonesEnabled(enabled: Boolean)      = viewModelScope.launch { settings.setTapZonesEnabled(enabled) }
-    fun setTapZoneLeftFraction(fraction: Float)   = viewModelScope.launch { settings.setTapZoneLeftFraction(fraction) }
-    fun setTapZoneRightFraction(fraction: Float)  = viewModelScope.launch { settings.setTapZoneRightFraction(fraction) }
     fun setTapZoneGrid(grid: com.haise.jiyu.ui.reader.TapZoneGrid) = viewModelScope.launch { settings.setTapZoneGrid(grid.serialize()) }
+    fun setMangadexChapterLanguage(lang: String)  = viewModelScope.launch { settings.setMangadexChapterLanguage(lang) }
     fun setWebtoonScrollSpeed(speed: Float)       = viewModelScope.launch { settings.setWebtoonScrollSpeed(speed) }
     fun setReaderTextScale(scale: Float)          = viewModelScope.launch { settings.setReaderTextScale(scale) }
     fun setDoublePageSpread(enabled: Boolean) = viewModelScope.launch { settings.setDoublePageSpread(enabled) }

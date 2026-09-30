@@ -20,6 +20,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -175,10 +178,18 @@ fun ReaderSettingsScreen(
 
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                         val scrollSpeedDesc = stringResource(R.string.settings_reader_scroll_speed_desc)
-                        Text(stringResource(R.string.settings_reader_scroll_speed, String.format("%.1f", webtoonScrollSpeed)), color = TextPrimary, fontSize = 14.sp)
+                        // SET-3: draft behem tahu, do DataStore se zapise az pri pusteni
+                        // (stejny vzor jako AccentHuePicker) - jinak kazdy frame tahu znamena
+                        // zapis do preferenci a rekomposici cele obrazovky.
+                        var speedDraft by remember { mutableStateOf<Float?>(null) }
+                        // DataStore promitl novou hodnotu - draft se shodi.
+                        LaunchedEffect(webtoonScrollSpeed) { speedDraft = null }
+                        val shownSpeed = speedDraft ?: webtoonScrollSpeed
+                        Text(stringResource(R.string.settings_reader_scroll_speed, String.format("%.1f", shownSpeed)), color = TextPrimary, fontSize = 14.sp)
                         Slider(
-                            value = webtoonScrollSpeed,
-                            onValueChange = { viewModel.setWebtoonScrollSpeed(it) },
+                            value = shownSpeed,
+                            onValueChange = { speedDraft = it },
+                            onValueChangeFinished = { speedDraft?.let(viewModel::setWebtoonScrollSpeed) },
                             valueRange = 0.5f..3.0f,
                             modifier = Modifier.semantics { contentDescription = scrollSpeedDesc },
                             colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
@@ -325,10 +336,15 @@ fun ReaderSettingsScreen(
                 SettingsSection(title = stringResource(R.string.settings_reader_translate_section_title)) {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                         val textScaleDesc = stringResource(R.string.settings_reader_text_scale_desc)
-                        Text(stringResource(R.string.settings_reader_text_scale, String.format("%.1f", readerTextScale)), color = TextPrimary, fontSize = 14.sp)
+                        // SET-3: draft behem tahu, persist az pri pusteni - viz scroll speed nahore.
+                        var scaleDraft by remember { mutableStateOf<Float?>(null) }
+                        LaunchedEffect(readerTextScale) { scaleDraft = null }
+                        val shownScale = scaleDraft ?: readerTextScale
+                        Text(stringResource(R.string.settings_reader_text_scale, String.format("%.1f", shownScale)), color = TextPrimary, fontSize = 14.sp)
                         Slider(
-                            value = readerTextScale,
-                            onValueChange = { viewModel.setReaderTextScale(it) },
+                            value = shownScale,
+                            onValueChange = { scaleDraft = it },
+                            onValueChangeFinished = { scaleDraft?.let(viewModel::setReaderTextScale) },
                             valueRange = 0.7f..1.6f,
                             modifier = Modifier.semantics { contentDescription = textScaleDesc },
                             colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),

@@ -238,12 +238,6 @@ class ReaderViewModel @Inject constructor(
     val tapZonesEnabled: StateFlow<Boolean> = settings.tapZonesEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
-    val tapZoneLeftFraction: StateFlow<Float> = settings.tapZoneLeftFraction
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
-
-    val tapZoneRightFraction: StateFlow<Float> = settings.tapZoneRightFraction
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0.3f)
-
     val tapZoneGrid: StateFlow<TapZoneGrid> = settings.tapZoneGrid
         .map { TapZoneGrid.deserialize(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, TapZoneGrid())

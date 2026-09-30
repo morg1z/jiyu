@@ -30,8 +30,6 @@ object SettingsKeys {
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
     val PENDING_UPDATE_DOWNLOAD_ID = longPreferencesKey("pending_update_download_id")
     val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
-    val TAP_ZONE_LEFT_FRACTION   = floatPreferencesKey("tap_zone_left_fraction")
-    val TAP_ZONE_RIGHT_FRACTION  = floatPreferencesKey("tap_zone_right_fraction")
     val WEBTOON_SCROLL_SPEED     = floatPreferencesKey("webtoon_scroll_speed")
     val READER_TEXT_SCALE        = floatPreferencesKey("reader_text_scale")
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
@@ -129,6 +127,14 @@ object SettingsKeys {
     val CLOUDFLARE_CLEARANCE_CACHE = stringPreferencesKey("cloudflare_clearance_cache")
     val CLOUDFLARE_WARMUP_HOSTS = stringPreferencesKey("cloudflare_warmup_hosts")
     val MANGACLOUD_SESSION_CACHE = stringPreferencesKey("mangacloud_session_cache")
+
+    /**
+     * Jazyk, ve kterém MangaDex feed vypisuje přeložené kapitoly (viz
+     * [SettingsRepository.mangadexChapterLanguage]). Zvláštní klíč od [SOURCE_LANGUAGE] -
+     * tenhle je katalogový filtr zdroje, `source_language` je OCR nastavení překladače
+     * a nemělo by tiše měnit, co který zdroj nabídne (audit SET-5).
+     */
+    val MANGADEX_CHAPTER_LANGUAGE = stringPreferencesKey("mangadex_chapter_language")
 
     /**
      * Potvrdil uživatel, že je mu aspoň [com.haise.jiyu.util.ADULT_AGE_YEARS] let? Odemyká
@@ -240,6 +246,17 @@ class SettingsRepository @Inject constructor(
     val sourceLanguage: Flow<String> =
         dataStore.data.map { it[SettingsKeys.SOURCE_LANGUAGE] ?: "Auto" }
 
+    /**
+     * Jazyk přeložených kapitol na MangaDexu - jazyk z LanguageMap.displayNames.
+     * Výchozí "English" odpovídá dosavadnímu chování (sourceLanguage "Auto" se mapovalo
+     * na "en"), ale už ho nemění změna OCR zdrojového jazyka (audit SET-5).
+     */
+    val mangadexChapterLanguage: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.MANGADEX_CHAPTER_LANGUAGE] ?: "English" }
+
+    suspend fun setMangadexChapterLanguage(lang: String) =
+        dataStore.edit { it[SettingsKeys.MANGADEX_CHAPTER_LANGUAGE] = lang }
+
     val theme: Flow<String> =
         dataStore.data.map { it[SettingsKeys.THEME] ?: ThemeOption.SYSTEM }
 
@@ -279,12 +296,6 @@ class SettingsRepository @Inject constructor(
 
     val tapZonesEnabled: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.TAP_ZONES_ENABLED] ?: true }
-
-    val tapZoneLeftFraction: Flow<Float> =
-        dataStore.data.map { it[SettingsKeys.TAP_ZONE_LEFT_FRACTION] ?: 0.3f }
-
-    val tapZoneRightFraction: Flow<Float> =
-        dataStore.data.map { it[SettingsKeys.TAP_ZONE_RIGHT_FRACTION] ?: 0.3f }
 
     val webtoonScrollSpeed: Flow<Float> =
         dataStore.data.map { it[SettingsKeys.WEBTOON_SCROLL_SPEED] ?: 1.0f }
@@ -330,12 +341,6 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setTapZonesEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.TAP_ZONES_ENABLED] = enabled }
-
-    suspend fun setTapZoneLeftFraction(fraction: Float) =
-        dataStore.edit { it[SettingsKeys.TAP_ZONE_LEFT_FRACTION] = fraction }
-
-    suspend fun setTapZoneRightFraction(fraction: Float) =
-        dataStore.edit { it[SettingsKeys.TAP_ZONE_RIGHT_FRACTION] = fraction }
 
     suspend fun setWebtoonScrollSpeed(speed: Float) =
         dataStore.edit { it[SettingsKeys.WEBTOON_SCROLL_SPEED] = speed }

@@ -56,6 +56,24 @@ class WebViewJsRunner @Inject constructor(
 }
 
 /**
+ * JS, který vloží (nebo přepíše) `<style id="jiyu-custom-css">` s uživatelovým CSS
+ * z Nastavení → Zdroje (viz SettingsRepository.customCss). Vrací `null` pro prázdné
+ * CSS - volající pak nic neevaluuje.
+ *
+ * CSS jde do `textContent` přes JSON-quoting ([org.json.JSONObject.quote]), takže
+ * uživatel nemůže "vylézt" z tagu (`</style>` v CSS je jen text). Do Cloudflare
+ * challenge a skrytých bootstrap WebView se NEinjektuje - tam by obecný CSS zásah
+ * (typicky `* { display: none }`) rozbil řešení challenge.
+ */
+fun customCssInjectionJs(css: String): String? {
+    if (css.isBlank()) return null
+    return "(function(){" +
+        "var s=document.getElementById('jiyu-custom-css')||document.createElement('style');" +
+        "s.id='jiyu-custom-css';s.textContent=${org.json.JSONObject.quote(css)};" +
+        "(document.head||document.documentElement).appendChild(s);})()"
+}
+
+/**
  * `evaluateJavascript` vrací výsledek jako JSON literál ("text" v uvozovkách, `null`, číslo ...). Vrátí prostý text,
  * nebo `null` pro `null`/`undefined`/prázdné.
  */

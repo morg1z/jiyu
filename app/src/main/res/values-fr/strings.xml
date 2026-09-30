@@ -128,6 +128,8 @@
     <string name="settings_sources_section_title">Sources</string>
     <string name="settings_sources_catalog_button">Catalogue de sources (%1$d)</string>
     <string name="settings_sources_custom_css_button">CSS personnalisé pour les sources web</string>
+    <string name="settings_sources_mangadex_lang_title">MangaDex – langue des chapitres</string>
+    <string name="settings_sources_mangadex_lang_desc">Langue dans laquelle MangaDex liste les chapitres traduits. Indépendante de la langue source de l\'OCR.</string>
     <string name="settings_sources_madara_section_title">Sources personnalisées (Madara)</string>
     <string name="settings_sources_madara_description">Source générique pour les sites basés sur le thème Madara. Entrez un nom et l\'adresse du site - l\'appli essaiera d\'y analyser le balisage Madara standard.</string>
     <string name="settings_sources_add_button">Ajouter une source</string>

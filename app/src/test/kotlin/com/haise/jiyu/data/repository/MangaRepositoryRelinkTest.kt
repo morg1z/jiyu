@@ -84,6 +84,7 @@ class MangaRepositoryRelinkTest {
             settings = mockk(relaxed = true),
             db = db,
             context = context,
+            contentCache = SourceContentCache(),
         )
     }
 

@@ -18,7 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.haise.jiyu.R
 import com.haise.jiyu.source.interceptor.CloudflareInterceptor
+import com.haise.jiyu.ui.css.CustomCssViewModel
 import com.haise.jiyu.ui.theme.GlowViolet
 import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.screenGradient
@@ -39,10 +43,18 @@ import com.haise.jiyu.ui.theme.screenGradient
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun SourceWebScreen(url: String, onDone: () -> Unit) {
+fun SourceWebScreen(
+    url: String,
+    onDone: () -> Unit,
+    viewModel: CustomCssViewModel = hiltViewModel(),
+) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     // Zpět uvnitř WebView (odkazy mezi stránkami přihlášení) má přednost před opuštěním obrazovky.
     BackHandler(enabled = webView?.canGoBack() == true) { webView?.goBack() }
+    // Uživatelovo CSS z Nastavení se injektuje po každém načtení stránky (SET-1).
+    // rememberUpdatedState - WebViewClient žije dlouho a musí vidět aktuální hodnotu.
+    val customCss by viewModel.customCss.collectAsStateWithLifecycle()
+    val currentCss by rememberUpdatedState(customCss)
 
     Column(modifier = Modifier.fillMaxSize().background(screenGradient).statusBarsPadding()) {
         Row(
@@ -67,7 +79,12 @@ fun SourceWebScreen(url: String, onDone: () -> Unit) {
                     settings.userAgentString = com.haise.jiyu.source.interceptor.CloudflareUserAgent.value(ctx)
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webViewClient = WebViewClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView, url: String) {
+                            com.haise.jiyu.util.customCssInjectionJs(currentCss)
+                                ?.let { view.evaluateJavascript(it, null) }
+                        }
+                    }
                     webView = this
                     loadUrl(url)
                 }

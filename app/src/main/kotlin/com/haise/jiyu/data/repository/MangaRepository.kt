@@ -82,7 +82,10 @@ class MangaRepository @Inject constructor(
     private val db: AppDatabase,
     @param:ApplicationContext private val context: Context,
     // Sdílená paměťová cache výsledků ze zdrojů (seznam stránek, detail) - viz [SourceContentCache].
-    private val contentCache: SourceContentCache = SourceContentCache(),
+    // MUSI být injektovaný singleton: JiyuApp.onTrimMemory trimuje/clears právě tuto instanci;
+    // dřív si repo vyrábělo vlastní `SourceContentCache()`, takže tlak na paměť čistil
+    // nepoužívanou cache a ta skutečná rostla dál.
+    private val contentCache: SourceContentCache,
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 

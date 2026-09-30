@@ -72,6 +72,8 @@ fun SourcesSettingsScreen(
     val customSources by viewModel.customSources.collectAsStateWithLifecycle()
     val showAdultSources by viewModel.showAdultSources.collectAsStateWithLifecycle()
     val aggregatedModes by viewModel.aggregatedModes.collectAsStateWithLifecycle()
+    val mangadexChapterLanguage by viewModel.mangadexChapterLanguage.collectAsStateWithLifecycle()
+    var showMangadexLangDialog by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -98,10 +100,26 @@ fun SourcesSettingsScreen(
                     }
                     OutlinedButton(
                         onClick = onOpenCustomCss,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).padding(bottom = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan),
                     ) {
                         Text(stringResource(R.string.settings_sources_custom_css_button))
+                    }
+                    // SET-5: katalogový jazyk MangaDexu je zvláštní nastavení - nesouvisí
+                    // s OCR zdrojovým jazykem z čtečky.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showMangadexLangDialog = true }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .padding(bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.settings_sources_mangadex_lang_title), color = TextPrimary, fontSize = 14.sp)
+                            Text(stringResource(R.string.settings_sources_mangadex_lang_desc), color = TextSecondary, fontSize = 11.sp)
+                        }
+                        Text(mangadexChapterLanguage, color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
 
@@ -368,6 +386,30 @@ fun SourcesSettingsScreen(
                 Spacer(Modifier.height(40.dp + navBottom))
             }
         }
+    }
+
+    if (showMangadexLangDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showMangadexLangDialog = false },
+            containerColor = Color(0xFF111B35),
+            title = { Text(stringResource(R.string.settings_sources_mangadex_lang_title), color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    // "Auto" tu nedává smysl - jde o jazyk katalogu, ne OCR detekce.
+                    com.haise.jiyu.source.LanguageMap.displayNames.filter { it != "Auto" }.forEach { lang ->
+                        GlassRadioRow(
+                            label = lang,
+                            selected = mangadexChapterLanguage == lang,
+                            onClick = {
+                                viewModel.setMangadexChapterLanguage(lang)
+                                showMangadexLangDialog = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showMangadexLangDialog = false }) { Text(stringResource(R.string.common_cancel), color = Color(0xFFB0BEC5)) } },
+        )
     }
 }
 

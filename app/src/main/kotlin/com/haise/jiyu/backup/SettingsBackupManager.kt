@@ -30,13 +30,33 @@ class SettingsBackupManager @Inject constructor(
     private val dataStore: DataStore<Preferences>,
 ) {
     companion object {
-        private val EXCLUDED_KEYS = setOf(
+        /**
+         * Klíče, které se nikdy neexportují ani neimportují přes settings zálohu.
+         * Dvě kategorie:
+         * - TAJEMSTVÍ: tokeny, session/clearance cache - exportní soubor se sdílí.
+         * - STAV, ne nastavení: čítače čtení, sync kurzory, id živého DownloadManageru,
+         *   mapování klíčované lokálními DB id. Obnovení staré zálohy by jinak
+         *   potichu přepsalo novější živý stav (regrese statistik, přeskočené sync
+         *   pushnutí, fantomová tracker mapování, "mrtvé" download id).
+         * `internal` kvůli testům - regresní test drží seznam kompletní.
+         */
+        internal val EXCLUDED_KEYS = setOf(
+            // Tajemství / session
             "mal_access_token", "mal_refresh_token", "mal_code_verifier",
             "kitsu_access_token", "kitsu_refresh_token", "kitsu_username", "kitsu_user_id",
             "mu_session_token", "mu_username",
             "anilist_access_token",
             "cloudflare_clearance_cache", "mangacloud_session_cache",
+            // Stav navázaný na lokální DB / živý běh appky
             "pending_removed_manga_ids", "local_data_owner_id",
+            "anilist_id_map",
+            "pending_update_download_id",
+            "sync_last_chapter_push_at",
+            "cloudflare_warmup_hosts",
+            // Statistiky čtení - mají vlastní export (CSV/JSON), ne settings zálohu
+            "total_reading_time_ms", "daily_reading_time_ms", "daily_reading_day",
+            "total_pages_read", "reading_streak_days", "last_read_date",
+            "new_chapters_count",
         )
     }
 

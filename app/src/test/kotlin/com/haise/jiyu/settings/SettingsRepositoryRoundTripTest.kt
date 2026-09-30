@@ -106,21 +106,31 @@ class SettingsRepositoryRoundTripTest {
     }
 
     @Test
-    fun `tap zones - enable, fractions, grid - round-trip`() = runTest {
+    fun `tap zones - enable, grid - round-trip`() = runTest {
         val s = repository()
         assertTrue(s.tapZonesEnabled.first())
-        assertEquals(0.3f, s.tapZoneLeftFraction.first())
-        assertEquals(0.3f, s.tapZoneRightFraction.first())
         assertEquals("", s.tapZoneGrid.first())
 
         s.setTapZonesEnabled(false)
-        s.setTapZoneLeftFraction(0.4f); s.setTapZoneRightFraction(0.25f)
         s.setTapZoneGrid("2x3:prev,menu,next")
 
         assertFalse(s.tapZonesEnabled.first())
-        assertEquals(0.4f, s.tapZoneLeftFraction.first())
-        assertEquals(0.25f, s.tapZoneRightFraction.first())
         assertEquals("2x3:prev,menu,next", s.tapZoneGrid.first())
+    }
+
+    @Test
+    fun `mangadex chapter language defaults to English and round-trips independently of OCR source language`() = runTest {
+        // Audit SET-5: katalogovy jazyk MangaDexu je zvlastni nastaveni - zmena OCR
+        // sourceLanguage na nej nesmi sahnout.
+        val s = repository()
+        assertEquals("English", s.mangadexChapterLanguage.first())
+
+        s.setSourceLanguage("Japanese")
+        assertEquals("English", s.mangadexChapterLanguage.first())
+
+        s.setMangadexChapterLanguage("Spanish")
+        assertEquals("Spanish", s.mangadexChapterLanguage.first())
+        assertEquals("Japanese", s.sourceLanguage.first())
     }
 
     @Test

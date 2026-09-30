@@ -138,6 +138,8 @@
     <string name="settings_sources_section_title">Zdroje</string>
     <string name="settings_sources_catalog_button">Katalog zdrojů (%1$d)</string>
     <string name="settings_sources_custom_css_button">Vlastní CSS pro web zdroje</string>
+    <string name="settings_sources_mangadex_lang_title">MangaDex – jazyk kapitol</string>
+    <string name="settings_sources_mangadex_lang_desc">Ve kterém jazyce MangaDex vypisuje přeložené kapitoly. Nesouvisí se zdrojovým jazykem OCR překladu.</string>
     <string name="settings_sources_adult_section_title">Zdroje 18+</string>
     <string name="settings_sources_adult_toggle_title">Zobrazovat adult zdroje</string>
     <string name="settings_sources_adult_toggle_desc">Vypnutím zmizí zdroje s 18+ obsahem z Procházet a hledání (už přidaná manga z nich zůstane čitelná)</string>

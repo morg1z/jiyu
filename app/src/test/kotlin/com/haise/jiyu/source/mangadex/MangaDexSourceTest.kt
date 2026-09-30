@@ -22,6 +22,8 @@ class MangaDexSourceTest {
 
     private lateinit var server: MockWebServer
     private lateinit var source: MangaDexSource
+    private lateinit var settings: SettingsRepository
+    @Volatile private var lastFeedPath: String? = null
 
     private val mangaListJson = """
         {
@@ -75,14 +77,17 @@ class MangaDexSourceTest {
                 val path = request.path.orEmpty()
                 return when {
                     path.startsWith("/manga?title=") || path.startsWith("/manga?limit=") -> MockResponse().setBody(mangaListJson)
-                    path.contains("/feed") -> MockResponse().setBody(chapterFeedJson)
+                    path.contains("/feed") -> {
+                        lastFeedPath = path
+                        MockResponse().setBody(chapterFeedJson)
+                    }
                     path.startsWith("/at-home/server/") -> MockResponse().setBody(atHomeJson)
                     else -> MockResponse().setResponseCode(404)
                 }
             }
         }
         server.start()
-        val settings = SettingsRepository(FakeDataStore())
+        settings = SettingsRepository(FakeDataStore())
         source = MangaDexSource(redirectingClient(server), settings)
         // Přepiš apiBase přes reflexi není potřeba - redirectingClient přesměruje host/port bez ohledu na apiBase string.
     }
@@ -122,6 +127,21 @@ class MangaDexSourceTest {
 
         assertEquals(2, pages.size)
         assertEquals("https://uploads.example.com/data/hash123/01.png", pages[0].url)
+    }
+
+    @Test
+    fun `chapter feed language comes from mangadexChapterLanguage, not OCR sourceLanguage`() = runTest {
+        // Audit SET-5: feedURL drive brala settings.sourceLanguage - zmena OCR jazyka tak
+        // potichu menila, jake kapitoly MangaDex nabizi. Ted musi jit pres vlastni klíč.
+        settings.setSourceLanguage("Japanese")
+        settings.setMangadexChapterLanguage("Spanish")
+
+        source.getChapterList(source.getPopular(1).first())
+
+        val path = lastFeedPath.orEmpty()
+        // OkHttp necha [] v query literalne - path v MockWebServer je raw.
+        assertTrue("feed must filter by the dedicated MangaDex language", path.contains("translatedLanguage[]=es"))
+        assertTrue("OCR sourceLanguage must not leak into the feed URL", !path.contains("=ja"))
     }
 
     @Test
