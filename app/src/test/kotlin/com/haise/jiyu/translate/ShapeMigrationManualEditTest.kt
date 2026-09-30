@@ -41,9 +41,10 @@ class ShapeMigrationManualEditTest {
     )
 
     private val manualEdit = ManualTranslationEntity(
-        id = "ch1::0::hello there",
+        id = "ch1::0::Czech::hello there",
         chapterId = "ch1",
         pageIndex = 0,
+        targetLanguage = "Czech",
         originalText = "HELLO THERE",
         text = "RUČNÍ OPRAVA",
         updatedAt = 1L,
@@ -57,7 +58,7 @@ class ShapeMigrationManualEditTest {
             coEvery { it.getById(any()) } returns null
         }
         val manualDao = mockk<com.haise.jiyu.data.db.ManualTranslationDao>(relaxed = true).also {
-            coEvery { it.forPage("ch1", 0) } returns listOf(manualEdit)
+            coEvery { it.forPage("ch1", 0, "Czech") } returns listOf(manualEdit)
         }
         val glossaryRepository = mockk<GlossaryRepository>().also {
             coEvery { it.getMap(any(), any()) } returns emptyMap()

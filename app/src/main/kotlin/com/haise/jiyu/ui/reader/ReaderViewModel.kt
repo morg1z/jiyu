@@ -657,7 +657,7 @@ class ReaderViewModel @Inject constructor(
         val originalParagraphs = _novelText.value.split("\n").filter { it.isNotBlank() }
         val originalText = originalParagraphs.getOrNull(paragraphIndex) ?: return
         viewModelScope.launch {
-            translateRepository.saveNovelParagraphEdit(chapterId, originalText, newText)
+            translateRepository.saveNovelParagraphEdit(chapterId, originalText, newText, _targetLanguage.value)
             val trimmed = newText.trim()
             if (trimmed.isBlank()) return@launch
             val current = _novelTranslatedText.value ?: return@launch
@@ -769,7 +769,9 @@ class ReaderViewModel @Inject constructor(
      */
     fun saveBubbleEdit(chapterId: String, pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
         viewModelScope.launch {
-            translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text, offsetXDp, offsetYDp)
+            // TR-5: oprava se vaze na cilovy jazyk, ve kterem uzivatel prave cetl -
+            // jinak by cesky edit prekryl i anglicky prepocet stejne bubliny.
+            translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text, _targetLanguage.value, offsetXDp, offsetYDp)
             // Bloky cteme z per-chapter mapy, ne z _translatedPages - v nekonecnem
             // webtoon scrollu muze editovana bublina patrit odscrollanemu segmentu
             // JINE kapitoly, nez je aktualni (audit RD-4); _translatedPages je vzdy

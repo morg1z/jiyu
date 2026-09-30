@@ -11,9 +11,13 @@ package com.haise.jiyu.translate
  * (dvouřádková bublina se přečte jednou jako "AB\nCD", podruhé jako "AB CD"), což je rozdíl,
  * který o jinou bublinu nejde. Velikost písmen se ZACHOVÁVÁ: "NE." a "ne." můžou být dvě
  * různé bubliny na téže stránce.
+ *
+ * Součástí identity je i CÍLOVÝ jazyk překladu (audit TR-5): česká oprava nesmí
+ * překrýt anglický přepočet téže bubliny - "HELLO"->"Ahoj" by se jinak aplikovalo
+ * i na EN stránku, kde měl zůstat strojový překlad.
  */
-fun manualEditId(chapterId: String, pageIndex: Int, originalText: String): String =
-    "$chapterId::$pageIndex::${normalizeOriginal(originalText)}"
+fun manualEditId(chapterId: String, pageIndex: Int, targetLanguage: String, originalText: String): String =
+    "$chapterId::$pageIndex::$targetLanguage::${normalizeOriginal(originalText)}"
 
 /** Sjednotí mezery a zalomení - viz [manualEditId]. */
 internal fun normalizeOriginal(text: String): String =

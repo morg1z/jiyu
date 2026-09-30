@@ -183,11 +183,11 @@ class BrowsedMangaCleanupTest {
         dao.upsert(manga("handedited"))
         db.chapterDao().upsertAll(listOf(chapter("ch1", "handedited")))
         db.manualTranslationDao().upsert(
-            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L),
+            ManualTranslationEntity(id = "ch1::0::Czech::hello", chapterId = "ch1", pageIndex = 0, targetLanguage = "Czech", originalText = "hello", text = "ahoj", updatedAt = 0L),
         )
         assertEquals(0, db.deleteBrowsedManga())
         assertNotNull(dao.getById("handedited"))
-        assertNotNull(db.manualTranslationDao().forPage("ch1", 0).firstOrNull())
+        assertNotNull(db.manualTranslationDao().forPage("ch1", 0, "Czech").firstOrNull())
     }
 
     @Test
@@ -245,10 +245,10 @@ class BrowsedMangaCleanupTest {
         dao.upsert(manga("doomed2", inLibrary = true))
         db.chapterDao().upsertAll(listOf(chapter("ch1", "doomed2")))
         db.manualTranslationDao().upsert(
-            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L),
+            ManualTranslationEntity(id = "ch1::0::Czech::hello", chapterId = "ch1", pageIndex = 0, targetLanguage = "Czech", originalText = "hello", text = "ahoj", updatedAt = 0L),
         )
         dao.deleteChildrenOfManga(listOf("doomed2"))
         dao.deleteMangaByIds(listOf("doomed2"))
-        assertEquals(emptyList<ManualTranslationEntity>(), db.manualTranslationDao().forPage("ch1", 0))
+        assertEquals(emptyList<ManualTranslationEntity>(), db.manualTranslationDao().forPage("ch1", 0, "Czech"))
     }
 }

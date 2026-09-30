@@ -551,7 +551,7 @@ class TranslateRepository @Inject constructor(
         } else {
             emptyList()
         }
-        val previousBlocks = previousRaw.withManualEdits(chapterId, pageIndex - 1)
+        val previousBlocks = previousRaw.withManualEdits(chapterId, pageIndex - 1, targetLanguage)
         val recentLines = GeminiUltraPrompt.recentContextLines(
             previousBlocks.filter { !it.isSfx && !it.isUntranslated }.map { it.translatedText },
         )
@@ -664,7 +664,7 @@ class TranslateRepository @Inject constructor(
             )
             // Bez re-emise by čtečka držela in-memory starý seznam a fragment by se
             // vykreslil dvakrát (starý overlay + winner na téhle stránce).
-            onAdjacentPageRewritten(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1))
+            onAdjacentPageRewritten(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1, targetLanguage))
         }
 
         // Symetricky i proti NASLEDUJICI strance: kdyz se tahle stránka překládá až po
@@ -705,7 +705,7 @@ class TranslateRepository @Inject constructor(
                         blocksJson = nextDedup.kept.serialize(),
                     ),
                 )
-                onAdjacentPageRewritten(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1))
+                onAdjacentPageRewritten(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1, targetLanguage))
             }
         }
         TranslationDiagnostics.recordPage(
@@ -744,12 +744,16 @@ class TranslateRepository @Inject constructor(
         // Ručně opravené bubliny se napařují AŽ TEĎ, na čerstvý strojový překlad, a do cache
         // se schválně neukládají - cache se při zvednutí PIPELINE_VERSION zahodí, kdežto oprava
         // má přežit. Viz [ManualTranslationEntity].
-        return dedupedBlocks.withManualEdits(chapterId, pageIndex)
+        return dedupedBlocks.withManualEdits(chapterId, pageIndex, targetLanguage)
     }
 
-    /** Napařuje uložené ruční opravy textu ([applyManualEdits]) a pozice ([applyManualPositionOffsets]). */
-    private suspend fun List<TranslatedBlock>.withManualEdits(chapterId: String, pageIndex: Int): List<TranslatedBlock> {
-        val edits = manualDao.forPage(chapterId, pageIndex)
+    /**
+     * Napařuje uložené ruční opravy textu ([applyManualEdits]) a pozice
+     * ([applyManualPositionOffsets]) - vždy jen opravy pro [targetLanguage], aby česká
+     * oprava neležela na anglickém přepočtu (audit TR-5).
+     */
+    private suspend fun List<TranslatedBlock>.withManualEdits(chapterId: String, pageIndex: Int, targetLanguage: String): List<TranslatedBlock> {
+        val edits = manualDao.forPage(chapterId, pageIndex, targetLanguage)
         if (edits.isEmpty()) return this
         val textEdited = applyManualEdits(this, edits.associate { normalizeOriginal(it.originalText) to it.text })
         val offsets = edits
@@ -766,9 +770,13 @@ class TranslateRepository @Inject constructor(
      *   null znamená "beze změny", NE "zruš posun": uložení jen textu (běžný Save v dialogu bez
      *   přetažení) nesmí vynulovat dřív nastavenou pozici, proto se při `null` zachovává
      *   existující hodnota z DB, ne přepisuje.
+     *
+     * @param targetLanguage cílový jazyk, ve kterém uživatel opravoval - oprava se
+     *   naparuje jen na přepočet do téhož jazyka (audit TR-5), jinak by český edit
+     *   překryl i anglický/německý překlad stejné bubliny.
      */
-    suspend fun saveManualEdit(chapterId: String, pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
-        val id = manualEditId(chapterId, pageIndex, originalText)
+    suspend fun saveManualEdit(chapterId: String, pageIndex: Int, originalText: String, text: String, targetLanguage: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
+        val id = manualEditId(chapterId, pageIndex, targetLanguage, originalText)
         if (text.isBlank()) {
             manualDao.delete(id)
             return
@@ -779,6 +787,7 @@ class TranslateRepository @Inject constructor(
                 id = id,
                 chapterId = chapterId,
                 pageIndex = pageIndex,
+                targetLanguage = targetLanguage,
                 originalText = originalText,
                 text = text.trim(),
                 updatedAt = System.currentTimeMillis(),
@@ -1118,7 +1127,7 @@ class TranslateRepository @Inject constructor(
                             blocksJson = marked.serialize(),
                         ),
                     )
-                    onPageReady(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1))
+                    onPageReady(pageIndex - 1, marked.withManualEdits(chapterId, pageIndex - 1, targetLanguage))
                 }
                 // Symetricky i proti NASLEDUJICI strance: muze uz byt v cache z minuleho
                 // behu, kdyz tenhle zkusil stranku, co predtim selhala (napr. bitmapa se
@@ -1149,7 +1158,7 @@ class TranslateRepository @Inject constructor(
                                 blocksJson = nextDedup.kept.serialize(),
                             ),
                         )
-                        onPageReady(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1))
+                        onPageReady(pageIndex + 1, nextDedup.kept.withManualEdits(chapterId, pageIndex + 1, targetLanguage))
                     }
                 }
                 TranslationDiagnostics.recordPage(
@@ -1715,10 +1724,10 @@ class TranslateRepository @Inject constructor(
         // trvale vpálila do strojového překladu a smazání editu ji neschovalo.
         // Manual edity se proto aplikují až na hodnotu, která se vrací čtečce.
         val raw = dao.getById(id)?.deserialize() ?: return null
-        if (pageUrl == null) return raw.withManualEdits(chapterId, pageIndex)
+        if (pageUrl == null) return raw.withManualEdits(chapterId, pageIndex, targetLanguage)
 
         val needsShapeMigration = raw.any { !it.isSfx && it.shape == null }
-        if (!needsShapeMigration) return raw.withManualEdits(chapterId, pageIndex)
+        if (!needsShapeMigration) return raw.withManualEdits(chapterId, pageIndex, targetLanguage)
 
         // translateChapter volá getCachedPage SEKVENČNĚ pro každou stránku (viz cache-check
         // smyčka) ještě PŘED paralelní dávkou nepřeložených stránek - stejný strop jako tam,
@@ -1729,7 +1738,7 @@ class TranslateRepository @Inject constructor(
             dao.upsert(TranslatedPageEntity(id = id, blocksJson = m.serialize()))
             m
         }
-        return (migrated ?: raw).withManualEdits(chapterId, pageIndex)
+        return (migrated ?: raw).withManualEdits(chapterId, pageIndex, targetLanguage)
     }
 
     private fun cacheId(chapterId: String, pageIndex: Int, targetLanguage: String, sourceLanguage: String) =
@@ -2297,12 +2306,12 @@ class TranslateRepository @Inject constructor(
         // Rucni opravy odstavcu (viz saveNovelParagraphEdit) se schvalne NEUKLADAJI do cache
         // vys - stejny duvod jako u manga bublin (ManualTranslationEntity dok. komentar):
         // preziji zvednuti PIPELINE_VERSION, kdezto cache se pri nem zahodi.
-        return result.withNovelManualEdits(chapterId, text)
+        return result.withNovelManualEdits(chapterId, targetLanguage, text)
     }
 
     suspend fun getCachedNovel(chapterId: String, targetLanguage: String, sourceLanguage: String = "Auto", originalText: String? = null): String? {
         val cached = novelDao.getById(novelCacheId(chapterId, sourceLanguage, targetLanguage))?.translatedText ?: return null
-        return if (originalText != null) cached.withNovelManualEdits(chapterId, originalText) else cached
+        return if (originalText != null) cached.withNovelManualEdits(chapterId, targetLanguage, originalText) else cached
     }
 
     /**
@@ -2319,8 +2328,8 @@ class TranslateRepository @Inject constructor(
      * jen misto seznamu bloku pracuje s [originalText] rozdelenym na odstavce (viz
      * [applyManualEditsToNovelParagraphs]).
      */
-    private suspend fun String.withNovelManualEdits(chapterId: String, originalText: String): String {
-        val edits = manualDao.forPage(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX)
+    private suspend fun String.withNovelManualEdits(chapterId: String, targetLanguage: String, originalText: String): String {
+        val edits = manualDao.forPage(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX, targetLanguage)
         if (edits.isEmpty()) return this
         val originalParagraphs = originalText.split("\n").filter { it.isNotBlank() }
         val translatedParagraphs = this.split("\n")
@@ -2337,8 +2346,8 @@ class TranslateRepository @Inject constructor(
      * Znovupouziva stejnou [ManualTranslationEntity]/[saveManualEdit] jako manga bubliny, jen s
      * fixnim [NOVEL_MANUAL_EDIT_PAGE_INDEX] (novel kapitola nema "stranky").
      */
-    suspend fun saveNovelParagraphEdit(chapterId: String, originalParagraphText: String, text: String) {
-        saveManualEdit(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX, originalParagraphText, text)
+    suspend fun saveNovelParagraphEdit(chapterId: String, originalParagraphText: String, text: String, targetLanguage: String) {
+        saveManualEdit(chapterId, NOVEL_MANUAL_EDIT_PAGE_INDEX, originalParagraphText, text, targetLanguage)
     }
 
     /** Klíč cache přeložených novel - viz [novelCacheKey]. */

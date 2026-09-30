@@ -87,20 +87,29 @@ class ManualEditTest {
     @Test
     fun `the id keeps chapter and page apart`() {
         assertNotEquals(
-            manualEditId("ch1", 0, "HELLO"),
-            manualEditId("ch1", 1, "HELLO"),
+            manualEditId("ch1", 0, "Czech", "HELLO"),
+            manualEditId("ch1", 1, "Czech", "HELLO"),
         )
         assertNotEquals(
-            manualEditId("ch1", 0, "HELLO"),
-            manualEditId("ch2", 0, "HELLO"),
+            manualEditId("ch1", 0, "Czech", "HELLO"),
+            manualEditId("ch2", 0, "Czech", "HELLO"),
+        )
+    }
+
+    @Test
+    fun `TR-5 - the id keeps target languages apart`() {
+        // Ceska oprava bubliny nesmi prepisovat anglicky prepocet te same stranky.
+        assertNotEquals(
+            manualEditId("ch1", 0, "Czech", "HELLO"),
+            manualEditId("ch1", 0, "English", "HELLO"),
         )
     }
 
     @Test
     fun `the id ignores whitespace differences, same as the matching does`() {
         assertEquals(
-            manualEditId("ch1", 0, "AB\nCD"),
-            manualEditId("ch1", 0, "  AB   CD  "),
+            manualEditId("ch1", 0, "Czech", "AB\nCD"),
+            manualEditId("ch1", 0, "Czech", "  AB   CD  "),
         )
     }
 

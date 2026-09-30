@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 43,
+    version = 44,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -401,6 +401,26 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("UPDATE manga SET contentTypeVerified = 0")
             }
         }
+        val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // TR-5: rucni opravy dostaly cilovy jazyk - bez nej se napr. ceska
+                // oprava aplikovala i na anglicky prepocet te same bubliny.
+                // Existujici radky jazyk nemaji a zpetne ho nedozjistime - osvoji
+                // se vychozim cilem appky 'Czech': opravy zustanou videt tam, kde
+                // nejspis vznikly, a do ciziho jazyka se nikdy nepropasou.
+                db.execSQL("ALTER TABLE manual_translation ADD COLUMN targetLanguage TEXT NOT NULL DEFAULT 'Czech'")
+                // id: "chapterId::pageIndex::orig" -> "chapterId::pageIndex::lang::orig".
+                // suffix se odpocita od konce PREFIXU (chapterId + pageIndex), ne od
+                // sloupce originalText - ten drzi NEZNORMALIZOVANY text, zatimco v id
+                // je normalizovany (normalizeOriginal); prepocet ze sloupce by pri
+                // rozdilnych mezerach vyrobil jine id, nez melo.
+                db.execSQL(
+                    """UPDATE manual_translation
+                        SET id = chapterId || '::' || pageIndex || '::' || targetLanguage || '::' ||
+                            substr(id, length(chapterId) + length(pageIndex) + 5)"""
+                )
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -448,6 +468,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_40_41,
             MIGRATION_41_42,
             MIGRATION_42_43,
+            MIGRATION_43_44,
         )
     }
 }

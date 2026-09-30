@@ -18,9 +18,13 @@ interface ManualTranslationDao {
     @Query("SELECT * FROM manual_translation")
     suspend fun getAll(): List<ManualTranslationEntity>
 
-    /** Opravy pro jednu stránku - volá se při každém načtení, takže je to index-covered dotaz. */
-    @Query("SELECT * FROM manual_translation WHERE chapterId = :chapterId AND pageIndex = :pageIndex")
-    suspend fun forPage(chapterId: String, pageIndex: Int): List<ManualTranslationEntity>
+    /**
+     * Opravy pro jednu stránku A cílový jazyk (audit TR-5) - volá se při každém načtení,
+     * takže je to index-covered dotaz (index na chapterId+pageIndex zůží výběr,
+     * targetLanguage se dofiltruje z pár řádků).
+     */
+    @Query("SELECT * FROM manual_translation WHERE chapterId = :chapterId AND pageIndex = :pageIndex AND targetLanguage = :targetLanguage")
+    suspend fun forPage(chapterId: String, pageIndex: Int, targetLanguage: String): List<ManualTranslationEntity>
 
     /** Jeden záznam podle id - viz [com.haise.jiyu.translate.TranslateRepository.saveManualEdit] (zachování existujícího posunu při uložení jen textu). */
     @Query("SELECT * FROM manual_translation WHERE id = :id")
@@ -33,7 +37,7 @@ interface ManualTranslationDao {
      * Přemapuje ruční opravy na nové `chapterId` po [ChapterDao.relink] (kapitola dostala nové
      * `id`, viz [com.haise.jiyu.data.repository.MangaRepository.recoverMangaLink]) - bez tohohle
      * `chapterId` sloupec ukazuje na neexistující kapitolu a `forPage()` opravy už nikdy nenajde.
-     * `id` má tvar `"$chapterId::$pageIndex::$originalText"` (viz [ManualTranslationEntity.id]) -
+     * `id` má tvar `"$chapterId::$pageIndex::$targetLanguage::$originalText"` (viz [ManualTranslationEntity.id]) -
      * `oldChapterId` je vždy jeho přesná předpona, takže `substr` odřízne jen ji a `newChapterId`
      * se přilepí místo ní, aby `id` zůstalo ve stejném formátu i po relinku.
      */

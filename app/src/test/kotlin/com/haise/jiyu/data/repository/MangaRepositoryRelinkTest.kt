@@ -121,7 +121,7 @@ class MangaRepositoryRelinkTest {
         )
         db.readHistoryDao().record(ReadHistoryEntity("src::/ch1", "src::/dead", "Solo Leveling", null, "Ch 1", 5L))
         db.manualTranslationDao().upsert(
-            ManualTranslationEntity("src::/ch1::0::orig", "src::/ch1", 0, "orig", "fix", 7L)
+            ManualTranslationEntity("src::/ch1::0::Czech::orig", "src::/ch1", 0, "Czech", "orig", "fix", 7L)
         )
         db.translatedPageDao().upsert(TranslatedPageEntity("src::/ch1::0::en::cs::v1", "[]", 9L))
         db.translatedNovelDao().upsert(TranslatedNovelEntity("src::/ch1::en::cs", "text", 9L))
@@ -136,7 +136,7 @@ class MangaRepositoryRelinkTest {
         assertEquals("/x/c1", ch1.localPath)
         // Vsechny chapter-keyed tabulky se premapuji na nove id (zadne sirotci).
         assertEquals(listOf("dst::/ch1"), db.readHistoryDao().getAll().map { it.chapterId })
-        assertNotNull(db.manualTranslationDao().getById("dst::/ch1::0::orig"))
+        assertNotNull(db.manualTranslationDao().getById("dst::/ch1::0::Czech::orig"))
         assertNotNull(db.translatedPageDao().getById("dst::/ch1::0::en::cs::v1"))
         assertNotNull(db.translatedNovelDao().getById("dst::/ch1::en::cs"))
     }

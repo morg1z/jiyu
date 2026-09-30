@@ -85,7 +85,7 @@ class BackupRoundTripTest {
         db.readHistoryDao().upsertAll(listOf(ReadHistoryEntity(chapter.id, manga.id, manga.title, null, chapter.name, 444L)))
         db.glossaryDao().upsertAll(listOf(GlossaryEntity("g1", manga.id, "原", "Original", "English", protectExact = true)))
         db.manualTranslationDao().upsertAll(
-            listOf(ManualTranslationEntity("${chapter.id}::0::原", chapter.id, 0, "原", "Fix", 66L, offsetXDp = 1.5f, offsetYDp = null)),
+            listOf(ManualTranslationEntity("${chapter.id}::0::Czech::原", chapter.id, 0, "Czech", "原", "Fix", 66L, offsetXDp = 1.5f, offsetYDp = null)),
         )
 
         assertTrue(manager.exportToFile(file).isSuccess)

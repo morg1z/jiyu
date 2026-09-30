@@ -22,6 +22,7 @@ import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.translate.manualEditId
 import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -245,6 +246,7 @@ class BackupManager @Inject constructor(
                 f("id",           t.id)
                 f("chapterId",    t.chapterId)
                 f("pageIndex",    t.pageIndex)
+                f("targetLanguage", t.targetLanguage)
                 f("originalText", t.originalText)
                 f("text",         t.text)
                 f("updatedAt",    t.updatedAt)
@@ -590,11 +592,19 @@ internal fun parseBackupJson(json: String): ParsedBackup {
 
     val manualArr = root.optJSONArray("manualTranslations") ?: JSONArray()
     val manualTranslations = manualArr.mapObjectsOrSkip(skip) { t ->
+        // TR-5: zalohy z verze <44 sloupec nemaji - opravy se osvoji vychozim
+        // cilem appky, stejne jako dela MIGRATION_43_44 pro existujici DB radky.
+        val lang = t.optString("targetLanguage", "").ifEmpty { "Czech" }
+        val orig = t.getString("originalText")
         ManualTranslationEntity(
-            id           = t.getString("id"),
+            // id se NEcte ze zalohy, ale prepocita z poli - stary zaznam ma id bez
+            // jazyka, takze by ho delete podle manualEditId v novem formatu minul
+            // a oprava by sla aplikovat, ale ne odstranit.
+            id           = manualEditId(t.getString("chapterId"), t.getInt("pageIndex"), lang, orig),
             chapterId    = t.getString("chapterId"),
             pageIndex    = t.getInt("pageIndex"),
-            originalText = t.getString("originalText"),
+            targetLanguage = lang,
+            originalText = orig,
             text         = t.getString("text"),
             updatedAt    = t.optLong("updatedAt", 0L),
             offsetXDp    = if (t.has("offsetXDp")) t.getDouble("offsetXDp").toFloat() else null,

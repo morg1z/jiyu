@@ -1,5 +1,6 @@
 package com.haise.jiyu.data.db.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -26,10 +27,20 @@ import androidx.room.PrimaryKey
     indices = [Index(value = ["chapterId", "pageIndex"])],
 )
 data class ManualTranslationEntity(
-    /** `chapterId::pageIndex::originalText` - viz [com.haise.jiyu.translate.manualEditId]. */
+    /** `chapterId::pageIndex::targetLanguage::originalText` - viz [com.haise.jiyu.translate.manualEditId]. */
     @PrimaryKey val id: String,
     val chapterId: String,
     val pageIndex: Int,
+    /**
+     * Cílový jazyk překladu, pro který oprava vznikla - bez něj se česká oprava
+     * aplikovala i na anglický/německý přepočet téže stránky (audit TR-5). Sloupec
+     * přibyl v MIGRATION_43_44; řádky starší verze se osvojí výchozím cílem appky
+     * ("Czech") - opravy zůstanou viditelné tam, kde nejspíš vznikly, a do cizích
+     * jazyků nikdy neproniknou. `defaultValue` na sloupci existuje jen kvůli té
+     * migraci (ALTER TABLE ... DEFAULT 'Czech' se musí shodovat se schématem) -
+     * kód vždy posílá jazyk explicitně.
+     */
+    @ColumnInfo(defaultValue = "Czech") val targetLanguage: String,
     /** Původní (nepřeložený) text bubliny - identita napříč přepočty, viz komentář u třídy. */
     val originalText: String,
     /** Co tam má být místo strojového překladu. */

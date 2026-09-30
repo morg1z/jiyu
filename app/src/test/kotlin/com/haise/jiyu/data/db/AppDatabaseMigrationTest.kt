@@ -170,13 +170,14 @@ class AppDatabaseMigrationTest {
 
         // MIGRATION_36_37: offsetXDp/offsetYDp pridany na manual_translation (nullable, zadny
         // DEFAULT netreba - existujici radky proste ctou null), musi byt citelne/zapisovatelne
-        // a prezit round-trip pres Room.
+        // a prezit round-trip pres Room. Sloupec targetLanguage pridal az MIGRATION_43_44.
         db.manualTranslationDao().upsert(
-            ManualTranslationEntity(id = "ch1::0::hello", chapterId = "ch1", pageIndex = 0, originalText = "hello", text = "ahoj", updatedAt = 0L, offsetXDp = 12.5f, offsetYDp = -4f),
+            ManualTranslationEntity(id = "ch1::0::Czech::hello", chapterId = "ch1", pageIndex = 0, targetLanguage = "Czech", originalText = "hello", text = "ahoj", updatedAt = 0L, offsetXDp = 12.5f, offsetYDp = -4f),
         )
-        val manualEntry = db.manualTranslationDao().getById("ch1::0::hello")!!
+        val manualEntry = db.manualTranslationDao().getById("ch1::0::Czech::hello")!!
         assertEquals(12.5f, manualEntry.offsetXDp!!, 0.001f)
         assertEquals(-4f, manualEntry.offsetYDp!!, 0.001f)
+        assertEquals("Czech", manualEntry.targetLanguage)
 
         // MIGRATION_37_38: translationContextNote pridany na manga (nullable), musi byt
         // citelny/zapisovatelny a prezit round-trip pres Room.
@@ -194,5 +195,80 @@ class AppDatabaseMigrationTest {
 
         db.close()
         context.deleteDatabase(dbName)
+    }
+
+    /**
+     * Vytvori DB presne podle exportovaneho schematu dane verze (stejny trik jako
+     * [AppDatabaseSchemaMigrationTest.createFromSchema]) - pro cileny test migrace,
+     * ktera prepisuje DATA, ne jen schema.
+     */
+    private fun createFromSchema(context: Context, version: Int, dbName: String) {
+        val schemaDir = listOf("schemas", "app/schemas")
+            .map { java.io.File(it, "com.haise.jiyu.data.db.AppDatabase") }
+            .first { it.isDirectory }
+        val root = org.json.JSONObject(java.io.File(schemaDir, "$version.json").readText()).getJSONObject("database")
+        val entities = root.getJSONArray("entities")
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(version) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        for (i in 0 until entities.length()) {
+                            val entity = entities.getJSONObject(i)
+                            val table = entity.getString("tableName")
+                            db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+                            entity.optJSONArray("indices")?.let { indices ->
+                                for (j in 0 until indices.length()) {
+                                    db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", table))
+                                }
+                            }
+                        }
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+        helper.writableDatabase
+        helper.close()
+    }
+
+    @Test
+    fun `MIGRATION_43_44 adopts legacy manual edits to Czech and rewrites ids with the language segment`() = runTest {
+        val context = context()
+        val name = "tr5-migration-test.db"
+        context.deleteDatabase(name)
+        createFromSchema(context, 43, name)
+
+        // Legacy radek ve STAREM formatu id "chapterId::pageIndex::orig" (bez jazyka).
+        // originalText ma schvalne vicenasobne mezery - id nese normalizovany tvar
+        // a migrace ho musi zachovat, jinak by opravu odpojilo od bubliny.
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(43) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                }).build()
+        )
+        helper.writableDatabase.execSQL(
+            "INSERT INTO manual_translation (id, chapterId, pageIndex, originalText, text, updatedAt, offsetXDp, offsetYDp) " +
+                "VALUES ('ch1::0::HELLO THERE', 'ch1', 0, 'HELLO   THERE', 'Ahoj', 7, NULL, NULL)"
+        )
+        helper.close()
+
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
+            .addMigrations(*AppDatabase.ALL_MIGRATIONS)
+            .build()
+        db.openHelper.writableDatabase
+
+        val adopted = db.manualTranslationDao().forPage("ch1", 0, "Czech").single()
+        assertEquals("Czech", adopted.targetLanguage)
+        assertEquals("ch1::0::Czech::HELLO THERE", adopted.id)
+        assertEquals("HELLO   THERE", adopted.originalText)
+        assertEquals("Ahoj", adopted.text)
+        // Jazykova izolace (TR-5): jiny cilovy jazyk stejnou opravu neuvidi.
+        assertEquals(0, db.manualTranslationDao().forPage("ch1", 0, "English").size)
+
+        db.close()
+        context.deleteDatabase(name)
     }
 }
