@@ -875,6 +875,8 @@
     <string name="account_set_password">Set password</string>
     <string name="account_password_changed">Password changed</string>
     <string name="account_reset_expired">The reset link has expired – request a new one.</string>
+    <string name="auth_reset_link_title">Password reset link</string>
+    <string name="auth_reset_link_message">Continue with password reset? If you didn\'t request it, cancel the link.</string>
     <string name="account_avatar_desc_named">%1$s\'s profile picture</string>
     <string name="account_avatar_desc">Profile picture</string>
     <string name="account_default_username">User</string>

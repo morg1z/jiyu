@@ -12,10 +12,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -59,7 +63,10 @@ class MainActivity : AppCompatActivity() {
         val uri: Uri = intent.data ?: return
         when {
             uri.scheme != "jiyu" -> Unit
-            uri.host == "auth" -> _pendingAuthLink.value = intent
+            // SEC-1: auth link pustime dal jen s dukazem, ze je to recovery odkaz -
+            // cizi intent bez type=recovery/code by jinak mohl importovat SESSION
+            // utocnikova uctu (staci, kdyz obet klikne na jeho reset link).
+            uri.host == "auth" -> if (isRecoveryAuthLink(uri.toString())) _pendingAuthLink.value = intent
             uri.host != "anilist" -> _pendingDeepLink.value = intent
         }
     }
@@ -95,7 +102,7 @@ class MainActivity : AppCompatActivity() {
             intent?.data?.let { uri ->
                 when {
                     uri.scheme != "jiyu" -> Unit
-                    uri.host == "auth" -> _pendingAuthLink.value = intent
+                    uri.host == "auth" -> if (isRecoveryAuthLink(uri.toString())) _pendingAuthLink.value = intent
                     uri.host != "anilist" && uri.host != "mal-auth" -> _pendingDeepLink.value = intent
                 }
             }
@@ -139,15 +146,33 @@ class MainActivity : AppCompatActivity() {
                             _pendingDeepLink.value = null
                         }
                         val pendingAuthLink by _pendingAuthLink.collectAsStateWithLifecycle()
-                        LaunchedEffect(pendingAuthLink) {
-                            val i = pendingAuthLink ?: return@LaunchedEffect
-                            _pendingAuthLink.value = null
-                            // Recovery odkaz z e-mailu: fragment (#access_token…) nebo ?code=
-                            // (PKCE) importuje knihovna asynchronně sama; obrazovka hesla mezitím
-                            // čeká na session (handleDeeplinks nemá error callback - prošlý/škaredý
-                            // link pozná sama přes timeout čekání na přihlášení).
-                            supabase.handleDeeplinks(i)
-                            navController.navigate(com.haise.jiyu.ui.navigation.Routes.RESET_PASSWORD)
+                        pendingAuthLink?.let { authIntent ->
+                            // SEC-1: session import z externího intentu jen po potvrzení
+                            // uzivatelem - bez dialogu by stacilo nechat obet kliknout na
+                            // cizi reset link a appka by tise nacalovala utocnikovu session.
+                            AlertDialog(
+                                onDismissRequest = { _pendingAuthLink.value = null },
+                                title = { Text(stringResource(R.string.auth_reset_link_title)) },
+                                text = { Text(stringResource(R.string.auth_reset_link_message)) },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        _pendingAuthLink.value = null
+                                        // Recovery odkaz z e-mailu: fragment (#access_token…) nebo ?code=
+                                        // (PKCE) importuje knihovna asynchronně sama; obrazovka hesla
+                                        // mezitím čeká na session (handleDeeplinks nemá error callback -
+                                        // prošlý/škaredý link pozná sama přes timeout čekání na přihlášení).
+                                        lifecycleScope.launch {
+                                            supabase.handleDeeplinks(authIntent)
+                                            navController.navigate(com.haise.jiyu.ui.navigation.Routes.RESET_PASSWORD)
+                                        }
+                                    }) { Text(stringResource(R.string.common_confirm)) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { _pendingAuthLink.value = null }) {
+                                        Text(stringResource(R.string.common_cancel))
+                                    }
+                                },
+                            )
                         }
                         MainScreen(
                             navController = navController,
@@ -165,4 +190,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+}
+
+/**
+ * SEC-1: `jiyu://auth` link pustíme do Supabase jen se známkou recovery resetu -
+ * `type=recovery` (implicit flow v #fragmentu nebo ?query) nebo PKCE `?code=…`.
+ * Cizí intent/QR/škodlivá appka bez tohoto parametru nesmí importovat session -
+ * jinak by oběti nacalovala útočníkův účet a sync poslala její knihovnu do jeho
+ * cloudu (viz audit finding SEC-1).
+ *
+ * String verze (ne android.net.Uri) = JVM-testovatelná bez Android runtime.
+ */
+internal fun isRecoveryAuthLink(url: String): Boolean {
+    fun params(part: String): List<List<String>> =
+        part.substringAfter('?', "").split('&').map { it.split('=', limit = 2) }
+
+    val query = url.substringBefore('#')
+    val fragment = url.substringAfter('#', missingDelimiterValue = "")
+
+    val querySaysRecovery = params(query).any { it[0] == "type" && it.getOrNull(1) == "recovery" }
+    val hasPkceCode = params(query).any { it[0] == "code" && it.getOrNull(1)?.isNotEmpty() == true }
+    // Implicit flow nese tokeny v #fragmentu jako "access_token=…&type=recovery".
+    val fragmentSaysRecovery = fragment.split('&')
+        .map { it.split('=', limit = 2) }
+        .any { it[0] == "type" && it.getOrNull(1) == "recovery" }
+
+    return querySaysRecovery || hasPkceCode || fragmentSaysRecovery
 }

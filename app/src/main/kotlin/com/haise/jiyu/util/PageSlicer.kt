@@ -9,6 +9,7 @@ import android.net.Uri
 import coil.Coil
 import coil.annotation.ExperimentalCoilApi
 import coil.disk.DiskCache
+import com.haise.jiyu.BuildConfig
 import com.haise.jiyu.di.ImageHttpClient
 import com.haise.jiyu.ui.reader.CropBordersTransformation
 import com.haise.jiyu.ui.reader.CropFractions
@@ -172,7 +173,9 @@ class PageSlicer @Inject constructor(
             }
         // Diag: Tiled = s nářezem, jinak důvod fallbacku na jedno-obrázkovou cestu
         // (pozor na délku - logujeme jen ocas URL, ne query/podpisy).
-        when (val p = result) {
+        // SEC-4: jen v debugu - release si Log.i stripne R8, ale guard je tu
+        // explicitne pro repro/testovaci buildy bez minify.
+        if (BuildConfig.DEBUG) when (val p = result) {
             is PageSlicePlan.Tiled -> android.util.Log.i(TAG,
                 "plan TILED ${p.contentWidth}x${p.contentHeight} slices=${p.slices.size} url=…${pageUrl.takeLast(70)}")
             else -> android.util.Log.i(TAG,

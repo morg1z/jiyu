@@ -41,6 +41,18 @@ internal fun extractSha256FromReleaseNotes(body: String): String? =
     Regex("(?i)sha-?256[:\\s]*([0-9a-fA-F]{64})").find(body)?.groupValues?.get(1)?.lowercase()
 
 /**
+ * SEC-8: `browser_download_url` z release JSONu pustíme jen když vede na github.com přes
+ * https - poškozená/přepsaná response (nebo zrcadlená API odpověď) by jinak mohla appku
+ * poslat stáhnout APK odkudkoli. GitHub asset URL je vždy `github.com/.../releases/download/…`.
+ * Funkce je top-level pro JVM testy (stejný vzor jako [isNewerVersion]).
+ */
+internal fun isAllowedApkUrl(url: String): Boolean {
+    val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+    val host = uri.host?.lowercase() ?: return false
+    return uri.scheme == "https" && (host == "github.com" || host.endsWith(".github.com"))
+}
+
+/**
  * Kontroluje nejnovější GitHub Release repozitáře jako jednoduchou náhradu
  * Play Store auto-update mechanismu (appka není publikovaná na Play Store).
  */
@@ -74,7 +86,10 @@ class UpdateChecker @Inject constructor(
                 for (i in 0 until assets.length()) {
                     val asset = assets.getJSONObject(i)
                     if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = asset.optString("browser_download_url")
+                        // SEC-8: jen github.com/https - cizi host se zahodi, APK se
+                        // pak stáhne jen přes releaseUrl (otevřený release v prohlížeči
+                        // nepoužíváme, ale uživatel může APK vyhledat ručně).
+                        apkUrl = asset.optString("browser_download_url").takeIf { isAllowedApkUrl(it) }
                         break
                     }
                 }

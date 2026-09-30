@@ -872,6 +872,8 @@
     <string name="account_set_password">Définir le mot de passe</string>
     <string name="account_password_changed">Mot de passe modifié</string>
     <string name="account_reset_expired">Le lien de réinitialisation a expiré – demande-en un nouveau.</string>
+    <string name="auth_reset_link_title">Lien de réinitialisation du mot de passe</string>
+    <string name="auth_reset_link_message">Continuer la réinitialisation du mot de passe ? Si tu ne l\'as pas demandée, annule.</string>
     <string name="account_avatar_desc_named">Photo de profil de %1$s</string>
     <string name="account_avatar_desc">Photo de profil</string>
     <string name="account_default_username">Utilisateur</string>

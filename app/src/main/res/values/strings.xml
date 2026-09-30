@@ -954,6 +954,8 @@
     <string name="account_set_password">Nastavit heslo</string>
     <string name="account_password_changed">Heslo změněno</string>
     <string name="account_reset_expired">Odkaz pro reset už neplatí – požádej o nový.</string>
+    <string name="auth_reset_link_title">Odkaz pro reset hesla</string>
+    <string name="auth_reset_link_message">Pokračovat v resetu hesla? Pokud jsi o něj nežádal/a, odkaz zruš.</string>
     <string name="account_avatar_desc_named">Profilový obrázek %1$s</string>
     <string name="account_avatar_desc">Profilový obrázek</string>
     <string name="account_default_username">Uživatel</string>

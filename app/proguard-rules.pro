@@ -98,9 +98,11 @@
 # jinak spadne jako na chybějící třídu.
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
-# Release build neloguje ladící/verbose výpisy (často obsahují text stránek z OCR/překladu).
-# Jen d/v - w/e zůstávají pro diagnostiku skutečných chyb.
+# Release build neloguje ladící/verbose/info výpisy (často obsahují text stránek z
+# OCR/překladu nebo URL stránek ze scrapingů - audit SEC-4). Jen d/v/i - w/e
+# zůstávají pro diagnostiku skutečných chyb.
 -assumenosideeffects class android.util.Log {
     public static int d(...);
     public static int v(...);
+    public static int i(...);
 }

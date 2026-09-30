@@ -100,8 +100,32 @@ class ComixWebViewRunner @Inject constructor(
                         override fun fail(message: String) = finish(null, message)
                     }
 
+                    // SEC-2: stranka z loadDataWithBaseURL bezi v originu `url` - navigace
+                    // (klik, location.replace, redirect) smí jen na její host/subdomény.
+                    // Cizi domena by dostala plny JS runtime vcetne JiyuComixBridge na
+                    // SVE strance, ne jen na te, co jsme nacetli.
+                    val allowedHost = runCatching {
+                        android.net.Uri.parse(url).host?.lowercase()
+                    }.getOrNull()
                     setup(webView, bridge)
                     webView.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView,
+                            request: android.webkit.WebResourceRequest,
+                        ): Boolean {
+                            val host = request.url.host?.lowercase()
+                            val allowed = allowedHost != null && host != null &&
+                                (host == allowedHost || host.endsWith(".$allowedHost"))
+                            if (!allowed) {
+                                android.util.Log.w(
+                                    "ComixWebView",
+                                    "blocked navigation to ${request.url.scheme}://${host ?: "?"}",
+                                )
+                                return true
+                            }
+                            return false
+                        }
+
                         override fun onReceivedError(
                             view: WebView,
                             request: android.webkit.WebResourceRequest?,
@@ -165,6 +189,9 @@ class ComixWebViewRunner @Inject constructor(
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.blockNetworkImage = true // obrazky stranky nepotrebujeme - setrime data
+        // SEC-2: cookies tretich stran nesmi - sdileny CookieManager by jinak cpal
+        // cookies jineho hosta do subrequestu cizi domeny.
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
         webView.addJavascriptInterface(bridge, "JiyuComixBridge")
     }
 

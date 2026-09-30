@@ -872,6 +872,8 @@
     <string name="account_set_password">Guardar contraseña</string>
     <string name="account_password_changed">Contraseña actualizada</string>
     <string name="account_reset_expired">El enlace de restablecimiento ha caducado – pide uno nuevo.</string>
+    <string name="auth_reset_link_title">Enlace de restablecimiento de contraseña</string>
+    <string name="auth_reset_link_message">¿Continuar con el restablecimiento? Si no lo solicitaste, cancela.</string>
     <string name="account_avatar_desc_named">Foto de perfil de %1$s</string>
     <string name="account_avatar_desc">Foto de perfil</string>
     <string name="account_default_username">Usuario</string>

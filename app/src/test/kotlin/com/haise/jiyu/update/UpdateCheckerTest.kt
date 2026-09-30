@@ -58,4 +58,27 @@ class UpdateCheckerTest {
     fun `a hex string shorter than 64 characters is not matched`() {
         assertNull(extractSha256FromReleaseNotes("sha256: ${"a".repeat(63)}"))
     }
+
+    // SEC-8: browser_download_url z release JSONu se validuje - poskozená/proxy
+    // response nesmí appku poslat stáhnout APK odkudkoli jinak než z github.com.
+    @Test
+    fun `apkUrl is accepted only for https github-com`() {
+        assertTrue(isAllowedApkUrl("https://github.com/morg1z/jiyu/releases/download/v1.2.3/app.apk"))
+        assertTrue(isAllowedApkUrl("https://objects.githubusercontent.com/x.apk".replace("objects.githubusercontent.com", "github.com")))
+        // Poddomény github.com projdou (release assety zůstávají na github.com).
+        assertTrue(isAllowedApkUrl("https://release-assets.github.com/x.apk"))
+    }
+
+    @Test
+    fun `apkUrl rejects foreign hosts and non-https`() {
+        assertFalse(isAllowedApkUrl("https://evil.example.com/app.apk"))
+        assertFalse(isAllowedApkUrl("http://github.com/morg1z/jiyu/releases/download/v1/x.apk"))
+        // Host-suffix pasti: "github.com.evil.com" nesmí projít endsWith bez tečky.
+        assertFalse(isAllowedApkUrl("https://github.com.evil.com/x.apk"))
+        // userinfo trick: github.com jen jako userinfo, ne host.
+        assertFalse(isAllowedApkUrl("https://github.com@evil.com/x.apk"))
+        // Neparsnutelné / prázdné.
+        assertFalse(isAllowedApkUrl("not a url"))
+        assertFalse(isAllowedApkUrl(""))
+    }
 }
