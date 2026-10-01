@@ -54,6 +54,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # local.properties neni v repu (obsahuje citlive udaje) - bez nej BuildConfig dostane
+      # "placeholder" hodnoty a realny GeminiTranslateClient hlasi isConfigured=false. Testy
+      # pocitajici s nakonfigurovanou proxy (TR-8) pak spadnou na NPE, protoze request se
+      # nikdy neposle. Hodnoty jsou fiktivni - HTTP volani odchytavaji fake interceptory.
+      - name: Create local.properties stubs
+        run: |
+          echo "SUPABASE_URL=https://ci-test.supabase.co" > local.properties
+          echo "SUPABASE_ANON_KEY=ci-test-anon-key" >> local.properties
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
@@ -119,6 +128,11 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Create local.properties stubs
+        run: |
+          echo "SUPABASE_URL=https://ci-test.supabase.co" > local.properties
+          echo "SUPABASE_ANON_KEY=ci-test-anon-key" >> local.properties
 
       # Cely androidTest balik (10 translate probe testu + LibraryScreenTest/ReaderSmokeTest)
       # potrebuje realny Bitmap/Canvas a ML Kit OCR - nejde spustit jako JVM unit test

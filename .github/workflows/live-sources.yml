@@ -42,6 +42,13 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Viz android-tests.yml - fiktivni SUPABASE_URL/ANON_KEY, aby BuildConfig nehlasil
+      # placeholder konfiguraci (realny klient by hlasil isConfigured=false).
+      - name: Create local.properties stubs
+        run: |
+          echo "SUPABASE_URL=https://ci-test.supabase.co" > local.properties
+          echo "SUPABASE_ANON_KEY=ci-test-anon-key" >> local.properties
+
       - name: Run live source check
         run: ./gradlew testDebugUnitTest --tests "com.haise.jiyu.source.LiveSourceSmokeTest" -Djiyu.live=true --stacktrace
 
