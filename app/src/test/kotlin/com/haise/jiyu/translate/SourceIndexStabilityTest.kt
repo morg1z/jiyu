@@ -45,8 +45,8 @@ class SourceIndexStabilityTest {
         lineCount = 2,
     )
 
-    /** Kruhová bublina vlevo - totéž schéma jako TextPatchPlanTest.circleShape. */
-    private fun circleShape(centerX: Float = 0.25f): List<BubbleShapePoint> = (0..10).map { i ->
+    /** Kruhová bublina kolem výchozího text boxu [0.30,0.50] - totéž schéma jako TextPatchPlanTest.circleShape. */
+    private fun circleShape(centerX: Float = 0.40f): List<BubbleShapePoint> = (0..10).map { i ->
         val yF = 0.34f + 0.18f * i / 10f
         val half = 0.16f * kotlin.math.sin(Math.PI * i / 10.0).toFloat().coerceAtLeast(0.02f)
         BubbleShapePoint(yF = yF, leftF = centerX - half, rightF = centerX + half)

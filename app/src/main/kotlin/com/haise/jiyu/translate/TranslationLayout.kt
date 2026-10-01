@@ -118,6 +118,39 @@ private const val SHAPE_LEAK_AREA_RATIO = 4f
 private const val SHAPE_LEAK_HEIGHT_RATIO = 2.5f
 private const val SHAPE_LEAK_OFFCENTER_F = 0.22f
 
+/**
+ * Třetí rozměr "degenerate" vedle velikosti ([SHAPE_MIN_TEXT_COVER]) a leaku
+ * ([SHAPE_LEAK_*]): obrys musí text obsahovat i v ŘÁDKOVÉM PROFILU, ne jen mít dost
+ * velký obalový obdélník. Flood-fill se u lettering-na-kresbě občas chytí vedlejší
+ * světlé plochy - audit RWS ch.215: nápis "FALLING DRAGON STRIKE" dostal za obrys
+ * bílý VÍR vedle/za písmem. Bbox takového tvaru text "obsahuje" (poměrové kontroly
+ * projde), ale jeho řádky na výšce textu jsou tenké/mimo - vepsaný obdélník pak
+ * vyjde miniaturní, písmo se smrskne pod čitelnost a záplata oříznutá siluetou víru
+ * zakryje jen nepatrný kousek - na stránce zůstane obří anglický nápis s drobným
+ * českým popiskem. Zahozením tvaru blok přejde na lettering cestu (záplata přes
+ * vlastní OCR oblast + sazba do boxu).
+ *
+ * Prah je měkký (řádek stačí pokrýt ~60 % šířky textu a stačí 70 % vzorků) - OCR box
+ * bývá o chlup širší než skutečné glyfy a flood-fill končí uvnitř tahu obrysu, takže
+ * požadovat 100 % by shazovalo i skutečné bubliny.
+ */
+private const val SHAPE_ROW_MIN_COVER = 0.6f
+private const val SHAPE_ROW_SAMPLES = 7
+private const val SHAPE_ROW_MIN_PASS_FRACTION = 0.7f
+
+/** Sedí řádky tvaru na řádky textu - viz [SHAPE_ROW_MIN_COVER] nad isDegenerateShapeForText. */
+private fun shapeRowsContainText(shape: List<BubbleShapePoint>, b: TranslatedBlock): Boolean {
+    val textW = b.rightF - b.leftF
+    if (textW <= 0f || b.bottomF <= b.topF) return true
+    var pass = 0
+    for (s in 0 until SHAPE_ROW_SAMPLES) {
+        val y = b.topF + (b.bottomF - b.topF) * (s + 0.5f) / SHAPE_ROW_SAMPLES
+        val (l, r) = shapeBoundsAtYF(shape, y)
+        if (minOf(r, b.rightF) - maxOf(l, b.leftF) >= textW * SHAPE_ROW_MIN_COVER) pass++
+    }
+    return pass.toFloat() / SHAPE_ROW_SAMPLES >= SHAPE_ROW_MIN_PASS_FRACTION
+}
+
 // internal (ne private): stejnou pojistku používá i TextPatchProvider na obrys
 // znovunalezený při vykreslení - flood-fill tam může uniknout stejně jako při OCR
 // a bez kontroly by se zahozený leak vrátil přes recoveredShape (viz audit p77).
@@ -134,6 +167,10 @@ internal fun isDegenerateShapeForText(shape: List<BubbleShapePoint>, b: Translat
         val textMid = (b.topF + b.bottomF) / 2f
         if (kotlin.math.abs(textMid - shapeMid) > shapeH * SHAPE_LEAK_OFFCENTER_F) return true
     }
+    // Řádkové obsažení jen pro bloky, které se opravdu vykreslují - u seamCover/
+    // SFX/nepřeložených/art se tvar na čtenáře neprojeví a jeho zahození by zbytečně
+    // měnilo layout/clip krytí fragmentů na řezu.
+    if (!b.seamCover && !b.isSfx && !b.isUntranslated && !b.isArtText && !shapeRowsContainText(shape, b)) return true
     return false
 }
 

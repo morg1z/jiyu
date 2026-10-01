@@ -218,6 +218,74 @@ class TranslationLayoutTest {
     }
 
     @Test
+    fun `shape whose bbox contains the text but whose rows do not is dropped`() {
+        // Audit RWS ch.215 ("FALLING DRAGON STRIKE"): flood-fill se chytil bílé
+        // diagonální víry v kresbě VEDLE nápisu - obalový obdélník tvaru je dost velký
+        // na poměrové kontroly (0.55 / leak), ale řádky víru na výšce letteringového
+        // textu ho fyzicky neobsahují. Výsledek na zařízení: vepsaný obdélník ->
+        // mikroskopická čeština, clip na siluetu víry -> obří anglický nápis odkrytý.
+        val swirl = listOf(
+            BubbleShapePoint(yF = 0.52f, leftF = 0.40f, rightF = 0.52f),
+            BubbleShapePoint(yF = 0.60f, leftF = 0.30f, rightF = 0.42f),
+            BubbleShapePoint(yF = 0.70f, leftF = 0.18f, rightF = 0.30f),
+            BubbleShapePoint(yF = 0.80f, leftF = 0.08f, rightF = 0.20f),
+            BubbleShapePoint(yF = 0.90f, leftF = 0.00f, rightF = 0.12f),
+        )
+        val block = TranslatedBlock(
+            originalText = "FALLING DRAGON STRIKE", translatedText = "Úder padajícího draka",
+            leftF = 0.04f, topF = 0.65f, rightF = 0.55f, bottomF = 0.89f,
+            shape = swirl,
+            bgUniform = false,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+
+        assertTrue("tvar, co text v řádkovém profilu neobsahuje, se má zahodit", positioned.block.shape == null)
+    }
+
+    @Test
+    fun `a wide bubble outline whose rows contain the text is kept`() {
+        // Kontrolní pól nové podmínky: skutečná bublina drží všechny řádky textu
+        // uvnitř řádkového profilu obrysu - musí zůstat tvarová, ne spadnout na heuristiku.
+        val bubble = (0..10).map { i ->
+            val y = 0.55f + i * 0.035f
+            val bulge = kotlin.math.sin(i / 10f * Math.PI).toFloat() * 0.05f
+            BubbleShapePoint(yF = y, leftF = 0.10f - bulge, rightF = 0.80f + bulge)
+        }
+        val block = TranslatedBlock(
+            originalText = "FALLING DRAGON STRIKE", translatedText = "Úder padajícího draka",
+            leftF = 0.15f, topF = 0.62f, rightF = 0.72f, bottomF = 0.82f,
+            shape = bubble,
+            bgUniform = true,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue(positioned.block.shape != null)
+    }
+
+    @Test
+    fun `seamCover fragment keeps even a non-containing shape`() {
+        // Řezový krycí fragment se nerenderuje jako text - jeho tvar řídí jen výplňový
+        // clip a zahození by krytí zúžilo. Nová podmínka se na něj nevztahuje.
+        // Tvar projde velikostní/leak kontrolami (bbox je dost velký), ale řádky sedí
+        // VEDLE textu (fragment uříznutý řezem) - u běžného bloku by se zahodil.
+        val offsetShape = listOf(
+            BubbleShapePoint(yF = 0.48f, leftF = 0.10f, rightF = 0.55f),
+            BubbleShapePoint(yF = 0.62f, leftF = 0.10f, rightF = 0.55f),
+        )
+        val block = TranslatedBlock(
+            originalText = "YOU LIKE THE MANS YOU...?", translatedText = "x",
+            leftF = 0.45f, topF = 0.50f, rightF = 0.85f, bottomF = 0.56f,
+            shape = offsetShape,
+            seamCover = true,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue(positioned.block.shape != null)
+
+        // Kontrolní pól: stejná geometrie na BĚŽNÉM bloku se má zahodit.
+        val normal = layoutTranslationBlocks(listOf(block.copy(seamCover = false))).single()
+        assertTrue(normal.block.shape == null)
+    }
+
+    @Test
     fun `tall shape with centered text is kept`() {
         // Obrácený případ: velká bublina (výkřik) - text sedí uprostřed obrysu, takže
         // i když je tvar násobně vyšší než text, není to leak a zahodit se nesmí.
