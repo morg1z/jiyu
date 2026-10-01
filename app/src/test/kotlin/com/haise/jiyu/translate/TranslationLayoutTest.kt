@@ -54,27 +54,29 @@ class TranslationLayoutTest {
             "non-uniform background must expand less than uniform ($nonUniformWidth vs $uniformWidth)",
             nonUniformWidth < uniformWidth * 0.8f,
         )
-        // Uniformní bublina bez souseda smí narůst nejvýše 3× vlastní OCR šířku.
-        assertEquals(0.6f, uniformWidth, 0.01f)
+        // Uniformní bublina bez souseda smí narůst nejvýše na 1,6× vlastní OCR šířky -
+        // pozadí kryje záplata ze skutečných pixelů, takže nafukovat box nad poměr
+        // "bublina vs text" jen zbytečně roztahuje text přes okraj balónku.
+        assertEquals(0.32f, uniformWidth, 0.01f)
         // Pořád musí krýt aspoň vlastní OCR rozsah, jen se štědře nenafukovat navíc.
         assertTrue(nonUniformPositioned.leftF <= nonUniformBlock.leftF + 1e-4f)
         assertTrue(nonUniformPositioned.rightF >= nonUniformBlock.rightF - 1e-4f)
     }
 
     @Test
-    fun `single block expands up to 3x own width but caps vertical growth when no neighbors`() {
+    fun `single block expands to a modest multiple of own width and caps vertical growth when no neighbors`() {
         // Vodorovně beze zbytku sousedů roste symetricky kolem středu, ale nikdy víc
-        // než 3× vlastní OCR šířku - jinak by box přetékal přes bublinu do kresby.
+        // než 1,6× vlastní OCR šířky - jinak by box přetékal přes bublinu do kresby.
         // Svisle ALE MUSÍ mít strop i bez souseda: box teď fyzicky vyplňuje aspoň vlastní
         // rozsah bubliny (viz ReaderScreen.kt .heightIn(min=)), takže "žádný soused dole
         // = roztáhni box přes zbytek stránky" by v reálné appce vytvořilo obří box přes
         // spoustu prázdného pozadí (reprodukováno a opraveno na reálném zařízení).
         val positioned = layoutTranslationBlocks(listOf(block(0.4f, 0.2f, 0.6f, 0.25f)))
         assertEquals(1, positioned.size)
-        assertEquals(0.2f, positioned[0].leftF, 0.01f)
-        assertEquals(0.8f, positioned[0].rightF, 0.01f)
+        assertEquals(0.34f, positioned[0].leftF, 0.01f)
+        assertEquals(0.66f, positioned[0].rightF, 0.01f)
         assertTrue("vertical growth without a neighbor must stay bounded, not reach the page edge", positioned[0].maxBottomF < 0.5f)
-        assertEquals(0.35f, positioned[0].maxBottomF, 0.01f)
+        assertEquals(0.3125f, positioned[0].maxBottomF, 0.01f)
     }
 
     @Test
@@ -89,10 +91,11 @@ class TranslationLayoutTest {
         val (a, b) = positioned
 
         assertTrue("expanded left block must not cross into right block's original region", a.rightF <= b.leftF + 1e-4f)
-        // Symetrická expanze kolem středu - obě strany dostanou stejný podíl mezery,
-        // takže se setkají přesně v polovině mezery mezi originály (0.5).
-        assertEquals(0.5f, a.rightF, 0.01f)
-        assertEquals(0.5f, b.leftF, 0.01f)
+        // Symetrická expanze kolem středu míří k polovině mezery mezi originály, ale
+        // u uniformního pozadí teď strop 1,6x vlastní šířky přijde dřív (těsnější
+        // sazba místo maximalizace - viz uživatelská zpětná vazba).
+        assertEquals(0.43f, a.rightF, 0.01f)
+        assertEquals(0.57f, b.leftF, 0.01f)
     }
 
     @Test
@@ -259,6 +262,66 @@ class TranslationLayoutTest {
         )
         val positioned = layoutTranslationBlocks(listOf(block)).single()
         assertTrue(positioned.block.shape != null)
+    }
+
+    @Test
+    fun `edge-spanning band shape from a flood-fill leak is dropped`() {
+        // Audit RWS ch.215 p144 ("WE GOTTA HURRY BACK TO PEACE!"): oválná bublina dostala
+        // za obrys bílou mezislicovou škvíru - všech 24 řádků identicky 0.951 širokých,
+        // přilepených na oba okraje stránky. Výplň oříznutá pásem překryla obrys oválu
+        // tam, kde se zužuje, a text stál na placatém pásu sahajícím přes kraj bubliny
+        // (uživatelské hlášení "pozadí jde přes kraj bubliny"). Zahozením tvaru blok
+        // přejde na recovery/záplatu - žádná výplň nemůže přetéct přes neviditelný okraj.
+        val band = (0..23).map { i ->
+            val y = 0.156f + i * (0.577f - 0.156f) / 23f
+            BubbleShapePoint(yF = y, leftF = 0.024f, rightF = 0.975f)
+        }
+        val block = TranslatedBlock(
+            originalText = "WE GOTTA HURRY BACK TO PEACE!", translatedText = "Musíme se rychle vrátit k Peace!",
+            leftF = 0.215f, topF = 0.234f, rightF = 0.790f, bottomF = 0.419f,
+            shape = band,
+            bgUniform = true,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue("uniklý edge-spanning pás se má zahodit", positioned.block.shape == null)
+    }
+
+    @Test
+    fun `a real oval nearly as wide as the page is kept`() {
+        // Kontrolní pól edge-band kontroly: skutečný široký ovál (jako ta bublina z auditu)
+        // sahá k okrajům jen uprostřed - řádky nahoře/dole se zužují, takže spanning
+        // frakce je nízká a tvar zůstane.
+        val oval = (0..20).map { i ->
+            val y = 0.12f + i * 0.63f / 20f
+            val bulge = kotlin.math.sin(i / 20f * Math.PI).toFloat()
+            BubbleShapePoint(yF = y, leftF = 0.5f - 0.47f * bulge, rightF = 0.5f + 0.47f * bulge)
+        }
+        val block = TranslatedBlock(
+            originalText = "WE GOTTA HURRY BACK TO PEACE!", translatedText = "Musíme se rychle vrátit k Peace!",
+            leftF = 0.215f, topF = 0.30f, rightF = 0.790f, bottomF = 0.55f,
+            shape = oval,
+            bgUniform = true,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue("skutečný široký ovál se má zachovat", positioned.block.shape != null)
+    }
+
+    @Test
+    fun `a thin edge-to-edge narration strip keeps its outline`() {
+        // Narration stripy edge-to-edge jsou legitimní obdélníky - jen NÍZKÉ. Výškový
+        // práh SHAPE_BAND_MIN_HEIGHT_F drží kontrolu pryč od nich.
+        val strip = (0..6).map { i ->
+            val y = 0.005f + i * 0.10f / 6f
+            BubbleShapePoint(yF = y, leftF = 0.02f, rightF = 0.98f)
+        }
+        val block = TranslatedBlock(
+            originalText = "NOW...", translatedText = "Teď...",
+            leftF = 0.20f, topF = 0.03f, rightF = 0.60f, bottomF = 0.09f,
+            shape = strip,
+            bgUniform = true,
+        )
+        val positioned = layoutTranslationBlocks(listOf(block)).single()
+        assertTrue("nízký narration strip edge-to-edge je legitimní", positioned.block.shape != null)
     }
 
     @Test

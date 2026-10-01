@@ -33,6 +33,14 @@ private val ORPHAN_PRONE_WORDS = setOf("a", "i", "k", "o", "s", "u", "v", "z")
  */
 private const val ORPHAN_LINE_END_PENALTY = 1_000_000f
 
+/**
+ * Rezerva uvnitř obrysu bubliny: řádek v [shapeLineWidths] dostane jen ~90 % šířky, co
+ * tvar v jeho pásu fyzicky dovoluje - text se nelepí na čáru obrysu (a obrys textu
+ * nepřesahuje konturu) a těsný tvar stáhne font dolů. Uživatel preferuje menší sazbu
+ * ve stylu oficiálního českého lettering před maximalizací na doraz.
+ */
+internal const val SHAPE_TEXT_WIDTH_FACTOR = 0.9f
+
 /** Je [word] (po odstranění interpunkce na okrajích) jednopísmenná předložka/spojka? */
 private fun isOrphanProneWord(word: String): Boolean {
     val core = word.trim { !it.isLetter() }
@@ -397,6 +405,12 @@ fun assembleLines(words: List<String>, lineEnds: List<Int>): List<String> {
  * každému řádku vlastní vodorovný střed vedl na vykreslování řádek po řádku a to zase na
  * překrývající se řádky - tomuhle se tím vyhneme.
  *
+ * Rezerva uvnitř obrysu: řádek dostane jen ~90 % šířky, co tvar v jeho pásu fyzicky
+ * dovoluje (viz [SHAPE_TEXT_WIDTH_FACTOR]). Bez ní se text lepil přesně na čáru obrysu
+ * (a obrys textu mírně přesahoval konturu) - hlášené jako "písmo až na okraj balónku".
+ * Hlavně ale menší použitelná šířka stáhne font dolů, když je tvar těsný - uživatel
+ * preferuje menší sazbu ve stylu oficiálního českého lettering před maximalizací na doraz.
+ *
  * @param samplesPerLine kolik bodů se v pásu jednoho řádku vzorkuje (min přes ně)
  */
 fun shapeLineWidths(
@@ -422,6 +436,6 @@ fun shapeLineWidths(
             val (left, right) = shapeBoundsAtYF(shape, yF)
             halfWidth = minOf(halfWidth, centerF - left, right - centerF)
         }
-        (2f * halfWidth * pageWidthPx).coerceAtLeast(0f)
+        (2f * halfWidth * pageWidthPx * SHAPE_TEXT_WIDTH_FACTOR).coerceAtLeast(0f)
     }
 }

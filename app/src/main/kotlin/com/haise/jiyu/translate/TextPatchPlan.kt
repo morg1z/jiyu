@@ -60,6 +60,16 @@ fun renderBoxRect(pos: PositionedTranslationBlock): PatchRect =
  * "THE BATTLE OF SEKIGAHARA" na akvarelu sněhu), proto render takový blok bez záplaty
  * přeskočí a nechá prosvítat originál - viz pravidlo `art_lettering` v BubbleOverlayLayer.
  *
+ * ## Záplata i pro jednolitou bublinu BEZ nalezeného obrysu
+ * Dřív jednolité pozadí záplatu nedostávalo nikdy - "proč malovat to, co je jednou
+ * barvou". Jenže bez obrysu se kreslí zaoblený obdélník přes heuristický box a ten
+ * přetéká přes kraj skutečné bubliny - hlášené "výplň přes okraj bubliny" (obláčkové
+ * bubliny s výplní vyčnívající z vlnitého obrysu). Záplata je strukturálně správná
+ * odpověď: kopíruje skutečné pixely stránky, takže okraj výřezu je neviditelný,
+ * obrys bubliny přežije jako součást zkopírovaného obrázku a smazat se jen tahy
+ * písmen. Jednolitá výplň zůstává jen pro bloky S obrysem - tam je oříznutá konturou
+ * a od originálu k nerozeznání.
+ *
  * Bez opravy geometrie záplaty (viz odstavec výše) by tohle nešlo: roztažené zbytky tahů
  * byly původní důvod, proč záplata u bublin s obrysem skončila.
  */
@@ -79,4 +89,4 @@ fun patchPlan(positioned: List<PositionedTranslationBlock>): Map<Int, PatchRect>
         }
 
 private fun TranslatedBlock.needsPatch(): Boolean =
-    !isSfx && !isUntranslated && !isArtText && !bgUniform
+    !isSfx && !isUntranslated && !isArtText && (!bgUniform || shape == null)

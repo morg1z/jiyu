@@ -58,6 +58,12 @@ enum class PatchState {
     DEGENERATE_UNIFORM,
     /** Záplata se spočítala, ale bitmapa z ní nesestavila (0 řádků po ořezu). */
     BAD_BITMAP,
+    /**
+     * Obrys se podařilo znovunajít a pozadí je jednolité - kreslí se oříznutá výplň,
+     * která je uvnitř známé kontury čistší než záplata (žádné inpaint artefakty)
+     * a nemá bitmapovou cenu. Záplata se vůbec nestavěla.
+     */
+    SKIPPED_RECOVERED_FILL,
 }
 
 /** Výsledek render-time obnovy obrysu bubliny - viz recordRender v TranslationDiagnostics. */
@@ -233,6 +239,13 @@ class TextPatchProvider @Inject constructor(
         for ((index, rect) in plan) {
             val b = positioned[index].block
             val shape = recovered[index]?.shape
+            // Obnovený obrys + jednolitý interiér: záplata nemá co zlepšit - oříznutá
+            // výplň sedí na konturu přesně a nenese inpaint artefakty. Navíc bitmapa
+            // by zbytečně stála místo v cache (viz CACHE_BYTES).
+            if (shape != null && b.bgUniform) {
+                patchDiag[index] = PatchState.SKIPPED_RECOVERED_FILL
+                continue
+            }
             val effRect = if (shape != null) {
                 PatchRect(
                     leftF = shape.minOf { it.leftF },
@@ -291,7 +304,11 @@ class TextPatchProvider @Inject constructor(
             // jednolitý výsledek neškodný (ořízne se konturou a splývá s výplní), ale u
             // lettering-na-kresbě je to přesně ta placka přes malbu, kvůli které záplata
             // vznikla - takový blok se má radši přeskočit, ne překrýt barvou.
-            if (b.shape == null && shape == null && argb.isUniform()) {
+            // Jednolitá záplata u bloku s JEDNOLITÝM pozadím (bgUniform) naopak vadit
+            // nemůže: znamená, že celý render box sedí uvnitř jednobarevné oblasti
+            // (interiér bubliny) - vykreslený výřez je od plochy k nerozeznání a navíc
+            // drží skutečně naměřenou barvu místo prstence, který mohl znečistit okraj.
+            if (b.shape == null && shape == null && argb.isUniform() && !b.bgUniform) {
                 patchDiag[index] = PatchState.DEGENERATE_UNIFORM
                 patchDims[index] = boxW to boxH
                 continue

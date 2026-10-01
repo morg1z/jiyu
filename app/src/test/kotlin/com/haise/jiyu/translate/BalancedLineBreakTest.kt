@@ -190,7 +190,8 @@ class BalancedLineBreakTest {
         val shape = (0..8).map { BubbleShapePoint(it / 8f, 0.2f, 0.8f) }
         val widths = shapeLineWidths(shape, centerF = 0.5f, blockTopF = 0f, blockBottomF = 1f, lineCount = 4, pageWidthPx = 1000f)
 
-        widths.forEach { assertEquals(600f, it, 1f) }
+        // 0,6 šířky stránky * 1000 px * rezerva uvnitř obrysu (SHAPE_TEXT_WIDTH_FACTOR).
+        widths.forEach { assertEquals(600f * SHAPE_TEXT_WIDTH_FACTOR, it, 1f) }
     }
 
     @Test
@@ -203,8 +204,9 @@ class BalancedLineBreakTest {
         )
         val widths = shapeLineWidths(shape, centerF = 0.5f, blockTopF = 0f, blockBottomF = 1f, lineCount = 1, pageWidthPx = 1000f)
 
-        // Kolem osy 0.5 je bezpecne jen min(0.5-0.40, 0.90-0.5) = 0.10 na kazdou stranu.
-        assertEquals(200f, widths[0], 1f)
+        // Kolem osy 0.5 je bezpecne jen min(0.5-0.40, 0.90-0.5) = 0.10 na kazdou stranu,
+        // po rezervě uvnitř obrysu (SHAPE_TEXT_WIDTH_FACTOR) 180 px.
+        assertEquals(200f * SHAPE_TEXT_WIDTH_FACTOR, widths[0], 1f)
     }
 
     @Test
@@ -419,10 +421,10 @@ class BalancedLineBreakTest {
     fun `onCapProbe reports no room to grow when the preferred size is the true limit`() {
         // Plochy obdelnik (ne oval) drzi sirku radku konstantni napric celou vyskou, takze jde
         // spocitat presnou hranici: slovo "AHOJ" (4 znaky) sirokr 2.4*fontSp - pri 10sp 24px,
-        // pri 10.25sp 24.6px. Sirka tvaru 24.3px je schvalne mezi nimi.
+        // pri 10.25sp 24.6px. Sirka tvaru 27px * rezerva 0.9 = 24.3px je schvalne mezi nimi.
         val rectShape = listOf(
-            BubbleShapePoint(0.0f, 0.5f - 0.1215f, 0.5f + 0.1215f),
-            BubbleShapePoint(1.0f, 0.5f - 0.1215f, 0.5f + 0.1215f),
+            BubbleShapePoint(0.0f, 0.5f - 0.135f, 0.5f + 0.135f),
+            BubbleShapePoint(1.0f, 0.5f - 0.135f, 0.5f + 0.135f),
         )
         var probedRoomToGrow: Boolean? = null
         val layout = fitTextToShape(

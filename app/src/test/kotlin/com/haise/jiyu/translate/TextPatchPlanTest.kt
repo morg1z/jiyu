@@ -110,9 +110,14 @@ class TextPatchPlanTest {
     }
 
     @Test
-    fun `a bubble with uniform background gets no patch`() {
+    fun `a uniform bubble without a detected outline gets a patch - flat fill would spill past the bubble edge`() {
+        // Jádro hlášení "výplň jde přes kraj bubliny": bez obrysu se jednolité pozadí
+        // kreslilo jako zaoblený obdélník přes heuristický box, který je širší než
+        // skutečná bublina (obláček/vlnitý obrys) - bílá placka přečnívá do kresby.
+        // Záplata kopíruje skutečné pixely stránky, takže její okraj je neviditelný
+        // a obrys bubliny zůstane zachovaný.
         val positioned = layoutTranslationBlocks(listOf(block(shape = null, bgUniform = true)))
-        assertTrue(patchPlan(positioned).isEmpty())
+        assertEquals(1, patchPlan(positioned).size)
     }
 
     @Test

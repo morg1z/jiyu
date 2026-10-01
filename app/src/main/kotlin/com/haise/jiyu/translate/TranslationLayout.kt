@@ -138,6 +138,34 @@ private const val SHAPE_ROW_MIN_COVER = 0.6f
 private const val SHAPE_ROW_SAMPLES = 7
 private const val SHAPE_ROW_MIN_PASS_FRACTION = 0.7f
 
+/**
+ * Čtvrtý rozměr "degenerate" vedle velikosti/leaku/řádkového obsažení: uniklý PÁS.
+ * Flood-fill může z bubliny prolétnout skulinou v obrysu do bílé mezery mezi panely
+ * či slicy webtoonu - výsledný "tvar" je pak obdélník, jehož řádky sahají téměř k
+ * OBĚMA okrajům stránky po celé výšce (všechny řádky stejně široké, žádná variace).
+ * Audit RWS ch.215 p144: oválná bublina "WE GOTTA HURRY BACK TO PEACE!" dostala za
+ * obrys bílou mezislicovou škvíru [0.024-0.975]x[0.156-0.577] - všech 24 řádků
+ * identicky 0.951 širokých. Výplň oříznutá tímto pásem překryla obrys oválu tam, kde
+ * se zužuje, a text stál na placatém pásu sahajícím přes kraj bubliny. Takový tvar
+ * se zahodí - blok přejde na recovery (ta najde skutečný ovál) nebo záplatu.
+ *
+ * Výškový práh drží pryč typické narration stripy: tenké pruhy edge-to-edge jsou
+ * legitimní popiskové rámečky a jejich obdélníkový obrys je správný. I kdyby se
+ * vyšší narration box chytil, dopad je neškodný - skončí na záplatě ze skutečných
+ * pixelů místo ploché výplně.
+ */
+private const val SHAPE_BAND_MIN_HEIGHT_F = 0.2f
+private const val SHAPE_BAND_EDGE_MARGIN_F = 0.07f
+private const val SHAPE_BAND_MIN_SPANNING_FRACTION = 0.8f
+
+/** Jsou skoro všechny řádky tvaru přilepené na oba okraje stránky - viz konstanty výše. */
+private fun shapeIsEdgeSpanningBand(shape: List<BubbleShapePoint>): Boolean {
+    val shapeH = shape.last().yF - shape.first().yF
+    if (shape.size < 2 || shapeH < SHAPE_BAND_MIN_HEIGHT_F) return false
+    val spanning = shape.count { it.leftF <= SHAPE_BAND_EDGE_MARGIN_F && it.rightF >= 1f - SHAPE_BAND_EDGE_MARGIN_F }
+    return spanning.toFloat() / shape.size >= SHAPE_BAND_MIN_SPANNING_FRACTION
+}
+
 /** Sedí řádky tvaru na řádky textu - viz [SHAPE_ROW_MIN_COVER] nad isDegenerateShapeForText. */
 private fun shapeRowsContainText(shape: List<BubbleShapePoint>, b: TranslatedBlock): Boolean {
     val textW = b.rightF - b.leftF
@@ -167,10 +195,13 @@ internal fun isDegenerateShapeForText(shape: List<BubbleShapePoint>, b: Translat
         val textMid = (b.topF + b.bottomF) / 2f
         if (kotlin.math.abs(textMid - shapeMid) > shapeH * SHAPE_LEAK_OFFCENTER_F) return true
     }
-    // Řádkové obsažení jen pro bloky, které se opravdu vykreslují - u seamCover/
-    // SFX/nepřeložených/art se tvar na čtenáře neprojeví a jeho zahození by zbytečně
-    // měnilo layout/clip krytí fragmentů na řezu.
-    if (!b.seamCover && !b.isSfx && !b.isUntranslated && !b.isArtText && !shapeRowsContainText(shape, b)) return true
+    // Řádkové obsažení i edge-band kontrola jen pro bloky, které se opravdu vykreslují - u
+    // seamCover/SFX/nepřeložených/art se tvar na čtenáře neprojeví a jeho zahození by
+    // zbytečně měnilo layout/clip krytí fragmentů na řezu.
+    if (!b.seamCover && !b.isSfx && !b.isUntranslated && !b.isArtText) {
+        if (!shapeRowsContainText(shape, b)) return true
+        if (shapeIsEdgeSpanningBand(shape)) return true
+    }
     return false
 }
 
@@ -446,10 +477,14 @@ private fun layoutHeuristic(
         // je stejné, ať už má blok souseda, nebo ne (viz BubbleTextFit.DEFAULT_MAX_ITERATIONS
         // pro řešení namačkaného textu jinou, bezpečnější cestou - přes fitter, ne přes
         // rozšiřování boxu do kresby).
+        // U uniformního pozadí bez tvaru se už nekreslí plochá výplň, ale záplata ze
+        // skutečných pixelů (viz patchPlan) - čím menší box, tím menší bitmapa a tím míň
+        // se text může rozšířit přes okraj skutečné bubliny. 1.6x hrubě odpovídá poměru
+        // "bublina vs text v ní" a výplň-padací fallback pak přeteče jen nepatrně.
         // Na listovych strankach (TOC - viz isDenseListPage) navic volna expanze bez souseda
         // znamenala rozlezeni radkoveho textu pres sousedni radky = auditovana katastrofa;
         // faktor 0 necha jen vlastni rect (midpoint expanze k realnym sousedum jede dal).
-        val expandFactor = if (denseList) 0f else if (b.bgUniform) 3f else 1.15f
+        val expandFactor = if (denseList) 0f else if (b.bgUniform) 1.6f else 1.15f
         val ownWidth = b.rightF - b.leftF
         val expandLimitLeft = leftNeighbor?.let { (b.leftF + it.rightF) / 2f } ?: (b.leftF - ownWidth * expandFactor).coerceAtLeast(0f)
         val expandLimitRight = rightNeighbor?.let { (b.rightF + it.leftF) / 2f } ?: (b.rightF + ownWidth * expandFactor).coerceAtMost(1f)
@@ -473,9 +508,11 @@ private fun layoutHeuristic(
         // z 5 OCR řádků by "3x vlastní výška" znamenalo 15 řádků volného místa, což je
         // přesně to, co způsobilo box přetékající přes zbytek stránky až za sousední SFX.
         // Stejný důvod jako u expandFactor výše - nerovnoměrné pozadí dostává jen minimální
-        // rezervu, ne plných 2 řádky navíc.
+        // rezervu, ne plných 2 řádky navíc. U uniformního bez tvaru 1,25 řádku: větší
+        // rezerva jen nafukovala záplatu/box přes okraj skutečné bubliny (uživatelská
+        // zpětná vazba - výplň přes kraj bubliny); český text místo toho dostane menší písmo.
         val avgLineHeightForCap = (b.bottomF - b.topF) / b.lineCount.coerceAtLeast(1)
-        val verticalExpandFactor = if (b.bgUniform) 2f else 0.5f
+        val verticalExpandFactor = if (b.bgUniform) 1.25f else 0.5f
         // Bez souseda mame prirozeny strop (avgLineHeightForCap * verticalExpandFactor), ale
         // KDYZ soused existuje, puvodni kod expandoval AZ K NEMU bez ohledu na vzdalenost -
         // u male SFX bubliny (napr. "GULP GULP" osamocene v panelu) s dalsim blokem daleko

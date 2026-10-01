@@ -71,6 +71,8 @@ internal fun bubbleRenderMode(
     // renderované bloky. Obnovený obrys má přednost před heuristikou (mění i box).
     hasRecoveredShape -> if (recoveredPatch) "recovered_patch" else "recovered_fill"
     hasShape -> if (hasPatch) "shaped_patch" else "shaped_fill"
-    hasPatch -> "patched_art"
+    // Jednolitá bublina bez obrysu se kreslí záplatou ze skutečných pixelů (žádná
+    // viditelná hrana); bez ní text na kresbě - viz patchPlan.
+    hasPatch -> if (bgUniform) "patched_uniform" else "patched_art"
     else -> "uniform_fill"
 }

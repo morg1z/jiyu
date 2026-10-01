@@ -117,13 +117,13 @@ private val TRANSLATION_BOX_BLEED = 2.dp
 private const val TRANSLATION_BOX_ALPHA = 1.0f
 
 /** Horizontální padding uvnitř přeloženého boxu - sdíleno mezi voláním `.padding(horizontal = ...)` a [AutoFitTranslatedText], aby fitter měřil text proti stejné šířce, jakou Text ve skutečnosti dostane. */
-private val TRANSLATION_TEXT_HORIZONTAL_PADDING = 4.dp
+private val TRANSLATION_TEXT_HORIZONTAL_PADDING = 6.dp
 
 /** Svislý padding uvnitř přeloženého boxu - text nesmí sahat až na horní/dolní okraj, jinak ho obrys bubliny ořízne. */
-private val TRANSLATION_TEXT_VERTICAL_PADDING = 2.dp
+private val TRANSLATION_TEXT_VERTICAL_PADDING = 3.dp
 
 /** O kolik dovnitř se ořízne clip obrysu bubliny - viz [BubbleClipShape]. Chrání tenký černý okraj balónku před přepsáním výplní. */
-private val BUBBLE_CLIP_INSET = 2.dp
+private val BUBBLE_CLIP_INSET = 3.dp
 
 /**
  * Fragment coverOnly tak blízko okraje stránky (<4 %) leží na řezu sliců - krytí se
@@ -136,9 +136,20 @@ private const val SEAM_EDGE_FRACTION = 0.04f
  * Jak velký podíl vepsaného obdélníku (viz [largestInscribedRect]) se skutečně použije na text.
  * Obrys bubliny bývá nakreslený znatelně tlustou linkou a text nalepený těsně na ni vypadá
  * špatně, i když technicky nepřetéká - tenhle odstup dělá výsledek vizuálně podobný tomu, jak
- * sází text skutečný lettering v originále.
+ * sází text skutečný lettering v originále. Uživatel explicitně preferuje menší sazbu ve stylu
+ * oficiálních českých vydání místo maximalizovaného písma po kraj - proto 0,85, ne těsných 0,95.
  */
-private const val INSCRIBED_TEXT_AREA_FACTOR = 0.92f
+private const val INSCRIBED_TEXT_AREA_FACTOR = 0.85f
+
+/**
+ * O kolik menší než odhadnutá velikost originálního písma má být strop sazby překladu
+ * (viz preferredFontSp v [AutoFitTranslatedText]). Odhad [estimateNativeFontPx] se kalibruje
+ * na velikost originálních glyfů, ale scanlatorské all-caps písmo bývá sázené "na doraz"
+ * bubliny - oficiální český překlad (CREW, Crew Comics) sází znatelně menším písmem s
+ * rezervou k obrysu. Uživatel to hlásil jako "text nemusí být tak obrovský". Hodnota
+ * působí jen jako strop - když je limitující box/obrys, sazba zůstane menší sama.
+ */
+private const val TRANSLATION_FONT_SCALE = 0.85f
 
 /**
  * Skutečně vykreslený obdélník obrázku uvnitř Boxu dané velikosti, podle stejné logiky,
@@ -940,7 +951,8 @@ private fun AutoFitTranslatedText(
         // nasobku skutecne velikosti a text zustaval maly i v obri bubline. Prevodni pomery
         // jsou zmerene na zarizeni, viz estimateNativeFontPx.
         val nativeFontPx = estimateNativeFontPx(boxHeightPx, originalText)
-        with(density) { nativeFontPx.toSp() }.value * textScale
+        // Menší sazba ve stylu oficiálního českého lettering - viz [TRANSLATION_FONT_SCALE].
+        with(density) { nativeFontPx.toSp() }.value * textScale * TRANSLATION_FONT_SCALE
     } else {
         null
     }
