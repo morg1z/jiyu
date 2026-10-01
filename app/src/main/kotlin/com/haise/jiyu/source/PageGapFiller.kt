@@ -90,6 +90,15 @@ class PageGapFiller @Inject constructor(
         val gaps = PageGapDetector.detect(urls)
         if (gaps.isEmpty()) return pages
         pruneStaleDonorFiles()
+        val dirKey = md5(chapterUrl)
+        // Trvalá cache doplněného seznamu - opakované otevření kapitoly po TTL
+        // page cache by jinak znamenalo znovu ~20-30s donor sweep. Klíčem je hash
+        // host URL seznamu: změní-li se zdroj (jiné URL), cache se ignoruje.
+        loadCachedFill(dirKey, urls)?.let { cached ->
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "cached fill for $chapterUrl: ${pages.size} -> ${cached.size} pages")
+            return cached
+        }
         if (BuildConfig.DEBUG) android.util.Log.i(TAG,
             "gaps in $chapterUrl: ${gaps.joinToString { "${it.insertIndex} misses ${it.missingNumbers}" }}")
         return try {
@@ -99,11 +108,17 @@ class PageGapFiller @Inject constructor(
             // výsledek má (audit: 3 mezery doplněné v :32.7 zahozené v :47).
             val completed = java.util.concurrent.atomic.AtomicReference<List<Page>?>(null)
             val filled = withTimeoutOrNull(GAP_FILL_TIMEOUT_MS) {
-                fillInternal(source, chapterUrl, mangaUrl, pages, gaps, completed)
+                fillInternal(source, chapterUrl, mangaUrl, pages, gaps, completed, dirKey)
             }
             val result = filled ?: completed.get()
             if (result == null && BuildConfig.DEBUG) android.util.Log.i(TAG,
                 "gap fill timed out after ${GAP_FILL_TIMEOUT_MS}ms for $chapterUrl")
+            // Ukládat jen kompletně doplněné výsledky - částečný fill nechat
+            // znovu zkusit, příště může pomalý donor doběhnout.
+            if (result != null && result !== pages &&
+                result.size == pages.size + gaps.sumOf { it.missingCount }) {
+                saveCachedFill(dirKey, urls, result)
+            }
             result ?: pages
         } catch (e: CancellationException) {
             throw e
@@ -120,6 +135,7 @@ class PageGapFiller @Inject constructor(
         pages: List<Page>,
         gaps: List<PageGapDetector.PageGap>,
         completed: java.util.concurrent.atomic.AtomicReference<List<Page>?>,
+        dirKey: String,
     ): List<Page> {
         val manga = mangaDao.getMangaBySourceAndUrl(source.id, mangaUrl) ?: run {
             if (BuildConfig.DEBUG) android.util.Log.i(TAG, "no library manga for $mangaUrl")
@@ -143,7 +159,6 @@ class PageGapFiller @Inject constructor(
         // Jeden donor pokus na zdroj - comix seed obsahoval ch.215 od dvou skupin,
         // obě tryDonor stahovaly tentýž (scrambled) obsah a rozpůlily rozpočet.
         val donorSourcesSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-        val dirKey = md5(chapterUrl)
         try {
             kotlinx.coroutines.coroutineScope {
                 crossSourceSearch.seeds(manga, source, relaxedTitleMatch = true).collect { seed ->
@@ -286,6 +301,14 @@ class PageGapFiller @Inject constructor(
         suspend fun donorImage(i: Int): DonorImage? =
             cache.getOrPut(i) { fetchSem.withPermit { loadDonorImage(donorSource, donorPages[i], dirKey) } }
 
+        // Izomorfní donor = jeho počet stránek přesně odpovídá host+chybějící
+        // (webtoons 347 vs 343+4) → řezání je shodné a mapování deterministické:
+        // host[i] ↔ donor[i + počet mezer před i]. Stačí 2 sondy na mezeru místo
+        // ~48 stránkového scanu - live: gap@317 se scanem nestihl, izomorfně ano.
+        val totalMissing = gaps.sumOf { it.missingCount }
+        val isomorphic = donorPages.size == pages.size + totalMissing
+        var missingBefore = 0
+
         // Mezery se řeší paralelně - sekvenčně by 4 díry × (profily host stránek +
         // scan donor stránek) nepřinesly výsledek pod stropem. Vlastní deadline
         // pod celkovým stropem: i částečný výsledek (některé mezery) se vrátí
@@ -294,7 +317,10 @@ class PageGapFiller @Inject constructor(
         withTimeoutOrNull(CONTENT_ALIGN_BUDGET_MS) {
             kotlinx.coroutines.coroutineScope {
                 gaps.forEach { gap ->
+                    val gapMissingBefore = missingBefore
+                    missingBefore += gap.missingCount
                     launchGap(gap, pages, source, donorSource, donorPages, dirKey,
+                        isomorphic = isomorphic, missingBefore = gapMissingBefore,
                         donorImage = { donorImage(it) }) { idx, list ->
                         if (list.isNotEmpty()) insertions[idx] = list
                     }
@@ -311,6 +337,8 @@ class PageGapFiller @Inject constructor(
         donorSource: MangaSource,
         donorPages: List<Page>,
         dirKey: String,
+        isomorphic: Boolean,
+        missingBefore: Int,
         donorImage: suspend (Int) -> DonorImage?,
         onDone: (Int, List<Page>) -> Unit,
     ) = launch {
@@ -321,6 +349,32 @@ class PageGapFiller @Inject constructor(
         val afterSig = profileOf(source, after) ?: return@launch
         val beforeNeedle = RowProfileMatcher.edgeStrip(beforeSig, top = false) ?: return@launch
         val afterNeedle = RowProfileMatcher.edgeStrip(afterSig, top = true) ?: return@launch
+        var beforeMatch: Pair<Int, RowProfileMatcher.Match>? = null
+        var afterMatch: Pair<Int, RowProfileMatcher.Match>? = null
+        var bestSeen = 0f
+
+        // Izomorfní donor: předpokládané donor indexy sousedů jsou přesné -
+        // ověříme je přímo (2 downloady na mezeru). Prochází-li obě sondy, celý
+        // 48-stránkový scan se přeskočí; při selhání se normálně scanuje.
+        if (isomorphic) {
+            val impliedBefore = gap.insertIndex - 1 + missingBefore
+            val impliedAfter = gap.insertIndex + missingBefore + gap.missingCount
+            beforeMatch = donorPages.getOrNull(impliedBefore)?.let { donorImage(impliedBefore) }
+                ?.let { img -> RowProfileMatcher.findStripRaw(beforeNeedle, img.signature) }
+                ?.takeIf { it.score >= RELAXED_MATCH_SCORE && it.margin >= RELAXED_MATCH_MARGIN }
+                ?.let { impliedBefore to it }
+            afterMatch = donorPages.getOrNull(impliedAfter)?.let { donorImage(impliedAfter) }
+                ?.let { img -> RowProfileMatcher.findStripRaw(afterNeedle, img.signature) }
+                ?.takeIf { it.score >= RELAXED_MATCH_SCORE && it.margin >= RELAXED_MATCH_MARGIN }
+                ?.let { impliedAfter to it }
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "gap@${gap.insertIndex} in ${donorSource.id}: iso probe before=$impliedBefore->${beforeMatch?.second?.score}, after=$impliedAfter->${afterMatch?.second?.score}")
+        }
+
+        if (beforeMatch != null && afterMatch != null) {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "gap@${gap.insertIndex} in ${donorSource.id}: isomorphic hit, skipping scan")
+        } else {
         if (BuildConfig.DEBUG) android.util.Log.i(TAG,
             "gap@${gap.insertIndex} in ${donorSource.id}: anchors profiled, scanning ${donorPages.size}p")
 
@@ -356,9 +410,6 @@ class PageGapFiller @Inject constructor(
             }
         }
 
-        var beforeMatch: Pair<Int, RowProfileMatcher.Match>? = null
-        var afterMatch: Pair<Int, RowProfileMatcher.Match>? = null
-        var bestSeen = 0f
         while (remaining > 0 && (beforeMatch == null || afterMatch == null)) {
             val (i, img) = fetched.receive()
             remaining--
@@ -382,6 +433,7 @@ class PageGapFiller @Inject constructor(
         fetchJobs.forEach { it.cancel() }
         if (BuildConfig.DEBUG) android.util.Log.i(TAG,
             "gap@${gap.insertIndex} in ${donorSource.id}: before=${beforeMatch?.first}, after=${afterMatch?.first} (scanned ${order.size - remaining}/${order.size}, bestScore=$bestSeen)")
+        }
 
         // Jednokotvený fallback: jedna kotva matchla přesně, druhá ne - typicky
         // u donorů s o řez posunutým řezáním nebo plochými okraji (bílý spodek
@@ -561,6 +613,48 @@ class PageGapFiller @Inject constructor(
     /** Dočasné surové donor obrázky (source pro BitmapRegionDecoder) - cacheDir čistí systém,
      *  ale starší soubory mažeme sami, ať se při opakovaných pokusech nehromadí. */
     private val gapDirRoot: File get() = File(context.cacheDir, "gapfill_src").apply { mkdirs() }
+
+    // ── Trvalá cache doplněného seznamu stránek ──────────────────────────────
+
+    /**
+     * Soubor s doplněným seznamem stránek kapitoly: `filesDir/gapfill/<dirKey>/pages.txt`.
+     * První řádka `host <počet> <md5(URL seznamu)>` - hash slouží jako invalidace,
+     * když zdroj změní svůj page list. Další řádky: `url\timageUrl` (`-` = null).
+     */
+    private fun cachedFillFile(dirKey: String): File =
+        File(context.filesDir, "gapfill/$dirKey/pages.txt")
+
+    private fun saveCachedFill(dirKey: String, hostUrls: List<String>, filled: List<Page>) {
+        runCatching {
+            val f = cachedFillFile(dirKey)
+            f.parentFile?.mkdirs()
+            f.writeText(buildString {
+                append("host ").append(hostUrls.size).append(' ')
+                    .append(md5(hostUrls.joinToString("\n"))).append('\n')
+                filled.forEach { p ->
+                    append(p.url).append('\t').append(p.imageUrl ?: "-").append('\n')
+                }
+            })
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG, "saved fill cache $dirKey (${filled.size} pages)")
+        }
+    }
+
+    private fun loadCachedFill(dirKey: String, hostUrls: List<String>): List<Page>? {
+        val f = cachedFillFile(dirKey)
+        if (!f.isFile) return null
+        return runCatching {
+            val lines = f.readLines()
+            val expect = "host ${hostUrls.size} ${md5(hostUrls.joinToString("\n"))}"
+            if (lines.firstOrNull() != expect) { f.delete(); return null }
+            lines.drop(1).mapIndexed { i, line ->
+                val url = line.substringBefore('\t')
+                val img = line.substringAfter('\t', "").takeIf { it != "-" && it.isNotEmpty() }
+                // file:// crop stránky musí fyzicky existovat - jinak cache zahodit
+                if (url.startsWith("file://") && !File(url.removePrefix("file://")).isFile) return null
+                Page(index = i, url = url, imageUrl = img)
+            }.takeIf { it.size > hostUrls.size }
+        }.getOrNull()
+    }
 
     private fun pruneStaleDonorFiles() {
         val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
