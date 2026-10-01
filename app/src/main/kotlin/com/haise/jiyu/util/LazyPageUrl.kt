@@ -15,6 +15,11 @@ object LazyPageUrl {
     fun encode(sourceId: String, index: Int, url: String): String =
         "$url#$MARKER$sourceId/$index"
 
+    /** URL už nese jiyu_lazy marker (stránky vložené cross-source gap fillem nesou
+     * donor sourceId+index) - takovou URL NEZABALOVAT znovu, dvojitý marker by se
+     * rozbil při decodeFragment (fragment je jen jeden, druhý # už je součástí prvního). */
+    fun isMarked(url: String): Boolean = url.substringAfter('#', "").startsWith(MARKER)
+
     /** Rozbalí marker z Uri fragmentu → (sourceId, index) nebo null. */
     fun decodeFragment(fragment: String?): Pair<String, Int>? {
         if (fragment == null || !fragment.startsWith(MARKER)) return null

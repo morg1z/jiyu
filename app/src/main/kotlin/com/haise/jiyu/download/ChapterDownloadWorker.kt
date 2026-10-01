@@ -162,8 +162,17 @@ class ChapterDownloadWorker @AssistedInject constructor(
                                 // vrací v Page.url neobrazovou virtuální adresu - skutečnou
                                 // URL dorozluší getImageUrl až teď, jinak by se do souboru
                                 // uložil HTML/JS kód místo obrázku (nalezeno v auditu).
+                                // Pozn.: resolvePageImageUrl rozbalí i jiyu_lazy marker -
+                                // u gap-fill donor stránek resolve jede přes DONOR zdroj.
                                 val imageUrl = page.imageUrl
                                     ?: repository.resolvePageImageUrl(sourceId, page)
+                                // Referer patří zdroji, jehož stránka je - donor stránky
+                                // gap-fillu nesou donor sourceId v jiyu_lazy markeru; bez
+                                // jeho refereru by donor CDN s hotlink ochranou vrátil 403.
+                                val pageSourceId = com.haise.jiyu.util.LazyPageUrl.decodeFragment(
+                                    runCatching { android.net.Uri.parse(page.url).fragment }.getOrNull(),
+                                )?.first ?: sourceId
+                                val pageReferer = repository.sourceHomepage(pageSourceId)
                                 // Příponu/scramble lze určit čistě z URL bez síťového volání - umožňuje
                                 // zjistit cílové jméno souboru PŘED stahováním a přeskočit stránky, které
                                 // už jsou z předchozího (přerušeného) pokusu na disku hotové.
@@ -172,7 +181,13 @@ class ChapterDownloadWorker @AssistedInject constructor(
                                 val fileName = "%03d.%s".format(index, extension)
 
                                 if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
-                                    var bytes = totalPageDownloadPermits.withPermit { downloadBytes(imageUrl) }
+                                    var bytes = if (imageUrl.startsWith("file://") || imageUrl.startsWith("/")) {
+                                        // Výstřižek donor stránky z gap-fillu už je lokální
+                                        // soubor - jen zkopírovat bajty, žádné HTTP.
+                                        java.io.File(imageUrl.removePrefix("file://")).readBytes()
+                                    } else {
+                                        totalPageDownloadPermits.withPermit { downloadBytes(imageUrl, pageReferer) }
+                                    }
                                     if (scramble != null) {
                                         bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
                                     }
@@ -313,11 +328,12 @@ class ChapterDownloadWorker @AssistedInject constructor(
      * (`e is IOException && runAttemptCount < 3` v [doDownload]) místo trvalého selhání
      * kapitoly na první přechodné chybě (503, dočasně prázdná odpověď apod.).
      */
-    private suspend fun downloadBytes(url: String): ByteArray {
+    private suspend fun downloadBytes(url: String, referer: String? = null): ByteArray {
         // Stahování kapitol vždy v originální kvalitě, mimo úsporný režim obrázků (viz ImageProxyInterceptor).
         val call = client.newCall(
             Request.Builder().url(url)
                 .header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+                .apply { if (!referer.isNullOrBlank()) header("Referer", referer) }
                 .build(),
         )
         return suspendCancellableCoroutine { cont ->

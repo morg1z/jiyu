@@ -54,10 +54,21 @@ class LazyPageFetcher(
         return withContext(Dispatchers.IO) {
             // options.headers nesou hlavičky z ImageRequest (hlavně Referer zdroje -
             // bez něj CDN s hotlink ochranou odpoví 403, viz buildPageImageRequest).
+            // Referer ale patří zdroji Z MARKERU, ne kapitole, do které se stránka
+            // ukazuje - u gap-fill donor stránek (jiný zdroj vložený do cizího seznamu)
+            // by předaný referer patřil hostitelské kapitole a donor CDN by odpověděl 403.
+            val markerReferer = try {
+                repository.sourceHomepage(sourceId)
+            } catch (e: Exception) {
+                e.rethrowIfControl()
+                null
+            }
             val req = Request.Builder().url(realUrl).apply {
                 for (name in options.headers.names()) {
+                    if (markerReferer != null && name.equals("Referer", ignoreCase = true)) continue
                     for (value in options.headers.values(name)) header(name, value)
                 }
+                if (markerReferer != null) header("Referer", markerReferer)
             }.build()
             httpClient.newCall(req).execute().use { resp ->
                 if (BuildConfig.DEBUG) android.util.Log.i("LazyPageFetcher", "fetch ${resp.code} ${realUrl.take(100)}")

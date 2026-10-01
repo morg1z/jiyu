@@ -40,4 +40,10 @@ interface TranslatedPageDao {
         WHERE substr(id, 1, length(:oldChapterId) + 2) = :oldChapterId || '::'
     """)
     suspend fun relinkChapter(oldChapterId: String, newChapterId: String)
+
+    /** Smaže všechny překlady kapitoly - id má předponu "$chapterId::" (viz relinkChapter).
+     * Používá PageGapFiller: vložené stránky posunou pageIndex uprostřed seznamu,
+     * takže strojové překlady starého uspořádání by se aplikovaly na špatné obrázky. */
+    @Query("DELETE FROM translated_page WHERE substr(id, 1, length(:chapterId) + 2) = :chapterId || '::'")
+    suspend fun deleteForChapter(chapterId: String)
 }

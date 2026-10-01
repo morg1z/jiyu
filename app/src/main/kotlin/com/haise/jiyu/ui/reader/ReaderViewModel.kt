@@ -1560,6 +1560,9 @@ class ReaderViewModel @Inject constructor(
     private fun pageDisplayUrl(page: Page, sourceId: String): String {
         page.imageUrl?.takeIf { it.isNotBlank() }?.let { return it }
         val url = page.url.takeIf { it.isNotBlank() } ?: return ""
+        // Stránka vložená cross-source gap fillem nese marker DONORA - znovu
+        // nezabalovat, dvojitý fragment by se při decode rozbil.
+        if (LazyPageUrl.isMarked(url)) return url
         return LazyPageUrl.encode(sourceId, page.index, url)
     }
 

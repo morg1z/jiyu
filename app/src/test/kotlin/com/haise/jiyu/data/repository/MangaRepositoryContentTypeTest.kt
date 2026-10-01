@@ -83,6 +83,14 @@ class MangaRepositoryContentTypeTest {
             db = db,
             context = context,
             contentCache = SourceContentCache(),
+            pageGapFiller = com.haise.jiyu.source.PageGapFiller(
+                crossSourceSearch = mockk(relaxed = true),
+                mangaDao = db.mangaDao(),
+                chapterDao = db.chapterDao(),
+                translatedPageDao = db.translatedPageDao(),
+                context = context,
+                httpClient = okhttp3.OkHttpClient(),
+            ),
         )
     }
 

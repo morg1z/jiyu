@@ -86,6 +86,10 @@ class MangaRepository @Inject constructor(
     // dřív si repo vyrábělo vlastní `SourceContentCache()`, takže tlak na paměť čistil
     // nepoužívanou cache a ta skutečná rostla dál.
     private val contentCache: SourceContentCache,
+    // Doplnění chybějících stránek z jiného zdroje (viz PageGapFiller). Na KONCI
+    // konstruktoru - testy repo skládají pozičně a nový parametr uprostřed by
+    // všechny rozbil.
+    private val pageGapFiller: com.haise.jiyu.source.PageGapFiller,
 ) {
     // ── Library ──────────────────────────────────────────────────────────────
 
@@ -835,7 +839,11 @@ class MangaRepository @Inject constructor(
         // Souběžná volání (čtečka, předstahování další kapitoly, překladové preloady, stahování) sdílí jedno načtení.
         // Vrací se KOPIE - `Page.imageUrl` je měnitelné a volající ho může doplnit (viz MangaSource.getImageUrl).
         return contentCache.getOrLoad("pages", "$sourceId|$chapterUrl", PAGES_TTL_MS, PAGES_MAX, force) {
-            source.getPageList(chapter)
+            val pages = source.getPageList(chapter)
+            // Díry v číslování souborů (upload skupiny stránku nikdy neměl - CDN 404)
+            // se zkusí doplnit z jiného zdroje. Nikdy nehází a pod vlastním timeoutem;
+            // když nenajde ověřeného donora, vrátí původní seznam beze změny.
+            pageGapFiller.fillIfGapped(source, chapterUrl, mangaUrl, pages)
         }.map { it.copy() }
     }
 
@@ -853,9 +861,21 @@ class MangaRepository @Inject constructor(
      * TTL nekazí přesnost a chrání před zastaralými podpisovými tokeny.
      */
     suspend fun resolvePageImageUrl(sourceId: String, page: com.haise.jiyu.source.Page): String {
-        val source = sourceManager.getById(sourceId) ?: return page.url
-        return contentCache.getOrLoad("resolve", "$sourceId|${page.url}", RESOLVE_TTL_MS, RESOLVE_MAX) {
-            source.getImageUrl(page)
+        // `Page.url` může už nést jiyu_lazy marker - u stránek vložených gap fillem
+        // je to sourceId+index DONORA (jiného zdroje). Resolve musí jít přes jeho
+        // getImageUrl - zdroj hostitelské kapitoly by cizí virtuální URL nerozklíčoval.
+        val marked = com.haise.jiyu.util.LazyPageUrl.decodeFragment(
+            runCatching { android.net.Uri.parse(page.url).fragment }.getOrNull(),
+        )
+        val effectiveSourceId = marked?.first ?: sourceId
+        val effectivePage = if (marked != null) {
+            com.haise.jiyu.source.Page(index = marked.second, url = page.url.substringBefore('#'), imageUrl = page.imageUrl)
+        } else {
+            page
+        }
+        val source = sourceManager.getById(effectiveSourceId) ?: return effectivePage.url
+        return contentCache.getOrLoad("resolve", "$effectiveSourceId|${effectivePage.url}", RESOLVE_TTL_MS, RESOLVE_MAX) {
+            source.getImageUrl(effectivePage)
         }
     }
 

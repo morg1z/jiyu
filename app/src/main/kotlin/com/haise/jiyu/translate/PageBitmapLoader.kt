@@ -64,8 +64,13 @@ class PageBitmapLoader @Inject constructor(
                 val transforms = buildList<Transformation> {
                     scramble?.let { add(TileDescrambleTransformation(it.grid, it.seed)) }
                 }
+                // Fragment sejmeme JEN když to není jiyu_lazy marker - donor stránky
+                // gap-fillu (a lazy zdroje obecně) bez něj fetcher nerozpozná a Coil by
+                // stáhl virtuální URL přímo. Ostatní fragmenty (#mplus_key= apod.)
+                // jdou pryč jako dřív.
+                val dataUrl = if (com.haise.jiyu.util.LazyPageUrl.isMarked(url)) url else url.substringBeforeLast("#")
                 val request = ImageRequest.Builder(context)
-                    .data(url.substringBeforeLast("#")) // strip #mplus_key= fragment
+                    .data(dataUrl) // strip #mplus_key= fragment
                     .apply { if (transforms.isNotEmpty()) transformations(transforms) }
                     // Coil na API 26+ defaultně dekóduje do Config.HARDWARE (bitmapa žije v GPU
                     // paměti) - výsledek je pro zobrazení skvělý, ale bitmap.getPixel() na ní
@@ -80,7 +85,7 @@ class PageBitmapLoader @Inject constructor(
                     .addHeader(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
                     .apply {
                         if (imageProxyConfig.enabled) {
-                            val originalKey = url.substringBeforeLast("#") + "#original"
+                            val originalKey = dataUrl.substringBeforeLast("#") + "#original"
                             diskCacheKey(originalKey)
                             memoryCacheKey(originalKey)
                         }
