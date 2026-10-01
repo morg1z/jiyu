@@ -76,7 +76,7 @@ jobs:
 
       - name: Publish test report summary
         if: always()
-        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: Unit test results
           path: app/build/test-results/testDebugUnitTest/*.xml
@@ -159,7 +159,7 @@ jobs:
 
       - name: Publish instrumented test report summary
         if: always()
-        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
           name: Instrumented test results
           path: app/build/outputs/androidTest-results/connected/**/*.xml
