@@ -24,6 +24,9 @@ import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -90,9 +93,18 @@ class PageGapFiller @Inject constructor(
         if (BuildConfig.DEBUG) android.util.Log.i(TAG,
             "gaps in $chapterUrl: ${gaps.joinToString { "${it.insertIndex} misses ${it.missingNumbers}" }}")
         return try {
-            withTimeoutOrNull(GAP_FILL_TIMEOUT_MS) {
-                fillInternal(source, chapterUrl, mangaUrl, pages, gaps)
-            } ?: pages
+            // Dokončený splice se propaguje i mimo návratovou hodnotu bloku -
+            // úspěšný donor zruší scope, ale cancel() se teprve šíří dětmi;
+            // `withTimeoutOrNull` může vyhodit timeout, zatímco fillInternal už
+            // výsledek má (audit: 3 mezery doplněné v :32.7 zahozené v :47).
+            val completed = java.util.concurrent.atomic.AtomicReference<List<Page>?>(null)
+            val filled = withTimeoutOrNull(GAP_FILL_TIMEOUT_MS) {
+                fillInternal(source, chapterUrl, mangaUrl, pages, gaps, completed)
+            }
+            val result = filled ?: completed.get()
+            if (result == null && BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "gap fill timed out after ${GAP_FILL_TIMEOUT_MS}ms for $chapterUrl")
+            result ?: pages
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -107,71 +119,132 @@ class PageGapFiller @Inject constructor(
         mangaUrl: String,
         pages: List<Page>,
         gaps: List<PageGapDetector.PageGap>,
+        completed: java.util.concurrent.atomic.AtomicReference<List<Page>?>,
     ): List<Page> {
-        val manga = mangaDao.getMangaBySourceAndUrl(source.id, mangaUrl) ?: return pages
+        val manga = mangaDao.getMangaBySourceAndUrl(source.id, mangaUrl) ?: run {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG, "no library manga for $mangaUrl")
+            return pages
+        }
         val chapter = chapterDao.getAllForManga(manga.id).firstOrNull { it.url == chapterUrl }
         val chapterNumber = chapter?.chapterNumber
-            ?: chapterNumberFromUrl(chapterUrl) ?: return pages
-
-        // Donor kandidáti: stejný titul na jiném zdroji + stejné číslo kapitoly.
-        val donors = collectDonors(manga, source, chapterNumber)
-        for ((donorSource, donorChapter) in donors) {
-            val donorPages = try {
-                donorSource.getPageList(donorChapter)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                continue
-            }
-            if (donorPages.isEmpty()) continue
-
-            val donorUrls = donorPages.map { it.imageUrl ?: it.url }
-            // 1) Číselná shoda - zdarma, bez stahování.
-            PageGapAligner.alignByNumbers(gaps, pages.map { it.imageUrl ?: it.url }, donorUrls)?.let { byNum ->
-                val insertions = byNum.mapValues { (_, idxs) ->
-                    idxs.map { donorLazyPage(donorSource.id, donorPages[it]) }
-                }
-                if (insertions.values.any { list -> list.any { p -> p == null } }) return@let null
-                return spliceAndInvalidate(
-                    pages,
-                    insertions.mapValues { (_, l) -> l.filterNotNull() },
-                    chapter?.id,
-                )
-            }
-            // 2) Kontentové zarovnání (řádkové profily + ořez do lokálního souboru).
-            alignByContent(source, gaps, pages, donorSource, donorPages, md5(chapterUrl))?.let { byContent ->
-                return spliceAndInvalidate(pages, byContent, chapter?.id)
-            }
+            ?: chapterNumberFromUrl(chapterUrl)
+        if (chapterNumber == null) {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG, "no chapter number for $chapterUrl")
+            return pages
         }
-        return pages
+
+        // Donor kandidáti se zkoušejí PARALELNĚ, jak seeds streamují - sekvenční
+        // tryDonor v collect by jeden pomalý donor (typicky scrambled CDN, které
+        // content scan nedokáže matchnout) zablokoval na celý rozpočet a později
+        // dorazivší vhodný donor by se už nikdy nezkusil. První úspěch scope zruší.
+        val filled = java.util.concurrent.atomic.AtomicReference<List<Page>?>(null)
+        val donorsTried = java.util.concurrent.atomic.AtomicInteger(0)
+        val donorsSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        // Jeden donor pokus na zdroj - comix seed obsahoval ch.215 od dvou skupin,
+        // obě tryDonor stahovaly tentýž (scrambled) obsah a rozpůlily rozpočet.
+        val donorSourcesSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val dirKey = md5(chapterUrl)
+        try {
+            kotlinx.coroutines.coroutineScope {
+                crossSourceSearch.seeds(manga, source, relaxedTitleMatch = true).collect { seed ->
+                    if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                        "seed ${seed.source.id}: '${seed.manga.title}' (${seed.chapters.size} chapters)")
+                    seed.chapters
+                        .filter { abs(it.chapterNumber - chapterNumber) < 0.01f }
+                        .forEach { donorChapter ->
+                            // Stejný donor zdroj+kapitola umí dorazit ve více seedech
+                            // (sweep posílá víc dotazů) - bez deduplikace by dvě tryDonor
+                            // stahovaly tentýž obsah a vyžraly sloty MAX_DONOR_CANDIDATES.
+                            if (!donorsSeen.add(seed.source.id + '|' + donorChapter.url)) return@forEach
+                            if (!donorSourcesSeen.add(seed.source.id)) return@forEach
+                            if (donorsTried.incrementAndGet() > MAX_DONOR_CANDIDATES) return@forEach
+                            launch {
+                                try {
+                                    tryDonor(seed.source, donorChapter, gaps, pages, source, chapter?.id, dirKey)
+                                        ?.let { result ->
+                                            if (filled.compareAndSet(null, result)) {
+                                                completed.set(result)
+                                                this@coroutineScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+                                            }
+                                        }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    // Chyba jednoho donoru nesmí zabít scope - bez catchu by
+                                    // propagace z launch zrušila i ostatní pokusy o dary.
+                                    if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                                        "donor ${seed.source.id} failed: ${e.javaClass.simpleName}: ${e.message}")
+                                }
+                            }
+                        }
+                }
+            }
+        } catch (e: CancellationException) {
+            // Zrušení z vlastního úspěšného donoru (viz výše) není skutečná kancelace
+            // vnějšího běhu - bez filled-checku by se propagovalo dál a výsledek zahodilo.
+            if (filled.get() == null) throw e
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "fill sweep failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+            "ch.$chapterNumber donors tried: ${donorsTried.get()}, filled=${filled.get() != null}")
+        return filled.get() ?: pages
+    }
+
+    /** Jeden donor kandidát: page list → číselné zarovnání → kontentové zarovnání. */
+    private suspend fun tryDonor(
+        donorSource: MangaSource,
+        donorChapter: SChapter,
+        gaps: List<PageGapDetector.PageGap>,
+        pages: List<Page>,
+        source: MangaSource,
+        chapterId: String?,
+        dirKey: String,
+    ): List<Page>? {
+        val donorPages = try {
+            donorSource.getPageList(donorChapter)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG, "donor ${donorSource.id} page list failed: ${e.message}")
+            return null
+        }
+        if (donorPages.isEmpty()) return null
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG, "donor ${donorSource.id}: ${donorPages.size} pages")
+
+        val donorUrls = donorPages.map { it.imageUrl ?: it.url }
+        // 1) Číselná shoda - zdarma, bez stahování.
+        PageGapAligner.alignByNumbers(gaps, pages.map { it.imageUrl ?: it.url }, donorUrls)?.let { byNum ->
+            val insertions = byNum.mapValues { (_, idxs) ->
+                idxs.map { donorLazyPage(donorSource.id, donorPages[it]) }
+            }
+            if (insertions.values.any { list -> list.any { p -> p == null } }) return@let null
+            return spliceAndInvalidate(
+                pages,
+                insertions.mapValues { (_, l) -> l.filterNotNull() },
+                chapterId,
+            )
+        }
+        // 2) Kontentové zarovnání (řádkové profily + ořez do lokálního souboru).
+        // Donor s většinou "ozdobených" URL (scramble/lazy fragmenty, descramble query
+        // parametry) nemá smysl skenovat - stažené bajty nejsou finální pixely, takže
+        // profily nikdy nematchnou a scan jen vyžere rozpočet (audit: comix donor).
+        val decorated = donorUrls.count {
+            Uri.parse(it).fragment != null || ScrambledImageUrl.parse(it) != null
+        }
+        if (decorated * 2 <= donorUrls.size) {
+            alignByContent(source, gaps, pages, donorSource, donorPages, dirKey)?.let { byContent ->
+                return spliceAndInvalidate(pages, byContent, chapterId)
+            }
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.i(TAG, "donor ${donorSource.id}: skipped content scan, $decorated/${donorUrls.size} decorated urls")
+        }
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG, "donor ${donorSource.id}: no alignment")
+        return null
     }
 
     // ── Donor discovery ──────────────────────────────────────────────────────
-
-    private class DoneCollecting : Exception()
-
-    private suspend fun collectDonors(
-        manga: com.haise.jiyu.data.db.entity.MangaEntity,
-        source: MangaSource,
-        chapterNumber: Float,
-    ): List<Pair<MangaSource, SChapter>> {
-        val out = mutableListOf<Pair<MangaSource, SChapter>>()
-        try {
-            withTimeoutOrNull(DONOR_SEARCH_TIMEOUT_MS) {
-                crossSourceSearch.seeds(manga, source).collect { seed ->
-                    seed.chapters
-                        .filter { abs(it.chapterNumber - chapterNumber) < 0.01f }
-                        .forEach { out += seed.source to it }
-                    if (out.size >= MAX_DONOR_CANDIDATES) throw DoneCollecting()
-                }
-            }
-        } catch (_: DoneCollecting) {
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        }
-        return out
-    }
 
     /** `…-chapter-215-en` / `chap=215` apod. - fallback, když entita kapitoly chybí. */
     private fun chapterNumberFromUrl(url: String): Float? =
@@ -202,69 +275,165 @@ class PageGapFiller @Inject constructor(
         donorPages: List<Page>,
         dirKey: String,
     ): Map<Int, List<Page>>? {
-        val cache = HashMap<Int, DonorImage?>()
-        suspend fun donorImage(i: Int): DonorImage? = cache.getOrPut(i) { loadDonorImage(donorSource, donorPages[i], dirKey) }
+        // Sdílená donor cache + jeden semafor napříč všemi mezerami donoru - scan
+        // sousedních mezer sahá na překrývající se donor stránky (každá se stáhne
+        // jednou) a 4 mezery × SCAN_CONCURRENCY by jinak pouštěly 16 souběžných
+        // downloadů+dekódů najednou. synchronizedMap(HashMap) - ConcurrentHashMap
+        // nepodporuje null hodnoty a getOrPut{null} by házel NPE za každý fail.
+        // Race na getOrPut = případný dvojí download (škodný, ne chybný).
+        val cache = java.util.Collections.synchronizedMap(HashMap<Int, DonorImage?>())
+        val fetchSem = Semaphore(SCAN_CONCURRENCY)
+        suspend fun donorImage(i: Int): DonorImage? =
+            cache.getOrPut(i) { fetchSem.withPermit { loadDonorImage(donorSource, donorPages[i], dirKey) } }
 
-        val insertions = HashMap<Int, List<Page>>()
-        for (gap in gaps) {
-            val before = pages.getOrNull(gap.insertIndex - 1)
-            val after = pages.getOrNull(gap.insertIndex)
-            if (before == null || after == null) continue
-            val beforeSig = profileOf(source, before) ?: continue
-            val afterSig = profileOf(source, after) ?: continue
-            val beforeNeedle = RowProfileMatcher.edgeStrip(beforeSig, top = false) ?: continue
-            val afterNeedle = RowProfileMatcher.edgeStrip(afterSig, top = true) ?: continue
-
-            // Proporční odhad pozice mezery v donorovi - scan startuje tam, při
-            // neúspěchu se rozšiřuje na celý seznam (donor stránky bývají desítky).
-            val est = (gap.insertIndex.toFloat() / (pages.size + gap.missingCount) * donorPages.size).toInt()
-            val order = (donorPages.indices).sortedBy { abs(it - est) }
-
-            var beforeMatch: Pair<Int, RowProfileMatcher.Match>? = null
-            var afterMatch: Pair<Int, RowProfileMatcher.Match>? = null
-            for (i in order) {
-                val img = donorImage(i) ?: continue
-                if (beforeMatch == null) {
-                    RowProfileMatcher.findStrip(beforeNeedle, img.signature)
-                        ?.takeIf { it.margin >= RowProfileMatcher.MIN_MATCH_MARGIN }
-                        ?.let { beforeMatch = i to it }
+        // Mezery se řeší paralelně - sekvenčně by 4 díry × (profily host stránek +
+        // scan donor stránek) nepřinesly výsledek pod stropem. Vlastní deadline
+        // pod celkovým stropem: i částečný výsledek (některé mezery) se vrátí
+        // místo ztráty všech, když poslední mezera dobíhá do globálního timeoutu.
+        val insertions = java.util.concurrent.ConcurrentHashMap<Int, List<Page>>()
+        withTimeoutOrNull(CONTENT_ALIGN_BUDGET_MS) {
+            kotlinx.coroutines.coroutineScope {
+                gaps.forEach { gap ->
+                    launchGap(gap, pages, source, donorSource, donorPages, dirKey,
+                        donorImage = { donorImage(it) }) { idx, list ->
+                        if (list.isNotEmpty()) insertions[idx] = list
+                    }
                 }
-                if (afterMatch == null) {
-                    RowProfileMatcher.findStrip(afterNeedle, img.signature)
-                        ?.takeIf { it.margin >= RowProfileMatcher.MIN_MATCH_MARGIN }
-                        ?.let { afterMatch = i to it }
-                }
-                if (beforeMatch != null && afterMatch != null) break
             }
-            val (bj, bm) = beforeMatch ?: continue
-            val (bk, am) = afterMatch ?: continue
-            val bImg = donorImage(bj) ?: continue
-            val aImg = donorImage(bk) ?: continue
-            val beforeEnd = bm.row + beforeNeedle.rows
-            val afterStart = am.row
-            if (bk < bj || (bk == bj && afterStart <= beforeEnd)) continue
-
-            val inserted = mutableListOf<Page>()
-            // Chvost donor[bj]: od konce "before" pásu do konce stránky.
-            val tailStartPx = RowProfileMatcher.rowToSource(beforeEnd, bImg.signature, bImg.height) + TRIM_PX
-            if (tailStartPx < bImg.height - MIN_CROP_PX) {
-                cropToFile(bImg.file, dirKey, gap.insertIndex, part = "tail",
-                    top = tailStartPx, bottom = bImg.height)?.let { inserted += it }
-            }
-            // Celé mezilehlé donor stránky - jako lazy vzdálené (ne crop).
-            for (i in bj + 1 until bk) {
-                donorLazyPage(donorSource.id, donorPages[i])?.let { inserted += it }
-            }
-            // Hlava donor[bk]: začátek až začátek "after" pásu.
-            val headEndPx = RowProfileMatcher.rowToSource(afterStart, aImg.signature, aImg.height) - TRIM_PX
-            if (headEndPx > MIN_CROP_PX) {
-                cropToFile(aImg.file, dirKey, gap.insertIndex, part = "head",
-                    top = 0, bottom = headEndPx)?.let { inserted += it }
-            }
-            if (inserted.isEmpty()) continue
-            insertions[gap.insertIndex] = inserted
         }
-        return if (insertions.isEmpty()) null else insertions
+        return if (insertions.isEmpty()) null else insertions.toMap()
+    }
+
+    private fun kotlinx.coroutines.CoroutineScope.launchGap(
+        gap: PageGapDetector.PageGap,
+        pages: List<Page>,
+        source: MangaSource,
+        donorSource: MangaSource,
+        donorPages: List<Page>,
+        dirKey: String,
+        donorImage: suspend (Int) -> DonorImage?,
+        onDone: (Int, List<Page>) -> Unit,
+    ) = launch {
+        val before = pages.getOrNull(gap.insertIndex - 1)
+        val after = pages.getOrNull(gap.insertIndex)
+        if (before == null || after == null) return@launch
+        val beforeSig = profileOf(source, before) ?: return@launch
+        val afterSig = profileOf(source, after) ?: return@launch
+        val beforeNeedle = RowProfileMatcher.edgeStrip(beforeSig, top = false) ?: return@launch
+        val afterNeedle = RowProfileMatcher.edgeStrip(afterSig, top = true) ?: return@launch
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+            "gap@${gap.insertIndex} in ${donorSource.id}: anchors profiled, scanning ${donorPages.size}p")
+
+        // Proporční odhad pozice mezery v donorovi + omezené okno scanu - bez něj by
+        // špatný donor (titul matchl, obsah ne) stáhl všechny stránky až do timeoutu.
+        val est = (gap.insertIndex.toFloat() / (pages.size + gap.missingCount) * donorPages.size).toInt()
+        val order = (donorPages.indices).sortedBy { abs(it - est) }.take(MAX_DONOR_SCAN_PAGES)
+
+        // Stahování donor stránek běží paralelně (SCAN_CONCURRENCY) a výsledky se
+        // testují v pořadí dokončení - sekvenční scan by jednu ~1s stránku násobil
+        // přes celé okno a 30s strop doplnění neudržel.
+        val fetched = kotlinx.coroutines.channels.Channel<Pair<Int, DonorImage?>>(
+            capacity = kotlinx.coroutines.channels.Channel.UNLIMITED)
+        var remaining = 0
+        val fetchJobs = java.util.Collections.synchronizedList(mutableListOf<kotlinx.coroutines.Job>())
+        for (i in order) {
+            remaining++
+            fetchJobs += launch {
+                // Null se posílá taky - consumer počítá dokončené fetchery, bez
+                // něj by smyčka visela na receive(), kdyby některý download padl.
+                // A exception se překládá na null - propagace z launch by zrušila
+                // sourozenecké gap/fetch joby celého donoru (tiše spolknuté nahoře).
+                val img = try {
+                    donorImage(i)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                        "donor ${donorSource.id}#$i fetch error: ${e.javaClass.simpleName}")
+                    null
+                }
+                fetched.trySend(i to img)
+            }
+        }
+
+        var beforeMatch: Pair<Int, RowProfileMatcher.Match>? = null
+        var afterMatch: Pair<Int, RowProfileMatcher.Match>? = null
+        var bestSeen = 0f
+        while (remaining > 0 && (beforeMatch == null || afterMatch == null)) {
+            val (i, img) = fetched.receive()
+            remaining--
+            if (img == null) continue
+            if (beforeMatch == null) {
+                val m = RowProfileMatcher.findStripRaw(beforeNeedle, img.signature)
+                if (m != null && m.score > bestSeen) bestSeen = m.score
+                if (m != null && m.score >= RowProfileMatcher.MIN_MATCH_SCORE && m.margin >= RowProfileMatcher.MIN_MATCH_MARGIN)
+                    beforeMatch = i to m
+            }
+            if (afterMatch == null) {
+                val m = RowProfileMatcher.findStripRaw(afterNeedle, img.signature)
+                if (m != null && m.score > bestSeen) bestSeen = m.score
+                if (m != null && m.score >= RowProfileMatcher.MIN_MATCH_SCORE && m.margin >= RowProfileMatcher.MIN_MATCH_MARGIN)
+                    afterMatch = i to m
+            }
+        }
+        // Zrušit dobíhající fetchery - jsou dětmi tohoto jobu, takže bez zrušení
+        // by coroutine gap doběhl až s posledním downloadem a blokoval scope
+        // donoru i po nalezení obou kotev.
+        fetchJobs.forEach { it.cancel() }
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+            "gap@${gap.insertIndex} in ${donorSource.id}: before=${beforeMatch?.first}, after=${afterMatch?.first} (scanned ${order.size - remaining}/${order.size}, bestScore=$bestSeen)")
+
+        // Jednokotvený fallback: jedna kotva matchla přesně, druhá ne - typicky
+        // u donorů s o řez posunutým řezáním nebo plochými okraji (bílý spodek
+        // stránky má nulový margin všude). Předpokládanou donor stránku spočítáme
+        // z nalezené kotvy a chybějící kotvu na ní ověříme s uvolněným prahem.
+        // Levné (1 stažení) a pořád ověřené - na slepou důvěru se nevkládá nic.
+        if (beforeMatch == null && afterMatch != null) {
+            val implied = afterMatch!!.first - gap.missingCount - 1
+            val m = donorPages.getOrNull(implied)?.let { donorImage(implied) }
+                ?.let { RowProfileMatcher.findStripRaw(beforeNeedle, it.signature) }
+            if (m != null && m.score >= RELAXED_MATCH_SCORE && m.margin >= RELAXED_MATCH_MARGIN) {
+                beforeMatch = implied to m
+            }
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "gap@${gap.insertIndex} in ${donorSource.id}: implied before=$implied relaxed=${m?.score}/${m?.margin}")
+        } else if (afterMatch == null && beforeMatch != null) {
+            val implied = beforeMatch!!.first + gap.missingCount + 1
+            val m = donorPages.getOrNull(implied)?.let { donorImage(implied) }
+                ?.let { RowProfileMatcher.findStripRaw(afterNeedle, it.signature) }
+            if (m != null && m.score >= RELAXED_MATCH_SCORE && m.margin >= RELAXED_MATCH_MARGIN) {
+                afterMatch = implied to m
+            }
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+                "gap@${gap.insertIndex} in ${donorSource.id}: implied after=$implied relaxed=${m?.score}/${m?.margin}")
+        }
+
+        val (bj, bm) = beforeMatch ?: return@launch
+        val (bk, am) = afterMatch ?: return@launch
+        val bImg = donorImage(bj) ?: return@launch
+        val aImg = donorImage(bk) ?: return@launch
+        val beforeEnd = bm.row + beforeNeedle.rows
+        val afterStart = am.row
+        if (bk < bj || (bk == bj && afterStart <= beforeEnd)) return@launch
+
+        val inserted = mutableListOf<Page>()
+        // Chvost donor[bj]: od konce "before" pásu do konce stránky.
+        val tailStartPx = RowProfileMatcher.rowToSource(beforeEnd, bImg.signature, bImg.height) + TRIM_PX
+        if (tailStartPx < bImg.height - MIN_CROP_PX) {
+            cropToFile(bImg.file, dirKey, gap.insertIndex, part = "tail",
+                top = tailStartPx, bottom = bImg.height)?.let { inserted += it }
+        }
+        // Celé mezilehlé donor stránky - jako lazy vzdálené (ne crop).
+        for (i in bj + 1 until bk) {
+            donorLazyPage(donorSource.id, donorPages[i])?.let { inserted += it }
+        }
+        // Hlava donor[bk]: začátek až začátek "after" pásu.
+        val headEndPx = RowProfileMatcher.rowToSource(afterStart, aImg.signature, aImg.height) - TRIM_PX
+        if (headEndPx > MIN_CROP_PX) {
+            cropToFile(aImg.file, dirKey, gap.insertIndex, part = "head",
+                top = 0, bottom = headEndPx)?.let { inserted += it }
+        }
+        onDone(gap.insertIndex, inserted)
     }
 
     /** Profil stránky původního zdroje (stáhne + zmenší na profilovou šířku). */
@@ -279,12 +448,19 @@ class PageGapFiller @Inject constructor(
 
     /** Donor stránka: bajty → dočasný soubor (pro přesný ořez) + zmenšený profil. */
     private suspend fun loadDonorImage(source: MangaSource, page: Page, dirKey: String): DonorImage? {
+        val t0 = System.nanoTime()
         val url = page.imageUrl ?: runCatching { source.getImageUrl(page) }.getOrNull() ?: return null
         if (ScrambledImageUrl.parse(url) != null) return null
-        val bytes = downloadBytes(url, source.homepageUrl) ?: return null
+        if (Uri.parse(url).fragment != null) return null // scramble/lazy markery - viz donor skip
+        val bytes = downloadBytes(url, source.homepageUrl) ?: run {
+            if (BuildConfig.DEBUG) android.util.Log.i(TAG, "donor ${source.id}#${page.index}: download failed")
+            return null
+        }
         val bmp = decodeSampled(bytes) ?: return null
         val sig = RowProfileMatcher.of(bmp)
         bmp.recycle()
+        if (BuildConfig.DEBUG && page.index % 10 == 0) android.util.Log.i(TAG,
+            "donor ${source.id}#${page.index}: ${bytes.size/1024}KB ${(System.nanoTime()-t0)/1_000_000}ms sig=${sig.rows}r")
         val file = File(File(gapDirRoot, dirKey).apply { mkdirs() }, "donor_${page.index}_${System.nanoTime()}.img")
         try {
             FileOutputStream(file).use { it.write(bytes) }
@@ -347,18 +523,26 @@ class PageGapFiller @Inject constructor(
         }.getOrNull()
 
     private suspend fun downloadBytes(url: String, referer: String?): ByteArray? =
-        withContext(Dispatchers.IO) {
-            try {
-                httpClient.newCall(Request.Builder().url(url).apply {
-                    if (!referer.isNullOrBlank()) header("Referer", referer)
-                }.build()).execute().use { r ->
-                    if (r.isSuccessful) r.body?.bytes() else null
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            val call = httpClient.newCall(Request.Builder().url(url).apply {
+                if (!referer.isNullOrBlank()) header("Referer", referer)
+            }.build())
+            // enqueue je async + call.cancel() se naváže na zrušení korutiny - bez
+            // toho by zrušené fetch joby (úspěšný donor ruší scope) visely v
+            // blokujícím execute() až do konce requestu a `withTimeoutOrNull` by
+            // mezitím zahodil i už dokončené výsledky.
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                    if (cont.isActive) cont.resume(null) {}
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
-            }
+                override fun onResponse(call: okhttp3.Call, r: okhttp3.Response) {
+                    r.use {
+                        if (cont.isActive)
+                            cont.resume(if (r.isSuccessful) r.body?.bytes() else null) {}
+                    }
+                }
+            })
         }
 
     /** Zmenšený decode pro profil (šířka ~profilu; stačí struktura, ne detaily). */
@@ -422,11 +606,26 @@ class PageGapFiller @Inject constructor(
         const val TAG = "PageGapFiller"
         /** Strop celého doplnění - nesmí blokovat načtení kapitoly. */
         const val GAP_FILL_TIMEOUT_MS = 30_000L
-        const val DONOR_SEARCH_TIMEOUT_MS = 15_000L
-        const val MAX_DONOR_CANDIDATES = 3
+        /** Donorů navržených sweepu - parallel tries, scrambled/čas limit odfiltruje sám. */
+        const val MAX_DONOR_CANDIDATES = 6
         /** Inward trim při ořezu - pár řádků překryvu mezery je horší než malá ztráta. */
         const val TRIM_PX = 12
         const val MIN_CROP_PX = 40
+        /** Kolik donor stránek nejdál od proporcí odhadnuté pozice se pro jednu mezeru
+         *  stáhne - dost na odchylku řezání, málo na to, aby špatný donor vyžral čas. */
+        const val MAX_DONOR_SCAN_PAGES = 48
+        /** Souběžných downloadů donor stránek na mezeru - slušnost k serveru i síti. */
+        const val SCAN_CONCURRENCY = 4
+        /** Pod-strop kontentového zarovnání jednoho donoru - po jeho vypršení se
+         *  vrátí i částečné insertions místo ztráty všech v globálním timeoutu. */
+        const val CONTENT_ALIGN_BUDGET_MS = 20_000L
+        /** Uvolněný práh pro "implied" druhou kotvu - je podepřená silnou první
+         *  kotvou, jen se ověřuje, že spočítaná donor stránka vůbec sedí. Margin
+         *  zde řeší jen ambiguitu OFFSETU v rámci stránky (u cropu ≈ desítky px,
+         *  částečně kryje TRIM_PX), takže stačí epsilon proti totální rovnicovosti.
+         *  Live data: správná stránka měla score 0.9999 / margin 0.0065. */
+        const val RELAXED_MATCH_SCORE = 0.60f
+        const val RELAXED_MATCH_MARGIN = 0.002f
         const val GAPFILL_PREFS = "jiyu_gapfill"
     }
 }

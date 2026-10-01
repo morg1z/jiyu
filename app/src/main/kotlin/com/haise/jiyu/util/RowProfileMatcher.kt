@@ -78,7 +78,14 @@ object RowProfileMatcher {
      * s docíleným skóre a náskokem, nebo null když nic nepřesáhne práh.
      * O(X×Y×3) MAD - profily jsou malé (desítky řádků), tj. rychlé.
      */
-    fun findStrip(needle: RowSignature, haystack: RowSignature): Match? {
+    fun findStrip(needle: RowSignature, haystack: RowSignature): Match? =
+        findStripRaw(needle, haystack)?.takeIf { it.score >= MIN_MATCH_SCORE }
+
+    /**
+     * Jako [findStrip], ale bez prahů - vrátí vždy nejlepší pozici se skóre/náskokem.
+     * Pro diagnostiku (loguje se bestScore i pod prahem) a volající si práh aplikuje sám.
+     */
+    fun findStripRaw(needle: RowSignature, haystack: RowSignature): Match? {
         val n = needle.rows
         val h = haystack.rows
         if (n == 0 || h < n) return null
@@ -102,7 +109,7 @@ object RowProfileMatcher {
                 secondBest = score
             }
         }
-        if (best < 0 || bestScore < MIN_MATCH_SCORE) return null
+        if (best < 0) return null
         val margin = if (secondBest < 0) bestScore else bestScore - secondBest
         return Match(best, bestScore, margin)
     }

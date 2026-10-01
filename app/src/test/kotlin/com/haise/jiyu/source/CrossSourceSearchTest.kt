@@ -257,4 +257,61 @@ class CrossSourceSearchTest {
 
         assertEquals(listOf("src-a"), seeds.map { it.source.id })
     }
+
+    // ── relaxedTitleMatch (gap-fill donor discovery) ──────────────────────────
+
+    @Test
+    fun `relaxed mode matches a title differing only in whitespace`() = runTest {
+        // Reálný případ: comick.art eviduje "+99 ReinforcedWooden Stick", donor web
+        // "+99 Reinforced Wooden Stick" - po normalizaci se liší jen mezerami, což
+        // u contains()-searchů ani přesné shody nikdy nevyjde.
+        val entity = mangaEntity(title = "+99 ReinforcedWooden Stick")
+        val spaced = FakeSource("src-a", "Site A", "MANHWA",
+            searchResults = listOf(SManga("src-a", "u1", "+99 Reinforced Wooden Stick", null)),
+            chapters = listOf(chapter(215f)))
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(origin, spaced)
+
+        assertTrue(search.seeds(entity, origin).toList().isEmpty())
+        assertEquals(listOf("src-a"), search.seeds(entity, origin, relaxedTitleMatch = true).toList().map { it.source.id })
+    }
+
+    @Test
+    fun `relaxed mode still rejects a genuinely different title`() = runTest {
+        val entity = mangaEntity(title = "+99 ReinforcedWooden Stick")
+        val other = FakeSource("src-a", "Site A", "MANHWA",
+            searchResults = listOf(SManga("src-a", "u1", "Sword of Nine Heavens", null)),
+            chapters = listOf(chapter(215f)))
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(origin, other)
+
+        assertTrue(search.seeds(entity, origin, relaxedTitleMatch = true).toList().isEmpty())
+    }
+
+    @Test
+    fun `relaxed mode tries single-word queries for contains-searches`() = runTest {
+        // Donorův web umí jen substringový search nad svým katalogem - složený dotaz
+        // s interně sloučeným slovem nikdy netrefí; jednotlivý token ("stick") ano.
+        val entity = mangaEntity(title = "+99 ReinforcedWooden Stick")
+        val queries = mutableListOf<String>()
+        val containsSearch = object : MangaSource {
+            override val id = "src-a"
+            override val name = "Site A"
+            override val contentType = "MANHWA"
+            override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> {
+                queries += query
+                return listOf(SManga(id, "u1", "+99 Reinforced Wooden Stick", null))
+                    .filter { it.title.contains(query, ignoreCase = true) }
+            }
+            override suspend fun getPopular(page: Int, filter: MangaFilter) = emptyList<SManga>()
+            override suspend fun getMangaDetails(manga: SManga) = manga
+            override suspend fun getChapterList(manga: SManga) = listOf(chapter(215f))
+            override suspend fun getPageList(chapter: SChapter) = emptyList<Page>()
+        }
+        coEvery { sourceManager.getAllForCrossSourceSearch() } returns listOf(origin, containsSearch)
+
+        val seeds = search.seeds(entity, origin, relaxedTitleMatch = true).toList()
+
+        assertEquals(listOf("src-a"), seeds.map { it.source.id })
+        // Plný titul netrefil ("reinforcedwooden"), až token dotaz ("stick"/"99") sedl.
+        assertTrue(queries.any { it.length < 20 && "+99 reinforced wooden stick".contains(it, ignoreCase = true) })
+    }
 }

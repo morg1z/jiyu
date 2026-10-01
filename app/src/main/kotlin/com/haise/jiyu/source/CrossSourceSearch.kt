@@ -70,19 +70,24 @@ class CrossSourceSearch @Inject constructor(
      * konzervativně vyloučí (titul mohl být adult, ale bezpečnější je výsledek nenajít
      * než omylem přesunout na 18+ web).
      */
-    fun seeds(manga: MangaEntity, originalSource: MangaSource?): Flow<RelinkSeed> = channelFlow {
+    fun seeds(
+        manga: MangaEntity,
+        originalSource: MangaSource?,
+        relaxedTitleMatch: Boolean = false,
+    ): Flow<RelinkSeed> = channelFlow {
         // Potlačení interaktivní Cloudflare výzvy je scope-bound na korutinu sweepu
         // (ThreadLocal v InteractiveChallengePolicy) - hromadný sweep nesmí vyvolat dialog
         // od zdroje, který uživatel zrovna neprohlíží, ale jeho vlastní foreground requesty
         // to nikdy nezasáhne (na rozdíl od dřívějšího globálního flagu - audit SRC-2).
         InteractiveChallengePolicy.suppressed {
-            sweep(manga, originalSource) { send(it) }
+            sweep(manga, originalSource, relaxedTitleMatch) { send(it) }
         }
     }
 
     private suspend fun sweep(
         manga: MangaEntity,
         originalSource: MangaSource?,
+        relaxedTitleMatch: Boolean,
         onFound: suspend (RelinkSeed) -> Unit,
     ) = coroutineScope {
         val semaphore = Semaphore(5)
@@ -92,14 +97,32 @@ class CrossSourceSearch @Inject constructor(
             .filter { it.isNotBlank() }
             .toSet()
         if (normalizedTargets.isEmpty()) return@coroutineScope
+        // Gap-fill režim: "ReinforcedWooden" vs "Reinforced Wooden" - rozdíl jen ve
+        // whitespace, po odstranění mezer normalizované řetězce sedí. Bezpečné, protože
+        // donor stránky se ještě ověřují číselně/kontentově (PageGapAligner).
+        val spacelessTargets = if (relaxedTitleMatch)
+            normalizedTargets.map { it.replace(" ", "") }.toSet() else emptySet()
         // Dotaz se zkousi s kazdym nazvem titulu (hlavni + alternativni), ne jen s hlavnim -
         // cilovy zdroj muze titul evidovat pod alternativou, se kterou search(manga.title)
         // nic nenajde (audit SRC-3). Omezeno na MAX_QUERY_TITLES v ramci per-source timeoutu,
         // takze cena sweepu zustava stejne ohranicena jako driv.
-        val queryTitles = titles
+        var queryTitles = titles
             .filter { normalizeMangaTitle(it).isNotBlank() }
             .distinctBy { normalizeMangaTitle(it) }
             .take(MAX_QUERY_TITLES)
+        if (relaxedTitleMatch) {
+            // Složený dotaz padá u contains()-searchů ("+99 ReinforcedWooden Stick"
+            // netrefí "+99 Reinforced Wooden Stick"), jednotlivá slova ale ano - matcher
+            // pořád vynucuje spaceless rovnost celého názvu.
+            val tokens = normalizedTargets
+                .flatMap { it.split(' ') }
+                .filter { it.length >= 3 }
+            queryTitles = (queryTitles + tokens).distinct().take(MAX_QUERY_TITLES_RELAXED)
+        }
+        fun matches(candidate: SManga): Boolean {
+            val n = normalizeMangaTitle(candidate.title)
+            return n in normalizedTargets || n.replace(" ", "") in spacelessTargets
+        }
         val eligible = sourceManager.getAllForCrossSourceSearch()
             .filter { it.id != manga.sourceId && it.id != "comick" && it.includeInGlobalSearch && !it.isBroken }
             .filter { isSameContentGroup(it.contentType, manga.contentType) }
@@ -116,7 +139,7 @@ class CrossSourceSearch @Inject constructor(
                             var match: SManga? = null
                             for (query in queryTitles) {
                                 val results = source.search(query)
-                                match = results.firstOrNull { normalizeMangaTitle(it.title) in normalizedTargets }
+                                match = results.firstOrNull(::matches)
                                 if (match != null) break
                             }
                             val found = match ?: return@withTimeoutOrNull
@@ -144,5 +167,7 @@ class CrossSourceSearch @Inject constructor(
         const val PER_SOURCE_TIMEOUT_MS = 8_000L
         /** Kolik ruznych nazvu titulu se na jeden zdroj zkusi jako dotaz (viz SRC-3). */
         const val MAX_QUERY_TITLES = 4
+        /** V relaxed režimu navíc token-dotazy (viz sweep) - víc dotazů, pořád ohraničené. */
+        const val MAX_QUERY_TITLES_RELAXED = 10
     }
 }
