@@ -373,10 +373,11 @@ object GeminiUltraPrompt {
             plní automaticky a může obsahovat omyl. Nikdy kvůli němu neobětuj smysl věty
             (pravidlo 1 a 4 nahoře platí i tady).
             $glossaryBlock
-            Pokud v textu bubliny narazíš na řetězec ve tvaru "__JIYU_PROTECT_0__",
-            "__JIYU_PROTECT_1__" apod., NECH HO PŘESNĚ TAK, JAK JE - beze změny, beze
-            skloňování, bez překladu, i kdyby gramaticky "sedělo" ho ohnout. Je to zástupný
-            token za pojem, který appka sama nahradí správným tvarem po tvé odpovědi.
+            Pokud v textu bubliny narazíš na řetězec ve tvaru "⟦JIYU_PROTECT_0⟧",
+            "⟦JIYU_PROTECT_1⟧" apod., NECH HO PŘESNĚ TAK, JAK JE - beze změny, beze
+            skloňování, bez překladu, a NEPŘEPISUJ ho do jiného tvaru (žádná podtržítka
+            ani hranaté závorky místo ⟦ ⟧), i kdyby gramaticky "sedělo" ho ohnout. Je to
+            zástupný token za pojem, který appka sama nahradí správným tvarem po tvé odpovědi.
 
             === NOVÉ POJMY (učení glosáře) ===
             Kromě "bubbles" vrať i pole "new_terms" - vlastní jména (postavy, místa,

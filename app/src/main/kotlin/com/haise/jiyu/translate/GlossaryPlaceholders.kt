@@ -25,18 +25,18 @@ internal object GlossaryPlaceholders {
 
     data class Substitution(
         val classified: List<ClassifiedBubble>,
-        private val sourceRestoreMap: Map<String, String>,
-        private val targetRestoreMap: Map<String, String>,
+        private val sourceRestoreTerms: List<String>,
+        private val targetRestoreTerms: List<String>,
     ) {
-        val isNoop: Boolean get() = sourceRestoreMap.isEmpty() && targetRestoreMap.isEmpty()
+        val isNoop: Boolean get() = sourceRestoreTerms.isEmpty() && targetRestoreTerms.isEmpty()
 
         fun restoreResponse(response: GeminiTranslationResponse): GeminiTranslationResponse {
             if (isNoop) return response
             return response.copy(
                 bubbles = response.bubbles.map { b ->
                     b.copy(
-                        original = restoreTokens(b.original, sourceRestoreMap),
-                        translated = restoreTokens(b.translated, targetRestoreMap),
+                        original = restoreTokens(b.original, sourceRestoreTerms),
+                        translated = restoreTokens(b.translated, targetRestoreTerms),
                     )
                 },
             )
@@ -47,7 +47,7 @@ internal object GlossaryPlaceholders {
          * [TranslateRepository]'s Groq/legacy cesta - páruje odpověď POZICÍ, ne id, takže
          * není co porovnávat, jen výsledný přeložený text obnovit).
          */
-        fun restoreTranslatedOnly(translated: String): String = restoreTokens(translated, targetRestoreMap)
+        fun restoreTranslatedOnly(translated: String): String = restoreTokens(translated, targetRestoreTerms)
     }
 
     /**
@@ -65,32 +65,47 @@ internal object GlossaryPlaceholders {
      */
     fun substitute(classified: List<ClassifiedBubble>, protectedEntries: List<GlossaryEntity>): Substitution {
         val sorted = protectedEntries.filter { it.sourceTerm.isNotBlank() }.sortedByDescending { it.sourceTerm.length }
-        if (sorted.isEmpty()) return Substitution(classified, emptyMap(), emptyMap())
+        if (sorted.isEmpty()) return Substitution(classified, emptyList(), emptyList())
         val tokens = sorted.mapIndexed { index, entry -> entry to "$TOKEN_PREFIX$index$TOKEN_SUFFIX" }
-        val sourceRestoreMap = tokens.associate { (entry, token) -> token to entry.sourceTerm }
-        val targetRestoreMap = tokens.associate { (entry, token) -> token to entry.targetTerm }
         val substituted = classified.map { c ->
             var text = c.raw.text
             for ((entry, token) in tokens) text = text.replace(entry.sourceTerm, token, ignoreCase = true)
             if (text == c.raw.text) c else c.copy(raw = c.raw.copy(text = text))
         }
-        return Substitution(substituted, sourceRestoreMap, targetRestoreMap)
+        // Index v tokenu ("JIYU_PROTECT_n") = index pojmu v `sorted` - restore mapy proto
+        // držíme jako listy indexované přesně tímhle n, ne mapy token->pojem (viz
+        // TOKEN_VARIANT_REGEX: model nemusí vrátit token v kanonickém tvaru).
+        return Substitution(substituted, sorted.map { it.sourceTerm }, sorted.map { it.targetTerm })
     }
 
     /**
-     * Case-INsensitive nahrazeni (na rozdil od obycejneho String.replace) - model muze token
-     * vratit s jinou velikosti pismen, nez dostal (male/velke JIYU misto Jiyu apod.), zvlast
-     * u levneho/free-tier providera. Bez tohohle by se token vubec neobnovil a uzivatel by
-     * v prekladu videl syrovy placeholder misto skutecneho jmena.
+     * Obnovi tokeny na pojmy - TOLERANTNE na tvar, ve kterem je model vratil. Posila se
+     * kanonicky "⟦JIYU_PROTECT_n⟧", ale model (hlavne levny/free-tier) ho obcas prepise do
+     * jine podoby: "__JIYU_PROTECT_0__" (podtrzitka - tvar, ktery driv prompt dokumentoval a
+     * model ho "opravoval" podle nej), "[JIYU_PROTECT_0]", "jiyu_protect_0", pripadne bez
+     * dekoraci. Kdyby se obnovil jen presny kanonicky tvar, zustal by v textu syrovy token -
+     * ten pak [hasLeakedToken] v render gate chytne a celou bublinu hodí do isUntranslated,
+     * TAKZE se ctenari ukaze anglicky original misto spravneho prekladu (zmereno na
+     * zarizeni: "NA CO ČEKÁŠ, __JIYU_PROTECT_0__?!").
+     *
+     * Regex proto matchuje povinne jen "JIYU_PROTECT_n" jadro (umelecky retezec, v prirozenem
+     * textu se nevyskytuje) a dekorace na obou stranach jsou volitelne - ze zname mnoziny,
+     * takze se na rozdil od "[^\\w]*" neuzere za tokenem pridrzene "?!" ci jina interpunkce.
+     * Token s indexem mimo rozsah se necha nedotceny (protece dal do gate = konzervativni
+     * zamitnuti, stejne jako dnes).
      */
-    private fun restoreTokens(text: String, restoreMap: Map<String, String>): String {
-        if (restoreMap.isEmpty()) return text
-        var result = text
-        for ((token, term) in restoreMap) {
-            result = Regex(Regex.escape(token), RegexOption.IGNORE_CASE).replace(result, Regex.escapeReplacement(term))
+    private fun restoreTokens(text: String, restoreTerms: List<String>): String {
+        if (restoreTerms.isEmpty()) return text
+        return TOKEN_VARIANT_REGEX.replace(text) { m ->
+            val term = m.groupValues[1].toIntOrNull()?.let { restoreTerms.getOrNull(it) }
+            term ?: m.value
         }
-        return result
     }
+
+    private val TOKEN_VARIANT_REGEX = Regex(
+        "(?:⟦|__|_|[\\[({<【《«⟨]|\\*\\*|\\*)?\\s*JIYU_PROTECT[_\\s-]{0,2}(\\d+)(?:\\s*(?:⟧|__|_|[\\])}>】》»⟩]|\\*\\*|\\*))?",
+        RegexOption.IGNORE_CASE,
+    )
 
     // Znaky `⟦`/`⟧` (matematicke zavorky, U+27E6/U+27E7) - zamerne NE "__..._n__". Puvodni
     // format dvou podtrzitek na obou koncich je vizualne totozny s Markdown tucnym pismem

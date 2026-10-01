@@ -140,4 +140,89 @@ class GlossaryPlaceholdersTest {
 
         assertEquals("Frodo Pytlík šel domů.", substitution.restoreTranslatedOnly("$token šel domů."))
     }
+
+    // ── varianty tvaru tokenu, které model vrací místo ⟦⟧ ──
+
+    @Test
+    fun `a token rewritten to underscores by the model still restores`() {
+        // PRODUKCNÍ SELHÁNÍ (zmereno na zarizeni): prompt dokumentoval stary tvar
+        // "__JIYU_PROTECT_0__", takze model poslany "⟦JIYU_PROTECT_0⟧" "opravil" na
+        // "__JIYU_PROTECT_0__" - presny restore ho nenasel, token protekl do render gate
+        // a cela bublina skoncila jako nepřeložená, prestoze preklad byl spravny.
+        val bubbles = listOf(classified("Frodo went home."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo Pytlík")))
+
+        assertEquals("Frodo Pytlík šel domů.", substitution.restoreTranslatedOnly("__JIYU_PROTECT_0__ šel domů."))
+    }
+
+    @Test
+    fun `other token decoration variants restore too`() {
+        val bubbles = listOf(classified("Frodo went home."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo Pytlík")))
+
+        for (variant in listOf("[JIYU_PROTECT_0]", "(JIYU_PROTECT_0)", "JIYU_PROTECT_0", "jiyu_protect_0", "⟦JIYU_PROTECT_0⟧", "【JIYU_PROTECT_0】")) {
+            assertEquals("varianta \"$variant\" se neobnovila", "Frodo Pytlík šel domů.", substitution.restoreTranslatedOnly("$variant šel domů."))
+        }
+    }
+
+    @Test
+    fun `restoring a rewritten token keeps the punctuation glued after it`() {
+        // Urcite nesmi utrhnout "?!" - dekorace se maji sezrat jen ze zname mnoziny
+        // uzavieru, ne jako "libovolny neslovni znak".
+        val bubbles = listOf(classified("Frodo went home."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Voide")))
+
+        assertEquals("NA CO ČEKÁŠ, Voide?!", substitution.restoreTranslatedOnly("NA CO ČEKÁŠ, __JIYU_PROTECT_0__?!"))
+        assertEquals("NA CO ČEKÁŠ, Voide?!", substitution.restoreTranslatedOnly("NA CO ČEKÁŠ, ⟦JIYU_PROTECT_0⟧?!"))
+    }
+
+    @Test
+    fun `a token with an out-of-range index is left untouched`() {
+        // Konzervativni fallback: neznamy index se necha protec dal (render gate ho
+        // zachyti jako leaked token) misto aby se do textu vnutila spatna nahrada.
+        val bubbles = listOf(classified("Frodo went home."))
+        val substitution = GlossaryPlaceholders.substitute(bubbles, listOf(entry("Frodo", "Frodo Pytlík")))
+
+        val out = substitution.restoreTranslatedOnly("Zavolej __JIYU_PROTECT_7__ domů.")
+        assertEquals("Zavolej __JIYU_PROTECT_7__ domů.", out)
+        assertTrue(hasLeakedToken(out))
+    }
+
+    @Test
+    fun `regression - the VOID shout bubble that stayed english on device`() {
+        // Presny produkcni pripad: bublina "WHAT ARE YOU WAITING FOR, VOID?! ARE YOU JUST
+        // GONNA BLOCK ALL DAY?!" s protectExact pojmem "Void" - model prelozil spravne, ale
+        // vrátil "__JIYU_PROTECT_0__", restore selhal -> gate -> isUntranslated -> na
+        // obrazovce zustala anglictina. Po oprave musi cely retezec projet az do pouzitelneho
+        // prekladu (isUsableTranslation) bez leaked tokenu a bez glosaroveho poruseni.
+        val original = "WHAT ARE YOU WAITING FOR, VOID?! ARE YOU JUST GONNA BLOCK ALL DAY?!"
+        val substitution = GlossaryPlaceholders.substitute(
+            listOf(classified(original)),
+            listOf(entry("Void", "Void")),
+        )
+        // Kontrola substituce - model dostal token, ne "VOID".
+        assertTrue(substitution.classified[0].raw.text.contains("⟦JIYU_PROTECT_0⟧"))
+        assertTrue(!substitution.classified[0].raw.text.contains("VOID"))
+
+        // Model (gemini, jak ho skutecne vratil na zarizeni): spravny preklad + prepsany token.
+        val response = GeminiTranslationResponse(
+            bubbles = listOf(
+                GeminiBubbleTranslation(
+                    id = 0,
+                    original = "WHAT ARE YOU WAITING FOR, __JIYU_PROTECT_0__?! ARE YOU JUST GONNA BLOCK ALL DAY?!",
+                    translated = "NA CO ČEKÁŠ, __JIYU_PROTECT_0__?! MÁŠ V PLÁNU JEN CELÝ DEN BLOKOVAT?!",
+                    bubbleSizeTag = "LARGE",
+                    isSfx = false,
+                    syllableBreaks = "",
+                ),
+            ),
+        )
+        val restored = substitution.restoreResponse(response)
+        val t = restored.bubbles[0]
+
+        assertEquals("NA CO ČEKÁŠ, Void?! MÁŠ V PLÁNU JEN CELÝ DEN BLOKOVAT?!", t.translated)
+        assertTrue("leaked token zůstal v překladu", !hasLeakedToken(t.translated))
+        assertTrue("merge by bublinu zamítl jako nepoužitelnou", isUsableTranslation(t, original))
+        assertTrue("glosářové porušení by se hlásilo", !isGlossaryViolation(original, t.translated, mapOf("Void" to "Void")))
+    }
 }

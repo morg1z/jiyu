@@ -2072,8 +2072,17 @@ class TranslateRepository @Inject constructor(
          *   sjednocený s repair cestou (>=2 písmena). (7) Fráze, jejíž první výskyt
          *   zůstal untranslated a pozdější se přeložil, se retroaktivně
          *   do-překládá z phrase cache.
+         * v43: Glosářové placeholdery - restore už není přesný tvar "⟦JIYU_PROTECT_n⟧",
+         *   ale toleruje varianty, do kterých model token přepíše ("__JIYU_PROTECT_0__",
+         *   "[JIYU_PROTECT_0]", "jiyu_protect_0", holé jádro). Prompt přitom od v20
+         *   dokumentoval zastarale právě tvar "__JIYU_PROTECT_0__", takže model
+         *   poslané "⟦⟧" "opravoval" na podtržítka - restore je nenašel, syrový token
+         *   protekl do render gate a celá bublina padla na isUntranslated, přestože
+         *   překlad byl správný (změřeno na zařízení: "NA CO ČEKÁŠ,
+         *   __JIYU_PROTECT_0__?!"). Prompt nově dokumentuje skutečný tvar ⟦⟧ a zakazuje
+         *   přepisování. Cache drží chybné isUntranslated → invalidace.
          */
-        internal const val PIPELINE_VERSION = 42
+        internal const val PIPELINE_VERSION = 43
 
         /**
          * Záložní modely, na které proxy sama přepne při přetížení hlavního (viz
