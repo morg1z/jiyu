@@ -18,15 +18,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -865,15 +861,21 @@ class TranslateRepository @Inject constructor(
         val glossary = glossaryFor(mangaId, targetLanguage)
         val mangaContext = mangaContextFor(mangaId)
 
-        // Stahování bitmap (síť, viz PageBitmapLoader) a OCR (ML Kit, viz OcrEngine) mají
-        // rozdílnou povahu souběžnosti - stahování je I/O čekání, snese víc paralelních
-        // požadavků najednou; OCR recognizery jsou sdílené instance a plné rozlišení víc
-        // stránek v paměti najednou by zbytečně riskovalo OOM na slabších telefonech, proto
-        // má vlastní, přísnější limit. Obě čísla se odvozují od aktuálního stavu zařízení
-        // (dostupná RAM, počet jader, low-memory příznak), ne pevné konstanty pro všechna
-        // zařízení stejně - viz DeviceResourcePolicy.
-        val bitmapLoadSemaphore = Semaphore(DeviceResourcePolicy.recommendedBitmapConcurrency(context))
-        val ocrSemaphore = Semaphore(DeviceResourcePolicy.recommendedOcrConcurrency(context))
+        // OCR-7: fronta stránek + pevný počet workerů (runOrderedWorkerPool) místo
+        // "každá stránka vlastní coroutine + semafor". Dřív měla každá stránka 90 s
+        // strop na ČEKÁNÍ ve frontě na OCR permit - u webtoonu (300+ sliců) pozdní
+        // stránky vypršely dřív, než dostaly řadu, a tiše skončily jako "bez textu"
+        // (na reálné kapitole takto propadlo ~185 stran). Worker model čekací
+        // deadline nemá - stránka se zpracuje, když na ni dojde řada - a deadlock
+        // pojistku přebral watchdog na ŽÁDNÝ pokrok (viz OcrWorkerPool).
+        // Souběžnost bitmap v RAM i OCR enginu drží ocrPermits stejně jako dřív
+        // OCR-1 semafor: worker drží svojí bitmapu od loadu po recognize, takže
+        // najednou je v paměti nejvíc workerCount plných stránek. Samostatný
+        // bitmapLoadSemaphore odpadl - worker count je přísnější ze dvou limitů
+        // (bitmapConcurrencyFor >= ocrConcurrencyFor vždy - viz DeviceResourcePolicy).
+        // Číslo se odvozuje od aktuálního stavu zařízení (dostupná RAM, počet jader,
+        // low-memory příznak), ne pevná konstanta pro všechna zařízení stejně.
+        val ocrPermits = DeviceResourcePolicy.recommendedOcrConcurrency(context)
         // EXPERIMENT (plán položka 18) - JEDEN sdílený rozpočet na CELOU kapitolu, ne na
         // stránku (viz newVisionOcrBudgetIfConfigured) - stránky níž běží paralelně, takže
         // AtomicInteger je nutný, obyčejný Int by se souběhem prošel bez ochrany.
@@ -883,100 +885,92 @@ class TranslateRepository @Inject constructor(
         // ploché "ocr_empty"; stejné rozlišení používá translatePage výš).
         // rawCount vysledek nosi vedle classified - "OCR nasel N regionu, bloku vyslo M"
         // je jediny metrika, ktera odhali tichy ztraceny text (audit - vynechane bubliny).
-        val ocrPass: List<PageOcrResult> = coroutineScope {
-            uncached.map { pageIndex ->
-                async(ocrDispatcher) {
-                    // Postup se hlásí (onPageReady) až PO téhle celé awaitAll - jedna jediná
-                    // stránka s pomalým/zaseklým síťovým požadavkem by bez stropu zamrazila ukazatel
-                    // postupu na 0/N pro CELOU kapitolu, i kdyby zbylých deset stránek dávno doběhlo
-                    // (viz uživatelská zpětná vazba "3 minuty prekladam a porad 0/11"). Timeout tu
-                    // fázi prostě přeskočí jako bez textu, místo aby nechal viset celou dávku.
-                    // Strop běží UVNITŘ držení permitu, ne kolem čekání na něj: dřív 40 s obalovalo i
-                    // frontu na semafory, takže stránky na konci dlouhé kapitoly (webtoon, 100+ stran)
-                    // vypršely dřív, než vůbec dostaly řadu, a tiše se braly jako "bez textu"
-                    // (audit nalez JIYU-NET-1).
-                    var ocrOutcome = "permit_timeout"
-                    // Nejlepsi dosud rozpoznana podoba stranky - recognize() ji postupne
-                    // plni pres onPartial sink; pri timeoutu stranky z ni poskladame
-                    // castecny vysledek misto "bez textu" (audit OCR-3).
-                    val partial = AtomicReference<List<RawTextBlock>>(emptyList())
-                    // OCR-1: OCR permit se drzi UZ pred loadem bitmapy. Driv se mezi loadem
-                    // (bitmapLoadSemaphore) a cekanim na OCR permit nakupilo az
-                    // uncached.size plnohodnotnych bitmape najednou - u webtoonu desitky
-                    // MB kazda -> OOM pri "Prelozit vse". Obracene poradi by drazilo
-                    // pamet na stranky, ktere zrovna nemuzou zpracovat.
-                    // OCR-6: strop i na cekani ve fronte - trvale zasekly nativni ukol,
-                    // ktery permit drzi (ML Kit Task se zrusit neda), by jinak zmrazil
-                    // celou kapitolu na 0/N donekonecna.
-                    // 90 s strop vaze jen na CEKANI ve fronte, ne na zpracovani - jinak
-                    // by stranka, co cekala na permit 85 s, dostala na vlastni OCR uz jen
-                    // zbytek okna (acquire explicitne, at to jde videt).
-                    val permitAcquired = withTimeoutOrNull(OCR_PERMIT_WAIT_TIMEOUT_MS) {
-                        ocrSemaphore.acquire()
-                        true
-                    } == true
-                    val raw = if (!permitAcquired) {
-                        // Bez permitu nema sance, ze by partial neco drzelo - recognize()
-                        // bezi jen pod permitem.
-                        emptyList()
-                    } else try {
-                        ocrOutcome = "bitmap_failed"
-                        val bitmap = bitmapLoadSemaphore.withPermit {
-                            withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) { pageBitmapLoader.load(pages[pageIndex]) }
-                        }
-                        if (bitmap == null) {
-                            emptyList()
-                        } else {
-                            val recognized = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
-                                // coroutineScope níž zruší VŠECHNY sourozenecké stránky, jakmile
-                                // jedna vyhodí výjimku - jedna poškozená/nepodporovaná bitmapa by
-                                // tak shodila OCR celé dávky (třeba 53 z 54 stránek), ne jen sebe.
-                                // PageBitmapLoader.load má stejnou ochranu o pár řádků výš.
-                                try {
-                                    ocrEngine.recognize(bitmap, sourceLanguage, visionOcrFallbackFor(visionOcrBudget)) {
-                                        partial.set(it)
-                                    }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: OutOfMemoryError) {
-                                    // OCR-2: OOM je Error, ne Exception - bez explicitni
-                                    // vetve by pres coroutineScope zabil celou davku
-                                    // sourozeneckych stranek i s jejich vysledky.
-                                    e.report("translate:ocr:oom")
-                                    ocrOutcome = "oom"
-                                    emptyList()
-                                } catch (e: Exception) {
-                                    e.report("translate:ocr:recognize")
-                                    ocrOutcome = "engine_error"
-                                    emptyList()
-                                }
-                            }
-                            if (ocrOutcome != "engine_error" && ocrOutcome != "oom") {
-                                ocrOutcome = when {
-                                    recognized != null -> if (recognized.isEmpty()) "no_text" else "ok"
-                                    partial.get().isNotEmpty() -> "partial"
-                                    else -> "timeout"
-                                }
-                            }
-                            recognized ?: partial.get()
-                        }
-                    } finally {
-                        ocrSemaphore.release()
-                    }
-                    // TOC/titulní stránky se nepřekládají (viz isDenseTextPage u
-                    // translatePage) - jen by spotřebovaly volání a dostaly šedé patche.
-                    val cls = BubbleClassifier.classifyPage(
-                        raw.withCleanedOcrText(enOcrDictionary()),
-                        englishWords = enOcrDictionary(),
-                    )
-                    val dense = isDenseTextPage(cls)
-                    PageOcrResult(
-                        pageIndex,
-                        if (dense) cls.map { it.asPreservedBlock() } else cls,
-                        ocrOutcome, raw.size, dense,
-                    )
+        val ocrResultsByPage: Map<Int, PageOcrResult> = runOrderedWorkerPool(
+            workItems = uncached,
+            workerCount = ocrPermits,
+            stallTimeoutMillis = OCR_STALL_TIMEOUT_MS,
+            dispatcher = ocrDispatcher,
+        ) { pageIndex ->
+            // Postup se hlásí (onPageReady) až PO celém tomhle OCR průchodu - jedna
+            // stránka s pomalým/zaseklým síťovým požadavkem by bez stropu zamrazila
+            // ukazatel postupu na 0/N pro CELOU kapitolu, i kdyby zbytek dávno doběhl
+            // (viz uživatelská zpětná vazba "3 minuty prekladam a porad 0/11").
+            // Stránkový strop proto zůstává; čekání ve frontě strop nemá - OCR-7.
+            var ocrOutcome = "timeout"
+            // Nejlepsi dosud rozpoznana podoba stranky - recognize() ji postupne
+            // plni pres onPartial sink; pri timeoutu stranky z ni poskladame
+            // castecny vysledek misto "bez textu" (audit OCR-3).
+            val partial = AtomicReference<List<RawTextBlock>>(emptyList())
+            val raw = try {
+                ocrOutcome = "bitmap_failed"
+                val bitmap = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
+                    pageBitmapLoader.load(pages[pageIndex])
                 }
-            }.awaitAll()
+                if (bitmap == null) {
+                    emptyList()
+                } else {
+                    val recognized = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
+                        // runOrderedWorkerPool: vyhozená výjimka z process() shodí
+                        // VŠECHNY sourozenecké workery - jedna poškozená/nepodporovaná
+                        // bitmapa by tak zabila OCR celé dávky (třeba 53 z 54 stránek),
+                        // ne jen sebe. Stejnou ochranu má outer catch pod loadem.
+                        try {
+                            ocrEngine.recognize(bitmap, sourceLanguage, visionOcrFallbackFor(visionOcrBudget)) {
+                                partial.set(it)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: OutOfMemoryError) {
+                            // OCR-2: OOM je Error, ne Exception - bez explicitni
+                            // vetve by pres scope zabil celou davku i s vysledky.
+                            e.report("translate:ocr:oom")
+                            ocrOutcome = "oom"
+                            emptyList()
+                        } catch (e: Exception) {
+                            e.report("translate:ocr:recognize")
+                            ocrOutcome = "engine_error"
+                            emptyList()
+                        }
+                    }
+                    if (ocrOutcome != "engine_error" && ocrOutcome != "oom") {
+                        ocrOutcome = when {
+                            recognized != null -> if (recognized.isEmpty()) "no_text" else "ok"
+                            partial.get().isNotEmpty() -> "partial"
+                            else -> "timeout"
+                        }
+                    }
+                    recognized ?: partial.get()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Chyba loadu bitmapy (síť/decode) - jedna stránka nesmí shodit dávku.
+                e.report("translate:ocr:load")
+                ocrOutcome = "bitmap_error"
+                emptyList()
+            }
+            // TOC/titulní stránky se nepřekládají (viz isDenseTextPage u
+            // translatePage) - jen by spotřebovaly volání a dostaly šedé patche.
+            val cls = BubbleClassifier.classifyPage(
+                raw.withCleanedOcrText(enOcrDictionary()),
+                englishWords = enOcrDictionary(),
+            )
+            val dense = isDenseTextPage(cls)
+            PageOcrResult(
+                pageIndex,
+                if (dense) cls.map { it.asPreservedBlock() } else cls,
+                ocrOutcome, raw.size, dense,
+            )
+        }
+        val ocrPass: List<PageOcrResult> = List(pages.size) { idx ->
+            ocrResultsByPage[idx] ?: PageOcrResult(
+                idx, emptyList(),
+                // Stránka vynechaná po watchdog abortu (zaseklý worker) nebo cancel -
+                // není v cache, příští běh ji zkusí znovu. Stránky mimo uncached
+                // výsledek nemají vůbec a nikde se nečtou.
+                if (idx in uncached) "stall" else "not_in_pass",
+                -1,
+            )
         }
         var bubblesByPage: Map<Int, List<ClassifiedBubble>> = ocrPass.associate { it.pageIndex to it.classified }
         val ocrOutcomes = ocrPass.associate { it.pageIndex to it.outcome }
@@ -1511,8 +1505,9 @@ class TranslateRepository @Inject constructor(
      * EXPERIMENT (plán položka 18): nový rozpočet volání vision-OCR fallbacku na JEDNU
      * kapitolu (viz [visionOcrFallbackFor]) - null, když uživatel BYOK vůbec nenastavil, appka
      * se pak chová přesně jako dřív (viz [OcrEngine.recognize] parametr `visionOcrFallback`).
-     * Sdílený [AtomicInteger], ne obyčejný Int - stránky kapitoly běží paralelně (viz
-     * [translateChapter]'s `async`), takže rozpočet musí být bezpečný proti souběhu.
+     * Sdílený [AtomicInteger], ne obyčejný Int - stránky kapitoly běží paralelně
+     * (viz [runOrderedWorkerPool] v [translateChapter]), takže rozpočet musí být
+     * bezpečný proti souběhu.
      */
     private suspend fun newVisionOcrBudgetIfConfigured(): AtomicInteger? =
         if (byokClient.isConfigured()) AtomicInteger(MAX_VISION_OCR_FALLBACKS_PER_CHAPTER) else null
@@ -2142,14 +2137,14 @@ class TranslateRepository @Inject constructor(
         private const val PAGE_OCR_TIMEOUT_MILLIS = 40_000L
 
         /**
-         * Strop na ČEKÁNÍ ve frontě na OCR permit (audit OCR-6) - jiný účel než
-         * [PAGE_OCR_TIMEOUT_MILLIS], který stopuje samotné zpracování stránky.
-         * Nativní úkol držící permit se zrušit nedá (ML Kit Task nemá cancel); bez
-         * tohoto stropu by jeden zaseklý permit zamrazil celou kapitolu na 0/N.
-         * 90 s je ~2× stránkový timeout - dost na předání řádu zdravé frontě, málo
-         * na to, aby "zaseklý nativní úkol" vypadal jako normální pomalost.
+         * Watchdog strop na ŽÁDNÝ pokrok v OCR frontě (audit OCR-7 - nahradil
+         * původní 90s strop na čekání o permit). Zaseklý nativní recognizer
+         * (ML Kit Task se zrušit nedá) by bez něj držel workera navěky a kapitola
+         * by visela donekonečna. 3× stránkový timeout: mezera mezi dokončeními
+         * stránek ve zdravé frontě nepřesáhne ~[PAGE_OCR_TIMEOUT_MILLIS], takže
+         * dvojnásobná rezerva pozná zaseklost do ~2 minut bez falešných poplachů.
          */
-        private const val OCR_PERMIT_WAIT_TIMEOUT_MS = 90_000L
+        private const val OCR_STALL_TIMEOUT_MS = PAGE_OCR_TIMEOUT_MILLIS * 3
 
         /**
          * EXPERIMENT (plán položka 18) - kolikrát nejvíc se za JEDNU kapitolu smí zkusit
