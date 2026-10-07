@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.translate.TranslatedBlock
@@ -137,6 +139,12 @@ fun ReaderContent(
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
+    /** "Nekonečné čtení" pro stránkované režimy (pager i curl) - seskládá
+     *  [webtoonSegments] na jeden plochý proud stránek; reporty stránek jdou
+     *  přes [onPagedFlatPageChanged] (plochý index -> chapterId+lokální index
+     *  řeší ViewModel). Webtoon má vlastní segmentový kanál, sem se nemíchá. */
+    infiniteScrollEnabled: Boolean = false,
+    onPagedFlatPageChanged: (Int) -> Unit = {},
 ) {
     var showGlossarySheet by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
@@ -184,7 +192,61 @@ fun ReaderContent(
         // "pageIndex:bubbleIndex" klice te kapitoly (viz ReaderViewModel.flipKeyFor
         // / flippedKeysForChapter). Webtoon si chapterId resi per segment sam.
         val pagedChapterId = currentChapterId ?: ""
-        val pagedFlipped = flippedKeysForChapter(flippedBubbles, pagedChapterId)
+        // ── Nekonečné čtení ve stránkovaném režimu ─────────────────────────
+        // Se zapnutym infiniteScroll paged ctecky nedostanou jen `pages` aktualni
+        // kapitoly, ale seskladanou listu pres vsechny napojene segmenty (hlasi
+        // pak plochy index, mapovani na kapitolu dela VM.onPagedFlatPageChanged).
+        // `epoch` = id PRVNÍHO segmentu - appendy meni `pages`, ale epoch drzi
+        // stabilni, takze vnitřní stav ctecek (pozice/zoom/drag) se neresetuje.
+        val useInfinitePaged = infiniteScrollEnabled && !isWebtoon && webtoonSegments.isNotEmpty()
+        val pagedEpoch: Any = if (useInfinitePaged) webtoonSegments.first().chapterId else pages
+        val pagedPages = if (useInfinitePaged) {
+            remember(webtoonSegments) { webtoonSegments.flatMap { it.pages } }
+        } else pages
+        // Plochy offset segmentu aktualni kapitoly - pro prepocty lokalni<->plochy
+        // index (initialPage/currentPage jsou porad lokalni vuci currentChapter).
+        val curSegStart = if (useInfinitePaged) {
+            segmentStartFlatIndex(webtoonSegments, pagedChapterId).coerceAtLeast(0)
+        } else 0
+        val pagedInitialPage = if (useInfinitePaged) {
+            (curSegStart + initialPage).coerceIn(0, (pagedPages.size - 1).coerceAtLeast(0))
+        } else initialPage
+        // Prekladove bloky klicovane plochym indexem - per-chapter mapa se
+        // promitne pres offsety segmentu (stejny princip jako WebtoonReader,
+        // jen bez "hranicnich" polozek - paged proud je plne bezskvy).
+        val pagedTranslated = if (useInfinitePaged) {
+            remember(translatedPagesByChapter, webtoonSegments) {
+                flattenTranslatedPages(translatedPagesByChapter, webtoonSegments)
+            }
+        } else translatedPages
+        // Flip klice "$page:$bubble" premapovane na plochy index - jinak by se
+        // lokalni indexy opakujici se v kazde kapitole krizily mezi segmenty.
+        val pagedFlipped = if (useInfinitePaged) {
+            remember(flippedBubbles, webtoonSegments) {
+                flattenFlippedKeys(flippedBubbles, webtoonSegments)
+            }
+        } else flippedKeysForChapter(flippedBubbles, pagedChapterId)
+        // spreadPageIndices patri AKTUALNI kapitole (lokalni indexy) - promizi
+        // na jeji segment; ostatni kapitoly detekci nemaji (bezi jen u stazenych).
+        val pagedSpread = if (useInfinitePaged) {
+            remember(spreadPageIndices, curSegStart) {
+                spreadPageIndices.mapTo(LinkedHashSet()) { it + curSegStart }
+            }
+        } else spreadPageIndices
+        val pagedOnPageChanged: (Int) -> Unit =
+            if (useInfinitePaged) onPagedFlatPageChanged else onPageChanged
+        // Plochy index stranky -> (chapterId, lokalni index) pro bubble callbacky.
+        val pagedLocateChapter = { flatIdx: Int ->
+            if (useInfinitePaged) {
+                locatePagedLocal(webtoonSegments, flatIdx) ?: (pagedChapterId to flatIdx)
+            } else pagedChapterId to flatIdx
+        }
+        // Horni lista / slider / scrubber ukazuji pozici v cele nekonecne knize,
+        // ne jen v aktualni kapitole.
+        val pagedPageCount = if (useInfinitePaged) pagedPages.size else pages.size
+        val pagedCurrentPage = if (useInfinitePaged) {
+            (curSegStart + currentPage).coerceIn(0, (pagedPageCount - 1).coerceAtLeast(0))
+        } else currentPage
         if (isWebtoon) {
             // Prazdne webtoonSegments (volajici je jeste nepredava) = spadni zpatky na jeden
             // segment postaveny z `pages`/`currentChapterId`/`chapterTitle` - stejne chovani
@@ -225,17 +287,17 @@ fun ReaderContent(
             )
         } else if (pageCurlEnabled) {
             MangaPageCurlReader(
-                pages = pages,
-                initialPage = initialPage,
+                pages = pagedPages,
+                initialPage = pagedInitialPage,
                 translateMode = effectiveTranslateMode,
-                translatedPages = translatedPages,
+                translatedPages = pagedTranslated,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
-                spreadPageIndices = spreadPageIndices,
+                spreadPageIndices = pagedSpread,
                 textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
                 tapZoneGrid = tapZoneGrid,
-                onPageChanged = onPageChanged,
+                onPageChanged = pagedOnPageChanged,
                 onShowPanel = onToggleControlsVisible,
                 onNavigatePrevChapter = onNavigatePrev,
                 onNavigateNextChapter = onNavigateNext,
@@ -244,28 +306,35 @@ fun ReaderContent(
                 jumpToPage = jumpToPage,
                 onJumpConsumed = onJumpConsumed,
                 autoNextChapter = autoNextChapter,
-                onAutoNextChapter = onAutoNextChapter,
+                // V nekonecnem cteni se "auto-advance" nechova jako tvrdy skok na dalsi
+                // kapitolu (ten by zahodil seskladany proud segmentu) - jen se zkusi
+                // dolnatahnout; pokud uz append leti / dalsi kapitola neni, je to no-op.
+                onAutoNextChapter = if (useInfinitePaged) ({ onNeedMoreWebtoonSegments() }) else onAutoNextChapter,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
                 curlStyle = curlStyle,
                 flippedBubbles = pagedFlipped,
-                onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(pagedChapterId, pi, bi) },
-                onEditBubble = { pi, ot, ct, x, y -> onEditBubble(pagedChapterId, pi, ot, ct, x, y) },
+                onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
+                onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
                 referer = referer,
+                contentEpoch = pagedEpoch,
+                // Nekonecne cteni: tah za konec seskladaneho proudu dolnatahne dalsi
+                // kapitolu misto tvrde navigace (ta by resetovala segmenty na jednu).
+                onNeedMorePages = if (useInfinitePaged) ({ onNeedMoreWebtoonSegments() }) else null,
             )
         } else {
             MangaReader(
-                pages = pages,
-                initialPage = initialPage,
+                pages = pagedPages,
+                initialPage = pagedInitialPage,
                 translateMode = effectiveTranslateMode,
-                translatedPages = translatedPages,
+                translatedPages = pagedTranslated,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
-                spreadPageIndices = spreadPageIndices,
+                spreadPageIndices = pagedSpread,
                 textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
                 tapZoneGrid = tapZoneGrid,
-                onPageChanged = onPageChanged,
+                onPageChanged = pagedOnPageChanged,
                 onShowPanel = onToggleControlsVisible,
                 onNavigatePrevChapter = onNavigatePrev,
                 onNavigateNextChapter = onNavigateNext,
@@ -274,12 +343,13 @@ fun ReaderContent(
                 jumpToPage = jumpToPage,
                 onJumpConsumed = onJumpConsumed,
                 autoNextChapter = autoNextChapter,
-                onAutoNextChapter = onAutoNextChapter,
+                onAutoNextChapter = if (useInfinitePaged) ({ onNeedMoreWebtoonSegments() }) else onAutoNextChapter,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
                 flippedBubbles = pagedFlipped,
-                onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(pagedChapterId, pi, bi) },
+                onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
                 referer = referer,
+                contentEpoch = pagedEpoch,
             )
         }
 
@@ -294,7 +364,8 @@ fun ReaderContent(
         // se lisi podle rezimu: paged ctecky (pager i curl) jedou pres page index
         // a existujici jumpToPage kanal, webtoon pres flat index LazyColumn.
         // Zobrazuje se jen kdyz je co posouvat - jedna stranka nema co scrubovat.
-        val scrubTotal = if (isWebtoon) webtoonItemCount else pages.size
+        // U nekonecneho paged cteni "kapitola" znamena cely seskladany proud.
+        val scrubTotal = if (isWebtoon) webtoonItemCount else pagedPageCount
         if (scrubTotal > 1) {
             AnimatedVisibility(
                 visible = controlsVisible,
@@ -306,7 +377,7 @@ fun ReaderContent(
                     progress = if (isWebtoon) {
                         webtoonFlatIndex / (scrubTotal - 1).toFloat()
                     } else {
-                        currentPage / (scrubTotal - 1).toFloat()
+                        pagedCurrentPage / (scrubTotal - 1).toFloat()
                     },
                     onScrub = { fraction ->
                         if (isWebtoon) webtoonScrubTarget = fraction
@@ -332,8 +403,8 @@ fun ReaderContent(
                     modifier = Modifier.align(Alignment.TopCenter),
                     mangaTitle = mangaTitle,
                     chapterTitle = chapterTitle,
-                    currentPage = currentPage,
-                    pageCount = pages.size,
+                    currentPage = pagedCurrentPage,
+                    pageCount = if (isWebtoon) webtoonItemCount else pagedPageCount,
                     isOfflineChapter = isOfflineChapter,
                     sessionElapsed = sessionElapsed,
                     chapterProgress = chapterProgress,
@@ -353,8 +424,8 @@ fun ReaderContent(
                     onShowGlossary = { showGlossarySheet = true },
                     onShowComments = { showCommentsSheet = true; onShowComments() },
                     commentsSupported = commentsSupported,
-                    pageCount = pages.size,
-                    currentPage = currentPage,
+                    pageCount = if (isWebtoon) webtoonItemCount else pagedPageCount,
+                    currentPage = pagedCurrentPage,
                     onJumpToPage = onJumpToPage,
                     brightness = brightness,
                     onBrightnessChange = { brightness = it },
@@ -381,6 +452,28 @@ fun ReaderContent(
                     incognitoMode = incognitoMode,
                     onToggleIncognito = onToggleIncognito,
                     onAdvancedSheetVisibilityChanged = onAdvancedSheetVisibilityChanged,
+                )
+            }
+        }
+
+        // Nekonecne cteni (paged) - indikace stahovani dalsi kapitoly. Pager/curl
+        // nema "footer" polozku jako LazyColumn ve webtoonu, takze jen maly chip
+        // u dolniho okraje; zmizi sam, az se segment prilepi (flag klesne).
+        if (useInfinitePaged && webtoonAppendingNextChapter) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.webtoon_loading_next_chapter),
+                    color = Color.White,
+                    fontSize = 12.sp,
                 )
             }
         }

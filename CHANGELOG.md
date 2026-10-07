@@ -4,6 +4,58 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.1
+
+### Překlad: oprava vizuální korupce vyplněných oblastí textu
+
+Přepsané pozadí pod přeloženým textem dřív produkovalo "barcode" pruhy,
+koncentrické prstence, šedé placky a zbytky původních písmen. Příčiny a fixy
+v `TextPatch`/`TextPatchProvider`:
+
+- **Iterativní průměrování po kruzích nahrazeno** multi-source BFS (Voronoi)
+  výplní — maskovaný pixel kopíruje nejbližší reálný zdrojový pixel, takže se
+  zachovává paleta i textura místo vymýšlených směsových barev.
+- **Texturová suprese masky** — adaptivní práh označoval screentone/šrafy
+  celé za "text"; husté masky se teď dělí podle pólu histogramu a drobné/tenké
+  komponenty (tečky, hatch čáry) se z masky vyřadí.
+- **Uzavření děr u velkých glyphů** — interiér jednotného tahu se dřív
+  nemaskoval (lokální průměr = inkoust), písmeno zůstalo viditelné. Flood-fill
+  z okraje textové oblasti teď domaskuje uzavřené interiéry.
+- **Šířka patch bitmapy** se odvozuje ze skutečně ořezaných hranic a validuje
+  proti velikosti ARGB pole (dřív se mohla rozejít → přeindexované řádky).
+- **Konzistence souřadnic při ořezu stránek** — patch se počítá z display
+  souřadnic inverzně mapovaných na původní bitmapu; cache klíč obsahuje crop.
+- Regrese pokryté `TextPatchArtifactTest` (screentone, šrafy, černé pozadí,
+  outlined caption, checkerboard, velké glyphy).
+
+### Čtečka: opravy gest, zoomu a 3D roll curlu
+
+- **Náhodný "zoom po otočení" v page-roll režimu** — GL renderer mapoval
+  bitmapu na quad `1 × bitmapRatio` na fixní hloubce s `gluPerspective(45°)`;
+  na tall phonu se textura renderovala ~1.31× zvětšená. Hloubka kamery se
+  teď počítá tak, aby quad pokryl viewport 1:1 (plus opraven aspect v
+  landscape větvi). Classic curl tím netrpěl — kreslí bitmapu 1:1.
+- **Vypadávající tapy a mrtvý swipe v pageru** — `detectTransformGestures`
+  polykal jednoprstové pohyby (swipe nikdy nedošel k pageru, "špinavý" tap
+  se sežral jako pan). Přepsáno na sdílený `detectTwoFingerPinchZoom`, který
+  čeká na dva prsty.
+- **Pinch se zapojuje až po prokázaném záměru** — náhodné překrytí prstů při
+  rychlém tapování už nemůže rozhoupat `scale` přes 1f (což tiše zabíjelo
+  tap zóny i rozjetý obrat curlu). Po puštění pinchu pod ~10 % se zoom
+  snappne na přesnou 1f.
+- **Zamrzlý curl ohyb** — `dragProgress` žil mimo scope settle korutiny;
+  zahození podstromu uprostřed animace ho nechalo viset. `onDispose` reset
+  + `try/finally` v pumpě.
+- **Stale closures při appendu** — pointerInput klíče `pages` restartovaly
+  gesta při dočtení kapitoly; klíče teď `epoch`, obsah se čte přes
+  `rememberUpdatedState`, nav logika čte `latest*` referenční stav.
+- **Jednoprstový pan při zoomu** — ve všech třech režimech (pager, webtoon,
+  roll) se zvětšená stránka posouvá jedním prstem; dvouprstý pinch+pan
+  funguje dál.
+- **Nekonečné čtení ve stránkovém režimu** — na konci kapitoly se plynule
+  naváže další (flat pages přes segmenty, mapování indexů/bublin/spreadu),
+  pokryté `PagedInfiniteProjectionTest`.
+
 ## v2.0.0
 
 ### Čtečka: skok na nejnovější kapitolu po relinku/refreshi kapitol

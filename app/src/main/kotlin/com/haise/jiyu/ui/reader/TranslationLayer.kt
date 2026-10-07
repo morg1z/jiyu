@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -53,6 +55,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -250,15 +253,10 @@ fun BubbleOverlayLayer(
     val positioned = remember(adjustedBlocks) { layoutTranslationBlocks(adjustedBlocks) }
     // Záplaty (viz níž) se řežou přímo z PIXELŮ stránky - ale [PageBitmapLoader] (na rozdíl
     // od zobrazovací cesty) crop okrajů nikdy neaplikuje, takže bitmapa, ze které se řeže, je
-    // vždy ta PŮVODNÍ, neořízlá. `positioned` výš je ale přemapovaný na ořízlý prostor kvůli
-    // zobrazení - kdyby se stejný (přemapovaný) seznam použil i tady, záplata by se vyřízla
-    // ze ŠPATNÝCH pixelů. Pozice i-tého prvku v obou seznamech ale NENÍ stabilní identita:
-    // remapForCrop sice nemění "shape == null" flag přímo, ale clamp souřadnic může
-    // překlapnout verdikt `isDegenerateShapeForText`/`mergeUntranslatedSiblingBlocks` a
-    // změnit tak rozdělení shapeBased/heuristicBased - tentýž blok pak v `positioned` a
-    // `originalPositioned` stojí na jiném indexu (audit F13). Proto se fixy klíčují přes
-    // `PositionedTranslationBlock.sourceIndex` = pozice v `blocks`, shodná v obou layotech.
-    val originalPositioned = remember(blocks) { layoutTranslationBlocks(blocks) }
+    // vždy ta PŮVODNÍ, neořízlá. Provider proto dostává `positioned` (stejný seznam, ze
+    // kterého render odvozuje boxy) PLUS crop - souřadnice v crop prostoru si sám
+    // inverzně přemapuje zpět na originální bitmapu. Fixy se klíčují přes
+    // `PositionedTranslationBlock.sourceIndex` = pozice v `blocks`, stabilní identita.
 
     // Záplaty se počítají až tady, při zobrazení, a žijí jen v paměti - do Room nic nepřibývá,
     // takže se kvůli nim nemusela zvedat PIPELINE_VERSION a hotové překlady zůstaly platné.
@@ -272,22 +270,21 @@ fun BubbleOverlayLayer(
             TextPatchEntryPoint::class.java,
         ).textPatchProvider()
     }
-    val fixes by produceState(initialValue = emptyMap<Int, BubbleOverlayFix>(), pageUrl, blocks) {
+    val fixes by produceState(initialValue = emptyMap<Int, BubbleOverlayFix>(), pageUrl, blocks, crop) {
         val url = pageUrl
         value = if (url == null) {
             emptyMap()
         } else {
-            val result = patchProvider.patchesFor(url, originalPositioned)
+            val result = patchProvider.patchesFor(url, positioned, crop)
             // Autoritativní záznam "jak se stránka doopravdy vykreslila" - na rozdíl od
             // kind="page" diagnostiky překladu tady známe výsledky záplat a recovery,
             // takže skip=módy odpovídají skutečné obrazovce (viz TranslationDiagnostics).
             withContext(Dispatchers.IO) {
-                TranslationDiagnostics.recordRender(context, url, pageIndex, originalPositioned, result)
+                TranslationDiagnostics.recordRender(context, url, pageIndex, positioned, result)
             }
-            // Klíče převedeme z pozice v `originalPositioned` na sourceIndex - renderer
-            // níže hledá přes `fixes[pos.sourceIndex]` (pos pochází z `positioned`,
-            // oříznutý layout). -1 se nikdy netrefí a je bezpečný.
-            result.mapKeys { (i, _) -> originalPositioned[i].sourceIndex }
+            // Klíče převedeme z pozice v `positioned` na sourceIndex - renderer
+            // níže hledá přes `fixes[pos.sourceIndex]`. -1 se nikdy netrefí a je bezpečný.
+            result.mapKeys { (i, _) -> positioned[i].sourceIndex }
         }
     }
     // Vlastní font uživatele (viz CustomFontRepository, item 15) - stejný EntryPoint důvod
@@ -758,9 +755,9 @@ fun TranslationOverlay(
                     }
                 }
                 // Tap = "flip" na originál (viz ReaderViewModel.toggleBubbleFlip). Konzumuje tap
-                // dřív, než se dostane k page-level gestům (tap-zóny/double-tap zoom/long-press
+                // dřív, než se dostane k page-level gestům (tap-zóny/long-press
                 // sdílení v MangaReaderu) - vědomý kompromis, přesně nad bublinou chceme flip,
-                // ne zoom/navigaci.
+                // ne navigaci.
                 // Dlouhy stisk NAD BUBLINOU stini sdileni stranky z MangaReaderu - stejny
                 // vedomy kompromis jako u tapu vys: presne nad bublinou chceme jeji akce.
                 .let { m ->
@@ -1290,11 +1287,24 @@ private fun StrokedTranslatedText(
     val w = with(density) { layout.size.width.toDp() }
     val h = with(density) { layout.size.height.toDp() }
     Canvas(Modifier.size(w, h)) {
-        drawText(
-            textLayoutResult = layout,
-            color = strokeColor,
-            drawStyle = Stroke(width = strokeWidthPx, join = StrokeJoin.Round),
-        )
-        drawText(textLayoutResult = layout, color = textColor)
+        drawOutlinedText(layout, textColor, strokeColor, strokeWidthPx)
     }
+}
+
+/** Dvouprůchodové vykreslení z [StrokedTranslatedText]: obrys pod výplní, oba přes jeden [TextLayoutResult]. */
+internal fun DrawScope.drawOutlinedText(
+    layout: TextLayoutResult,
+    textColor: Color,
+    strokeColor: Color,
+    strokeWidthPx: Float,
+) {
+    drawText(
+        textLayoutResult = layout,
+        color = strokeColor,
+        drawStyle = Stroke(width = strokeWidthPx, join = StrokeJoin.Round),
+    )
+    // Fill MUSÍ být explicitní: null Compose nebere jako "vrať Fill" (AndroidTextPaint.setDrawStyle(null)
+    // hned vrací) a paint sdílený s průchodem výš by zůstal ve stylu Stroke - výplň by se
+    // kreslila jako tlustý obrys a písmo by splynulo v hrudky (viz OutlinedTextDrawTest).
+    drawText(textLayoutResult = layout, color = textColor, drawStyle = Fill)
 }

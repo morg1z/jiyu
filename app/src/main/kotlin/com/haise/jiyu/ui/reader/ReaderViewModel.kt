@@ -80,6 +80,10 @@ private const val CHAPTER_LOAD_TIMEOUT_MS = 45_000L
 private const val APPEND_FETCH_ATTEMPTS = 3
 private const val APPEND_RETRY_DELAY_MS = 2_000L
 
+/** Kolik stranek pred koncem posledniho segmentu se v paged nekonecnem cteni
+ *  spusti appendNextWebtoonSegment - viz [ReaderViewModel.onPagedFlatPageChanged]. */
+private const val PAGED_APPEND_PREFETCH_DISTANCE = 4
+
 /** Kolik stránek dopředu drží omezený (úsporný/zpoplatněná síť) prefetch - viz [ReaderViewModel.prefetchNextPage]. */
 private const val LIMITED_PREFETCH_AHEAD = 3
 
@@ -1082,25 +1086,7 @@ class ReaderViewModel @Inject constructor(
             _isOfflineChapter.value = true
             // Detect landscape pages for smart spread grouping - mimo Main (BitmapFactory + u SAF
             // ContentResolver blokuje kazdou stranku), audit nalez JIYU-UI-2.
-            spreadDetectJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                val spread = pageUrls.mapIndexedNotNull { idx, url ->
-                    ensureActive()
-                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    try {
-                        if (url.startsWith("content://")) {
-                            context.contentResolver.openInputStream(android.net.Uri.parse(url))?.use {
-                                android.graphics.BitmapFactory.decodeStream(it, null, opts)
-                            }
-                        } else {
-                            android.graphics.BitmapFactory.decodeFile(url.removePrefix("file://"), opts)
-                        }
-                    } catch (e: Exception) {
-                        e.report("reader:spreadDetect:decodeBounds")
-                    }
-                    if (opts.outWidth > 0 && opts.outWidth > opts.outHeight * 1.2f) idx else null
-                }.toSet()
-                _spreadPageIndices.value = spread
-            }
+            detectSpreadPages(pageUrls)
         } else {
             _comickUnavailable.value = false
             _isOfflineChapter.value = false
@@ -1183,6 +1169,36 @@ class ReaderViewModel @Inject constructor(
         // segmenty pridavaji az prubezne za cteni (viz appendNextWebtoonSegment), ne predem.
         appendingSegmentJob?.cancel()
         _webtoonSegments.value = listOf(WebtoonSegment(chapter.id, chapter.name, _pages.value))
+    }
+
+    /**
+     * Detekce širších-než-vyšších stránek pro dvoustránkový spread ([_spreadPageIndices]) -
+     * vytaženo z loadChapter, spouští se i při přepnutí "aktivní" kapitoly na jiný segment
+     * v nekonečném čtení ([switchActiveSegment]), jinak by se do nového segmentu promitly
+     * indexy z předchozí kapitoly. Mimo Main (BitmapFactory + u SAF ContentResolver blokuje
+     * každou stránku), audit nález JIYU-UI-2.
+     */
+    private fun detectSpreadPages(pageUrls: List<String>) {
+        spreadDetectJob?.cancel()
+        spreadDetectJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val spread = pageUrls.mapIndexedNotNull { idx, url ->
+                ensureActive()
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                try {
+                    if (url.startsWith("content://")) {
+                        context.contentResolver.openInputStream(android.net.Uri.parse(url))?.use {
+                            android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                        }
+                    } else {
+                        android.graphics.BitmapFactory.decodeFile(url.removePrefix("file://"), opts)
+                    }
+                } catch (e: Exception) {
+                    e.report("reader:spreadDetect:decodeBounds")
+                }
+                if (opts.outWidth > 0 && opts.outWidth > opts.outHeight * 1.2f) idx else null
+            }.toSet()
+            _spreadPageIndices.value = spread
+        }
     }
 
     /**
@@ -1475,9 +1491,10 @@ class ReaderViewModel @Inject constructor(
     /**
      * "Nekonečné čtení" (viz [infiniteScrollEnabled]) - přilepí DALŠÍ kapitolu (tu, co následuje
      * za POSLEDNÍM aktuálně přidaným segmentem, ne nutně za `currentChapter` - viz
-     * [onWebtoonVisibleChapterChanged]) na konec [_webtoonSegments], takže [WebtoonReader]
-     * scrolluje plynule dál bez viditelného přepnutí. Zavolá [WebtoonReader] sám, jakmile
-     * uživatel dočte skoro na konec posledního segmentu.
+     * [onWebtoonVisibleChapterChanged]) na konec [_webtoonSegments], takže čtečka
+     * pokračuje plynule dál bez viditelného přepnutí. Volají ho [WebtoonReader]
+     * (ke konci scrollu), paged čtečky přes [onPagedFlatPageChanged] a curl čtečka
+     * přes `onNeedMorePages` - přestože nese "Webtoon" v názvu, je režimově neutrální.
      */
     fun appendNextWebtoonSegment() {
         if (!infiniteScrollEnabled.value) return
@@ -1578,84 +1595,102 @@ class ReaderViewModel @Inject constructor(
     }
 
     /**
+     * Přepne "aktivní" kapitolu ([currentChapter] + `_pages` + titulka/nav/prefetch)
+     * na segment [chapterId], pokud už jiná není aktivní - sdílené jádro pro oba
+     * nekonečné režimy (webtoon scroll i plochý paged pager).
+     * [prefetchCenter] = lokální index stránky v segmentu, od kterého se restartuje
+     * prefetch. @return true = kapitola se opravdu přepnula.
+     */
+    private fun switchActiveSegment(chapterId: String, prefetchCenter: Int): Boolean {
+        if (chapterId == _currentChapterId.value) return false
+        val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return false
+        val segment = _webtoonSegments.value.firstOrNull { it.chapterId == chapterId } ?: return false
+        // Rozjeté překladové joby (translationJob i batchJob) sevědomě NEZRUŠUJEME -
+        // jejich zápisy jdou přes putTranslatedPage, která je klíčovaná chapterId,
+        // takže bezpečně doběhnou "na pozadí" pro původní kapitolu; zrušení by zabilo
+        // "Přeložit vše" předchozí kapitoly jen proto, že uživatel doscrolloval do
+        // napojené (audit překladu Vagabond ch2: batch umřel při překročení do ch3).
+        // Nová kapitola si překlad spustí sama (translateAllPages se zařadí za
+        // běžící batch, viz pendingBatchChapterId). Progress ukazatele se navíc
+        // píšou jen pro AKTIVNÍ kapitolu (guard v startChapterTranslation/
+        // translateAllPages), takže cizí průběh pod novým titulkem nesvítí.
+        // Jiné joby patří PŘEDCHOZÍ kapitole a ruší se: detekce dvoustran by jinak
+        // přepsala _spreadPageIndices nové a načtené komentáře by zůstaly viset -
+        // jejich guard `isNotEmpty()` v loadChapterComments by pak u nové kapitoly
+        // odmítl načíst její.
+        commentsJob?.cancel()
+        commentsJob = null
+        _chapterComments.value = emptyList()
+        _commentsLoading.value = false
+        spreadDetectJob?.cancel()
+        spreadDetectJob = null
+        currentChapter = chapter
+        _currentChapterId.value = chapter.id
+        _chapterTitle.value = chapter.name
+        _chapterIndex.value = chapterIndexOrTrace(chapter.id, "switchActiveSegment").coerceAtLeast(0)
+        updateNavState()
+        _pages.value = segment.pages
+        // Plochou mapu naplnit z per-chapter mapy, ne prázdnou - tahle kapitola už mohla
+        // být přeložená (uživatel scrolluje zpět na dřívější segment) a její bloky by
+        // jinak pro ne-webtoon čtečky po přepnutí režimu zmizely.
+        _translatedPages.value = _translatedPagesByChapter.value[chapter.id] ?: emptyMap()
+        _flippedBubbles.value = emptySet()
+        // _translateMode sevědomě ponecháváme - "číst s překladem" je kontinuální
+        // záměr uživatele, ne per-kapitola stav: overlay nové kapitoly se ukáže, jakmile
+        // pro ni bloky existují (Room cache přes preloadCachedTranslations při appendu,
+        // nebo běžící/zařazený batch). Reset na false by po překročení hranice tichě
+        // vypnul překlad uprostřed čtení (audit překladu Vagabond ch2→ch3).
+        // suspend funkce - tahle metoda se volá z UI synchronně, takže přes launch.
+        viewModelScope.launch {
+            _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
+            // Fallback zdroj muze mit jinou domovku - bez refresh by stranky nove
+            // kapitoly jely se refererem predchozi kapitoly (audit - hotlink 403).
+            _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
+            // Nova kapitola v nekonecnem scrollu = novy seznam stranek - bez restartu
+            // by sekvencni prefetch dal stahoval stranky PREDCHOZI kapitoly a tyhle
+            // by se nikdy nepredstahly (audit). Reset fronty + restart pro tenhle
+            // segment; centerIndex = prefetchCenter (pozice v novem segmentu).
+            prefetchedPageIndices.clear()
+            chapterPrefetchJob?.cancel()
+            chapterPrefetchJob = null
+            if (shouldLimitPrefetch()) prefetchNextPage(prefetchCenter)
+            else startChapterPrefetch(prefetchCenter)
+        }
+        _isOfflineChapter.value = chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null
+        // Indexy dvoustran patri KAPITOLE, pro kterou detekce bezela - bez vymazani by se
+        // v paged nekonecnem rezimu promitly na segment jine kapitoly (skupiny [i,i+1]
+        // by parovaly cizi stranky). U stazene kapitoly se pro ni detekce rovnou
+        // rozběhne znovu (online stranky detekci nikdy nemely - je to jen lokalni
+        // BitmapFactory nad soubory).
+        _spreadPageIndices.value = emptySet()
+        if (_isOfflineChapter.value) detectSpreadPages(segment.pages)
+        // Stejna podminka jako v loadChapter - bez clearu by hlaska z fallback kapitoly
+        // previsela i na normalnich segmentech (audit).
+        _fallbackNotice.value = if (chapter.isFallbackSource) {
+            context.getString(R.string.reader_fallback_source_notice)
+        } else null
+        return true
+    }
+
+    /**
      * Volá [WebtoonReader], jakmile se v souvislém "Nekonečném čtení" scrollu viditelná pozice
      * posune do JINÉ kapitoly, než je aktuálně sledovaná ([currentChapter]) - `localIndex`/
      * `localOffset` jsou pozice PŘEPOČÍTANÉ na tenhle konkrétní segment (ne globální index přes
      * všechny segmenty). Přepne "aktivní" kapitolu (název v horní liště, ukládání postupu,
-     * spouštěč přednačítání) a znovu použije existující [onPageChanged]/[saveWebtoonScrollOffset]
-     * - ty už samy o sobě ukládají postup a spouští [preloadNextChapter] správně, jen potřebují
-     * mít [currentChapter]/`_pages` nastavené na TUHLE kapitolu.
+     * spouštěč přednačítání) přes [switchActiveSegment] a znovu použije existující
+     * [onPageChanged]/[saveWebtoonScrollOffset] - ty už samy o sobě ukládají postup a spouští
+     * [preloadNextChapter] správně, jen potřebují mít [currentChapter]/`_pages` nastavené na
+     * TUHLE kapitolu.
      *
      * Vědomě NEMAŽE starší segmenty z [_webtoonSegments] (i když se čtenář o pár kapitol
      * dostane dál) - LazyColumn je virtualizovaný (dávno odscrollované položky se nedrží
      * složené) a přehled URL adres je zanedbatelně malý, takže by mazání jen riskovalo bug
      * (viz git historie - dřívější verze mazala první segment a tím měnila jeho identitu,
      * což omylem znovu spustilo obnovu pozice ve WebtoonReaderu a způsobilo skok scrollu).
+     * Totéž platí pro paged pager - `HorizontalPager` virtualizuje taky (beyondViewportPageCount).
      */
     fun onWebtoonVisibleChapterChanged(chapterId: String, localIndex: Int, localOffset: Int) {
-        var chapterSwitched = false
-        if (chapterId != _currentChapterId.value) {
-            val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return
-            val segment = _webtoonSegments.value.firstOrNull { it.chapterId == chapterId } ?: return
-            // Rozjeté překladové joby (translationJob i batchJob) sevědomě NEZRUŠUJEME -
-            // jejich zápisy jdou přes putTranslatedPage, která je klíčovaná chapterId,
-            // takže bezpečně doběhnou "na pozadí" pro původní kapitolu; zrušení by zabilo
-            // "Přeložit vše" předchozí kapitoly jen proto, že uživatel doscrolloval do
-            // napojené (audit překladu Vagabond ch2: batch umřel při překročení do ch3).
-            // Nová kapitola si překlad spustí sama (translateAllPages se zařadí za
-            // běžící batch, viz pendingBatchChapterId). Progress ukazatele se navíc
-            // píšou jen pro AKTIVNÍ kapitolu (guard v startChapterTranslation/
-            // translateAllPages), takže cizí průběh pod novým titulkem nesvítí.
-            // Jiné joby patří PŘEDCHOZÍ kapitole a ruší se: detekce dvoustran by jinak
-            // přepsala _spreadPageIndices nové a načtené komentáře by zůstaly viset -
-            // jejich guard `isNotEmpty()` v loadChapterComments by pak u nové kapitoly
-            // odmítl načíst její.
-            commentsJob?.cancel()
-            commentsJob = null
-            _chapterComments.value = emptyList()
-            _commentsLoading.value = false
-            spreadDetectJob?.cancel()
-            spreadDetectJob = null
-            currentChapter = chapter
-            _currentChapterId.value = chapter.id
-            _chapterTitle.value = chapter.name
-            _chapterIndex.value = chapterIndexOrTrace(chapter.id, "onWebtoonVisibleChapterChanged").coerceAtLeast(0)
-            updateNavState()
-            _pages.value = segment.pages
-            // Plochou mapu naplnit z per-chapter mapy, ne prázdnou - tahle kapitola už mohla
-            // být přeložená (uživatel scrolluje zpět na dřívější segment) a její bloky by
-            // jinak pro ne-webtoon čtečky po přepnutí režimu zmizely.
-            _translatedPages.value = _translatedPagesByChapter.value[chapter.id] ?: emptyMap()
-            _flippedBubbles.value = emptySet()
-            // _translateMode sevědomě ponecháváme - "číst s překladem" je kontinuální
-            // záměr uživatele, ne per-kapitola stav: overlay nové kapitoly se ukáže, jakmile
-            // pro ni bloky existují (Room cache přes preloadCachedTranslations při appendu,
-            // nebo běžící/zařazený batch). Reset na false by po překročení hranice tichě
-            // vypnul překlad uprostřed čtení (audit překladu Vagabond ch2→ch3).
-            // suspend funkce - tahle metoda se volá z UI synchronně, takže přes launch.
-            viewModelScope.launch {
-                _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
-                // Fallback zdroj muze mit jinou domovku - bez refresh by stranky nove
-                // kapitoly jely se refererem predchozi kapitoly (audit - hotlink 403).
-                _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
-                // Nova kapitola v nekonecnem scrollu = novy seznam stranek - bez restartu
-                // by sekvencni prefetch dal stahoval stranky PREDCHOZI kapitoly a tyhle
-                // by se nikdy nepredstahly (audit). Reset fronty + restart pro tenhle
-                // segment; centerIndex = localIndex (pozice v novem segmentu).
-                prefetchedPageIndices.clear()
-                chapterPrefetchJob?.cancel()
-                chapterPrefetchJob = null
-                if (shouldLimitPrefetch()) prefetchNextPage(localIndex)
-                else startChapterPrefetch(localIndex)
-            }
-            _isOfflineChapter.value = chapter.downloadStatus == DownloadStatus.DOWNLOADED && chapter.localPath != null
-            // Stejna podminka jako v loadChapter - bez clearu by hlaska z fallback kapitoly
-            // previsela i na normalnich segmentech (audit).
-            _fallbackNotice.value = if (chapter.isFallbackSource) {
-                context.getString(R.string.reader_fallback_source_notice)
-            } else null
-            chapterSwitched = true
-        }
+        val chapterSwitched = switchActiveSegment(chapterId, localIndex)
         // onPageChanged JEN kdyz se skutecne zmenil index stranky (nebo kapitola) - snapshotFlow
         // ve WebtoonReaderu emituje na kazdy PIXEL scrollu a driv se tu na kazdy emitovalo
         // PageProgressEvent do UNLIMITED channelu: ~4 DB zapisy (updateReadProgress,
@@ -1664,6 +1699,35 @@ class ReaderViewModel @Inject constructor(
         // behem celeho scrollovani (audit).
         if (chapterSwitched || localIndex != _currentPage.value) onPageChanged(localIndex)
         saveWebtoonScrollOffset(localOffset)
+    }
+
+    /**
+     * "Nekonečné čtení" ve STRÁNKOVANÝCH režimech (pager i curl) - `MangaReader`/
+     * `MangaPageCurlReader` dostanou seskládanou listu stránek přes všechny napojené
+     * segmenty a hlásí PLOCHÝ index (přes všechny kapitoly). Tady se převede na
+     * (segment, lokální index), přepne aktivní kapitolu stejně jako ve webtoonu a
+     * u konce posledního segmentu se rozběhne [appendNextWebtoonSegment].
+     */
+    fun onPagedFlatPageChanged(flatIndex: Int) {
+        val segments = _webtoonSegments.value
+        var offset = 0
+        for ((i, segment) in segments.withIndex()) {
+            val local = flatIndex - offset
+            if (local !in 0 until segment.pages.size) {
+                offset += segment.pages.size
+                continue
+            }
+            val switched = switchActiveSegment(segment.chapterId, local)
+            if (switched || local != _currentPage.value) onPageChanged(local)
+            // Docteni posledniho znameho segmentu -> dolnatahni dalsi kapitolu.
+            // Bezne no-op pocity (vypnute nastaveni / neni dalsi / append uz leti)
+            // resi appendNextWebtoonSegment sam. Prah ~4 stranky pred koncem - fetch
+            // na pomalem zdroji trva desitky sekund.
+            if (i == segments.lastIndex && local >= segment.pages.size - PAGED_APPEND_PREFETCH_DISTANCE) {
+                appendNextWebtoonSegment()
+            }
+            return
+        }
     }
 
     /**

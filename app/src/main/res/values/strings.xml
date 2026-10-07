@@ -201,7 +201,7 @@
     <string name="settings_reader_auto_next_title">Po dočtení přejít na další kapitolu</string>
     <string name="settings_reader_auto_next_desc">Po dosažení poslední stránky se automaticky přejde na další kapitolu</string>
     <string name="settings_reader_infinite_scroll_title">Nekonečné čtení</string>
-    <string name="settings_reader_infinite_scroll_desc">Ve svislém (webtoon) režimu appka místo přepnutí kapitoly plynule přilepí další kapitolu pod tu aktuální</string>
+    <string name="settings_reader_infinite_scroll_desc">Místo přepnutí kapitoly appka plynule přilepí další kapitolu za tu aktuální - ve svislém (webtoon) režimu pod ni, ve stránkovaném za ni</string>
     <string name="settings_reader_page_curl_section_title">Otáčení stránek</string>
     <string name="settings_reader_page_curl_title">Použití 3D efektu při otáčení stránek</string>
     <string name="settings_reader_page_curl_desc">Stránka se otočí ohybovou animací jako u knihy místo plynulého scrollu/swipu. Platí pro light novel čtečku i pro manga/manhwa čtení po stránkách (ne pro webtoon plynulý scroll)</string>

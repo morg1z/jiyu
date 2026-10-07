@@ -4,8 +4,8 @@ import com.haise.jiyu.util.report
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -33,11 +33,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -126,7 +128,16 @@ fun MangaReader(
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
+    /**
+     * Stabilní identita "otevřeného obsahu" pro klíče remember/key - v nekonečném čtení
+     * (viz ReaderViewModel.onPagedFlatPageChanged) `pages` roste přilepením další kapitoly,
+     * což jako klíč nové identity nesmí fungovat (resetovala by se pozice/zoom při každém
+     * appendu). Volající předá id PRVNÍHO segmentu; null = klíčem je `pages` list samotný
+     * (klasický režim, kde nová kapitola = nová instance listu).
+     */
+    contentEpoch: Any? = null,
 ) {
+    val epoch = contentEpoch ?: pages
     // Pinch-to-zoom stav — žije tady (jediný spotřebitel), ne v ReaderContent -
     // rememberSaveable, aby otočení obrazovky (config change) nezahodilo rozostřený zoom.
     var scale by rememberSaveable { mutableStateOf(1f) }
@@ -165,18 +176,20 @@ fun MangaReader(
     // Tracks the single page index across recompositions and spread-mode resets.
     // Lives OUTSIDE key(useSpread) so it survives the pager recreation and gives the
     // new pager its correct starting group.
-    // Klic `pages` (nova identita listu = nova kapitola) - bez nej by stary index z
-    // predchozi kapitoly zustal jako vychozi stranka nove (audit: pager state preziva
-    // zmenu kapitoly a obnovuje spatnou stranku; stejny vzor jako MangaPageCurlReader).
-    var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
+    // Klic `epoch` (nova kapitola/obsah) - bez nej by stary index z predchozi kapitoly
+    // zustal jako vychozi stranka nove (audit: pager state preziva zmenu kapitoly a
+    // obnovuje spatnou stranku; stejny vzor jako MangaPageCurlReader). V nekonecnem
+    // cteni je epoch id prvniho segmentu - append nove kapitoly identity nemeni
+    // (stranky se jen prilepi na konec), takze pozice se neresetuje.
+    var currentSingleIndex by rememberSaveable(epoch) { mutableStateOf(initialPage) }
 
     // Auto-advance to next chapter when reaching last page with autoNextChapter enabled.
     // reachedEndManually ensures we only trigger after navigating away from initial page,
     // preventing immediate jump when resuming on the last page.
-    // Klic `pages` (nova identita listu = nova kapitola) - bez nej flag prezil prepnuti
+    // Klic `epoch` (viz vys) - bez nej flag prezil prepnuti
     // kapitoly a kapitola obnovena na posledni strance se sama auto-advancovala dal
     // po 2,5 s bez otoceni stranky (audit RD-2; stejny vzor jako currentSingleIndex).
-    var reachedEndManually by remember(pages) { mutableStateOf(false) }
+    var reachedEndManually by remember(epoch) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(currentSingleIndex, pages.size) {
         if (pages.size > 1 && currentSingleIndex < pages.size - 1) reachedEndManually = true
         if (reachedEndManually && pages.isNotEmpty() && currentSingleIndex == pages.size - 1 && autoNextChapter) {
@@ -185,13 +198,15 @@ fun MangaReader(
         }
     }
 
-    // key(useSpread, pages) destroys and recreates the pager whenever spread mode changes
+    // key(useSpread, epoch) destroys and recreates the pager whenever spread mode changes
     // (i.e. on rotation when double-page is enabled) A pri zmene kapitoly - jinak by
     // pagerState drzel currentPage z predchozi kapitoly a snapshotFlow ho zapsal jako
-    // postup nove (audit - pager state preziva zmenu kapitoly). The new pager receives the
+    // postup nove (audit - pager state preziva zmenu kapitoly). Epoch (ne `pages`) -
+    // v nekonecnem cteni append meni `pages`, ale pager se nesmi preestavet: nove
+    // stranky se jen objevi na konci pres pageCount. The new pager receives the
     // correct initialGroupIndex immediately — no post-hoc scrollToPage correction
     // and no visual flash to a wrong page.
-    key(useSpread, pages) {
+    key(useSpread, epoch) {
         val initialGroupIndex = remember(groups) {
             groups.indexOfFirst { currentSingleIndex in it }.coerceAtLeast(0)
         }
@@ -202,17 +217,56 @@ fun MangaReader(
         )
         val scope = rememberCoroutineScope()
 
+        // Append v nekonecnem cteni zmeni `groups`/`pages` na NOVE instance - gesto
+        // closury (tap pointerInput nize) by bez updatedState cetly stare a tapy by se
+        // po appendu clampovaly na stary konec seznamu.
+        val latestGroups by rememberUpdatedState(groups)
+        val latestPages by rememberUpdatedState(pages)
+
+        // Zaklad pro +/-1 navigaci (tap zony, klavesy, volume). `currentPage` se prepina
+        // az v pulce prejezdu a `targetPage` se aktualizuje az kdyz animace realne
+        // nastartuje - dva tapy v tesnem sledu (zapocteno i do jednoho framu) by z
+        // targetPage dopadly na STEJNY cil a druhy se sezral. `navTarget` si cil
+        // drzime synchronne uz v okamziku tapu (stejny princip jako webtoonNavTarget
+        // ve WebtoonReaderu); uzivateluv swipe/spusteni animace cile uklidi pres
+        // finally, kdyz mezitim neprisel novejsi cil.
+        var navTarget by remember { mutableStateOf<Int?>(null) }
+        fun navStep(delta: Int) {
+            val target = ((navTarget ?: pagerState.targetPage) + delta)
+                .coerceIn(0, latestGroups.lastIndex)
+            navTarget = target
+            scope.launch {
+                try {
+                    pagerState.animateScrollToPage(target)
+                } finally {
+                    if (navTarget == target) navTarget = null
+                }
+            }
+        }
+
+        // Reset zoomu pri zmene obsahu (epoch = nova kapitola/rezim) - driv to delala
+        // prvni emise snapshotFlow pres handlePageChanged, tu ale guard nize zamerne
+        // preskoci, aby append v nekonecnem cteni zoom neresetoval uprostred cteni.
+        androidx.compose.runtime.LaunchedEffect(epoch) {
+            scale = 1f
+            panOffset = Offset.Zero
+        }
         androidx.compose.runtime.LaunchedEffect(pagerState, groups) {
             snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
                 groups.getOrNull(groupIdx)?.firstOrNull()?.let {
-                    currentSingleIndex = it
-                    handlePageChanged(it)
+                    // Restart efektu (append v nekonecnem cteni meni `groups`) reemituje
+                    // aktualni index - bez guardu by se zbytecne resetoval zoom.
+                    if (it != currentSingleIndex) {
+                        currentSingleIndex = it
+                        handlePageChanged(it)
+                    }
                 }
             }
         }
 
         androidx.compose.runtime.LaunchedEffect(jumpToPage) {
             val target = jumpToPage ?: return@LaunchedEffect
+            navTarget = null  // okamzity skok zahazuje naplanovany cil tap-navigace
             val groupIdx = groups.indexOfFirst { target in it }.coerceAtLeast(0)
                 .coerceIn(0, groups.lastIndex.coerceAtLeast(0))
             // Okamzity skok (ne animateScrollToPage) - edge scrubber posila novy cil
@@ -246,26 +300,10 @@ fun MangaReader(
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionLeft, Key.A -> {
-                            val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                            true
-                        }
-                        Key.DirectionRight, Key.D -> {
-                            val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                            true
-                        }
-                        Key.VolumeDown -> if (volumeKeysNav) {
-                            val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                            true
-                        } else false
-                        Key.VolumeUp -> if (volumeKeysNav) {
-                            val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
-                            scope.launch { pagerState.animateScrollToPage(target) }
-                            true
-                        } else false
+                        Key.DirectionLeft, Key.A -> { navStep(if (reverseLayout) 1 else -1); true }
+                        Key.DirectionRight, Key.D -> { navStep(if (reverseLayout) -1 else 1); true }
+                        Key.VolumeDown -> if (volumeKeysNav) { navStep(if (reverseLayout) -1 else 1); true } else false
+                        Key.VolumeUp -> if (volumeKeysNav) { navStep(if (reverseLayout) 1 else -1); true } else false
                         else -> false
                     }
                 },
@@ -276,44 +314,72 @@ fun MangaReader(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // Orez na slot stranky - pager obsah stranek sam neclipuje, takze bez
+                    // nej se sdilena scale/pan transformace aplikuje i na sousedni
+                    // (beyond-viewport) stranky a jejich zvetseny/posunuty obsah se
+                    // vykresli pres aktualni stranku (hlasene prekryvani pri zoomu).
+                    .clipToBounds()
+                    // Vlastni dvouprsta pinch detekce misto `detectTransformGestures` - ta
+                    // v Compose Foundation pocita pan/zoom uz z JEDNOHO prstu a jakmile
+                    // prekroci touch slop, VZDY zkonzumuje position change: jednoprstovy
+                    // swipe pro otoceni stranky tim nikdy nedosel k HorizontalPageru
+                    // (swipe byl mrtvy) a "spinavy" rychly tap, jehoz prst o slop ujel,
+                    // se sezral jako pan misto tapu (hlasene vypadavani tapu). Tato
+                    // verze ceka na 2 prsty - swipe i tap prochazeji nedotcene.
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                        detectTwoFingerPinchZoom(
+                            onGestureEnd = {
+                                // Snap zbytkoveho zoomu pod ~10% zpet na 1f - jinak by
+                                // pinch mohl nechat napr. scale = 1.003 (vizualne 1x),
+                                // ale `scale <= 1f` gaty by pak nastejno zahodily
+                                // swipe i cely tap handling bez jakekoliv indicie proc.
+                                if (scale < 1.1f) { scale = 1f; panOffset = Offset.Zero }
+                            },
+                        ) { zoomChange, panChange ->
+                            val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                             scale = newScale
-                            if (newScale > 1f) panOffset += pan
+                            if (newScale > 1f) panOffset += panChange
                             else panOffset = Offset.Zero
                         }
                     }
-                    .pointerInput(tapZonesEnabled, tapZoneGrid, reverseLayout, groups.size) {
+                    // Jednoprsty PAN pri zoomu - swipe pageru je pri scale>1f vypnuty
+                    // (userScrollEnabled), takze jednoprsty tah je volny a muze rovnou
+                    // posouvat zvetsenou stranku. Pri scale<=1f se vetev ani nemountuje,
+                    // takze tap/swipe gesta nezasahuje.
+                    .then(
+                        if (scale > 1f) {
+                            Modifier.pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    panOffset += dragAmount
+                                }
+                            }
+                        } else Modifier
+                    )
+                    // Klíčovačí `groups.size` tu schvalne neni - append v nekonecnem
+                    // cteni by jinak restartoval pointerInput a zrusil prave letici tap.
+                    // `pages`/`groups` se cte pres latest* (rememberUpdatedState) a klíč
+                    // `epoch` v key(useSpread, epoch) vysi restart pri skutecne zmene
+                    // obsahu zajisti sam.
+                    .pointerInput(tapZonesEnabled, tapZoneGrid, reverseLayout) {
                         detectTapGestures(
                             onLongPress = {
-                                sharePageUrl = pages.getOrElse(indices[0]) { "" }
+                                sharePageUrl = latestPages.getOrElse(indices[0]) { "" }
                                 if (sharePageUrl.isNotEmpty()) showShareSheet = true
-                            },
-                            onDoubleTap = { offset ->
-                                val result = doubleTapZoomTransform(offset, size, scale)
-                                scale = result.scale
-                                panOffset = result.panOffset
                             },
                             onTap = { offset ->
                             val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
                             when (action) {
                                 TapZoneAction.SHOW_PANEL -> onShowPanel()
-                                TapZoneAction.PREV_PAGE -> {
-                                    val target = (pagerState.currentPage + if (reverseLayout) 1 else -1).coerceIn(0, groups.lastIndex)
-                                    scope.launch { pagerState.animateScrollToPage(target) }
-                                }
-                                TapZoneAction.NEXT_PAGE -> {
-                                    val target = (pagerState.currentPage + if (reverseLayout) -1 else 1).coerceIn(0, groups.lastIndex)
-                                    scope.launch { pagerState.animateScrollToPage(target) }
-                                }
+                                TapZoneAction.PREV_PAGE -> navStep(if (reverseLayout) 1 else -1)
+                                TapZoneAction.NEXT_PAGE -> navStep(if (reverseLayout) -1 else 1)
                                 TapZoneAction.PREV_CHAPTER -> onNavigatePrevChapter()
                                 TapZoneAction.NEXT_CHAPTER -> onNavigateNextChapter()
                                 TapZoneAction.NONE -> {}
                             }
                         })
                     }
-                    // Aplikuje pinch/double-tap transformaci na celou skupinu stránek najednou
+                    // Aplikuje pinch transformaci na celou skupinu stránek najednou
                     // (obrázek + překladové bubliny), aby bubliny zůstaly na správném
                     // místě při zoomu, místo toho, aby zůstávaly na původní pozici.
                     // Lambda varianta (ne property-based přetížení) čte scale/panOffset až

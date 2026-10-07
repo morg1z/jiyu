@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import android.util.LruCache
 import com.haise.jiyu.BuildConfig
+import com.haise.jiyu.ui.reader.CropFractions
 import com.haise.jiyu.util.report
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -110,12 +111,24 @@ class TextPatchProvider @Inject constructor(
 
     /**
      * @param positioned bloky i s obdélníkem, přes který se doopravdy vykreslí - záplata se
-     *   počítá přesně přes něj (viz [patchPlan]), ne přes OCR box textu.
+     *   počítá přesně přes něj (viz [patchPlan]), ne přes OCR box textu. POZOR: musí to být
+     *   TENTÝŽ seznam, který render používá pro pozicování boxů (v prostoru zobrazeného -
+     *   případně oříznutého - obrázku), jinak by se obdélník záplaty a vykreslení mohl
+     *   rozejít, když [layoutTranslationBlocks] na ořezaných frakcích rozšíří box jinak.
+     * @param crop ořez okrajů zobrazené stránky (viz CropBordersTransformation.cropFractionsFor)
+     *   - normalizované souřadnice v [positioned] jsou v prostoru OŘÍZNUTÉHO obrázku, ale
+     *   [PageBitmapLoader] vrací vždy PŮVODNÍ bitmapu, takže se před řezem pixelů všechny
+     *   souřadnice inverzně přemapují zpět na originál. Bez toho by se při zapnutém cropu
+     *   záplata vyřízla z posunutého místa.
      * @return fixy klíčované pozicí v [positioned]; prázdná mapa, když není co záplatovat ani
      *   obnovovat, nebo se stránku nepodařilo načíst (volající pak jen nakreslí výplň jako
      *   dosud).
      */
-    suspend fun patchesFor(pageUrl: String, positioned: List<PositionedTranslationBlock>): Map<Int, BubbleOverlayFix> {
+    suspend fun patchesFor(
+        pageUrl: String,
+        positioned: List<PositionedTranslationBlock>,
+        crop: CropFractions? = null,
+    ): Map<Int, BubbleOverlayFix> {
         val plan = patchPlan(positioned)
         // Kandidáti na obnovu obrysu: bloky, které se vykreslí a tvar nemají - u nich hrozí
         // heuristický box přetékající přes okraj bubliny (viz [recoverBubble]). Bloky s
@@ -132,17 +145,20 @@ class TextPatchProvider @Inject constructor(
         // Klíč pokrývá VŠECHNY bloky - obrys souseda (přes clampShapeToOwnLobe) i heuristické
         // boxy ovlivňují, kam recovery/layout dosáhne, takže změna libovolného z nich musí
         // cache zneplatnit.
-        val key = "$pageUrl#" + positioned.withIndex().joinToString(",") { (i, pos) ->
-            val b = pos.block
-            "$i:${pos.leftF},${pos.minTopF},${pos.rightF},${pos.maxBottomF},${b.leftF},${b.topF},${b.rightF},${b.bottomF}"
-        }
+        // crop je součást klíče: fixy se počítají nad souřadnicemi zobrazeného obrázku
+        // (viz parametr crop), takže po přepnutí ořezu nesmí sedět stará položka.
+        val key = "$pageUrl#crop=${crop?.let { "${it.leftF},${it.topF},${it.rightF},${it.bottomF}" } ?: "none"}#" +
+            positioned.withIndex().joinToString(",") { (i, pos) ->
+                val b = pos.block
+                "$i:${pos.leftF},${pos.minTopF},${pos.rightF},${pos.maxBottomF},${b.leftF},${b.topF},${b.rightF},${b.bottomF}"
+            }
         cache.get(key)?.let { return it }
 
         return withContext(Dispatchers.Default) {
             val bitmap = pageBitmapLoader.load(pageUrl, PATCH_SOURCE_MAX_DIMENSION)
             val result = when {
                 bitmap == null -> diagOnlyMap(plan.keys, recoverable, PatchState.NO_BITMAP, RecoveryState.NO_BITMAP)
-                else -> runCatching { buildFixes(bitmap, positioned, plan, recoverable) }
+                else -> runCatching { buildFixes(bitmap, positioned, plan, recoverable, crop) }
                     .onFailure { it.report("translate:patch:build") }
                     .getOrElse { diagOnlyMap(plan.keys, recoverable, PatchState.FAILED, RecoveryState.FAILED) }
             }
@@ -176,11 +192,19 @@ class TextPatchProvider @Inject constructor(
         positioned: List<PositionedTranslationBlock>,
         plan: Map<Int, PatchRect>,
         recoverable: List<Int>,
+        crop: CropFractions?,
     ): Map<Int, BubbleOverlayFix> {
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return emptyMap()
         val source = PixelSource { x, y -> bitmap.getPixel(x, y) }
+        // Souřadnice v `positioned` jsou v prostoru ZOBRAZENÉHO (případně oříznutého)
+        // obrázku - bitmapa je ale vždy původní, takže před řezem pixelů inverzní
+        // mapování crop->originál (viz cropsFractionsFor/remapForCrop v TranslationLayer).
+        val spanX = crop?.let { (1f - it.leftF - it.rightF).coerceAtLeast(0.01f) } ?: 1f
+        val spanY = crop?.let { (1f - it.topF - it.bottomF).coerceAtLeast(0.01f) } ?: 1f
+        val origX: (Float) -> Float = { f -> (crop?.leftF ?: 0f) + f * spanX }
+        val origY: (Float) -> Float = { f -> (crop?.topF ?: 0f) + f * spanY }
 
         // 1) Obnova obrysů z interiéru OCR boxů (viz [recoverBubble]). Běží před záplatami,
         //    protože nalezený obrys mění i obdélník, přes který se záplata počítá - u
@@ -189,10 +213,10 @@ class TextPatchProvider @Inject constructor(
         val allRaw = positioned.map {
             RawTextBlock(
                 text = it.block.originalText,
-                leftF = it.block.leftF,
-                topF = it.block.topF,
-                rightF = it.block.rightF,
-                bottomF = it.block.bottomF,
+                leftF = origX(it.block.leftF),
+                topF = origY(it.block.topF),
+                rightF = origX(it.block.rightF),
+                bottomF = origY(it.block.bottomF),
             )
         }
         val recovered = HashMap<Int, RecoveredBubble>()
@@ -246,7 +270,16 @@ class TextPatchProvider @Inject constructor(
                 patchDiag[index] = PatchState.SKIPPED_RECOVERED_FILL
                 continue
             }
+            // Obnovený obrys: render přepne pozici bloku na jeho bbox (viz effPos v
+            // TranslationLayer), takže záplata se musí počítat přes TEN obdélník,
+            // ne přes původní heuristický box - jinak se roztáhne a maskované tahy
+            // dopadnou mimo písmena (= zbylý originál + rozmazané okolí).
             val effRect = if (shape != null) {
+                // Obnovený obrys je v souřadnicích PŮVODNÍ bitmapy (recovery běžela nad ní)
+                // - tady se NEmapuje. Render přepne pozici bloku na jeho bbox (viz effPos
+                // v TranslationLayer), takže záplata se počítá přes ten obdélník, ne přes
+                // původní heuristický box - jinak by se roztáhla a maskované tahy by
+                // dopadly mimo písmena.
                 PatchRect(
                     leftF = shape.minOf { it.leftF },
                     topF = shape.first().yF,
@@ -254,7 +287,11 @@ class TextPatchProvider @Inject constructor(
                     bottomF = shape.last().yF,
                 )
             } else {
-                rect
+                // rect z plánu je v prostoru ZOBRAZENÉHO obrázku - přemapovat na originál.
+                PatchRect(
+                    leftF = origX(rect.leftF), topF = origY(rect.topF),
+                    rightF = origX(rect.rightF), bottomF = origY(rect.bottomF),
+                )
             }
             val left = (effRect.leftF * w).toInt()
             val top = (effRect.topF * h).toInt()
@@ -288,10 +325,11 @@ class TextPatchProvider @Inject constructor(
                 bgArgb = recovered[index]?.interiorArgb ?: b.bgColorArgb,
                 // Písmo se hledá jen tam, kde ho OCR opravdu našlo - zbytek boxu je kresba,
                 // kterou nemá smysl prahovat ani dopočítávat (viz [buildTextPatch]).
-                textLeft = (b.leftF * w).toInt(),
-                textTop = (b.topF * h).toInt(),
-                textRight = (b.rightF * w).toInt(),
-                textBottom = (b.bottomF * h).toInt(),
+                // Souřadnice bloku jsou v prostoru zobrazení - přemapovat na originál.
+                textLeft = (origX(b.leftF) * w).toInt(),
+                textTop = (origY(b.topF) * h).toInt(),
+                textRight = (origX(b.rightF) * w).toInt(),
+                textBottom = (origY(b.bottomF) * h).toInt(),
                 meanTextArgbOut = textArgbOut,
             )
             if (argb.isEmpty()) {
@@ -313,9 +351,16 @@ class TextPatchProvider @Inject constructor(
                 patchDims[index] = boxW to boxH
                 continue
             }
-            val clampedW = minOf(boxW, w - left.coerceAtLeast(0))
-            val rows = argb.size / clampedW.coerceAtLeast(1)
-            if (rows <= 0) {
+            // SIRKA bitmapy MUSI odpovidat skutecne sirce ARGB pole (= x1-x0 po orezu
+            // uvnitr buildTextPatch). Puvodni `minOf(boxW, w - max(0,left))` selhalo
+            // pri left<0: vratilo vetsi sirku nez ma pole -> createBitmap pak pixely
+            // preindexovalo na spatnou sirku a radky se sesunuly = viditelny shear /
+            // "barcode" artefakt na hrany boxu sahlajici vlevo mimo stranku.
+            val patchLeft = left.coerceIn(0, w)
+            val patchRight = right.coerceIn(0, w)
+            val clampedW = patchRight - patchLeft
+            val rows = if (clampedW > 0) argb.size / clampedW else 0
+            if (clampedW <= 0 || rows <= 0 || rows * clampedW != argb.size) {
                 patchDiag[index] = PatchState.BAD_BITMAP
                 patchDims[index] = boxW to boxH
                 continue

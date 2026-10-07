@@ -1259,7 +1259,7 @@
     <string name="widget_shelf_unconfigured">Touchez pour choisir une catégorie</string>
     <string name="widget_shelf_all_library">Toute la bibliothèque</string>
     <string name="settings_reader_infinite_scroll_title">Lecture infinie</string>
-    <string name="settings_reader_infinite_scroll_desc">En mode vertical (webtoon), l\'appli ajoute le chapitre suivant sous l\'actuel au lieu de changer de chapitre</string>
+    <string name="settings_reader_infinite_scroll_desc">Au lieu de changer de chapitre, l\'appli ajoute le suivant après l\'actuel - en dessous en mode vertical (webtoon), à la suite en mode paginé</string>
     <string name="settings_reader_curl_style_classic">Rotation classique</string>
     <string name="settings_reader_curl_style_roll">Enroulement de page</string>
     <string name="reader_reset_chapter_desc">Recharger le chapitre</string>

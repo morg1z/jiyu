@@ -140,6 +140,9 @@ fun ReaderScreen(
     val flippedBubbles       by viewModel.flippedBubbles.collectAsStateWithLifecycle()
     val webtoonSegments      by viewModel.webtoonSegments.collectAsStateWithLifecycle()
     val webtoonAppending     by viewModel.webtoonAppendingNext.collectAsStateWithLifecycle()
+    // "Nekonecne cteni" - sdilene nastaveni webtoonu i paged rezimu (segmenty se
+    // seskládaji na jeden plochy proud stranek, viz ReaderContent.useInfinitePaged).
+    val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsStateWithLifecycle()
 
     var showSleepTimerDialog by rememberSaveable { mutableStateOf(false) }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
@@ -378,6 +381,10 @@ fun ReaderScreen(
                 onResetChapter = { currentChapterId?.let { viewModel.jumpToChapter(it) } },
                 webtoonSegments = webtoonSegments,
                 onNeedMoreWebtoonSegments = { viewModel.appendNextWebtoonSegment() },
+                // Paged nekonecne cteni - plochy index hlaseny cteckou, mapovani
+                // na (chapterId, lokalni) + dolnatizeni segmentu resi ViewModel.
+                infiniteScrollEnabled = infiniteScrollEnabled,
+                onPagedFlatPageChanged = { viewModel.onPagedFlatPageChanged(it) },
                 onWebtoonVisibleChapterChanged = { id, localIndex, localOffset ->
                     viewModel.onWebtoonVisibleChapterChanged(id, localIndex, localOffset)
                 },

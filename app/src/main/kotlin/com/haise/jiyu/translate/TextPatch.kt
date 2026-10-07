@@ -82,19 +82,43 @@ internal fun buildTextPatch(
     }
 
     val isText = markTextPixels(luminance, w, h)
-    dilate(isText, w, h, MASK_DILATION)
-    // Až PO dilataci - jinak by lem rozšířený z písma u kraje textové oblasti zůstal viset
-    // venku a dopočítal by se z něj kus kresby.
     val hasTextRegion = textLeft >= 0 && textTop >= 0 && textRight > textLeft && textBottom > textTop
     val pad = if (hasTextRegion) textRegionPadding(textBottom - textTop) else 0
+    // Ořez na textovou oblast už PŘED filtrováním - komponenty/densita se hodnotí jen
+    // na masce uvnitř ní (kresba mimo oblast v komponentách nemá co dělat).
     restrictToTextRegion(
-        mask = isText,
-        w = w,
-        h = h,
-        left = textLeft - x0 - pad,
-        top = textTop - y0 - pad,
-        right = textRight - x0 + pad,
-        bottom = textBottom - y0 + pad,
+        mask = isText, w = w, h = h,
+        left = textLeft - x0 - pad, top = textTop - y0 - pad,
+        right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+        enabled = hasTextRegion,
+    )
+    // Adaptivní práh nerozezná písmo od TEXTURY: na rasteru (halftone tečky) a
+    // šrafování označí každou tečku/čárku jako "text" a výplň je pak přemaluje -
+    // přesně tak vznikaly nahlášené "barcode" pruhy a šedé placky. Glyphy jsou na
+    // rozdíl od textury MÁLO větších souvislých komponent, takže pole komponent
+    // s mnoha drobnými kousky se filtruje.
+    suppressTextureNoise(
+        isText, luminance, w, h,
+        rl = textLeft - x0 - pad, rt = textTop - y0 - pad,
+        rr = textRight - x0 + pad, rb = textBottom - y0 + pad,
+        enabled = hasTextRegion,
+    )
+    dilate(isText, w, h, MASK_DILATION)
+    // Po dilataci znovu ořezat - rozšíření mohlo vytéct přes hranici textové oblasti.
+    restrictToTextRegion(
+        mask = isText, w = w, h = h,
+        left = textLeft - x0 - pad, top = textTop - y0 - pad,
+        right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+        enabled = hasTextRegion,
+    )
+    // Lokální kontrast označí jen OKRAJE tahu - uvnitř velkého jednotného glyphu je
+    // průměr okna = inkoust, delta 0, a jádro zůstane nemaskované (= zbylý kus
+    // originálního textu, další nahlášený symptom). Co je uzavřeno kruhem maskovaných
+    // hran a nedá se dosáhnout z okraje textové oblasti, je interiér písma - domaskovat.
+    sealEnclosedHoles(
+        mask = isText, w = w, h = h,
+        left = textLeft - x0 - pad, top = textTop - y0 - pad,
+        right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
         enabled = hasTextRegion,
     )
 
@@ -106,8 +130,250 @@ internal fun buildTextPatch(
         meanTextArgbOut[0] = coreTextArgb(pixels, luminance, isText)
     }
 
-    fillFromNeighbours(pixels, isText, w, h)
+    fillNearestSource(pixels, isText, w, h)
     return pixels
+}
+
+/**
+ * Potlačí falešné "textové" pixely, které adaptivní práh označí v texturách
+ * (halftone raster, šrafování, hustá kresba). Bez filtrace se maska rozleze přes
+ * celou texturu a výplň ji přemaluje na pruhy/placku - viz reprodukční testy
+ * `screentone dots inside the text region survive the patch` a `hatch lines ...`.
+ *
+ * Rozlišení text vs textura (v kontextu komiksové stránky):
+ * - Písmo = MÁLO větších souvislých komponent (tahy písmen jsou tlusté a souvislé).
+ * - Textura = HODNĚ drobných komponent (rastrové tečky) NEBO tenké dlouhé komponenty
+ *   (šrafové čáry protínající celou oblast).
+ *
+ * Filtr komponentů se zapíná jen když je jich hodně - viz MIN_TEXTURE_COMPONENTS;
+ * u pár komponentů (běžný text) je každá podezřelá čára klidně skutečné písmeno.
+ * Branka hustoty (pole-split) řeší slitou dvoufázovou texturu, kde adaptivní práh
+ * označil tečky i mezery najednou - tam se maska rozseká na inkoustový (menšinový)
+ * pól a teprve ten se komponentově filtruje.
+ */
+private fun suppressTextureNoise(
+    mask: BooleanArray,
+    luminance: IntArray,
+    w: Int,
+    h: Int,
+    rl: Int,
+    rt: Int,
+    rr: Int,
+    rb: Int,
+    enabled: Boolean,
+) {
+    if (!enabled) return
+    val l = rl.coerceIn(0, w)
+    val t = rt.coerceIn(0, h)
+    val r = rr.coerceIn(l, w)
+    val b = rb.coerceIn(t, h)
+    val regionW = r - l
+    val regionH = b - t
+    if (regionW <= 0 || regionH <= 0) return
+
+    // 1) Densita masky v textové oblasti. Ridka maska (bezny text na klidnem
+    //    pozadi) = pismeno i s obrysem - pole-split by tam prastskytnul.
+    var masked = 0
+    for (y in t until b) for (x in l until r) if (mask[y * w + x]) masked++
+    val regionArea = regionW * regionH
+    val dense = masked * 100 > regionArea * DENSE_MASK_PERCENT
+
+    // 2) HUSTA maska = textura: na rastru/srafure se lokalni prah oznaci OBEMI
+    //    fazemi (tecky i mezery se od prumeru obe lisi) a maska = cele pole.
+    //    Rozdeleni podle polu histogramu: inkoust pisma je vzdy MENSINA - pole
+    //    kandidatu se rozdeli na tmavy/svetly a vetsinovy se zahodi. Tim se i
+    //    slite dvoufazove textury rozpadnou na jednotlive komponenty, ktere
+    //    pak area/thin-long filtr dolabely (tecky a srafove cary).
+    if (dense) {
+        // Median jasu regionu z histogramu.
+        val hist = IntArray(256)
+        for (y in t until b) for (x in l until r) hist[luminance[y * w + x]]++
+        var acc = 0
+        var median = 0
+        val half = regionArea / 2
+        while (median < 255 && acc + hist[median] <= half) { acc += hist[median]; median++ }
+        val delta = max(MIN_TEXT_DELTA, median * TEXT_DELTA_RATIO / 100)
+        var dark = 0
+        var light = 0
+        for (y in t until b) {
+            for (x in l until r) {
+                val i = y * w + x
+                if (!mask[i]) continue
+                if (luminance[i] < median - delta) dark++ else light++
+            }
+        }
+        if (dark > 0 && light > 0) {
+            // Zahodit vetsinovy pol; pri shode radsi svetly (inkoust byva tmavy).
+            val dropDark = dark >= light
+            for (y in t until b) {
+                for (x in l until r) {
+                    val i = y * w + x
+                    if (!mask[i]) continue
+                    val isDark = luminance[i] < median - delta
+                    if (isDark == dropDark) mask[i] = false
+                }
+            }
+        }
+    }
+
+    // 3) Olabelovat souvisle komponenty masky uvlnittr textove oblasti (4-conn BFS).
+    val compId = IntArray(w * h) { -1 }
+    val areas = ArrayList<Int>()
+    val thinLong = ArrayList<Boolean>() // komponenta je tenka a dlouha = srafova cara
+    val stack = IntArray(w * h)
+    var compCount = 0
+    for (y in t until b) {
+        for (x in l until r) {
+            val i = y * w + x
+            if (!mask[i] || compId[i] >= 0) continue
+            var sp = 0
+            stack[sp++] = i
+            compId[i] = compCount
+            var area = 0
+            var minX = x; var maxX = x; var minY = y; var maxY = y
+            while (sp > 0) {
+                val j = stack[--sp]
+                area++
+                val jx = j % w
+                val jy = j / w
+                if (jx < minX) minX = jx
+                if (jx > maxX) maxX = jx
+                if (jy < minY) minY = jy
+                if (jy > maxY) maxY = jy
+                fun push(nx: Int, ny: Int) {
+                    val n = ny * w + nx
+                    if (nx in l until r && ny in t until b && mask[n] && compId[n] < 0) {
+                        compId[n] = compCount
+                        stack[sp++] = n
+                    }
+                }
+                push(jx - 1, jy); push(jx + 1, jy); push(jx, jy - 1); push(jx, jy + 1)
+            }
+            areas.add(area)
+            val compW = maxX - minX + 1
+            val compH = maxY - minY + 1
+            thinLong.add(
+                minOf(compW, compH) <= THIN_LINE_PX &&
+                    maxOf(compW, compH) >= LONG_LINE_PX,
+            )
+            compCount++
+        }
+    }
+
+    // 4) Texturove pole = mnoho komponentu: zahodit drobne (rastrove tecky) a
+    //    tenko-dlouhe (srafove cary). Glyphy (par velkych komponentu) preziji.
+    if (compCount >= MIN_TEXTURE_COMPONENTS) {
+        // Ocekavana plocha tahu pisma z vysky oblasti - skaluje s velikosti pisma.
+        val glyphScale = (regionH / GLYPH_SCALE_DIVISOR).coerceIn(2, 8)
+        val minArea = (glyphScale * glyphScale).coerceIn(MIN_GLYPH_AREA, MAX_GLYPH_AREA)
+        val drop = BooleanArray(compCount) { c -> areas[c] < minArea || thinLong[c] }
+        // Jednopruchodove smazani podle compId - per-komponentni pruchody by u pole
+        // stovek tecek byly O(komponenty * region).
+        for (y in t until b) {
+            for (x in l until r) {
+                val i = y * w + x
+                val c = compId[i]
+                if (c >= 0 && drop[c]) mask[i] = false
+            }
+        }
+    }
+}
+
+/**
+ * Domaskuje "díry": nemaskované pixely uvnitř textové oblasti, které nejsou dosažitelné
+ * z jejího okraje cestou přes nemaskované pixely. Adaptivní práh označuje jen hrany tahů
+ * (uvnitř souvislého inkoustu se pixel svému okolí neliší), takže jádro velkého písmene -
+ * nebo protiskuska "O" - by jinak v obrázku zůstalo jako nedotčený originální text.
+ *
+ * Kapesku otevřenou k okraji oblasti to nikdy nesežere: její okrajové pixely jsou seedy
+ * a zalijí celou kapsu. Flood běží jen uvnitř oblasti, složitost O(region).
+ */
+private fun sealEnclosedHoles(
+    mask: BooleanArray,
+    w: Int,
+    h: Int,
+    left: Int,
+    top: Int,
+    right: Int,
+    bottom: Int,
+    enabled: Boolean,
+) {
+    if (!enabled) return
+    val l = left.coerceIn(0, w)
+    val t = top.coerceIn(0, h)
+    val r = right.coerceIn(l, w)
+    val b = bottom.coerceIn(t, h)
+    if (r - l <= 0 || b - t <= 0) return
+
+    val reached = BooleanArray(w * h)
+    val queue = IntArray(w * h)
+    var qs = 0
+    var qe = 0
+    fun seed(i: Int) {
+        if (!mask[i] && !reached[i]) {
+            reached[i] = true
+            queue[qe++] = i
+        }
+    }
+    for (x in l until r) { seed(t * w + x); seed((b - 1) * w + x) }
+    for (y in t until b) { seed(y * w + l); seed(y * w + r - 1) }
+    while (qs < qe) {
+        val i = queue[qs++]
+        val x = i % w
+        val y = i / w
+        fun visit(nx: Int, ny: Int) {
+            if (nx < l || nx >= r || ny < t || ny >= b) return
+            seed(ny * w + nx)
+        }
+        visit(x - 1, y); visit(x + 1, y); visit(x, y - 1); visit(x, y + 1)
+    }
+    // Nedosažené nemaskované = uzavřený interiér písma -> maskovat.
+    for (y in t until b) {
+        for (x in l until r) {
+            val i = y * w + x
+            if (!mask[i] && !reached[i]) mask[i] = true
+        }
+    }
+}
+
+/**
+ * Vyplní maskované pixely barvou NEJBLIŽŠÍHO nemaskovaného pixelu (multi-source BFS
+ * = Voronoi propagace). Oproti předchozímu iterativnímu průměrování [fillFromNeighbours]:
+ *
+ * - žádné koncentrické prstence: každý pixel kopíruje reálnou barvu, ne průměr
+ *   předchozího prstence (iterativní průměr na velké masce vytvářel viditelné pásy),
+ * - výplň drží paletu obrázku: výsledek je vždy barva, která v okolí skutečně
+ *   existuje - žádná "vymyšlená" šedá mezi černou a bílou,
+ * - textura se POKRAČUJE: pixel uvnitř masky nad rastrem zkopíruje nejbližší
+ *   rastrový bod, takže se vzorek dovnitř alespoň přibližně doplňuje,
+ * - černé pozadí zůstane čistě černé (žádný šedý průměr).
+ *
+ * Složitost O(w*h): každý pixel se do fronty dostane jednou.
+ */
+private fun fillNearestSource(pixels: IntArray, isText: BooleanArray, w: Int, h: Int) {
+    val queue = IntArray(w * h)
+    var qs = 0
+    var qe = 0
+    // Seed: všechny nemaskované pixely - každý maskovaný pixel se pak obsadí barvou
+    // svého nejbližšího nemaskovaného zdroje (4-conn vzdálenost).
+    for (i in pixels.indices) {
+        if (!isText[i]) queue[qe++] = i
+    }
+    while (qs < qe) {
+        val i = queue[qs++]
+        val x = i % w
+        val y = i / w
+        fun visit(n: Int) {
+            if (!isText[n]) return
+            isText[n] = false
+            pixels[n] = pixels[i]
+            queue[qe++] = n
+        }
+        if (x > 0) visit(i - 1)
+        if (x < w - 1) visit(i + 1)
+        if (y > 0) visit(i - w)
+        if (y < h - 1) visit(i + w)
+    }
 }
 
 /**
@@ -262,42 +528,7 @@ internal fun dilate(mask: BooleanArray, w: Int, h: Int, radius: Int) {
     }
 }
 
-/**
- * Vyplňuje maskované pixely zvenčí dovnitř: v každém kole dostane pixel průměr už hotových
- * sousedů. Tlustý tah se uzavře stejně spolehlivě jako tenký, jen potřebuje víc kol.
- */
-private fun fillFromNeighbours(pixels: IntArray, isText: BooleanArray, w: Int, h: Int) {
-    val pending = isText.copyOf()
-    var guard = 0
-    while (guard++ < MAX_FILL_ROUNDS) {
-        var filledAny = false
-        val resolvedThisRound = mutableListOf<Int>()
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val i = y * w + x
-                if (!pending[i]) continue
-                var r = 0; var g = 0; var b = 0; var n = 0
-                fun take(j: Int) {
-                    if (pending[j]) return
-                    val c = pixels[j]
-                    r += (c shr 16) and 0xFF; g += (c shr 8) and 0xFF; b += c and 0xFF; n++
-                }
-                if (x > 0) take(i - 1)
-                if (x < w - 1) take(i + 1)
-                if (y > 0) take(i - w)
-                if (y < h - 1) take(i + w)
-                if (n == 0) continue
-                pixels[i] = OPAQUE or ((r / n) shl 16) or ((g / n) shl 8) or (b / n)
-                resolvedThisRound += i
-                filledAny = true
-            }
-        }
-        // Až PO celém kole - jinak by pixel doplněný na začátku řádku hned sloužil jako
-        // "hotový" soused tomu vedle a barva by se táhla jedním směrem místo ze všech stran.
-        resolvedThisRound.forEach { pending[it] = false }
-        if (!filledAny) return
-    }
-}
+
 
 internal fun luminanceOf(c: Int): Int {
     val r = (c shr 16) and 0xFF
@@ -318,6 +549,38 @@ private const val MIN_WINDOW = 7
 private const val WINDOW_DIVISOR = 6
 
 private const val MASK_DILATION = 2
+
+// -- Potlačení textur v masce (viz [suppressTextureNoise]) ------------------------------
+
+/**
+ * Kolik souvislých komponent musí maska v textové oblasti mít, aby se hodnotila jako
+ * textura a filtrovala. Skutečný řádek textu má pár komponent (písmena); raster nebo
+ * šrafura jich má desítky.
+ */
+private const val MIN_TEXTURE_COMPONENTS = 8
+
+/**
+ * Podíl výšky textové oblasti, ze kterého se odvozuje očekávaná šířka tahu písma -
+ * komponenty s plochou pod jeho čtverec se při texturovém poli zahazují jako tečky
+ * rastru. Clamped: drobný text nechce zahazovat ani skutečně malé komponenty, obří
+ * nadpis zase nesmí vyžadovat absurdně velké tahy.
+ */
+private const val GLYPH_SCALE_DIVISOR = 8
+private const val MIN_GLYPH_AREA = 8
+private const val MAX_GLYPH_AREA = 64
+
+/**
+ * Šrafová čára: tenká (<= 2 px) a dlouhá (>= 8 px). Glyphy jako "I" nebo "l" jsou taky
+ * úzké, ale filtr se zapíná jen u texturového pole (viz MIN_TEXTURE_COMPONENTS).
+ */
+private const val THIN_LINE_PX = 2
+private const val LONG_LINE_PX = 8
+
+/**
+ * Kolik procent textové oblasti musí maska pokrýt, aby se považovala za slitou
+ * texturu a erodovala - viz [suppressTextureNoise] bod 3.
+ */
+private const val DENSE_MASK_PERCENT = 55
 
 /** Rezerva kolem textové oblasti jako podíl její výšky - viz [textRegionPadding]. */
 private const val TEXT_PAD_DIVISOR = 4

@@ -5,6 +5,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -300,6 +302,29 @@ fun WebtoonReader(
         (segmentRanges.lastOrNull()?.let { it.startFlat + it.pageCount - 1 } ?: 0).coerceAtLeast(0)
     }
 
+    // Zaklad pro +/-1 navigaci tap zonami/klavesami - `firstVisibleItemIndex` se
+    // prepina az v pulce animace, takze rychle tapy pocitane z nej dopadly na
+    // STEJNY cil a sezraly se. LazyColumn nema ekvivalent PagerState.targetPage,
+    // takze si cil bezici animace drzime sami a dalsi tap z nej odstepuje.
+    var webtoonNavTarget by remember { mutableStateOf<Int?>(null) }
+    // Append segmentu zmeni `maxFlatIndex` na novou hodnotu - closury gesto-bloku by
+    // jinak cetly stale a tap navigace by se po appendu clampovala na stary konec.
+    val latestMaxFlatIndex by rememberUpdatedState(maxFlatIndex)
+    fun webtoonNavStep(delta: Int) {
+        val target = ((webtoonNavTarget ?: listState.firstVisibleItemIndex) + delta)
+            .coerceIn(0, latestMaxFlatIndex)
+        webtoonNavTarget = target
+        scope.launch {
+            try {
+                listState.animateScrollToItem(target)
+            } finally {
+                // Nuluj jen kdyz mezitim neprisel novejsi cil (dalsi tap); preruseni
+                // uzivatelovym swipen animaci zrusi a finally ji taky uklidi.
+                if (webtoonNavTarget == target) webtoonNavTarget = null
+            }
+        }
+    }
+
     // Placeholder vyska pro nenactene stranky (viz WebtoonPage): fixni 0.7 minej
     // realny pomer stranek (VIZBIG ~0.66, barevne/dvoustranky i 1.4), takze se celkova
     // vyska listu menila podkladama podkladama, jak se obrazky donacitaly - podklad
@@ -323,18 +348,8 @@ fun WebtoonReader(
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
-                    Key.VolumeDown -> if (volumeKeysNav) {
-                        scope.launch {
-                            listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(maxFlatIndex))
-                        }
-                        true
-                    } else false
-                    Key.VolumeUp -> if (volumeKeysNav) {
-                        scope.launch {
-                            listState.animateScrollToItem((listState.firstVisibleItemIndex - 1).coerceAtLeast(0))
-                        }
-                        true
-                    } else false
+                    Key.VolumeDown -> if (volumeKeysNav) { webtoonNavStep(+1); true } else false
+                    Key.VolumeUp -> if (volumeKeysNav) { webtoonNavStep(-1); true } else false
                     else -> false
                 }
             }
@@ -347,33 +362,43 @@ fun WebtoonReader(
             // cokoliv číst nebo konzumovat - jednoprstové scrollování tak projde
             // nedotčené k LazyColumn.
             .pointerInput(Unit) {
-                detectTwoFingerPinchZoom { zoomChange, panChange ->
+                detectTwoFingerPinchZoom(
+                    onGestureEnd = {
+                        // Snap zbytkoveho zoomu pod ~10% na 1f - jinak by pinch mohl
+                        // nechat treba scale = 1.003 (vizualne 1x) a `scale <= 1f`
+                        // gaty (userScrollEnabled, zoomActive) by pak nastejno
+                        // vyply scroll i tap handling bez indikace proc.
+                        if (scale < 1.1f) { scale = 1f; panOffset = Offset.Zero }
+                    },
+                ) { zoomChange, panChange ->
                     val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                     scale = newScale
                     if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
                 }
             }
+            // Jednoprsty PAN pri zoomu - scroll LazyColumn je pri scale>1f vypnuty
+            // (userScrollEnabled), takze jednoprsty tah je volny a muze rovnou
+            // posouvat zvetseny obsah. Pri scale<=1f se vetev ani nemountuje.
+            .then(
+                if (scale > 1f) {
+                    Modifier.pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            panOffset += dragAmount
+                        }
+                    }
+                } else Modifier
+            )
             .pointerInput(tapZonesEnabled, tapZoneGrid) {
                 detectTapGestures(
-                    onDoubleTap = { offset ->
-                        val result = doubleTapZoomTransform(offset, size, scale)
-                        scale = result.scale
-                        panOffset = result.panOffset
-                    },
                     onTap = { offset ->
                         val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
                         // Potlačení náhodného otevření panelu při scrollu
                         if (action == TapZoneAction.SHOW_PANEL && wasRecentlyScrolling) return@detectTapGestures
                         when (action) {
                             TapZoneAction.SHOW_PANEL -> onShowPanel()
-                            TapZoneAction.PREV_PAGE -> scope.launch {
-                                val target = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
-                                listState.animateScrollToItem(target)
-                            }
-                            TapZoneAction.NEXT_PAGE -> scope.launch {
-                                val target = (listState.firstVisibleItemIndex + 1).coerceAtMost(maxFlatIndex)
-                                listState.animateScrollToItem(target)
-                            }
+                            TapZoneAction.PREV_PAGE -> webtoonNavStep(-1)
+                            TapZoneAction.NEXT_PAGE -> webtoonNavStep(+1)
                             TapZoneAction.PREV_CHAPTER -> onNavigatePrev()
                             TapZoneAction.NEXT_CHAPTER -> onNavigateNext()
                             TapZoneAction.NONE -> {}

@@ -20,6 +20,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -71,6 +72,13 @@ import kotlinx.coroutines.launch
  * `initialPage` (review nález č. 3 - stejná kategorie chyby jako č. 1/2, jen jiný spouštěč:
  * rotace zařízení místo přechodu kapitoly).
  */
+/** Polozka fronty cekajicich obratu v ROLL rezimu (viz turnQueue/settlePump v
+ *  [MangaPageCurlReader]) - uklada se jen SMER, vysledek se pocita az pri
+ *  dequenu z tehdajsiho indexu stranky (jinak by se retezene tapy pocitaly ze
+ *  zastarale pozice a vsechny obraty by pristaly na teze strance). SETTLE_BACK =
+ *  zruseny tah, ktery se ma jen doanimovat zpet naplocho. */
+private enum class CurlQueuedTurn { NEXT, PREV, SETTLE_BACK }
+
 @Composable
 fun MangaPageCurlReader(
     pages: List<String>,
@@ -101,7 +109,22 @@ fun MangaPageCurlReader(
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
+    /**
+     * Stabilní identita "otevřeného obsahu" pro klíče remember/DisposableEffect - v nekonečném
+     * čtení (viz ReaderViewModel.onPagedFlatPageChanged) `pages` roste přilepením další kapitoly,
+     * což jako klíč nové identity nesmí fungovat (resetoval by se pozice/drag stav při každém
+     * appendu). Volající předá id PRVNÍHO segmentu; null = klíčem je `pages` list samotný.
+     */
+    contentEpoch: Any? = null,
+    /**
+     * Nekonečné čtení: přetažení/klik za POSLEDNÍ načtenou stránku zavolá tohle
+     * (ReaderViewModel.appendNextWebtoonSegment) místo tvrdého přepnutí kapitoly -
+     * navigace by zahodila seskládaný proud segmentů. null = klasický režim (hranice
+     * knihy = onNavigatePrev/NextChapter).
+     */
+    onNeedMorePages: (() -> Unit)? = null,
 ) {
+    val epoch = contentEpoch ?: pages
     val resolvedCurlStyle = resolveCurlStyle(curlStyle)
     // Pinch-to-zoom - nezávisí na kapitole (rememberSaveable přežije rotaci); resetuje se
     // explicitně na 1f/Offset.Zero v efektu níže vždy, když se změní stránka NEBO kapitola.
@@ -134,14 +157,15 @@ fun MangaPageCurlReader(
     // (`ReaderPager.kt:160-175`), kde je `currentSingleIndex`/`reachedEndManually` ze stejného
     // důvodu taky MIMO `key(useSpread)`.
     //
-    // Klíčováno na `pages` (ne bez klíče jako v `MangaReaderu`) - nová kapitola (nová
-    // instance/obsah `pages`) MUSÍ dostat nový pár stavů, starý se zahodí, jinak by gesto-
-    // pointerInputy níže (klíčované taky na `pages`) po přechodu kapitoly odkazovaly na
-    // OSIŘELÉ MutableState objekty z předchozí kapitoly (review nález č. 2). Klíč na `pages`
-    // a fyzická poloha MIMO `key(useSpread)` řeší dva NEZÁVISLÉ problémy zároveň - kapitolu,
-    // resp. rotaci - a jsou k sobě kolmé (ani jeden by sám o sobě nestačil).
-    var currentSingleIndex by rememberSaveable(pages) { mutableStateOf(initialPage) }
-    var dragProgress by remember(pages) { mutableStateOf(0f) }
+    // Klíčováno na `epoch` (= `pages` v klasickém režimu) - nová kapitola (nová
+    // identita obsahu) MUSÍ dostat nový pár stavů, starý se zahodí, jinak by gesto-
+    // pointerInputy níže po přechodu kapitoly odkazovaly na OSIŘELÉ MutableState
+    // objekty z předchozí kapitoly (review nález č. 2). Klíč na `epoch` a fyzická
+    // poloha MIMO `key(useSpread)` řeší dva NEZÁVISLÉ problémy zároveň - kapitolu,
+    // resp. rotaci - a jsou k sobě kolmé (ani jeden by sám o sobě nestačil). V
+    // nekonečném čtení je epoch id prvního segmentu - append pozici neresetuje.
+    var currentSingleIndex by rememberSaveable(epoch) { mutableStateOf(initialPage) }
+    var dragProgress by remember(epoch) { mutableStateOf(0f) }
     // Fix regrese po Critical 1 - `PageCurlState.onDragEnd()` teď spravne cte
     // `rawDragProgress` (nezaclampovany pokus o smer), ale ta hodnota se musi
     // persistovat STEJNE jako `dragProgress`, jinak by pri kazde konstrukci
@@ -149,18 +173,25 @@ fun MangaPageCurlReader(
     // `Cancelled` bez ohledu na skutecny tah - otaceni tahem by bylo kompletne
     // nefunkcni (tap zony/volume keys/edge-tap by dal fungovaly, protoze jdou
     // pres `onEdgeTap`/`completeTurn`, ne pres tohle).
-    var rawDragProgress by remember(pages) { mutableStateOf(0f) }
-    var reachedEndManually by remember(pages) { mutableStateOf(false) }
+    var rawDragProgress by remember(epoch) { mutableStateOf(0f) }
+    var reachedEndManually by remember(epoch) { mutableStateOf(false) }
 
     // Záměrně počítáno jen z `pages.size`/`currentSingleIndex` (ne z group-indexu/`groups`,
     // které žijí uvnitř `key(useSpread)` a odsud by nebyly vidět) - stejná logika jako
     // `MangaReader` (`ReaderPager.kt:169-174`), aby zůstala 1:1 srovnatelná parita chování
     // (včetně "poslední skupina" hranice u sudého spreadu - to je existující vlastnost
     // MangaReaderu, ne nová regrese zavedená tady).
-    LaunchedEffect(currentSingleIndex, pages) {
+    // Klic `epoch` (ne `pages`) - v nekonecnem cteni by kazdy append znovu resetoval
+    // zoom a refireoval onPageChanged, prestoze se pozice nezmenila.
+    LaunchedEffect(currentSingleIndex, epoch) {
         scale = 1f
         panOffset = Offset.Zero
         onPageChanged(currentSingleIndex)
+    }
+    // Auto-advance drží klíč `pages.size` (ne jen epoch/currentSingleIndex): v nekonečném
+    // čtení append prodlouží seznam, "poslední stránka" se posune a čekající dojetí k
+    // onAutoNextChapter se má zrušit přepočtem s NOVÝM seznamem.
+    LaunchedEffect(currentSingleIndex, epoch, pages.size) {
         if (pages.size > 1 && currentSingleIndex < pages.size - 1) reachedEndManually = true
         if (reachedEndManually && pages.isNotEmpty() && currentSingleIndex == pages.size - 1 && autoNextChapter) {
             delay(2500)
@@ -180,14 +211,22 @@ fun MangaPageCurlReader(
             computePageGroups(pages.size, useSpread, spreadPageIndices)
         }
 
+        // Append v nekonecnem cteni zmeni `pages`/`groups` na NOVE instance - gesto
+        // closury (pointerInput bloky nize) by bez updatedState cetly stare odkazy a
+        // hranice tahu/tapu by se pocitaly z pocatecniho poctu stranek. Klíč
+        // pointerInputu je proto jen `epoch` (skutecna zmena obsahu = restart s novymi
+        // delegaty), append uz gesto neprerusuje.
+        val latestGroups by rememberUpdatedState(groups)
+        val latestPages by rememberUpdatedState(pages)
+
         // Skupina (curl "stránka") odvozená VŽDY čerstvě z aktuálních `groups`/`currentSingleIndex`
         // - nikdy uložena jako samostatný stav, který by mohl zůstat neplatný proti `groups`
         // vypočítaným z nové kapitoly (review nález č. 1: stará `pageCount`/`currentPageIndex`
         // by jinak přežily přechod kapitoly zamrzlé na hodnotách staré kapitoly).
         fun liveGroupIndex(): Int {
-            if (groups.isEmpty()) return 0
-            val found = groups.indexOfFirst { currentSingleIndex in it }
-            return (if (found < 0) 0 else found).coerceIn(0, groups.lastIndex)
+            if (latestGroups.isEmpty()) return 0
+            val found = latestGroups.indexOfFirst { currentSingleIndex in it }
+            return (if (found < 0) 0 else found).coerceIn(0, latestGroups.lastIndex)
         }
 
         val currentGroupIndex = liveGroupIndex()
@@ -202,11 +241,41 @@ fun MangaPageCurlReader(
         // drivejsim okamzitem snapu. Novy tah/zoom/jump/kapitola job prerusi.
         val coroutineScope = rememberCoroutineScope()
         var settleJob by remember { mutableStateOf<Job?>(null) }
-        DisposableEffect(pages) { onDispose { settleJob?.cancel() } }
+        // Dokonceny, ale jeste NEAPLIKOVANY obrat stranky z rozjete ROLL settle
+        // animace - drag (uzivatel popadl stranku uprostred dojeti) ho musi
+        // flushnout (aplikovat synchronne pres flushPendingSettle nize), jinak
+        // by se jeho stranka ztratila. Tapy se NEFLUSHUJI - ty se radi do
+        // turnQueue a kazda dostane vlastni doanimaci (puvodni vizual, zadny
+        // instantni proskok na cilovou stranku).
+        var pendingSettleResult by remember { mutableStateOf<PageTurnResult?>(null) }
+        // Fronta smeru cekajicich obratu (NE hotovych vysledku - indexy by se
+        // pocitaly ze zastarale stranky a retezene obraty by vsechny pristaly na
+        // teze strance). Pri dequenu se vysledek spocita z TEHDY aktualniho
+        // indexu, takze retezeni funguje spravne.
+        val turnQueue = remember { ArrayDeque<CurlQueuedTurn>() }
+        // `coroutineScope`/`settleJob` ziji UVNITR key(useSpread), zatimco `dragProgress`
+        // VNE (remember(epoch)) - zahozeni podstromu (rotace se spreadem, odchod ze
+        // ctecky) zabije rozjetou settle korutinu uprostred animate() a bez resetu by
+        // `dragProgress` zustal navzdy nenulovy = trubicka/ohyb zamrznou na displeji
+        // (hlasene "zasekly curl efekt" u Page rollu). onDispose proto vycisti i
+        // stav ohybu.
+        DisposableEffect(epoch) {
+            onDispose {
+                turnQueue.clear()
+                pendingSettleResult = null
+                settleJob?.cancel()
+                dragProgress = 0f
+                rawDragProgress = 0f
+            }
+        }
 
-        LaunchedEffect(jumpToPage, pages) {
-            val target = jumpToPage ?: return@LaunchedEffect
+        // Klic `epoch` (ne `pages`) - jinak by se append v nekonecnem cteni pokusil
+        // znovu aplikovat stary jump cil, kdyby ho jeste nestihl onJumpConsumed vycistit.
+        LaunchedEffect(jumpToPage, epoch) {
+            turnQueue.clear()
+            pendingSettleResult = null
             settleJob?.cancel()
+            val target = jumpToPage ?: return@LaunchedEffect
             currentSingleIndex = target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
             dragProgress = 0f
             rawDragProgress = 0f
@@ -216,9 +285,14 @@ fun MangaPageCurlReader(
         fun applyTurnResult(result: PageTurnResult) {
             when (result) {
                 is PageTurnResult.WithinChapter -> {
+                    // Dokonceny obrat musi vzdy dosednout na Fit Page - deterministicky
+                    // reset zoomu/panu primo tady (ne jen pres LaunchedEffect(currentSingleIndex),
+                    // ktery bezi az po skladebe a mezitim se muze stat cokoliv).
+                    scale = 1f
+                    panOffset = Offset.Zero
                     dragProgress = result.newState.dragProgress
                     rawDragProgress = result.newState.rawDragProgress
-                    groups.getOrNull(result.newState.currentPageIndex)?.firstOrNull()?.let {
+                    latestGroups.getOrNull(result.newState.currentPageIndex)?.firstOrNull()?.let {
                         currentSingleIndex = it
                     }
                 }
@@ -229,51 +303,129 @@ fun MangaPageCurlReader(
                 is PageTurnResult.ChapterBoundary -> {
                     dragProgress = 0f
                     rawDragProgress = 0f
-                    if (result.direction == TurnDirection.NEXT) onNavigateNextChapter() else onNavigatePrevChapter()
+                    // Hranice = tvrdy prechod - cekajici obraty z fronty by se
+                    // aplikovaly az na NOVOU kapitolu/kontext (spatne indexy).
+                    turnQueue.clear()
+                    pendingSettleResult = null
+                    if (result.direction == TurnDirection.NEXT) {
+                        // Nekonecne cteni: za koncem posledniho znameho segmentu se
+                        // misto tvrdeho prepnuti kapitoly jen dolnatahne dalsi - po
+                        // appendu je "hranice" pryc a tah pokracuje do ni plynule.
+                        // PREV zustava navigaci - predchozi kapitoly se na zacatek
+                        // nikdy nepredkladaji (stejne jako ve webtoon scrollu).
+                        if (onNeedMorePages != null) onNeedMorePages() else onNavigateNextChapter()
+                    } else {
+                        onNavigatePrevChapter()
+                    }
+                }
+            }
+        }
+
+        // Flush pending obratu (viz deklarace vyse) - aplikuje ho synchronne.
+        // Pouziva ho JEN drag (prst prebira stranku uprostred dojeti - doanimace
+        // se da dokoncit nejpresneji okamzitym dolozeni). Tapy jdou pres
+        // turnQueue - zadny snap.
+        fun flushPendingSettle() {
+            val pending = pendingSettleResult ?: return
+            pendingSettleResult = null
+            settleJob?.cancel()
+            applyTurnResult(pending)
+        }
+
+        /**
+         * Zpracuje frontu cekajicich obratu JEDNU settle animaci po druhe - kazdy
+         * obrat doanimuje pres ohyb jako v puvodnim demu (zadny instantni proskok
+         * na cilovou stranku). Vysledek se pocita az pri dequenu z TEHDY
+         * aktualniho indexu, takze retezene tapy preklapi za sebou spravne
+         * (a tap na posledni strane v kazde kapitole spadne na ChapterBoundary
+         * -> navigace/dolnatazeni dalsi kapitoly).
+         */
+        fun settlePump() {
+            if (settleJob?.isActive == true) return
+            settleJob = coroutineScope.launch {
+                try {
+                    while (true) {
+                        val queued = turnQueue.removeFirstOrNull() ?: break
+                        val res = when (queued) {
+                            CurlQueuedTurn.SETTLE_BACK ->
+                                PageTurnResult.Cancelled(
+                                    PageCurlState(liveGroupIndex(), latestGroups.size, 0f, 0f)
+                                )
+                            else -> PageCurlState(liveGroupIndex(), latestGroups.size, 0f, 0f)
+                                .onEdgeTap(if (queued == CurlQueuedTurn.NEXT) TurnDirection.NEXT else TurnDirection.PREV)
+                        }
+                        // Hranice kapitoly se neanimeuje (pres ni neni kam ohnout) -
+                        // aplikuje se rovnou (navigace / dolnatazeni segmentu).
+                        if (res is PageTurnResult.ChapterBoundary) {
+                            applyTurnResult(res)
+                            continue
+                        }
+                        val target = when (res) {
+                            is PageTurnResult.WithinChapter ->
+                                if (res.newState.currentPageIndex > liveGroupIndex()) 1f else -1f
+                            else -> 0f
+                        }
+                        pendingSettleResult = res
+                        try {
+                            animate(
+                                initialValue = dragProgress,
+                                targetValue = target,
+                                animationSpec = tween(
+                                    durationMillis = 300,
+                                    easing = if (target == 0f) FastOutSlowInEasing else LinearOutSlowInEasing,
+                                ),
+                            ) { value, _ -> dragProgress = value }
+                            pendingSettleResult = null
+                            applyTurnResult(res)
+                        } finally {
+                            // Cancel uprostred `animate` cestou, ktera pending nevycistila,
+                            // by jinak nechal `dragProgress` zamrzly v puli ohybu a curl
+                            // overlay by visel na displeji natrvalo. Cesty co pending
+                            // vynulovaly pred cancelem (drag-flush, zoom, jump, cancel)
+                            // stav uz samy ukazidily - finally je preskoci.
+                            if (pendingSettleResult === res) {
+                                pendingSettleResult = null
+                                dragProgress = 0f
+                                rawDragProgress = 0f
+                            }
+                        }
+                    }
+                } finally {
+                    settleJob = null
+                    // Polozka pridana mezi `break` a `settleJob = null` by jinak zustala stat.
+                    if (turnQueue.isNotEmpty()) settlePump()
                 }
             }
         }
 
         /**
-         * Pro [CurlStyle.ROLL] nejdriv doanimuje ohyb do cilove pozice (dokonceny obrat ->
-         * trubicka odleti/stranka se rozbaluje na `+-1f`, zruseny -> zpet naplocho na `0f`) a
-         * TEPRVE pak zavola [applyTurnResult] - presne poradi originalniho dema, kde animace
-         * dobehne a az na jejim konci se prohodi bitmapy stranek. Pro CLASSIC (a na hranici
+         * Pro [CurlStyle.ROLL] se dokonceny obrat zaradi do [turnQueue] a [settlePump]
+         * ho doanimuje - rychle tapy tak jedou plynule za sebou (puvodni vizual)
+         * misto aby se zahazovaly nebo proskakovaly. Pro CLASSIC (a na hranici
          * kapitoly, kde se zadny ohyb nevykresluje) zustava okamzite `applyTurnResult`.
          */
         fun settleAndApply(result: PageTurnResult) {
-            val target = when (result) {
-                is PageTurnResult.WithinChapter ->
-                    if (result.newState.currentPageIndex > currentGroupIndex) 1f else -1f
-                is PageTurnResult.Cancelled -> 0f
-                is PageTurnResult.ChapterBoundary -> {
-                    applyTurnResult(result)
-                    return
-                }
-            }
-            if (resolvedCurlStyle != CurlStyle.ROLL) {
+            if (resolvedCurlStyle != CurlStyle.ROLL || result is PageTurnResult.ChapterBoundary) {
                 applyTurnResult(result)
                 return
             }
-            settleJob?.cancel()
-            settleJob = coroutineScope.launch {
-                animate(
-                    initialValue = dragProgress,
-                    targetValue = target,
-                    animationSpec = tween(
-                        durationMillis = 300,
-                        easing = if (target == 0f) FastOutSlowInEasing else LinearOutSlowInEasing,
-                    ),
-                ) { value, _ -> dragProgress = value }
-                applyTurnResult(result)
-            }
+            turnQueue.addLast(
+                when (result) {
+                    is PageTurnResult.WithinChapter ->
+                        if (result.newState.currentPageIndex > liveGroupIndex()) CurlQueuedTurn.NEXT
+                        else CurlQueuedTurn.PREV
+                    is PageTurnResult.Cancelled -> CurlQueuedTurn.SETTLE_BACK
+                    is PageTurnResult.ChapterBoundary -> return  // unreachable - vetev vyse
+                }
+            )
+            settlePump()
         }
 
         fun tryTurn(direction: TurnDirection) {
             if (scale <= 1f) {
                 val live = PageCurlState(
                     currentPageIndex = liveGroupIndex(),
-                    pageCount = groups.size,
+                    pageCount = latestGroups.size,
                     dragProgress = dragProgress,
                     rawDragProgress = rawDragProgress,
                 )
@@ -337,7 +489,10 @@ fun MangaPageCurlReader(
                     referer = referer,
                 )
             }
-            LaunchedEffect(currentIndices, pages, translateMode, translatedPages, widthPx, heightPx, currentLoaded) {
+            // Klic `epoch` (ne `pages`) - append v nekonecnem cteni obsah vykreslene
+            // skupiny nemeni (stranky se prilepi za konec), takze re-rasterizovat je
+            // zbytecne; zmena kapitoly se chytne pres epoch+currentIndices.
+            LaunchedEffect(currentIndices, epoch, translateMode, translatedPages, widthPx, heightPx, currentLoaded) {
                 currentBitmap = currentLayer.toImageBitmap()
             }
 
@@ -379,7 +534,7 @@ fun MangaPageCurlReader(
                     )
                 }
             }
-            LaunchedEffect(nextIndices, pages, translateMode, translatedPages, widthPx, heightPx, nextLoaded) {
+            LaunchedEffect(nextIndices, epoch, translateMode, translatedPages, widthPx, heightPx, nextLoaded) {
                 nextBitmap = if (nextIndices != null) nextLayer.toImageBitmap() else null
             }
 
@@ -408,7 +563,7 @@ fun MangaPageCurlReader(
                     )
                 }
             }
-            LaunchedEffect(prevIndices, pages, translateMode, translatedPages, widthPx, heightPx, prevLoaded) {
+            LaunchedEffect(prevIndices, epoch, translateMode, translatedPages, widthPx, heightPx, prevLoaded) {
                 prevBitmap = if (prevIndices != null) prevLayer.toImageBitmap() else null
             }
 
@@ -423,6 +578,10 @@ fun MangaPageCurlReader(
             // zustal trvale "zamrzly" na obrazovce po zbytek zoomovani.
             LaunchedEffect(scale > 1f) {
                 if (scale > 1f) {
+                    // Abort rozjeteho obratu = zahodit pending+frontu, ne flushnout -
+                    // pres stranku se ted zoomuje a preklopeni by se ztratilo pod gestem.
+                    turnQueue.clear()
+                    pendingSettleResult = null
                     settleJob?.cancel()
                     dragProgress = 0f
                     rawDragProgress = 0f
@@ -440,25 +599,31 @@ fun MangaPageCurlReader(
                             // vnorene sem, takze pri priblizeni prestaly fungovat SHOW_PANEL /
                             // predchozi-dalsi kapitola / long-press sdileni zony uplne.
                             Modifier
-                                // Klíčováno i na `pages` (ne jen `groups.size`) - jinak by při
-                                // přechodu na kapitolu se STEJNÝM počtem skupin jako předchozí
-                                // (běžné u podobně dlouhých kapitol) `pointerInput` nerestartoval
-                                // a gesta by dál čítala/zapisovala do osiřelých
-                                // `currentSingleIndex`/`dragProgress` MutableState objektů zpřed
-                                // přechodu, zatímco `groups` výše by už odkazovaly na novou
-                                // kapitolu - navigace by tiše přestala reagovat (review nález č. 2).
-                                .pointerInput(pages, groups.size, spreadPageIndices, reverseLayout) {
+                                // Klíč `epoch` (ne `pages`/`groups.size`) - append v
+                                // nekonecnem cteni meni `pages` a driv tu restartoval
+                                // gesto -> prave bezici tap/drag se zrusil (hlasene
+                                // "vypadavani" tapu/tahu). `pages`/`groups` se cte pres
+                                // latest* (rememberUpdatedState), takze append se projevi
+                                // bez restartu; skutecnou zmenu obsahu (novy epoch = novy
+                                // MutableState delegat pro `currentSingleIndex`/`dragProgress`)
+                                // restartuje klíč epoch sam - osiřelé delegáty z předchozí
+                                // kapitoly tim nemuzou vzniknout (review nález č. 2).
+                                .pointerInput(epoch, reverseLayout) {
                                     detectDragGestures(
                                         onDrag = { change, dragAmount ->
                                             change.consume()
                                             // Preruseni beziciho dojeti (settle) - uzivatel
-                                            // popadl stranku uprostred animace, tak tah zase
-                                            // ridi primo prstem z aktualniho dragProgress.
+                                            // popadl stranku uprostred animace. Nejdriv
+                                            // flushnout pending obrat (jinak by se jeho
+                                            // stranka ztratila a tah pokracoval ze stare)
+                                            // a zahodit frontu - prst prebira rizeni.
+                                            flushPendingSettle()
+                                            turnQueue.clear()
                                             settleJob?.cancel()
                                             val delta = (if (reverseLayout) -dragAmount.x else dragAmount.x) / widthPx
                                             val live = PageCurlState(
                                                 currentPageIndex = liveGroupIndex(),
-                                                pageCount = groups.size,
+                                                pageCount = latestGroups.size,
                                                 dragProgress = dragProgress,
                                                 rawDragProgress = rawDragProgress,
                                             )
@@ -473,7 +638,7 @@ fun MangaPageCurlReader(
                                         onDragEnd = {
                                             val live = PageCurlState(
                                                 currentPageIndex = liveGroupIndex(),
-                                                pageCount = groups.size,
+                                                pageCount = latestGroups.size,
                                                 dragProgress = dragProgress,
                                                 rawDragProgress = rawDragProgress,
                                             )
@@ -484,6 +649,8 @@ fun MangaPageCurlReader(
                                             // uprostred tahu (napr. prevzeti ukazatele jinym
                                             // gesture-nodem pri prechodu do pinch-zoomu) - bez
                                             // resetu by curl overlay zustal zamrzly.
+                                            turnQueue.clear()
+                                            pendingSettleResult = null
                                             settleJob?.cancel()
                                             dragProgress = 0f
                                             rawDragProgress = 0f
@@ -491,25 +658,30 @@ fun MangaPageCurlReader(
                                     )
                                 }
                         } else {
-                            Modifier
+                            // Zoomovano (scale>1): curl-tah je vypnuty, jednoprsty
+                            // tah tak muze rovnou panovat zvetsenou stranku - nemusi
+                            // se panovat obema prsty.
+                            Modifier.pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    panOffset += dragAmount
+                                }
+                            }
                         },
                     )
                     // Fix Important 3 - tap gesta (SHOW_PANEL / predchozi-dalsi kapitola /
                     // long-press sdileni) VZDY aktivni, nezavisle na zoomu - presne jako
                     // `MangaReader` (`ReaderPager.kt`), kde tenhle pointerInput blok neni
-                    // vubec gatovany na `scale`. Fix Important 4 - `onDoubleTap` doplnen
-                    // identicky s `MangaReaderem` (`ReaderPager.kt:270-284`).
-                    .pointerInput(pages, groups.size, spreadPageIndices, tapZonesEnabled, tapZoneGrid, reverseLayout) {
+                    // vubec gatovany na `scale`.
+                    // Klíč `epoch` (ne `pages`) - append v nekonecnem cteni driv restartoval
+                    // detektor a sezral prave letici tap. `pages`/`groups` se cte pres
+                    // latest*; `epoch` restart zaridi cerstve delegaty pri zmene obsahu.
+                    .pointerInput(epoch, tapZonesEnabled, tapZoneGrid, reverseLayout) {
                         detectTapGestures(
                             onLongPress = {
-                                val liveIndices = groups.getOrElse(liveGroupIndex()) { listOf(0) }
-                                sharePageUrl = pages.getOrElse(liveIndices[0]) { "" }
+                                val liveIndices = latestGroups.getOrElse(liveGroupIndex()) { listOf(0) }
+                                sharePageUrl = latestPages.getOrElse(liveIndices[0]) { "" }
                                 if (sharePageUrl.isNotEmpty()) showShareSheet = true
-                            },
-                            onDoubleTap = { offset ->
-                                val result = doubleTapZoomTransform(offset, size, scale)
-                                scale = result.scale
-                                panOffset = result.panOffset
                             },
                             onTap = { offset ->
                                 val action = tapZoneAction(offset, size, tapZonesEnabled, tapZoneGrid)
@@ -535,7 +707,15 @@ fun MangaPageCurlReader(
                     // Tahle verze čeká, dokud nejsou dole aspoň 2 prsty, než začne cokoliv číst
                     // nebo konzumovat - jednoprstové gesto tak projde nedotčené k drag detektoru.
                     .pointerInput(Unit) {
-                        detectTwoFingerPinchZoom { zoomChange, panChange ->
+                        detectTwoFingerPinchZoom(
+                            onGestureEnd = {
+                                // Snap zbytkoveho zoomu pod ~10% zpet na 1f - pinch
+                                // mohl skoncit na napr. 1.003 (vizualne 1x), ale
+                                // `scale <= 1f` gaty (tah, tryTurn) by pak byly
+                                // nastejno mrtve bez jakekoliv indicie proc.
+                                if (scale < 1.1f) { scale = 1f; panOffset = Offset.Zero }
+                            },
+                        ) { zoomChange, panChange ->
                             val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                             scale = newScale
                             if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero

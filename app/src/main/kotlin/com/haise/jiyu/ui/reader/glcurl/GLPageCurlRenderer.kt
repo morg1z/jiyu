@@ -35,6 +35,10 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
     @Volatile private var forward: Boolean = true
     @Volatile private var progress: Float = 0f
     @Volatile private var mirrored: Boolean = false
+    /** Hloubka kamery, pri ktere quad 1 x viewportRatio presne vyplni viewport -
+     * pocita se v [onSurfaceChanged]. Vychozi 2f jen jako placeholder pred prvnim
+     * onSurfaceChanged (puvodni pevna hodnota = ~1.31x overscan). */
+    @Volatile private var fitDistance: Float = 2f
 
     /**
      * Zavolat z UI vlákna kdykoliv se změní bitmapy stránek nebo stav tažení - skutečné
@@ -78,11 +82,16 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
         gl.glViewport(0, 0, width, safeHeight)
         gl.glMatrixMode(GL10.GL_PROJECTION)
         gl.glLoadIdentity()
-        if (safeHeight > width) {
-            GLU.gluPerspective(gl, 45.0f, width.toFloat() / safeHeight.toFloat(), 0.1f, 100.0f)
-        } else {
-            GLU.gluPerspective(gl, 45.0f, safeHeight.toFloat() / width.toFloat(), 0.1f, 100.0f)
-        }
+        // gluPerspective(fovy, aspect): aspect je VZDY sirka/vyska viewportu (puvodni
+        // landscape vetev h/w byla chyba). Strankovy quad je velikosti 1 x viewportRatio
+        // (textura = rasterizace celeho viewportu vcetne letterboxingu); hloubka
+        // -fitDistance ho proto promite PRESNE na obrazovku. Driv tu bylo fixni -2f:
+        // na z=-2 je viditelna plocha jen 0.765 x 1.657 jednotky, takze se quad
+        // projekci nafoukl ~1.31x pres okraje = stranky se pri kazdem rollu vizualne
+        // "zoomly" jako Fill Screen (hlaseny bug). Vzorec: viditelna vyska na hloubce
+        // d je 2*tan(fovy/2)*d a ma se rovnat viewportRatio.
+        GLU.gluPerspective(gl, 45.0f, width.toFloat() / safeHeight.toFloat(), 0.1f, 100.0f)
+        fitDistance = (safeHeight.toFloat() / width.toFloat()) / TWO_TAN_HALF_FOV
         gl.glMatrixMode(GL10.GL_MODELVIEW)
         gl.glLoadIdentity()
     }
@@ -149,19 +158,19 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
         // calculateVerticesCoords()/zbytku draw().
         try {
             gl.glPushMatrix()
-            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(0f, 0f, -fitDistance)
             gl.glTranslatef(-0.5f, -0.5f, 0f)
             leftPage.draw(gl)
             gl.glPopMatrix()
 
             gl.glPushMatrix()
-            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(0f, 0f, -fitDistance)
             gl.glTranslatef(-0.5f, -0.5f, 0f)
             frontPage.draw(gl)
             gl.glPopMatrix()
 
             gl.glPushMatrix()
-            gl.glTranslatef(0f, 0f, -2f)
+            gl.glTranslatef(0f, 0f, -fitDistance)
             gl.glTranslatef(-0.5f, -0.5f, 0f)
             rightPage.draw(gl)
             gl.glPopMatrix()
@@ -191,5 +200,8 @@ class GLPageCurlRenderer : GLSurfaceView.Renderer {
                 LEFT_REST + progress.coerceIn(0f, 1f) * span
             }
         }
+
+        /** `2 * tan(45° / 2)` - viditelna vyska frustu na jednotku hloubky pro fovy 45°. */
+        private const val TWO_TAN_HALF_FOV = 0.8284271247461903f
     }
 }
