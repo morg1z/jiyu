@@ -685,6 +685,16 @@ fun TranslationOverlay(
         (imageRect.height * (rectCenterF - boxCenterF)).dp
     } ?: 0.dp
 
+    // Lettering přímo na kresbě (bez obrysu, pozadí nerovnoměrné - kreslí se záplata,
+    // ne viditelná placka): expandovaný render box je jen POJISTNÝ prostor k sousedům
+    // (layoutHeuristic ho může natáhnout i přes třetinu stránky), ne interiér bubliny.
+    // Text centrovaný do jeho středu by pak visel ve vzduchu desítky procent stránky
+    // pod originálem (audit Vagabond ch.6 - "CO SI VŮBEC MYSLÍM?" seděl pod panelem,
+    // zatímco původní caption ležel nahoře). Text proto ukotvíme do podboxu přesně na
+    // OCR otisku originálu a centrujeme do NĚJ - delší překlad přetéká symetricky
+    // kolem místa, kde původní lettering stál.
+    val anchorTextToOcr = shape == null && !pos.block.bgUniform && !coverOnly && !seamFrag
+
     // Entrance animace - MutableTransitionState začíná na false a rovnou cílí na true, takže
     // AnimatedVisibility přehraje "enter" přesně jednou při prvním composnutí týhle bubliny
     // (např. když se stránka přeloží nebo se do ní scrollne/naviguje zpět) a pak už zůstává
@@ -768,7 +778,10 @@ fun TranslationOverlay(
                     }
                 }
                 .padding(horizontal = TRANSLATION_TEXT_HORIZONTAL_PADDING, vertical = TRANSLATION_TEXT_VERTICAL_PADDING),
-            contentAlignment = Alignment.Center,
+            // U kotveného art-letteringu (viz anchorTextToOcr) vnější box drží
+            // TopCenter - vnitřní podbox se teprve posune na OCR otisk originálu,
+            // jinak by dynamická výška boxu kotvu rozbila.
+            contentAlignment = if (anchorTextToOcr) Alignment.TopCenter else Alignment.Center,
         ) {
             // Krycí režim (seamCover): jen záplata/výplň přes kopii originálního
             // textu - překlad se vykreslil na sousední stránce, druhý text by tu
@@ -781,6 +794,23 @@ fun TranslationOverlay(
                 },
                 label = "bubble-flip",
             ) { flipped ->
+                // Podbox přesně na OCR otisku originálu (viz anchorTextToOcr) - text se
+                // centruje do NĚJ, ne do expandovaného render boxu. AutoFit uvnitř se
+                // šířkou boxWidth může přes úzký podbox přetéct - centrování ho nechá
+                // přetékat symetricky kolem středu originálu.
+                Box(
+                    modifier = if (anchorTextToOcr) Modifier
+                        .offset(
+                            x = (imageRect.width * ((pos.block.leftF + pos.block.rightF - box.leftF - box.rightF) / 2f)).dp,
+                            // +bleedY: vnější box `top` je už o bleedY výš, takže vrchol
+                            // podboxu bez korekce skončí o ten kus nad OCR hranou.
+                            y = (imageRect.height * (pos.block.topF - box.topF)).dp + bleedY,
+                        )
+                        .width((imageRect.width * (pos.block.rightF - pos.block.leftF)).dp.coerceAtLeast(0.dp))
+                        .height((imageRect.height * (pos.block.bottomF - pos.block.topF)).dp.coerceAtLeast(0.dp))
+                    else Modifier,
+                    contentAlignment = Alignment.Center,
+                ) {
                 AutoFitTranslatedText(
                     text = if (flipped) pos.block.originalText else displayText,
                     // Volba barvy textu (podle jasu) potřebuje JEDNU barvu - u záplaty
@@ -811,6 +841,7 @@ fun TranslationOverlay(
                     originalText = pos.block.originalText,
                     customFontFile = customFontFile,
                 )
+                }
             }
         }
     }

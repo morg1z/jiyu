@@ -419,6 +419,98 @@ class TextPatchArtifactTest {
         assertTrue("mezera mezi čarami má zůstat světlá, byl lum=$offLine", offLine > 200)
     }
 
+    // -- 5d) Lokální resample - jitterovaná/nepravidelná textura bez mřížky -----------
+
+    /**
+     * Reprodukce auditu Vagabond ch.6 (reálná stránka z cocomic): černý glyph s bílým
+     * halo lemem leží na světlém poli s náhodnými tečkami (reálný tištěný halftone má
+     * jitterovanou ~5.5px periodu - striktní mřížková výplň na něm skóruje jen ~67 % a
+     * drift fáze z glyphu dřív udělala flat bílou siluetu, která četla jako "zbylý
+     * bílý text"). Lokální resample má glyph rozpustit do pole: uvnitř musí zůstat
+     * tečky i mezery v podobné hustotě jako okolí - ne jedna barva.
+     */
+    @Test
+    fun `masked glyph on irregular speckle field dissolves into the field, not a flat blob`() {
+        val w = 160
+        val h = 110
+        // Náhodně bodnuté pole: deterministický hash -> ~20 % tmavých pixelů, bez
+        // pravidelné periody (autokorelace nesmí poznat mřížku).
+        fun isSpeckle(x: Int, y: Int) = ((x * 73 + y * 149 + x * y * 11) % 5) == 0
+        // Glyph + bílý halo lem (caption lettering: černé jádro + světlý obrys).
+        fun isGlyph(x: Int, y: Int) = x in 60..99 && y in 40..64
+        fun isHalo(x: Int, y: Int) = x in 57..102 && y in 37..67 && !isGlyph(x, y)
+        val paper = argb(235, 235, 235)
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    isGlyph(x, y) -> black
+                    isHalo(x, y) -> white
+                    isSpeckle(x, y) -> argb(50, 50, 50)
+                    else -> paper
+                }
+            }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = paper,
+            textLeft = 55, textTop = 35, textRight = 105, textBottom = 70,
+        )
+
+        // Uvnitř bývalého glyphu: pole má pokračovat - tj. nesmí to být flat barva.
+        // Tečková hustota pole ~20 % -> uvnitř očekáváme aspoň něco tmavého i světlého.
+        var dark = 0
+        var light = 0
+        var total = 0
+        for (y in 45 until 60) {
+            for (x in 65 until 95) {
+                val l = luminance(patch[y * w + x])
+                if (l < 100) dark++
+                if (l > 180) light++
+                total++
+            }
+        }
+        assertTrue(
+            "uvnitř glyphu na tečkovaném poli musí pokračovat textura - " +
+                "flat placka by byla vidět jako zbylý 'bílý text' (dark=$dark/$total)",
+            dark > total / 20,
+        )
+        assertTrue(
+            "uvnitř glyphu musí zůstat i světlá mezera pole (light=$light/$total)",
+            light > total / 3,
+        )
+    }
+
+    /**
+     * Proti-test: glyph na HLADKÉ šedé ploše se má vyplnit hladce (Voronoi), resample
+     * se nemá zapnout - jinak by do hladké plochy naséval šum.
+     */
+    @Test
+    fun `masked glyph on flat field stays smooth, resample does not add noise`() {
+        val w = 140
+        val h = 90
+        val gray = argb(190, 190, 190)
+        fun isGlyph(x: Int, y: Int) = x in 55..95 && y in 35..60
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x -> if (isGlyph(x, y)) black else gray }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = gray,
+            textLeft = 50, textTop = 30, textRight = 100, textBottom = 65,
+        )
+        var offTone = 0
+        var total = 0
+        for (y in 42 until 54) {
+            for (x in 62 until 88) {
+                val l = luminance(patch[y * w + x])
+                if (abs(l - 190) > 45) offTone++
+                total++
+            }
+        }
+        assertTrue(
+            "hladká plocha má zůstat hladká - resample nesmí přidat šum (offTone=$offTone/$total)",
+            offTone < total / 20,
+        )
+    }
+
     // -- 5) Celá textová oblast = textura -> zůstane nedotčená, ne "placka" -----------
 
     @Test

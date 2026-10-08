@@ -3,6 +3,7 @@ package com.haise.jiyu.translate
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * Zakryje TAHY PÍSMEN v zadané oblasti a každý zakrytý pixel dopočítá z okolního pozadí,
@@ -121,6 +122,30 @@ internal fun buildTextPatch(
         right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
         enabled = hasTextRegion,
     )
+    // Světlý halo-obrys glyphu (~3px) kontrastní detekci neprojde (bílá na bílé
+    // halftone pozadí) - zůstal by nemaskovaný, četl by se jako bílá silueta
+    // písmene a jako donor kontaminoval lokální resample (fill pak má poloviční
+    // hustotu teček než raster). Dilatace ho vtáhne do masky, ale jen do TĚSNÉHO
+    // regionu (halo sedí u glyphu uvnitř OCR boxu+pad): jednak proto, že širší dosah
+    // by přes součet rozšíření (MASK+INK+HALO) sežral i kresbu za hranou textu,
+    // jednak aby se nesmazala maska oříznutých pahýlů, kterou teprve doplní
+    // ink-flood níže (ten expanduje ZA hranu regionu - ořezem na těsnou bychom ji
+    // zahodili).
+    if (hasTextRegion) {
+        dilate(isText, w, h, HALO_COVER_DILATION)
+        restrictToTextRegion(
+            mask = isText, w = w, h = h,
+            left = textLeft - x0 - pad, top = textTop - y0 - pad,
+            right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+            enabled = true,
+        )
+        sealEnclosedHoles(
+            mask = isText, w = w, h = h,
+            left = textLeft - x0 - pad, top = textTop - y0 - pad,
+            right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+            enabled = true,
+        )
+    }
     // Glyph OŘÍZNUTÝ hranou textové oblasti (OCR box sekl tah doprostřed) má interiér
     // otevřený k okraji - seal ho jako díru nepozná a maska za hranicí regionu vůbec
     // neexistuje: pahýl písmene by přežil viditelně i po vyplnění. Ink-flood: z
@@ -171,6 +196,13 @@ internal fun buildTextPatch(
     // autokorelace pozná silnou periodu, maskované pixely se doplní z mřížkově
     // zarovnaných pozic - vzorek pokračuje ve správné fázi. Bez periodu nic nemění.
     continuePeriodicTexture(pixels, luminance, isText, w, h)
+    // Texturované okolí bez spolehlivé mřížky (reálný halftone má jitterovanou
+    // /frakcionální periodu - autokorelace ji nerozpozná natolik, aby šlo kopírovat
+    // přesné fáze): maskovaný pixel zkopíruje NÁHODNÝ nemaskovaný z lokálního okna.
+    // Statistika okna se zachová - tečky/mezery se objeví ve správné hustotě a
+    // silueta písmene se rozpustí v poli, místo aby zůstala flat placka (viz audit
+    // Vagabond ch.6 - bílé "duchové" siluety glyphů nad screentonem).
+    resampleFromLocalField(pixels, luminance, isText, w, h)
     fillNearestSource(pixels, isText, w, h)
     return pixels
 }
@@ -194,7 +226,7 @@ internal fun buildTextPatch(
  * Práh [PERIOD_MIN_SCORE] je schválně vysoký - falešná pozitiva (zarovnaný gradient,
  * obličej) by totéž udělala "hnojárek" ze vzorku, který tam není.
  */
-private fun continuePeriodicTexture(
+internal fun continuePeriodicTexture(
     pixels: IntArray,
     luminance: IntArray,
     isText: BooleanArray,
@@ -273,12 +305,18 @@ private fun continuePeriodicTexture(
         v.first * dy - v.second * dx != 0
     }?.let { it.first to it.second }
 
+    // Vyplněný pixel se rovnou odmaskuje a sám se stává zdrojem - kaskáda protáhne
+    // čáru/vzor i přes masku hlubší než 2 periody (u šraf vyhrává posun PODÉL čáry,
+    // např. (0,1), a hodnota se podél sloupce propíše skrz celý glyph). Bezpečnost
+    // drží vysoký práh detekce: kaskáda propaguje fázi jen tam, kde autokorelace
+    // mřížku skutečně potvrdila - jitterovaný reálný raster (skóre ~70) ji pod
+    // prahem [PERIOD_MIN_SCORE] nikdy nespustí a dořeší ho [resampleFromLocalField].
     for (i in pixels.indices) {
         if (!isText[i]) continue
         val x = i % w
         val y = i / w
-        // Pozice stejné fáze v mřížce: p±v, p±w, p±2v, p±2w, p±v±w - první nemaskovaná
-        // dává barvu se správnou fází. Víc kombinací není třeba - zbytek dořeší Voronoi.
+        // Pozice stejne faze v mrizce: p±v, p±w, p±2v, p±2w, p±v±w - prvni nemaskovana
+        // dava barvu se spravnou fazi. Vic kombinaci neni treba - zbytek doresi Voronoi.
         for ((ox, oy) in PHASE_OFFSETS) {
             val nx = x + v.first * ox + (wOffset?.first ?: 0) * oy
             val ny = y + v.second * ox + (wOffset?.second ?: 0) * oy
@@ -286,13 +324,212 @@ private fun continuePeriodicTexture(
             val n = ny * w + nx
             if (!isText[n]) {
                 pixels[i] = pixels[n]
-                // Odmaskovat - Voronoi výplň by jinak periodický výsledek přepsala
-                // nejbližším zdrojem; nově reálný pixel navíc sám poslouží jako zdroj.
                 isText[i] = false
                 break
             }
         }
     }
+}
+
+/**
+ * Doplní maskované pixely texturou z LOKÁLNÍHO čistého pole - náhrada za periodickou
+ * výplň pro textury bez stabilní mřížky (viz [continuePeriodicTexture]).
+ *
+ * Princip ve dvou krocích:
+ * 1) "Tečky" (souvislé deviantní komponenty čistého pole velikosti DOT_MIN..DOT_MAX)
+ *    se transplantují celé jako objekty na jitterovanou mřížku přes masku - tvar zrna
+ *    zůstane koherentní a rozteč se odvodí z naměřené hustoty, takže silueta písmene
+ *    se rozpustí do rastru místo flat skvrny či solného šumu.
+ * 2) Zbytek masky se vlnově (více průchodů) doplní vzorky z okolí patřícími k PÓLU
+ *    pozadí - papír zůstane papírem, mezery mezi tečkami se jen protáhnou.
+ *
+ * Statistiku i doty bere jen "čisté" pole (nemaskované pixely vzdálené od masky aspoň
+ * [RESAMPLE_CLEAN_DIST]) - halo obrys glyphu jasově neodlišitelný od papíru by jinak
+ * nafouknul světlý pól a fill by vyšel bělavý (audit Vagabond ch.6).
+ *
+ * Spouští se jen u TEXTUROVANÉHO pole (podíl deviantních pixelů nad prahem): na hladkém
+ * podkladu (gradient, jednolitá plocha) by vzorky přidaly šum tam, kde Voronoi správně
+ * kopíruje hladký průběh - taková maska se nechává na [fillNearestSource].
+ */
+internal fun resampleFromLocalField(
+    pixels: IntArray,
+    luminance: IntArray,
+    isText: BooleanArray,
+    w: Int,
+    h: Int,
+) {
+    val maskedAtEntry = isText.copyOf()
+    if (maskedAtEntry.none { it }) return
+
+    // Čistý donor = nemaskovaný pixel, jehož okolí [RESAMPLE_CLEAN_DIST] neobsahuje
+    // masku. Bez pásu by se do statistiky i donor poolu primechal světlý halo obrys
+    // glyphu - jasově stejný jako papír, kontrastem nedetekovatelný - a fill by měl
+    // ~poloviční hustotu teček než skutečný raster (audit Vagabond ch.6).
+    val tainted = maskedAtEntry.copyOf()
+    dilate(tainted, w, h, RESAMPLE_CLEAN_DIST)
+
+    // Statistiky čistého pole: medián = pozadí pole (papír), deviant = objekty
+    // textury (tečky, zrnky) - pól-agnosticky (světlé tečky na tmavém poli taky).
+    val hist = IntArray(256)
+    var cleanCount = 0
+    for (i in pixels.indices) {
+        if (tainted[i]) continue
+        hist[luminance[i]]++
+        cleanCount++
+    }
+    // Málo čistého pole = hluboká maska bez referenční textury -> Voronoi.
+    if (cleanCount < RESAMPLE_MIN_DONORS * 4) return
+    var acc = 0
+    var bgLum = 0
+    while (bgLum < 255 && acc + hist[bgLum] <= cleanCount / 2) {
+        acc += hist[bgLum]
+        bgLum++
+    }
+    fun deviant(i: Int) = abs(luminance[i] - bgLum) > PERIOD_FEATURE_MARGIN
+
+    // Deviantní souvislé komponenty v čistém poli = "objekty" textury k přesazení
+    // (uložené jako absolutní indexy pixelů). Omezení velikosti: proutky tahů/velké
+    // plochy se nehodí jako donorová zrna.
+    val seen = BooleanArray(w * h)
+    val stack = IntArray(w * h)
+    val dots = ArrayList<IntArray>()
+    var deviantArea = 0
+    for (i in pixels.indices) {
+        if (tainted[i] || seen[i] || !deviant(i)) continue
+        var sp = 0
+        stack[sp++] = i
+        seen[i] = true
+        var area = 0
+        val comp = IntArray(DOT_MAX_AREA)
+        var compLen = 0
+        var oversized = false
+        while (sp > 0) {
+            val j = stack[--sp]
+            area++
+            deviantArea++
+            if (compLen < comp.size) comp[compLen++] = j else oversized = true
+            val jx = j % w; val jy = j / w
+            fun push(n: Int) {
+                if (!seen[n] && !tainted[n] && deviant(n)) { seen[n] = true; stack[sp++] = n }
+            }
+            if (jx + 1 < w) push(j + 1)
+            if (jx > 0) push(j - 1)
+            if (jy + 1 < h) push(j + w)
+            if (jy > 0) push(j - w)
+        }
+        if (!oversized && area in DOT_MIN_AREA..DOT_MAX_AREA) {
+            dots.add(comp.copyOf(compLen))
+        }
+    }
+    if (deviantArea * 100 < cleanCount * RESAMPLE_TEXTURE_MIN_PERCENT) {
+        // Hladká plocha (gradient, jednolitost) - náhodné vzorky by přidaly šum.
+        // Nechat Voronoi.
+        return
+    }
+
+    val dotsFound = dots.size >= RESAMPLE_MIN_DOTS
+    if (dotsFound) {
+        // Transplantace skutečných teček na jitterovanou mřížku: tečka drží svůj
+        // tvar (koherentní blob ~4-9 px) a pitch z naměřené hustoty čistého pole
+        // zachová rytmus rastru. Rozmístění deterministicky přes hash buněk.
+        var minX = w; var maxX = 0; var minY = h; var maxY = 0
+        for (i in pixels.indices) {
+            if (!maskedAtEntry[i]) continue
+            val x = i % w; val y = i / w
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+        // Rozteč mřížky tak, aby nalepené zrno pokrylo masku stejným podílem
+        // deviantních pixelů, jaký mají tečky v čistém poli (df). pitch by odhadnutý
+        // z pouhého počtu komponent podhodnotil, když jsou tečky drobné a husté.
+        val df = deviantArea.toDouble() / cleanCount
+        var meanDot = 0
+        for (c in dots) meanDot += c.size
+        meanDot = (meanDot / dots.size).coerceAtLeast(1)
+        val pitch = sqrt(meanDot / df).toInt().coerceIn(3, 64)
+        val jit = (pitch / 3).coerceAtLeast(1)
+        var gy = minY - pitch
+        while (gy <= maxY) {
+            var gx = minX - pitch
+            while (gx <= maxX) {
+                val comp = dots[(stableHash(gx, gy, 0) and 0xFFFF) % dots.size]
+                // centroid komponenty -> nalepit na buňku + jitter
+                var cx = 0; var cy = 0
+                for (s in comp) { cx += s % w; cy += s / w }
+                cx /= comp.size; cy /= comp.size
+                val tx = gx + (stableHash(gx, gy, 1) % (2 * jit + 1)) - jit
+                val ty = gy + (stableHash(gx, gy, 2) % (2 * jit + 1)) - jit
+                for (s in comp) {
+                    val nx = tx + (s % w) - cx
+                    val ny = ty + (s / w) - cy
+                    if (nx !in 0 until w || ny !in 0 until h) continue
+                    val t = ny * w + nx
+                    if (!isText[t]) continue
+                    pixels[t] = pixels[s]
+                    luminance[t] = luminance[s]
+                    isText[t] = false
+                }
+                gx += pitch
+            }
+            gy += pitch
+        }
+    }
+
+    // Zbytek masky: vlnové doplnění pozadím pole (pixely do MARGIN od mediánu).
+    // Donory = nemaskované na začátku PRŮCHODU - vyplněný pixel se stává donorem
+    // až další kolo, takže se výplň šíří vlnovkou dovnitř i přes hluboké interiéry
+    // (bez opakování by je Voronoi smířil do svislých sloupců = "barcode").
+    // Když se tečky nepodařilo sbírat (subpixel speckle <3 px), bere se libovolný
+    // donor - u takového pole uniformní vzorek hustotu reprodukuje sám.
+    val donors = IntArray((2 * RESAMPLE_RADIUS + 1) * (2 * RESAMPLE_RADIUS + 1))
+    var pass = 0
+    while (pass < RESAMPLE_MAX_PASSES) {
+        pass++
+        val passEntry = isText.copyOf()
+        var filled = 0
+        for (i in pixels.indices) {
+            if (!passEntry[i]) continue
+            val x = i % w
+            val y = i / w
+            var count = 0
+            for (dy in -RESAMPLE_RADIUS..RESAMPLE_RADIUS) {
+                val ny = y + dy
+                if (ny < 0 || ny >= h) continue
+                for (dx in -RESAMPLE_RADIUS..RESAMPLE_RADIUS) {
+                    val nx = x + dx
+                    if (nx < 0 || nx >= w) continue
+                    val n = ny * w + nx
+                    if (passEntry[n]) continue
+                    if (dotsFound && abs(luminance[n] - bgLum) > PERIOD_FEATURE_MARGIN) continue
+                    donors[count++] = n
+                }
+            }
+            if (count < RESAMPLE_MIN_DONORS) continue
+            // Deterministický "náhodný" výběr - lowbias32 lavina. Slabý hash
+            // (lineární krok) by uvnitř souvislé masky, kde je donor set pro
+            // sousední pixely totožný, dal indexy v aritmetické posloupnosti ->
+            // viditelné svislé pásy.
+            val n = donors[(stableHash(x, y, pass) and 0x7FFFFFFF) % count]
+            pixels[i] = pixels[n]
+            // Jas se kopíruje taky - v dalších průchodech se tak vyplněný pixel
+            // klasifikuje podle své skutečné barvy, ne podle původního glyphu.
+            luminance[i] = luminance[n]
+            isText[i] = false
+            filled++
+        }
+        if (filled == 0) break
+    }
+}
+
+/** Deterministický hash pozice (lowbias32 avalanche) - stabilní mezi snímky. */
+private fun stableHash(x: Int, y: Int, salt: Int): Int {
+    var h = x * 0x9E3779B1.toInt() xor (y * 0x85EBCA77.toInt()) xor (salt * 0x27d4eb2f)
+    h = h xor (h ushr 16); h *= 0x7feb352d
+    h = h xor (h ushr 15); h *= 0x846ca68b.toInt()
+    h = h xor (h ushr 16)
+    return h
 }
 
 /** Kombinace (násobek v, násobek w), kterými se hledá nemaskovaný zdroj stejné fáze. */
@@ -321,7 +558,7 @@ private val PHASE_OFFSETS = listOf(
  * označil tečky i mezery najednou - tam se maska rozseká na inkoustový (menšinový)
  * pól a teprve ten se komponentově filtruje.
  */
-private fun suppressTextureNoise(
+internal fun suppressTextureNoise(
     mask: BooleanArray,
     luminance: IntArray,
     w: Int,
@@ -458,7 +695,7 @@ private fun suppressTextureNoise(
  * Kapesku otevřenou k okraji oblasti to nikdy nesežere: její okrajové pixely jsou seedy
  * a zalijí celou kapsu. Flood běží jen uvnitř oblasti, složitost O(region).
  */
-private fun sealEnclosedHoles(
+internal fun sealEnclosedHoles(
     mask: BooleanArray,
     w: Int,
     h: Int,
@@ -536,7 +773,7 @@ private fun sealEnclosedHoles(
  *   zaplava sice stejnomá kousek pozadí sebere, ale Voronoi výplň ho nahradí tou
  *   samou barvou = neviditelné.
  */
-private fun floodClippedGlyphs(
+internal fun floodClippedGlyphs(
     mask: BooleanArray,
     luminance: IntArray,
     w: Int,
@@ -643,7 +880,7 @@ private fun floodClippedGlyphs(
  *
  * Složitost O(w*h): každý pixel se do fronty dostane jednou.
  */
-private fun fillNearestSource(pixels: IntArray, isText: BooleanArray, w: Int, h: Int) {
+internal fun fillNearestSource(pixels: IntArray, isText: BooleanArray, w: Int, h: Int) {
     val queue = IntArray(w * h)
     var qs = 0
     var qe = 0
@@ -776,14 +1013,14 @@ internal fun markTextPixels(luminance: IntArray, w: Int, h: Int): BooleanArray {
  * úměrný jemu, ne rozměrům stránky. Strop i podlaha jsou tam proto, aby u obřího nadpisu
  * nezasáhla rezerva půl kresby a u drobného textu nebyla nulová.
  */
-private fun textRegionPadding(textHeight: Int): Int =
+internal fun textRegionPadding(textHeight: Int): Int =
     (textHeight / TEXT_PAD_DIVISOR).coerceIn(MIN_TEXT_PAD, MAX_TEXT_PAD)
 
 /**
  * Vymaže z masky všechno mimo zadaný obdélník - viz komentář u [buildTextPatch] k textové
  * oblasti. Souřadnice jsou už relativní k záplatě a smí přesahovat přes její okraj.
  */
-private fun restrictToTextRegion(
+internal fun restrictToTextRegion(
     mask: BooleanArray,
     w: Int,
     h: Int,
@@ -909,6 +1146,14 @@ private const val MAX_INK_FLOOD_REACH = 32
 /** Jednopixelové rozšíření po zaplavě - doleptá antialias lem oříznutého tahu. */
 private const val INK_FLOOD_DILATION = 1
 
+/**
+ * Rozšíření masky o světlý halo-obrys glyphů (viz komentář v [buildTextPatch]).
+ * Typické šířky obrysu jsou 2-4 px; maskovaná plocha se o kousíček zvětší, ale
+ * přebytek se vyplní stejnou texturou - horší je halo nechat (bílá silueta +
+ * kontaminace donorů resamplu).
+ */
+private const val HALO_COVER_DILATION = 3
+
 // -- Periodická textura (viz [continuePeriodicTexture]) ---------------------------------
 
 /**
@@ -928,12 +1173,55 @@ private const val PERIOD_FEATURE_MARGIN = 24
 
 /**
  * Minimální skóre posunu (v %), aby se posun uznal za periodu - pod ní není jisté, že
- * jde o skutečný vzorek, a radši se nechá Voronoi než vysévat falešné tečky.
+ * jde o skutečný vzorek, a radši se nechá Voronoi/resample než vysévat falešné tečky.
+ * Reálný tištěný halftone mívá jitterovanou/frakcionální periodu a skóruje ~65-75 -
+ * pro něj striktní mřížka driftuje fázi, proto se nechává na [resampleFromLocalField];
+ * mřížková výplň je určená skutečně pravidelným rastrům (~90+).
  */
-private const val PERIOD_MIN_SCORE = 62
+private const val PERIOD_MIN_SCORE = 80
 
 /** Minimální počet nemaskovaných párů pro smysluplné skóre posunu. */
 private const val PERIOD_MIN_PAIRS = 60
+
+// -- Lokální resample textury (viz [resampleFromLocalField]) -----------------------------
+
+/**
+ * Poloměr okna (Chebyshev), ze kterého se vybírá donor pro maskovaný pixel. Musí
+ * přesáhnout hloubku typické glyphové siluety (tah+halo ~10-15 px od okraje masky),
+ * aby v okně vůbec nějací donoři byli; zároveň drží vzorek místní, když se textura
+ * po stránce mění (stín, barevný přechod).
+ */
+private const val RESAMPLE_RADIUS = 14
+
+/** Málo nemaskovaných donorů v okně = hluboké vnitřky velké masky - dořeší další průchod. */
+private const val RESAMPLE_MIN_DONORS = 24
+
+/**
+ * Kolikrát se resample opakuje. Každý průchod odfoukne ~RESAMPLE_RADIUS-tloušťku
+ * věnce masky; 4 průchody pokryjí blob hluboký ~60 px (sloučená tři-řádková silueta
+ * textu s halo). Bez opakování by hluboké vnitřky propadly Voronoi -> svislé pásy.
+ */
+private const val RESAMPLE_MAX_PASSES = 4
+
+/**
+ * Podíl donorů odchylných od mediánu pozadí ([PERIOD_FEATURE_MARGIN]), od kterého se
+ * okno považuje za texturované. Na halftone rastru ~15-30 %; na hladké ploše ~0 %.
+ */
+private const val RESAMPLE_TEXTURE_MIN_PERCENT = 5
+
+/**
+ * Vzdálenost (px) od masky, do které se nemaskovaný pixel ještě NEPovažuje za čistý
+ * donor/statistiku textury. Světlý halo obrys glyphu (~2-4 px) se kontrastní detekcí
+ * nechytí, ačkoli součástí textury není - pás ho vyloučí z donorů i statistik.
+ */
+private const val RESAMPLE_CLEAN_DIST = 3
+
+/** Min/max plocha souvislé deviantní komponenty, aby šla použít jako tečka/zrnko textury. */
+private const val DOT_MIN_AREA = 3
+private const val DOT_MAX_AREA = 60
+
+/** Málo tečkových komponent v čistém poli = pole není rastr -> fallback resample. */
+private const val RESAMPLE_MIN_DOTS = 8
 
 /** Pojistka proti nekonečné smyčce; při ~2px za kolo pokryje i velmi tlusté tahy. */
 private const val MAX_FILL_ROUNDS = 64
