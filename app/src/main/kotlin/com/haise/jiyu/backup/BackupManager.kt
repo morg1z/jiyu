@@ -214,6 +214,7 @@ class BackupManager @Inject constructor(
                 f("localPath",        c.localPath ?: "")
                 f("pageCount",        c.pageCount)
                 f("scanlationGroup",  c.scanlationGroup ?: "")
+                f("language",         c.language ?: "")
                 f("volume",           c.volume ?: "")
                 f("groupsJson",       c.groupsJson ?: "")
                 f("discoveredAt",     c.discoveredAt)
@@ -543,6 +544,7 @@ internal fun parseBackupJson(json: String): ParsedBackup {
             localPath        = c.optString("localPath").ifBlank { null },
             pageCount        = c.optInt("pageCount", 0),
             scanlationGroup  = c.optString("scanlationGroup").ifBlank { null },
+            language         = c.optString("language").ifBlank { null },
             volume           = c.optString("volume").ifBlank { null },
             groupsJson       = c.optString("groupsJson").ifBlank { null },
             discoveredAt     = c.optLong("discoveredAt", 0L),

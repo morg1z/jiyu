@@ -83,6 +83,11 @@ data class SChapter(
     val scanlationGroup: String? = null,
     val volume: String? = null,
     val groups: List<SGroup> = emptyList(),
+    /** ISO kód jazyka kapitoly ("en", "pt-br", ...) - hlásí jen vícejazyčné
+     * agregátory (ComicK, comickart), které vrací jednu logickou kapitolu tolikrát,
+     * v kolika jazycích existuje. Běžné zdroje nechávají null. UI/čtečka jazykem
+     * deduplikuje - viz [com.haise.jiyu.data.repository.preferEnglishChapters]. */
+    val language: String? = null,
 )
 
 /**

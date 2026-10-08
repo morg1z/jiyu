@@ -30,6 +30,7 @@ import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.data.repository.chapterMatchKey
+import com.haise.jiyu.data.repository.preferEnglishChapters
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.CrossSourceSearch
 import com.haise.jiyu.source.RelinkCandidate
@@ -310,6 +311,9 @@ class MangaDetailViewModel @Inject constructor(
         if (scanlator != null) {
             result = result.filter { it.scanlationGroup == scanlator }
         }
+        // Vicejazycne agregatory (ComicK, comickart): u cisla s EN verzi zahodit
+        // ne-EN radky, jinak se michaly jako nerozlisitelne duplicity (audit).
+        result = result.preferEnglishChapters()
         if (asc) result.sortedBy { it.chapterNumber }
         else result.sortedByDescending { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -121,6 +121,42 @@ internal fun buildTextPatch(
         right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
         enabled = hasTextRegion,
     )
+    // Glyph OŘÍZNUTÝ hranou textové oblasti (OCR box sekl tah doprostřed) má interiér
+    // otevřený k okraji - seal ho jako díru nepozná a maska za hranicí regionu vůbec
+    // neexistuje: pahýl písmene by přežil viditelně i po vyplnění. Ink-flood: z
+    // maskovaných pixelů na hranici regionu se zaleje inkoust o KONTROLOVANÝ kus
+    // ven i dovnitř (viz [floodClippedGlyphs]), pak se maska ořeže na rozšířenou
+    // oblast a druhé kolo sealu zavře případné nové kapsy (protiskuska oříznutého
+    // písmene, světlý vnitřek tmavého obrysu).
+    if (hasTextRegion) {
+        val rl = textLeft - x0 - pad
+        val rt = textTop - y0 - pad
+        val rr = textRight - x0 + pad
+        val rb = textBottom - y0 + pad
+        // Zaplava doběhnutá na okraj domény uprostřed inkoustu = tah pokračuje dál -
+        // dosah se zdvojí a zaplava se zopakuje, jinak by pahýl těsně za dosahem
+        // Voronoi výplní "vlezl" zpátky do maskované části. Cap = výška textu (pahýl
+        // delší než celý řádek je patologický).
+        var reach = (pad + (textBottom - textTop) / INK_FLOOD_REACH_DIVISOR)
+            .coerceIn(MIN_INK_FLOOD_REACH, MAX_INK_FLOOD_REACH)
+        val reachCap = maxOf(textBottom - textTop, reach)
+        while (true) {
+            val clipped = floodClippedGlyphs(isText, luminance, w, h, rl, rt, rr, rb, reach)
+            if (!clipped || reach >= reachCap) break
+            reach = (reach * 2).coerceAtMost(reachCap)
+        }
+        dilate(isText, w, h, INK_FLOOD_DILATION)
+        restrictToTextRegion(
+            mask = isText, w = w, h = h,
+            left = rl - reach, top = rt - reach, right = rr + reach, bottom = rb + reach,
+            enabled = true,
+        )
+        sealEnclosedHoles(
+            mask = isText, w = w, h = h,
+            left = rl - reach, top = rt - reach, right = rr + reach, bottom = rb + reach,
+            enabled = true,
+        )
+    }
 
     // Nemá se z čeho počítat (celá oblast vyšla jako text) - vrátí se navzorkované pozadí.
     // Lepší než nic a nikdy to nespadne.
@@ -130,9 +166,143 @@ internal fun buildTextPatch(
         meanTextArgbOut[0] = coreTextArgb(pixels, luminance, isText)
     }
 
+    // Raster/šrafura pod textem: Voronoi kopíruje NEJBLIŽŠÍ zdroj, takže tečkové pole
+    // se do masky doplní bez rytmu (jedna tečka se roztáhne do skvrny). Když lokální
+    // autokorelace pozná silnou periodu, maskované pixely se doplní z mřížkově
+    // zarovnaných pozic - vzorek pokračuje ve správné fázi. Bez periodu nic nemění.
+    continuePeriodicTexture(pixels, luminance, isText, w, h)
     fillNearestSource(pixels, isText, w, h)
     return pixels
 }
+
+/**
+ * Pokračuje periodickou texturu (rastrové tečky, šrafování, výplň mřížky) přes
+ * maskované pixely - viz volající v [buildTextPatch].
+ *
+ * 1) Autokorelace: pro každý posun (dx,dy) do [PERIOD_MAX] se změří, s jakou
+ *    pravděpodobností mají dva nemaskované pixely posun vzdálené skoro stejný jas.
+ *    Skórují se jen páry, kde aspoň jeden pixel odstupuje od dominantního pozadí -
+ *    na řídké textuře by jinak vyhrál triviální posun (1,0), protože většina párů
+ *    je pozadí->pozadí. Periodická textura má na své periodě skóre ~1; náhodná
+ *    kresba žádný posun skórem nenosí.
+ * 2) Dva nejkratší nezávislé posuny nad prahem (báze mřížky) = kandidáti na zdroj;
+ *    nejkratší proto, že násobky periody skórují stejně a skutečná perioda je ta
+ *    nejmenší.
+ * 3) Maskovaný pixel se pokusí zkopírovat barvu z pozice p±k·v±m·w (rostoucí
+ *    vzdálenost); nenajde-li nemaskovaný zdroj v mřížce, zůstane na Voronoi.
+ *
+ * Práh [PERIOD_MIN_SCORE] je schválně vysoký - falešná pozitiva (zarovnaný gradient,
+ * obličej) by totéž udělala "hnojárek" ze vzorku, který tam není.
+ */
+private fun continuePeriodicTexture(
+    pixels: IntArray,
+    luminance: IntArray,
+    isText: BooleanArray,
+    w: Int,
+    h: Int,
+) {
+    var masked = 0
+    for (m in isText) if (m) masked++
+    if (masked == 0) return
+
+    // Dominantní jas podkladu (medián nemaskovaných pixelů). Skórují se jen páry
+    // ukotvené v "objektu" - pixelu odlišném od pozadí. Bez ukotvení by na řídké
+    // textuře (pár teček na bílé) vyhrály triviální posuny typu (1,0), protože
+    // drtivá většina párů je pozadí->pozadí.
+    val hist = IntArray(256)
+    var sampled = 0
+    for (i in pixels.indices) {
+        if (isText[i]) continue
+        hist[luminance[i]]++
+        sampled++
+    }
+    if (sampled == 0) return
+    var acc = 0
+    var bgLum = 0
+    while (bgLum < 255 && acc + hist[bgLum] <= sampled / 2) {
+        acc += hist[bgLum]
+        bgLum++
+    }
+
+    // Feature pixely (rastrové tečky, šrafy...) - plné rozlišení, žádné podvzorkování.
+    // Podvzorkovaná mřížka by aliasovala: tečka 2px široká se ve vzorkování krokem 2
+    // schová a sub-periodické posuny pak skórují falešně na 100 %.
+    val feat = ArrayList<Int>(sampled / 4 + 1)
+    for (i in pixels.indices) {
+        if (!isText[i] && abs(luminance[i] - bgLum) > PERIOD_FEATURE_MARGIN) feat.add(i)
+    }
+    if (feat.size < PERIOD_MIN_PAIRS) return
+
+    // Kandidátní posuny: dy>0 se všemi dx, plus dy=0 s dx>0 (opačná znaménka jsou
+    // tentýž posun - kopírovací mřížka je symetrická).
+    val offsets = ArrayList<Pair<Int, Int>>(PERIOD_MAX * PERIOD_MAX)
+    for (dy in 0..PERIOD_MAX) {
+        for (dx in -PERIOD_MAX..PERIOD_MAX) {
+            if (dy == 0 && dx <= 0) continue
+            if (dx == 0 && dy == 0) continue
+            offsets.add(dx to dy)
+        }
+    }
+
+    // Skóre posunu = podíl feature pixelů, jejichž posunutý protějšek má skoro stejný
+    // jas. Cena je O(ofsady * #feature), feature pixelů je řádově méně než všech.
+    val scored = ArrayList<Triple<Int, Int, Int>>(offsets.size)
+    for ((dx, dy) in offsets) {
+        var pairs = 0
+        var match = 0
+        for (i in feat) {
+            val nx = i % w + dx
+            val ny = i / w + dy
+            if (nx !in 0 until w || ny !in 0 until h) continue
+            val j = ny * w + nx
+            if (isText[j]) continue
+            pairs++
+            if (abs(luminance[i] - luminance[j]) <= PERIOD_LUM_TOL) match++
+        }
+        if (pairs >= PERIOD_MIN_PAIRS) scored.add(Triple(dx, dy, match * 100 / pairs))
+    }
+    // Mezi dobře skórujícími posuny vyhraj nejkratší - skutečná perioda je nejmenší
+    // periodický posun. Násobky periody skórují stejně, ale přeskakují zbytečně daleko.
+    val good = scored.filter { it.third >= PERIOD_MIN_SCORE }
+        .sortedBy { it.first * it.first + it.second * it.second }
+    val first = good.firstOrNull() ?: return
+    val v = first.first to first.second
+    // Druhá báze: nejkratší dobře skórující posun NEKOLINEÁRNÍ s v (jinak by v i w
+    // pokryly jen jednu osu a 2D mřížka by se protáhla do čar).
+    val wOffset = good.firstOrNull { (dx, dy, _) ->
+        v.first * dy - v.second * dx != 0
+    }?.let { it.first to it.second }
+
+    for (i in pixels.indices) {
+        if (!isText[i]) continue
+        val x = i % w
+        val y = i / w
+        // Pozice stejné fáze v mřížce: p±v, p±w, p±2v, p±2w, p±v±w - první nemaskovaná
+        // dává barvu se správnou fází. Víc kombinací není třeba - zbytek dořeší Voronoi.
+        for ((ox, oy) in PHASE_OFFSETS) {
+            val nx = x + v.first * ox + (wOffset?.first ?: 0) * oy
+            val ny = y + v.second * ox + (wOffset?.second ?: 0) * oy
+            if (nx !in 0 until w || ny !in 0 until h) continue
+            val n = ny * w + nx
+            if (!isText[n]) {
+                pixels[i] = pixels[n]
+                // Odmaskovat - Voronoi výplň by jinak periodický výsledek přepsala
+                // nejbližším zdrojem; nově reálný pixel navíc sám poslouží jako zdroj.
+                isText[i] = false
+                break
+            }
+        }
+    }
+}
+
+/** Kombinace (násobek v, násobek w), kterými se hledá nemaskovaný zdroj stejné fáze. */
+private val PHASE_OFFSETS = listOf(
+    -1 to 0, 1 to 0, 0 to -1, 0 to 1,
+    -2 to 0, 2 to 0, 0 to -2, 0 to 2,
+    -1 to -1, 1 to -1, -1 to 1, 1 to 1,
+    -2 to -1, 2 to -1, -2 to 1, 2 to 1,
+    -1 to -2, 1 to -2, -1 to 2, 1 to 2,
+)
 
 /**
  * Potlačí falešné "textové" pixely, které adaptivní práh označí v texturách
@@ -334,6 +504,129 @@ private fun sealEnclosedHoles(
             if (!mask[i] && !reached[i]) mask[i] = true
         }
     }
+}
+
+/**
+ * Domaskuje inkoust glyphu OŘÍZNUTÉHO hranou textové oblasti - viz volající v
+ * [buildTextPatch]. Bez toho pahýl tahu za hranicí regionu (mezi OCR boxem a krajem
+ * záplaty) zůstane v obrázku jako viditelný zbytek originálního textu, protože
+ * adaptivní práh ani seal za hranici regionu nesahají.
+ *
+ * Postup: mediana jasu NEMASKOVANÝCH pixelů regionu = referenční "pozadí" (inkoust
+ * je menšina, i když maska sahá k hraně). Ze maskovaných pixelů na okrajovém kroužku
+ * regionu se pak spustí BFS přes nemaskované pixely, které (a) leží na STEJNÉM pólu
+ * jasu jako seed - a to O [INK_FLOOD_POLE_MARGIN] za mediánem pozadí, ne jen "tmavší/
+ * světlejší": dilatace masku posouvá o dva pixely i přes pozadí, takže kroužkové pixely
+ * bez marginu byly prostě pozadí a zaplava by se utrhla přes celé pole (kroková
+ * tolerance sama pozadí stejnomé barvy nezastaví - mezi ním je nulový skok) - a (b)
+ * nemění jas o víc než [INK_FLOOD_STEP_TOL] za krok - tj. pokračující tah inkoustu, ne
+ * jiná kresba. Běží zvlášť pro tmavý a světlý pól (outlined glyph = tmavý obrys +
+ * světlé jádro, každý se doleptává sám).
+ *
+ * @return `true`, když zaplava doběhla na okraj své domény uvnitř obrázku - tah tedy
+ *   pravděpodobně pokračuje za dosahem a má smysl zkusit větší [reach].
+ *
+ * Bezpečnostní brzdy, proč se to neutrhne přes půl kresby:
+ * - seedů je nutný dotyk masky s hranou regionu: běžný text s rezervou [pad] na
+ *   hranu nesašáhne a funkce skončí prázdná,
+ * - dosah je ohraničený obdélník region + [reach] (řádově jednotky-desítky px,
+ *   škáluje s velikostí písma), nic mimo něj se nemaskovat nemůže,
+ * - pól + kroková tolerance zastaví zaplavu na ostrém přechodu inkoust->kresba;
+ *   když pozadí náhodou inkoustu jasově odpovídá (černý tah na černém panelu),
+ *   zaplava sice stejnomá kousek pozadí sebere, ale Voronoi výplň ho nahradí tou
+ *   samou barvou = neviditelné.
+ */
+private fun floodClippedGlyphs(
+    mask: BooleanArray,
+    luminance: IntArray,
+    w: Int,
+    h: Int,
+    rl: Int,
+    rt: Int,
+    rr: Int,
+    rb: Int,
+    reach: Int,
+): Boolean {
+    val l = rl.coerceIn(0, w)
+    val t = rt.coerceIn(0, h)
+    val r = rr.coerceIn(l, w)
+    val b = rb.coerceIn(t, h)
+    if (r - l <= 0 || b - t <= 0) return false
+    val el = (l - reach).coerceAtLeast(0)
+    val et = (t - reach).coerceAtLeast(0)
+    val er = (r + reach).coerceAtMost(w)
+    val eb = (b + reach).coerceAtMost(h)
+
+    // Referenční jas pozadí = medián nemaskovaných pixelů regionu.
+    val hist = IntArray(256)
+    var count = 0
+    for (y in t until b) {
+        for (x in l until r) {
+            val i = y * w + x
+            if (!mask[i]) {
+                hist[luminance[i]]++
+                count++
+            }
+        }
+    }
+    if (count == 0) return false
+    var acc = 0
+    var bgRef = 0
+    val half = count / 2
+    while (bgRef < 255 && acc + hist[bgRef] <= half) {
+        acc += hist[bgRef]
+        bgRef++
+    }
+    val darkLimit = bgRef - INK_FLOOD_POLE_MARGIN
+    val lightLimit = bgRef + INK_FLOOD_POLE_MARGIN
+
+    val queue = IntArray(w * h)
+    var clipped = false
+    for (lightPole in booleanArrayOf(false, true)) {
+        var qs = 0
+        var qe = 0
+        fun seed(i: Int) {
+            if (!mask[i]) return
+            val onPole = if (lightPole) luminance[i] > lightLimit else luminance[i] < darkLimit
+            if (onPole) queue[qe++] = i
+        }
+        for (x in l until r) {
+            seed(t * w + x)
+            seed((b - 1) * w + x)
+        }
+        for (y in t until b) {
+            seed(y * w + l)
+            seed(y * w + r - 1)
+        }
+        while (qs < qe) {
+            val i = queue[qs++]
+            val x = i % w
+            val y = i / w
+            val lum = luminance[i]
+            fun visit(nx: Int, ny: Int) {
+                if (nx < el || nx >= er || ny < et || ny >= eb) return
+                val n = ny * w + nx
+                if (mask[n]) return
+                val nl = luminance[n]
+                val onPole = if (lightPole) nl > lightLimit else nl < darkLimit
+                if (!onPole || abs(nl - lum) > INK_FLOOD_STEP_TOL) return
+                mask[n] = true
+                queue[qe++] = n
+                // Zaplavený pixel na okraji DOMÉNY (ne na kraji obrázku - tam tah
+                // reálně končí) = tah za dosahem pravděpodobně pokračuje.
+                if ((nx == el && el > 0) || (nx == er - 1 && er < w) ||
+                    (ny == et && et > 0) || (ny == eb - 1 && eb < h)
+                ) {
+                    clipped = true
+                }
+            }
+            visit(x - 1, y)
+            visit(x + 1, y)
+            visit(x, y - 1)
+            visit(x, y + 1)
+        }
+    }
+    return clipped
 }
 
 /**
@@ -586,6 +879,61 @@ private const val DENSE_MASK_PERCENT = 55
 private const val TEXT_PAD_DIVISOR = 4
 private const val MIN_TEXT_PAD = 2
 private const val MAX_TEXT_PAD = 12
+
+// -- Ink-flood za hranou textové oblasti (viz [floodClippedGlyphs]) ----------------------
+
+/**
+ * Maximální změna jasu mezi sousedními pixely, která ještě znamená "pokračující tah
+ * inkoustu" při zaplavě za hranou regionu. Menší = unikne antialias lem oříznutého
+ * písmene; větší = zaplava protéká do podobně laděné kresby.
+ */
+private const val INK_FLOOD_STEP_TOL = 36
+
+/**
+ * Kolik jasu za mediánem pozadí musí pixel mít, aby platil za inkoustový pól - pro
+ * seedy i pro pokračování zaplavy. Bez marginu by maska rozšířená dilatací přes
+ * POZADÍ na kroužku regionu seedovala zaplavu do celého pole (pozadí samo má jas
+ * == medián, tedy leží "na pólu" na obě strany).
+ */
+private const val INK_FLOOD_POLE_MARGIN = 12
+
+/**
+ * Dosah zaplavy za hranici regionu: [pad] + osmina výšky textové oblasti, ohraničené.
+ * Pahýl oříznutého tahu u OCR hrany bývá krátký; větší dosah jen navyšuje šanci,
+ * že se při jasově shodném pozadí sebere i kousek kresby (i tak Voronoi-řešitelné).
+ */
+private const val INK_FLOOD_REACH_DIVISOR = 8
+private const val MIN_INK_FLOOD_REACH = 6
+private const val MAX_INK_FLOOD_REACH = 32
+
+/** Jednopixelové rozšíření po zaplavě - doleptá antialias lem oříznutého tahu. */
+private const val INK_FLOOD_DILATION = 1
+
+// -- Periodická textura (viz [continuePeriodicTexture]) ---------------------------------
+
+/**
+ * Největší perioda rastru/šrafury, kterou autokorelace zkouší (px). Typický komiksový
+ * raster je ~4-16 px podle rozlišení; delší periody by hledání jen zpomalovaly.
+ */
+private const val PERIOD_MAX = 16
+
+/** Jasový souhlas dvou pixelů počítaných jako "stejná fáze" (šum/antialias rastru). */
+private const val PERIOD_LUM_TOL = 14
+
+/**
+ * Odchylka od dominantního jasu pozadí, od které se pixel počítá jako "objekt"
+ * (feature) - skórují se jen páry, kde aspoň jeden pixel objekt obsahuje.
+ */
+private const val PERIOD_FEATURE_MARGIN = 24
+
+/**
+ * Minimální skóre posunu (v %), aby se posun uznal za periodu - pod ní není jisté, že
+ * jde o skutečný vzorek, a radši se nechá Voronoi než vysévat falešné tečky.
+ */
+private const val PERIOD_MIN_SCORE = 62
+
+/** Minimální počet nemaskovaných párů pro smysluplné skóre posunu. */
+private const val PERIOD_MIN_PAIRS = 60
 
 /** Pojistka proti nekonečné smyčce; při ~2px za kolo pokryje i velmi tlusté tahy. */
 private const val MAX_FILL_ROUNDS = 64

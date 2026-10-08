@@ -223,6 +223,26 @@ fun MangaReader(
         val latestGroups by rememberUpdatedState(groups)
         val latestPages by rememberUpdatedState(pages)
 
+        // Nekonecne cteni ZPET: ViewModel.prependPreviousWebtoonSegment vlozi predchozi
+        // kapitolu na ZACATEK `pages` - plochy indexy vseho obsahu se posunou o `added`.
+        // Bez posunu `currentSingleIndex` by pager zustal na stejnem cisle a ukazal o
+        // `added` stranek novejsi obsah (skok o kus kapitoly dopredu). Prepend se pozna
+        // podle toho, ze nova listina obsahuje starou jako SUFFIX; append dela to same
+        // na konci a indexy necha v klidu.
+        var prevPagesList by remember { mutableStateOf(pages) }
+        androidx.compose.runtime.LaunchedEffect(pages) {
+            val old = prevPagesList
+            prevPagesList = pages
+            val added = pages.size - old.size
+            if (added > 0 && pages.subList(added, pages.size) == old) {
+                currentSingleIndex += added
+                // Viditelnou stranku dotahnout instantne (ne animovane) na stejny
+                // obsah - currentPage je index skupiny, ne stranky.
+                val gi = groups.indexOfFirst { currentSingleIndex in it }
+                if (gi >= 0) pagerState.scrollToPage(gi)
+            }
+        }
+
         // Zaklad pro +/-1 navigaci (tap zony, klavesy, volume). `currentPage` se prepina
         // az v pulce prejezdu a `targetPage` se aktualizuje az kdyz animace realne
         // nastartuje - dva tapy v tesnem sledu (zapocteno i do jednoho framu) by z

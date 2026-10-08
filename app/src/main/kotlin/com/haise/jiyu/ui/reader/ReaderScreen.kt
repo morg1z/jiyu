@@ -140,6 +140,8 @@ fun ReaderScreen(
     val flippedBubbles       by viewModel.flippedBubbles.collectAsStateWithLifecycle()
     val webtoonSegments      by viewModel.webtoonSegments.collectAsStateWithLifecycle()
     val webtoonAppending     by viewModel.webtoonAppendingNext.collectAsStateWithLifecycle()
+    val webtoonPrepending    by viewModel.webtoonPrependingPrev.collectAsStateWithLifecycle()
+    val webtoonEpoch         by viewModel.webtoonEpoch.collectAsStateWithLifecycle()
     // "Nekonecne cteni" - sdilene nastaveni webtoonu i paged rezimu (segmenty se
     // seskládaji na jeden plochy proud stranek, viz ReaderContent.useInfinitePaged).
     val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsStateWithLifecycle()
@@ -381,6 +383,10 @@ fun ReaderScreen(
                 onResetChapter = { currentChapterId?.let { viewModel.jumpToChapter(it) } },
                 webtoonSegments = webtoonSegments,
                 onNeedMoreWebtoonSegments = { viewModel.appendNextWebtoonSegment() },
+                // Zpetne nekonecne cteni - dolnatahnout PREDCHOZI kapitolu na zacatek
+                // proudu (symetrie k appendu na konec).
+                onNeedPrevWebtoonSegments = { viewModel.prependPreviousWebtoonSegment() },
+                webtoonEpoch = webtoonEpoch,
                 // Paged nekonecne cteni - plochy index hlaseny cteckou, mapovani
                 // na (chapterId, lokalni) + dolnatizeni segmentu resi ViewModel.
                 infiniteScrollEnabled = infiniteScrollEnabled,
@@ -389,6 +395,7 @@ fun ReaderScreen(
                     viewModel.onWebtoonVisibleChapterChanged(id, localIndex, localOffset)
                 },
                 webtoonAppendingNextChapter = webtoonAppending,
+                webtoonPrependingPrevChapter = webtoonPrepending,
                 autoNextChapter = autoNextChapter,
                 onAutoNextChapter = { viewModel.navigateNext() },
                 cropBorders = cropBorders,

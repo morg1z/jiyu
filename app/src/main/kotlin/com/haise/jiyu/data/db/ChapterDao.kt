@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import androidx.room.Upsert
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
@@ -12,6 +13,10 @@ import kotlinx.coroutines.flow.Flow
 data class MangaUnreadCount(val mangaId: String, val count: Int)
 data class MangaTotalCount(val mangaId: String, val count: Int)
 data class MangaDownloadedCount(val mangaId: String, val count: Int)
+
+/** Parcialni update jen sloupce `language` - backfill pro existujici radky, ktere
+ * `insertNewOnly` pri refreshi ignoruje (viz MangaRepository.refreshChapters). */
+data class ChapterLanguageUpdate(val id: String, val language: String?)
 
 data class UpdateItem(
     val chapterId: String,
@@ -35,6 +40,13 @@ interface ChapterDao {
     /** Vloží jen nové kapitoly; existující nechá beze změny (zachová read/download stav). Vrací row IDs (-1L = conflict/ignored). */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertNewOnly(chapters: List<ChapterEntity>): List<Long>
+
+    /** Backfill `language` pro existujici radky - viz [ChapterLanguageUpdate]. */
+    @Update(entity = ChapterEntity::class)
+    suspend fun updateLanguages(updates: List<ChapterLanguageUpdate>)
+
+    @Query("SELECT id, language FROM chapter WHERE mangaId = :mangaId")
+    suspend fun getLanguagesForManga(mangaId: String): List<ChapterLanguageUpdate>
 
     @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
     fun observeForManga(mangaId: String): Flow<List<ChapterEntity>>
@@ -101,7 +113,7 @@ interface ChapterDao {
     @Query("""
         UPDATE OR REPLACE chapter SET id = :newId, sourceId = :newSourceId, url = :newUrl, name = :newName,
                dateUpload = :dateUpload, scanlationGroup = :scanlationGroup, volume = :volume,
-               groupsJson = :groupsJson
+               language = :language, groupsJson = :groupsJson
         WHERE id = :oldId
     """)
     suspend fun relink(
@@ -113,6 +125,7 @@ interface ChapterDao {
         dateUpload: Long,
         scanlationGroup: String?,
         volume: String?,
+        language: String?,
         groupsJson: String?,
     )
 

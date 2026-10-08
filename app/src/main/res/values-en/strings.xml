@@ -1240,6 +1240,7 @@
     <string name="webtoon_chapter_boundary_finished">End: %1$s</string>
     <string name="webtoon_chapter_boundary_next">Next: %1$s</string>
     <string name="webtoon_loading_next_chapter">Loading next chapter…</string>
+    <string name="webtoon_loading_prev_chapter">Loading previous chapter…</string>
     <string name="reader_home_desc">Home (Library)</string>
     <string name="browse_source_adult_badge">18+</string>
     <string name="comick_browse_search_history">RECENTLY SEARCHED</string>

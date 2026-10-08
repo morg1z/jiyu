@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
+import com.haise.jiyu.data.db.ChapterLanguageUpdate
 import com.haise.jiyu.data.db.CustomSourceDao
 import com.haise.jiyu.data.db.MangaCategoryMapping
 import com.haise.jiyu.data.db.MangaDao
@@ -620,16 +621,28 @@ class MangaRepository @Inject constructor(
                 dateUpload = chapter.dateUpload,
                 scanlationGroup = chapter.scanlationGroup,
                 volume = chapter.volume,
+                language = chapter.language,
                 groupsJson = serializeChapterGroups(chapter.groups),
                 discoveredAt = if (isNew) now else baselineTs,
             )
         }
         // Zdroj změnil schéma URL kapitol (nebo je uložené kapitoly z importu zálohy měly jinou
         // podobu URL): všechny by se vložily jako nové a staré řádky by zůstaly i se stavem čtení.
-        // Přemapují se podle čísla kapitoly. ComicK (agregátor, víc skupin na jedno číslo) se přeskakuje.
-        val migratedIds = if (manga.sourceId == "comick") emptySet() else migrateOrphanedChapters(mangaId, chapters)
+        // Přemapují se podle čísla kapitoly. Agregátory (víc skupin/jazyků na jedno číslo)
+        // se přeskakují - číslo tam není unikátní klíč a spárování by se spletlo.
+        val migratedIds = if (manga.sourceId in AGGREGATOR_SOURCE_IDS) emptySet() else migrateOrphanedChapters(mangaId, chapters)
         val toInsert = entities.filter { it.id !in migratedIds }
         val rowIds = chapterDao.insertNewOnly(toInsert)
+        // insertNewOnly existujici radky ignoruje, takze se jazyk musi doplnit zvlast -
+        // bez backfillu by stare agregatorske radky mely language NULL naveky a
+        // preferEnglishChapters by je nikdy nechytl.
+        if (chapters.any { it.language != null }) {
+            val existingLangs = chapterDao.getLanguagesForManga(mangaId).associate { it.id to it.language }
+            val langUpdates = entities
+                .filter { it.id in existingLangs && existingLangs[it.id] != it.language }
+                .map { ChapterLanguageUpdate(it.id, it.language) }
+            if (langUpdates.isNotEmpty()) chapterDao.updateLanguages(langUpdates)
+        }
         // NULL previousMax = zakladni naplneni (zadne kapitoly ulozene nebyly) - nic se
         // nehlasi jako nove ani pri vlozeni 200 kapitol; jinak jen cisla nad maximem,
         // ktera navic vydal zdroj AZ PO pridani titulu (viz doc - 2023 archiv neni novinka).
@@ -717,6 +730,7 @@ class MangaRepository @Inject constructor(
                         dateUpload = chapter.dateUpload,
                         scanlationGroup = chapter.scanlationGroup,
                         volume = chapter.volume,
+                        language = chapter.language,
                         groupsJson = serializeChapterGroups(chapter.groups),
                         discoveredAt = if (previousMax != null && chapter.chapterNumber > previousMax) now else existing.addedAt,
                     )
@@ -785,6 +799,7 @@ class MangaRepository @Inject constructor(
                         dateUpload = chapter.dateUpload,
                         scanlationGroup = chapter.scanlationGroup,
                         volume = chapter.volume,
+                        language = chapter.language,
                         groupsJson = serializeChapterGroups(chapter.groups),
                         discoveredAt = if (previousMax != null && chapter.chapterNumber > previousMax) now else existing.addedAt,
                     )
@@ -812,6 +827,7 @@ class MangaRepository @Inject constructor(
                 dateUpload = new.dateUpload,
                 scanlationGroup = new.scanlationGroup,
                 volume = new.volume,
+                language = new.language,
                 groupsJson = serializeChapterGroups(new.groups),
             )
             // relink() meni ChapterEntity.id - vsechny dalsi tabulky, ktere na kapitolu
@@ -1018,6 +1034,9 @@ class MangaRepository @Inject constructor(
          * `dateUpload` s denní přesností (půlnoc), takže kapitola vydaná tentýž den, kdy
          * uživatel titul přidal, nesmí gatem propadnout. 2023 archiv tohle nikdy neprojde. */
         const val NEW_CHAPTER_UPLOAD_GRACE_MS = 24L * 60 * 60 * 1000
+        /** Agregátory s více řádky na jedno číslo kapitoly (skupiny/jazyky) - u nich
+         * číslo není unikátní klíč, takže [migrateOrphanedChapters] se přeskakuje. */
+        private val AGGREGATOR_SOURCE_IDS = setOf("comick", "comickart")
     }
 
     fun mangaId(sourceId: String, url: String) = "$sourceId::$url"

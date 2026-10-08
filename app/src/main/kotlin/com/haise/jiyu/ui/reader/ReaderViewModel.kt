@@ -27,6 +27,7 @@ import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.repository.preferEnglishChapters
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
@@ -83,6 +84,10 @@ private const val APPEND_RETRY_DELAY_MS = 2_000L
 /** Kolik stranek pred koncem posledniho segmentu se v paged nekonecnem cteni
  *  spusti appendNextWebtoonSegment - viz [ReaderViewModel.onPagedFlatPageChanged]. */
 private const val PAGED_APPEND_PREFETCH_DISTANCE = 4
+
+/** Kolik stranek od ZACATKU prvniho segmentu se v paged nekonecnem cteni
+ *  spusti prependPreviousWebtoonSegment - viz [ReaderViewModel.onPagedFlatPageChanged]. */
+private const val PAGED_PREPEND_PREFETCH_DISTANCE = 4
 
 /** Kolik stránek dopředu drží omezený (úsporný/zpoplatněná síť) prefetch - viz [ReaderViewModel.prefetchNextPage]. */
 private const val LIMITED_PREFETCH_AHEAD = 3
@@ -361,6 +366,18 @@ class ReaderViewModel @Inject constructor(
     private val _webtoonAppendingNext = MutableStateFlow(false)
     val webtoonAppendingNext: StateFlow<Boolean> = _webtoonAppendingNext.asStateFlow()
     private var appendingSegmentJob: Job? = null
+
+    // Zpetna symetrie nekonecneho cteni - viz prependPreviousWebtoonSegment.
+    private val _webtoonPrependingPrev = MutableStateFlow(false)
+    val webtoonPrependingPrev: StateFlow<Boolean> = _webtoonPrependingPrev.asStateFlow()
+    private var prependingSegmentJob: Job? = null
+
+    // Stabilni identita otevreneho proudu nekonecneho cteni ("epoch" pro klice
+    // ctecek). Nastavuje se JEN pri plnem otevreni kapitoly (loadChapter) -
+    // append/prepend ho nemeni. Bez nej by prepend zmenil `segments.first()` a
+    // paged ctecka by jako na novou kapitolu resetovala pozici na initialPage.
+    private val _webtoonEpoch = MutableStateFlow<String?>(null)
+    val webtoonEpoch: StateFlow<String?> = _webtoonEpoch.asStateFlow()
 
     // Scroll ve webtoon rezimu emituje pozici na kazdy pixel behem flingu - zapis do DB
     // na kazdou zmenu by appku zbytecne zatezoval. Misto toho se pri kazde zmene zrusi
@@ -1037,7 +1054,12 @@ class ReaderViewModel @Inject constructor(
         _currentPage.value = _initialPage.value
         _webtoonScrollOffset.value = if (positionIsFresh) chapter.lastScrollOffset else 0
 
-        val loadedChapters = repository.getAllChapters(chapter.mangaId)
+        // Vicejazycne agregatory (ComicK, comickart): bez prefer-EN filtru by
+        // navigace/next+prev a nekonecny proud skakaly do cizojazycne verze
+        // tehoz cisla kapitoly (nhlaseno uzivatelem u Sato-san). Filtrovany radek
+        // muze byt i otevrena kapitola sama - guard pod nim ji v takovem pripade
+        // dosadi zpet, aby indexOfFirst nikdy nevracel -1.
+        val loadedChapters = repository.getAllChapters(chapter.mangaId).preferEnglishChapters()
         // Ochrana proti relinku: kdyz refresh/migrace mezi getChapter a getAllChapters
         // nahradil otevrenou kapitolu entitou s jinym id, dosadime ji zpet na jeji
         // misto v DESC poradi. Bez tohohle indexOfFirst vracel -1 -> navigace byla
@@ -1168,7 +1190,10 @@ class ReaderViewModel @Inject constructor(
         // zacina cerstvym jednosegmentovym seznamem - i pri zapnutem "Nekonecnem cteni" se dalsi
         // segmenty pridavaji az prubezne za cteni (viz appendNextWebtoonSegment), ne predem.
         appendingSegmentJob?.cancel()
+        prependingSegmentJob?.cancel()
+        _webtoonPrependingPrev.value = false
         _webtoonSegments.value = listOf(WebtoonSegment(chapter.id, chapter.name, _pages.value))
+        _webtoonEpoch.value = chapter.id
     }
 
     /**
@@ -1552,6 +1577,57 @@ class ReaderViewModel @Inject constructor(
     }
 
     /**
+     * Zpetna varianta [appendNextWebtoonSegment] - prilepi PREDCHOZI kapitolu (tu, co v
+     * DESC seznamu lezi ZA prvni aktualne znamou kapitolou) na ZACATEK [_webtoonSegments],
+     * takze "Nekonecne cteni" pokracuje plynule i pri cteni zpatky pres hranici kapitoly.
+     * Volaji WebtoonReader (scroll k zacatku), paged ctecky pres [onPagedFlatPageChanged]
+     * a curl ctecka pres `onNeedPrevPages` (tah pred prvni stranku).
+     *
+     * Posun indexu vlozeneho obsahu kompenzuji ctecky samy - LazyColumn drzi viditelnou
+     * pozici pres klice polozek, paged ctecky si po prependu posunou plochy index o
+     * velikost noveho segmentu (viz ReaderPager/MangaPageCurlReader).
+     */
+    fun prependPreviousWebtoonSegment() {
+        if (!infiniteScrollEnabled.value) return
+        if (prependingSegmentJob?.isActive == true) return
+        val segments = _webtoonSegments.value
+        val firstChapterId = segments.firstOrNull()?.chapterId ?: return
+        val firstIdx = chapterIndexOrTrace(firstChapterId, "prependPreviousWebtoonSegment")
+        // allChapters je DESC (nejnovější první) - predchozi/starsi kapitola je VYSSI index.
+        if (firstIdx < 0 || firstIdx + 1 >= allChapters.size) return
+        val prevChapter = allChapters[firstIdx + 1]
+        if (segments.any { it.chapterId == prevChapter.id }) return
+        _webtoonPrependingPrev.value = true
+        prependingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                var pages: List<String>? = null
+                // Stejna retry politika jako appendNextWebtoonSegment - neuspesny fetch
+                // nesmi zustat tichym dead-endem na zacatku proudu.
+                for (attempt in 1..APPEND_FETCH_ATTEMPTS) {
+                    pages = kotlinx.coroutines.withTimeoutOrNull(CHAPTER_LOAD_TIMEOUT_MS) {
+                        fetchChapterPagesForSegment(prevChapter)
+                    }
+                    if (!pages.isNullOrEmpty()) break
+                    if (attempt < APPEND_FETCH_ATTEMPTS) delay(APPEND_RETRY_DELAY_MS)
+                }
+                if (pages.isNullOrEmpty()) return@launch
+                val newSegment = WebtoonSegment(prevChapter.id, prevChapter.name, pages)
+                _webtoonSegments.value = listOf(newSegment) + _webtoonSegments.value
+                prefetchChapterStart(pages, prevChapter.sourceId)
+                if (_translateMode.value) {
+                    preloadCachedTranslations(prevChapter.id, pages)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("reader:infiniteScroll:prependPrevSegment")
+            } finally {
+                _webtoonPrependingPrev.value = false
+            }
+        }
+    }
+
+    /**
      * Naplni [_translatedPagesByChapter] z Room cache pro napojeny segment - viz
      * [appendNextWebtoonSegment]. Stranky bez zaznamu preskoci; putTranslatedPage
      * se postara o flat mapu jen pro aktualni kapitolu.
@@ -1725,6 +1801,12 @@ class ReaderViewModel @Inject constructor(
             // na pomalem zdroji trva desitky sekund.
             if (i == segments.lastIndex && local >= segment.pages.size - PAGED_APPEND_PREFETCH_DISTANCE) {
                 appendNextWebtoonSegment()
+            }
+            // Symetricky zpet: blizko ZACATKU prvniho segmentu se dolnatahne
+            // PREDCHOZI kapitola - po prependu swipe/tah zpet pokracuje plynule
+            // do ni misto narazeni na hrany proudu.
+            if (i == 0 && local <= PAGED_PREPEND_PREFETCH_DISTANCE) {
+                prependPreviousWebtoonSegment()
             }
             return
         }

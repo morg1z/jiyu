@@ -416,6 +416,9 @@ class ComicKArtSource(
             volume = vol,
             scanlationGroup = groups.joinToString(", ") { it.name }.ifBlank { null },
             groups = groups,
+            // Mirror drzi u kapitoly jazyk primo v hid URL - bez zachovani se
+            // vicejazycne verze tehoz cisla michaly jako nerozlisitelne duplicity.
+            language = lang,
         )
     }
 

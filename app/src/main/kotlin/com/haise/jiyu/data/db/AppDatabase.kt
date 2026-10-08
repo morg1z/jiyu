@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 44,
+    version = 45,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -421,6 +421,16 @@ abstract class AppDatabase : RoomDatabase() {
                 )
             }
         }
+        val MIGRATION_44_45 = object : Migration(44, 45) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Jazyk kapitoly - agregatory (ComicK, comickart) vraci jednu logickou
+                // kapitolu per jazyk; bez sloupce se v UI michaly EN a ne-EN verze
+                // jako nerozlisitelne duplicity. Existujici radky zustanou NULL
+                // a doplni se az pri dalsim refreshi (preferEnglishChapters se
+                // chova jen tam, kde se jazyky skutecne michaji).
+                db.execSQL("ALTER TABLE chapter ADD COLUMN language TEXT")
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -469,6 +479,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_41_42,
             MIGRATION_42_43,
             MIGRATION_43_44,
+            MIGRATION_44_45,
         )
     }
 }

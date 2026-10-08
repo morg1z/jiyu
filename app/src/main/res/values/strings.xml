@@ -795,6 +795,7 @@
     <string name="webtoon_chapter_boundary_finished">Konec: %1$s</string>
     <string name="webtoon_chapter_boundary_next">Další: %1$s</string>
     <string name="webtoon_loading_next_chapter">Načítám další kapitolu…</string>
+    <string name="webtoon_loading_prev_chapter">Načítám předchozí kapitolu…</string>
     <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
     <string name="reader_incognito_off_desc">Vypnout inkognito</string>
     <string name="reader_incognito_on_desc">Inkognito</string>

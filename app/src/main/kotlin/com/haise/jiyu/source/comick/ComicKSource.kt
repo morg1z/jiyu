@@ -781,6 +781,10 @@ class ComicKSource @Inject constructor(
             volume          = vol,
             scanlationGroup = groups.joinToString(", ") { it.name }.ifBlank { null },
             groups          = groups,
+            // ComicK vraci jednu logickou kapitolu per jazyk ("en", "pt-br", ...) -
+            // bez zachovani jazyka se v detailu michaly duplicity (audit: uzivatel
+            // hlasil stejnou kapitolu anglicky i portugalsky vedle sebe).
+            language        = if (json.isNull("lang")) null else json.optString("lang").ifBlank { null },
         )
     }
 

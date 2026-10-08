@@ -112,8 +112,18 @@ fun ReaderContent(
     onResetChapter: () -> Unit = {},
     webtoonSegments: List<WebtoonSegment> = emptyList(),
     onNeedMoreWebtoonSegments: () -> Unit = {},
+    /** Zpetna symetrie [onNeedMoreWebtoonSegments] - ReaderViewModel.prependPreviousWebtoonSegment. */
+    onNeedPrevWebtoonSegments: () -> Unit = {},
     onWebtoonVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
     webtoonAppendingNextChapter: Boolean = false,
+    /** True po dobu prependu predchozi kapitoly - horni indikacni chip u paged ctecek. */
+    webtoonPrependingPrevChapter: Boolean = false,
+    /**
+     * Stabilni identita nekonecneho proudu pro `contentEpoch` ctecek - kapitola, se
+     * kterou proud zacal (ReaderViewModel.webtoonEpoch). Bez ni by prepend zmenil
+     * `webtoonSegments.first()` a ctecka by resetovala pozici jako pri nove kapitole.
+     */
+    webtoonEpoch: String? = null,
     autoNextChapter: Boolean = false,
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
@@ -196,10 +206,14 @@ fun ReaderContent(
         // Se zapnutym infiniteScroll paged ctecky nedostanou jen `pages` aktualni
         // kapitoly, ale seskladanou listu pres vsechny napojene segmenty (hlasi
         // pak plochy index, mapovani na kapitolu dela VM.onPagedFlatPageChanged).
-        // `epoch` = id PRVNÍHO segmentu - appendy meni `pages`, ale epoch drzi
-        // stabilni, takze vnitřní stav ctecek (pozice/zoom/drag) se neresetuje.
+        // `epoch` = id segmentu, se kterym proud zacal (`webtoonEpoch` z ViewModelu -
+        // appendy ANI prependy ho nemeni, takze vnitrni stav ctecek (pozice/zoom/drag)
+        // se neresetuje). Fallback na `first()` kryje stav pred prvnim loadChapter
+        // (epoch jeste null) - v tu chvili jednosegmentovy seznam zadny prepend nema.
         val useInfinitePaged = infiniteScrollEnabled && !isWebtoon && webtoonSegments.isNotEmpty()
-        val pagedEpoch: Any = if (useInfinitePaged) webtoonSegments.first().chapterId else pages
+        val pagedEpoch: Any = if (useInfinitePaged) {
+            webtoonEpoch ?: webtoonSegments.first().chapterId
+        } else pages
         val pagedPages = if (useInfinitePaged) {
             remember(webtoonSegments) { webtoonSegments.flatMap { it.pages } }
         } else pages
@@ -259,6 +273,8 @@ fun ReaderContent(
                 initialPage = initialPage,
                 initialScrollOffset = webtoonScrollOffset,
                 onNeedMoreSegments = onNeedMoreWebtoonSegments,
+                onNeedPrevSegments = onNeedPrevWebtoonSegments,
+                isPrependingPrevChapter = webtoonPrependingPrevChapter,
                 onVisibleChapterChanged = onWebtoonVisibleChapterChanged,
                 translateMode = effectiveTranslateMode,
                 translatedPagesByChapter = translatedPagesByChapter,
@@ -321,6 +337,8 @@ fun ReaderContent(
                 // Nekonecne cteni: tah za konec seskladaneho proudu dolnatahne dalsi
                 // kapitolu misto tvrde navigace (ta by resetovala segmenty na jednu).
                 onNeedMorePages = if (useInfinitePaged) ({ onNeedMoreWebtoonSegments() }) else null,
+                // Symetricky pred zacatek - tah zpet dolnatahne predchozi kapitolu.
+                onNeedPrevPages = if (useInfinitePaged) ({ onNeedPrevWebtoonSegments() }) else null,
             )
         } else {
             MangaReader(
@@ -472,6 +490,26 @@ fun ReaderContent(
             ) {
                 Text(
                     text = stringResource(R.string.webtoon_loading_next_chapter),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        // Zpetna symetrie - stahovani PREDCHOZI kapitoly u horniho okraje.
+        if (useInfinitePaged && webtoonPrependingPrevChapter) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.webtoon_loading_prev_chapter),
                     color = Color.White,
                     fontSize = 12.sp,
                 )

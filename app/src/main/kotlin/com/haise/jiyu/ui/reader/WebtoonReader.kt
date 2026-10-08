@@ -101,6 +101,9 @@ fun WebtoonReader(
     initialPage: Int,
     initialScrollOffset: Int = 0,
     onNeedMoreSegments: () -> Unit = {},
+    /** Zpetna varianta [onNeedMoreSegments] - scroll k ZACATKU prvniho segmentu
+     *  pozada o prepend predchozi kapitoly (ReaderViewModel.prependPreviousWebtoonSegment). */
+    onNeedPrevSegments: () -> Unit = {},
     onVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
     translateMode: Boolean,
     // Klíčovaná chapterId, ne plochá jako u ReaderPageru/MangaPageCurlReaderu - viz komentář
@@ -126,6 +129,9 @@ fun WebtoonReader(
     // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
     // "mrtvého" scrollu na pomalém zdroji).
     isAppendingNextChapter: Boolean = false,
+    /** Zpetna symetrie [isAppendingNextChapter] - indikace nad prvnim segmentem
+     *  po dobu stahovani predchozi kapitoly (prepend). */
+    isPrependingPrevChapter: Boolean = false,
     /** Průběžný report pozice pro edge scrubber: (flat index první viditelné položky,
      *  celkový počet položek seznamu). Volá se ze stejného snapshotFlow jako
      *  [onVisibleChapterChanged] - zdarma, žádný druhý sběr scrollu. */
@@ -211,23 +217,34 @@ fun WebtoonReader(
     // "Nekonecne cteni" prubezne PRIDAVA dalsi segmenty na konec BEZE ZMENY prvniho, a to
     // nesmi zpusobit skok zpatky na zacatek prvniho segmentu (proto klic jen na
     // `segments.firstOrNull()?.chapterId`, ne na cely seznam).
+    //
+    // VYJIMKA - prepend predchozi kapitoly (nekonecne cteni zpet): prvni segment se zmeni,
+    // ale puvodni prvni v seznamu zustava. Pozici drzi LazyColumn sama pres klice polozek
+    // a obnoveni z DB se NESMI spustit - skocilo by na `initialPage` uprostred cteni.
+    // Poznani: predchozi prvni segment je v novem seznamu porad pritomen.
     var isRestoringPosition by remember { mutableStateOf(true) }
+    var lastFirstSegmentId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(segments.firstOrNull()?.chapterId) {
-        isRestoringPosition = true
-        val firstPageCount = segments.firstOrNull()?.pages?.size ?: 0
-        if (firstPageCount > 0) {
-            val target = initialPage.coerceIn(0, firstPageCount - 1)
-            // scrollToItem() hned po prvnim slozeni LazyColumn muze tise selhat a skoncit
-            // na indexu 0 - stranky jsou obrazky s neznamou vyskou predem, takze prvni
-            // layout pruchod jeste nemusi byt "usazeny" (overeno zive). Opakuje se tedy,
-            // dokud se skutecne netrefi, nebo dokud to po par pokusech nevzda.
-            for (attempt in 0 until 8) {
-                listState.scrollToItem(target, initialScrollOffset)
-                if (listState.firstVisibleItemIndex == target && listState.firstVisibleItemScrollOffset == initialScrollOffset) break
-                if (attempt < 7) delay(150L)
+        val prepended = lastFirstSegmentId != null &&
+            segments.any { it.chapterId == lastFirstSegmentId }
+        if (!prepended) {
+            isRestoringPosition = true
+            val firstPageCount = segments.firstOrNull()?.pages?.size ?: 0
+            if (firstPageCount > 0) {
+                val target = initialPage.coerceIn(0, firstPageCount - 1)
+                // scrollToItem() hned po prvnim slozeni LazyColumn muze tise selhat a skoncit
+                // na indexu 0 - stranky jsou obrazky s neznamou vyskou predem, takze prvni
+                // layout pruchod jeste nemusi byt "usazeny" (overeno zive). Opakuje se tedy,
+                // dokud se skutecne netrefi, nebo dokud to po par pokusech nevzda.
+                for (attempt in 0 until 8) {
+                    listState.scrollToItem(target, initialScrollOffset)
+                    if (listState.firstVisibleItemIndex == target && listState.firstVisibleItemScrollOffset == initialScrollOffset) break
+                    if (attempt < 7) delay(150L)
+                }
             }
+            isRestoringPosition = false
         }
-        isRestoringPosition = false
+        lastFirstSegmentId = segments.firstOrNull()?.chapterId
     }
 
     LaunchedEffect(listState, segments) {
@@ -248,6 +265,21 @@ fun WebtoonReader(
             // i desitky sekund, 3 stranky rezervy nestacily a scroll dorazil na konec
             // driv, nez novy obsah dorazil (live audit).
             if (idx >= lastPageFlatIndex - APPEND_PREFETCH_DISTANCE) onNeedMoreSegments()
+            // Symetricky zpet - u ZACATKU prvniho segmentu se dolnatahne predchozi
+            // kapitola (prepend). Ne behem obnovy pozice - index 0 pri prvnim
+            // slozeni by jinak hned tahol predchozi kapitolu porad znovu.
+            if (!isRestoringPosition && idx <= PREPEND_PREFETCH_DISTANCE) onNeedPrevSegments()
+        }
+    }
+
+    // Po dobehnuti obnovy pozice muze prvni viditelna polozka byt porad uplne nahore
+    // (otevreni na str. 0) - snapshotFlow vyse ale nereemituje, protoze se
+    // (idx, offset) nezmenil; prepend trigger se proto zkontroluje jeste jednou zvlast.
+    LaunchedEffect(isRestoringPosition) {
+        if (!isRestoringPosition &&
+            listState.firstVisibleItemIndex <= PREPEND_PREFETCH_DISTANCE
+        ) {
+            onNeedPrevSegments()
         }
     }
 
@@ -413,6 +445,14 @@ fun WebtoonReader(
                 translationY = panOffset.y
             },
     ) {
+        // Indikace stahovani PREDCHOZI kapitoly uplne nahore - klicovana polozka,
+        // takze LazyColumn pri jejim vlozeni/odstraneni drzi pozici zbytku pres
+        // klice (zadny skok obsahu).
+        if (isPrependingPrevChapter) {
+            item(key = "prepending_prev_chapter") {
+                PrevChapterLoadingRow()
+            }
+        }
         segments.forEachIndexed { segIdx, seg ->
             webtoonSegmentItems(
                 segment = seg,
@@ -508,6 +548,29 @@ private fun NextChapterLoadingRow() {
         )
         Text(
             text = stringResource(R.string.webtoon_loading_next_chapter),
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 13.sp,
+        )
+    }
+}
+
+/** Zpetna symetrie [NextChapterLoadingRow] - nad prvnim segmentem pri prependu. */
+@Composable
+private fun PrevChapterLoadingRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.dp,
+            color = Color.White.copy(alpha = 0.7f),
+        )
+        Text(
+            text = stringResource(R.string.webtoon_loading_prev_chapter),
             color = Color.White.copy(alpha = 0.6f),
             fontSize = 13.sp,
         )
@@ -887,6 +950,13 @@ private const val PLACEHOLDER_ASPECT_MAX = 1.6f
 
 /** Kolik stranek pred koncem posledniho segmentu se spusti dotaz na dalsi kapitolu - viz snapshotFlow ve [WebtoonReader]. */
 private const val APPEND_PREFETCH_DISTANCE = 6
+
+/**
+ * Kolik položek od ZAČÁTKU proudu spustí prepend předchozí kapitoly (nekonečné čtení
+ * zpět). Menší než dopředná rezerva - při scrollování nahoru se LazyColumn posune
+ * po ~stránce naráz, takže několik položek rezervy na fetch stačí.
+ */
+private const val PREPEND_PREFETCH_DISTANCE = 3
 
 /** Horni mez poctu vzorku pomeru stranek pro median placeholderu - viz pageAspectSamples ve [WebtoonReader]. */
 private const val MAX_ASPECT_SAMPLES = 40

@@ -103,6 +103,7 @@ enum class RecoveryState {
 @Singleton
 class TextPatchProvider @Inject constructor(
     private val pageBitmapLoader: PageBitmapLoader,
+    private val pageRegionSource: PageRegionSource,
 ) {
     private val cache = object : LruCache<String, Map<Int, BubbleOverlayFix>>(CACHE_BYTES) {
         override fun sizeOf(key: String, value: Map<Int, BubbleOverlayFix>): Int =
@@ -155,10 +156,15 @@ class TextPatchProvider @Inject constructor(
         cache.get(key)?.let { return it }
 
         return withContext(Dispatchers.Default) {
+            // Coarse base bitmapa (zmenšená na PATCH_SOURCE_MAX_DIMENSION) se načítá POŘÁD,
+            // i když záplaty jedou nativně - potřebuje ji [recoverBubble] jako celostránkový
+            // PixelSource (flood-fill se umí protáhnout přes čtvrtinu stránky, což region-
+            // decode nepokryje rozumnou cenou) a slouží jako fallback, když region-decode
+            // není dostupný (lazy URL, zdroj mimo disk cache, nedekódovatelný soubor).
             val bitmap = pageBitmapLoader.load(pageUrl, PATCH_SOURCE_MAX_DIMENSION)
             val result = when {
                 bitmap == null -> diagOnlyMap(plan.keys, recoverable, PatchState.NO_BITMAP, RecoveryState.NO_BITMAP)
-                else -> runCatching { buildFixes(bitmap, positioned, plan, recoverable, crop) }
+                else -> runCatching { buildFixes(bitmap, pageUrl, positioned, plan, recoverable, crop) }
                     .onFailure { it.report("translate:patch:build") }
                     .getOrElse { diagOnlyMap(plan.keys, recoverable, PatchState.FAILED, RecoveryState.FAILED) }
             }
@@ -187,8 +193,9 @@ class TextPatchProvider @Inject constructor(
             )
         }
 
-    private fun buildFixes(
+    private suspend fun buildFixes(
         bitmap: Bitmap,
+        pageUrl: String,
         positioned: List<PositionedTranslationBlock>,
         plan: Map<Int, PatchRect>,
         recoverable: List<Int>,
@@ -257,121 +264,185 @@ class TextPatchProvider @Inject constructor(
 
         // 2) Záplaty - přes obnovený obrys, když existuje (interiér bubliny, žádný okraj
         //    stránky v řezu), jinak přes heuristický box jako dosud.
+        //
+        //    Nativní rozlišení: každý obdélník se dekóduje přímo ze zdrojového souboru
+        //    přes [PageRegionSource] (viz třída) - záplata má pak plné rozlišení stránky
+        //    místo výřezu z ~1600px kopie. Recovery výš běží na coarse `bitmap` (flood
+        //    fill potřebuje celostránkový PixelSource); když session není k dispozici
+        //    (lazy URL, zdroj mimo disk cache) nebo dekód jednoho řezu selže, řez
+        //    spadne na base cestu přesně jako dosud.
         val patches = HashMap<Int, Pair<Bitmap, Int?>>()
         val patchDiag = HashMap<Int, PatchState>()
         val patchDims = HashMap<Int, Pair<Int, Int>>()
-        for ((index, rect) in plan) {
-            val b = positioned[index].block
-            val shape = recovered[index]?.shape
-            // Obnovený obrys + jednolitý interiér: záplata nemá co zlepšit - oříznutá
-            // výplň sedí na konturu přesně a nenese inpaint artefakty. Navíc bitmapa
-            // by zbytečně stála místo v cache (viz CACHE_BYTES).
-            if (shape != null && b.bgUniform) {
-                patchDiag[index] = PatchState.SKIPPED_RECOVERED_FILL
-                continue
-            }
-            // Obnovený obrys: render přepne pozici bloku na jeho bbox (viz effPos v
-            // TranslationLayer), takže záplata se musí počítat přes TEN obdélník,
-            // ne přes původní heuristický box - jinak se roztáhne a maskované tahy
-            // dopadnou mimo písmena (= zbylý originál + rozmazané okolí).
-            val effRect = if (shape != null) {
-                // Obnovený obrys je v souřadnicích PŮVODNÍ bitmapy (recovery běžela nad ní)
-                // - tady se NEmapuje. Render přepne pozici bloku na jeho bbox (viz effPos
-                // v TranslationLayer), takže záplata se počítá přes ten obdélník, ne přes
-                // původní heuristický box - jinak by se roztáhla a maskované tahy by
-                // dopadly mimo písmena.
-                PatchRect(
-                    leftF = shape.minOf { it.leftF },
-                    topF = shape.first().yF,
-                    rightF = shape.maxOf { it.rightF },
-                    bottomF = shape.last().yF,
-                )
-            } else {
-                // rect z plánu je v prostoru ZOBRAZENÉHO obrázku - přemapovat na originál.
-                PatchRect(
-                    leftF = origX(rect.leftF), topF = origY(rect.topF),
-                    rightF = origX(rect.rightF), bottomF = origY(rect.bottomF),
-                )
-            }
-            val left = (effRect.leftF * w).toInt()
-            val top = (effRect.topF * h).toInt()
-            val right = (effRect.rightF * w).toInt()
-            val bottom = (effRect.bottomF * h).toInt()
-            val boxW = (right - left).coerceAtMost(w)
-            val boxH = (bottom - top).coerceAtMost(h)
-            if (boxW <= 0 || boxH <= 0) {
-                patchDiag[index] = PatchState.EMPTY
-                continue
-            }
-            // Absurdně velký box (chybná OCR souřadnice) by znamenal záplatu přes půl stránky -
-            // to už není oprava, to je nová placka. Radši nechat původní výplň.
-            if (boxW.toLong() * boxH > MAX_PATCH_PIXELS) {
-                patchDiag[index] = PatchState.TOO_BIG
-                patchDims[index] = boxW to boxH
-                continue
-            }
 
-            val textArgbOut = IntArray(1)
-            val argb = buildTextPatch(
-                source = source,
-                imageWidth = w,
-                imageHeight = h,
-                left = left,
-                top = top,
-                right = right,
-                bottom = bottom,
+        fun runPatchLoop(session: PageRegionSource.Session?) {
+            for ((index, rect) in plan) {
+                val b = positioned[index].block
+                val shape = recovered[index]?.shape
+                // Obnovený obrys + jednolitý interiér: záplata nemá co zlepšit - oříznutá
+                // výplň sedí na konturu přesně a nenese inpaint artefakty. Navíc bitmapa
+                // by zbytečně stála místo v cache (viz CACHE_BYTES).
+                if (shape != null && b.bgUniform) {
+                    patchDiag[index] = PatchState.SKIPPED_RECOVERED_FILL
+                    continue
+                }
+                // Obnovený obrys: render přepne pozici bloku na jeho bbox (viz effPos v
+                // TranslationLayer), takže záplata se musí počítat přes TEN obdélník,
+                // ne přes původní heuristický box - jinak se roztáhne a maskované tahy
+                // dopadnou mimo písmena (= zbylý originál + rozmazané okolí).
+                val effRect = if (shape != null) {
+                    // Obnovený obrys je v souřadnicích PŮVODNÍ bitmapy (recovery běžela
+                    // nad ní) - tady se NEmapuje.
+                    PatchRect(
+                        leftF = shape.minOf { it.leftF },
+                        topF = shape.first().yF,
+                        rightF = shape.maxOf { it.rightF },
+                        bottomF = shape.last().yF,
+                    )
+                } else {
+                    // rect z plánu je v prostoru ZOBRAZENÉHO obrázku - přemapovat na originál.
+                    PatchRect(
+                        leftF = origX(rect.leftF), topF = origY(rect.topF),
+                        rightF = origX(rect.rightF), bottomF = origY(rect.bottomF),
+                    )
+                }
+                // Guard ve zmenšeném (base) prostoru - velikost boxu vzhledem ke stránce je
+                // rozlišení-invariantní, takže "záplata přes půl stránky" se chytá stejně.
+                val left = (effRect.leftF * w).toInt()
+                val top = (effRect.topF * h).toInt()
+                val right = (effRect.rightF * w).toInt()
+                val bottom = (effRect.bottomF * h).toInt()
+                val boxW = (right - left).coerceAtMost(w)
+                val boxH = (bottom - top).coerceAtMost(h)
+                if (boxW <= 0 || boxH <= 0) {
+                    patchDiag[index] = PatchState.EMPTY
+                    continue
+                }
+                // Absurdně velký box (chybná OCR souřadnice) by znamenal záplatu přes půl
+                // stránky - to už není oprava, to je nová placka. Radši původní výplň.
+                if (boxW.toLong() * boxH > MAX_PATCH_PIXELS) {
+                    patchDiag[index] = PatchState.TOO_BIG
+                    patchDims[index] = boxW to boxH
+                    continue
+                }
                 // Záchranná barva (kdyby záplata neměla z čeho dopočítat) - pro obnovenou
                 // bublinu je nejlepší důkaz barva jejího interiéru, ne znečištěný prstenec.
-                bgArgb = recovered[index]?.interiorArgb ?: b.bgColorArgb,
-                // Písmo se hledá jen tam, kde ho OCR opravdu našlo - zbytek boxu je kresba,
-                // kterou nemá smysl prahovat ani dopočítávat (viz [buildTextPatch]).
-                // Souřadnice bloku jsou v prostoru zobrazení - přemapovat na originál.
-                textLeft = (origX(b.leftF) * w).toInt(),
-                textTop = (origY(b.topF) * h).toInt(),
-                textRight = (origX(b.rightF) * w).toInt(),
-                textBottom = (origY(b.bottomF) * h).toInt(),
-                meanTextArgbOut = textArgbOut,
-            )
-            if (argb.isEmpty()) {
-                patchDiag[index] = PatchState.EMPTY
+                val bgArgb = recovered[index]?.interiorArgb ?: b.bgColorArgb
+                val textArgbOut = IntArray(1)
+
+                // -- Nativní řez přes region-decode (viz [PageRegionSource]) ---------------
+                // buildTextPatch běží v souřadnicích SAMOTNÉHO řezu (0..tileW), textový
+                // region se do nich přepočte: nativní px → − levý okraj řezu → / sample.
+                var argb: IntArray? = null
+                var argbW = 0
+                if (session != null) {
+                    val nLeft = (effRect.leftF * session.width).toInt()
+                    val nTop = (effRect.topF * session.height).toInt()
+                    val nRight = (effRect.rightF * session.width).toInt()
+                    val nBottom = (effRect.bottomF * session.height).toInt()
+                    val nBoxW = nRight - nLeft
+                    val nBoxH = nBottom - nTop
+                    if (nBoxW > 0 && nBoxH > 0) {
+                        var sample = 1
+                        while (sample < 16 &&
+                            nBoxW.toLong() * nBoxH / (sample.toLong() * sample) > NATIVE_PATCH_PIXEL_CAP
+                        ) {
+                            sample *= 2
+                        }
+                        // Počátek řezu pro přepočet souřadnic je CLIPNUTÝ levý horní roh -
+                        // session.decode ořízne rect na stránku, takže tile px = (native -
+                        // clipOrigin) / sample.
+                        val cLeft = nLeft.coerceIn(0, session.width)
+                        val cTop = nTop.coerceIn(0, session.height)
+                        val tile = session.decode(
+                            android.graphics.Rect(nLeft, nTop, nRight, nBottom), sample,
+                        )
+                        if (tile != null) {
+                            val tileW = tile.width
+                            val tileH = tile.height
+                            val out = buildTextPatch(
+                                source = PixelSource { x, y -> tile.getPixel(x, y) },
+                                imageWidth = tileW,
+                                imageHeight = tileH,
+                                left = 0,
+                                top = 0,
+                                right = tileW,
+                                bottom = tileH,
+                                bgArgb = bgArgb,
+                                textLeft = (((origX(b.leftF) * session.width - cLeft) / sample)).toInt(),
+                                textTop = (((origY(b.topF) * session.height - cTop) / sample)).toInt(),
+                                textRight = (((origX(b.rightF) * session.width - cLeft) / sample)).toInt(),
+                                textBottom = (((origY(b.bottomF) * session.height - cTop) / sample)).toInt(),
+                                meanTextArgbOut = textArgbOut,
+                            )
+                            tile.recycle()
+                            if (out.isNotEmpty()) {
+                                argb = out
+                                argbW = tileW
+                            }
+                        }
+                    }
+                }
+
+                // -- Base fallback (downscale cesta jako dosud) ----------------------------
+                if (argb == null) {
+                    argb = buildTextPatch(
+                        source = source,
+                        imageWidth = w,
+                        imageHeight = h,
+                        left = left,
+                        top = top,
+                        right = right,
+                        bottom = bottom,
+                        bgArgb = bgArgb,
+                        // Písmo se hledá jen tam, kde ho OCR opravdu našlo - zbytek boxu je
+                        // kresba, kterou nemá smysl prahovat ani dopočítávat.
+                        textLeft = (origX(b.leftF) * w).toInt(),
+                        textTop = (origY(b.topF) * h).toInt(),
+                        textRight = (origX(b.rightF) * w).toInt(),
+                        textBottom = (origY(b.bottomF) * h).toInt(),
+                        meanTextArgbOut = textArgbOut,
+                    )
+                    argbW = (right.coerceIn(0, w) - left.coerceIn(0, w)).coerceAtLeast(0)
+                }
+                if (argb.isEmpty() || argbW <= 0) {
+                    patchDiag[index] = PatchState.EMPTY
+                    patchDims[index] = boxW to boxH
+                    continue
+                }
+                // Degenerovaná záplata: celá oblast padla do masky písma a dopočítat se
+                // nedalo (viz buildTextPatch - vrátí jednolitou barvu). U bubliny s obrysem
+                // je jednolitý výsledek neškodný (ořízne se konturou a splývá s výplní),
+                // ale u lettering-na-kresbě je to přesně ta placka přes malbu, kvůli které
+                // záplata vznikla - takový blok se má radši přeskočit, ne překrýt barvou.
+                // Jednolitá záplata u bloku s JEDNOLITÝM pozadím (bgUniform) naopak vadit
+                // nemůže: znamená, že celý render box sedí uvnitř jednobarevné oblasti
+                // (interiér bubliny) - vykreslený výřez je od plochy k nerozeznání a navíc
+                // drží skutečně naměřenou barvu místo prstence, který mohl znečistit okraj.
+                if (b.shape == null && shape == null && argb.isUniform() && !b.bgUniform) {
+                    patchDiag[index] = PatchState.DEGENERATE_UNIFORM
+                    patchDims[index] = boxW to boxH
+                    continue
+                }
+                // SIRKA bitmapy MUSI odpovidat skutecne sirce ARGB pole (nativni řez:
+                // tile.width; base: orezany box - viz minuly fix radkoveho preindexovani).
+                val rows = argb.size / argbW
+                if (rows <= 0 || rows * argbW != argb.size) {
+                    patchDiag[index] = PatchState.BAD_BITMAP
+                    patchDims[index] = boxW to boxH
+                    continue
+                }
+                // Jádrová barva písma (0 = nepodařilo se určit - render pak volí černou/bílou
+                // podle pozadí jako dosud).
+                val textArgb = textArgbOut[0].takeIf { it ushr 24 != 0 }
+                patches[index] = Bitmap.createBitmap(argb, argbW, rows, Bitmap.Config.ARGB_8888) to textArgb
+                patchDiag[index] = PatchState.BUILT
                 patchDims[index] = boxW to boxH
-                continue
             }
-            // Degenerovaná záplata: celá oblast padla do masky písma a dopočítat se nedalo
-            // (viz buildTextPatch - vrátí jednolitou barvu). U bubliny s obrysem je
-            // jednolitý výsledek neškodný (ořízne se konturou a splývá s výplní), ale u
-            // lettering-na-kresbě je to přesně ta placka přes malbu, kvůli které záplata
-            // vznikla - takový blok se má radši přeskočit, ne překrýt barvou.
-            // Jednolitá záplata u bloku s JEDNOLITÝM pozadím (bgUniform) naopak vadit
-            // nemůže: znamená, že celý render box sedí uvnitř jednobarevné oblasti
-            // (interiér bubliny) - vykreslený výřez je od plochy k nerozeznání a navíc
-            // drží skutečně naměřenou barvu místo prstence, který mohl znečistit okraj.
-            if (b.shape == null && shape == null && argb.isUniform() && !b.bgUniform) {
-                patchDiag[index] = PatchState.DEGENERATE_UNIFORM
-                patchDims[index] = boxW to boxH
-                continue
-            }
-            // SIRKA bitmapy MUSI odpovidat skutecne sirce ARGB pole (= x1-x0 po orezu
-            // uvnitr buildTextPatch). Puvodni `minOf(boxW, w - max(0,left))` selhalo
-            // pri left<0: vratilo vetsi sirku nez ma pole -> createBitmap pak pixely
-            // preindexovalo na spatnou sirku a radky se sesunuly = viditelny shear /
-            // "barcode" artefakt na hrany boxu sahlajici vlevo mimo stranku.
-            val patchLeft = left.coerceIn(0, w)
-            val patchRight = right.coerceIn(0, w)
-            val clampedW = patchRight - patchLeft
-            val rows = if (clampedW > 0) argb.size / clampedW else 0
-            if (clampedW <= 0 || rows <= 0 || rows * clampedW != argb.size) {
-                patchDiag[index] = PatchState.BAD_BITMAP
-                patchDims[index] = boxW to boxH
-                continue
-            }
-            // Jádrová barva písma (0 = nepodařilo se určit - render pak volí černou/bílou
-            // podle pozadí jako dosud).
-            val textArgb = textArgbOut[0].takeIf { it ushr 24 != 0 }
-            patches[index] = Bitmap.createBitmap(argb, clampedW, rows, Bitmap.Config.ARGB_8888) to textArgb
-            patchDiag[index] = PatchState.BUILT
-            patchDims[index] = boxW to boxH
         }
+
+        pageRegionSource.withSession(pageUrl) { session -> runPatchLoop(session) }
+            ?: runPatchLoop(null)
 
         return (patches.keys + recovered.keys + patchDiag.keys + recoverable).associateWith { i ->
             BubbleOverlayFix(
@@ -410,6 +481,13 @@ class TextPatchProvider @Inject constructor(
          * zpátky na jednolitou výplň - tedy přesně na tu placku, kvůli které záplata vznikla.
          */
         private const val MAX_PATCH_PIXELS = 600_000L
+
+        /**
+         * Strop pixelů NATIVNĚ dekódovaného řezu záplaty (před `inSampleSize`) - ~4 MP
+         * = ~16 MB dočasné ARGB bitmapy. Větší řez se dekóduje vzorkovaně; pořád
+         * kvalitnější než původní ~1600px base cesta.
+         */
+        private const val NATIVE_PATCH_PIXEL_CAP = 4L * 1024 * 1024
 
         /** Strop celé vyrovnávací paměti záplat. */
         private const val CACHE_BYTES = 12 * 1024 * 1024

@@ -256,6 +256,169 @@ class TextPatchArtifactTest {
         }
     }
 
+    // -- 5b) Glyph oříznutý hranou OCR boxu (ink-flood) ---------------------------------
+
+    /**
+     * OCR box sekl tlustý tah doprostřed: část glyphu leží ZA pravým okrajem textové
+     * oblasti. Seal díru nepozná (interiér je k okraji otevřený), maska za hranicí
+     * regionu neexistuje -> pahýl by přežil. Ink-flood má inkoust doleptat i venku.
+     */
+    @Test
+    fun `glyph clipped by the OCR box edge is removed beyond the box too`() {
+        val w = 80
+        val h = 40
+        val gray = argb(180, 180, 180)
+        val ink = argb(20, 20, 20)
+        // Tlustý tah x=30..60 (plná výška písma), OCR box končí na x=45.
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x -> if (x in 30..60 && y in 10..30) ink else gray }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = gray,
+            textLeft = 10, textTop = 6, textRight = 45, textBottom = 34,
+        )
+        // Pahýl za hranou regionu (x=50..60) má být dopočtený do pozadí.
+        for (x in 52..58 step 2) {
+            val lum = luminance(patch[20 * w + x])
+            assertTrue(
+                "oříznutý pahýl tahu na x=$x má kopírovat pozadí, byl lum=$lum",
+                lum > 120,
+            )
+        }
+        // A otevřený interiér uvnitř boxu taky (x=33..44 byl uvnitř tahu).
+        val inner = luminance(patch[20 * w + 37])
+        assertTrue("interiér oříznutého tahu má být dopočtený, byl $inner", inner > 120)
+    }
+
+    /**
+     * Světlý nápis oříznutý hranou boxu na tmavém pozadí - opačný pól inkoustu
+     * (bílý caption na černé kresbě).
+     */
+    @Test
+    fun `light glyph clipped by the OCR box edge is removed on dark background`() {
+        val w = 80
+        val h = 40
+        val dark = argb(15, 15, 15)
+        val ink = argb(245, 245, 245)
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x -> if (x in 20..55 && y in 12..28) ink else dark }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = dark,
+            textLeft = 10, textTop = 8, textRight = 40, textBottom = 32,
+        )
+        // Pahýl za pravou hranou regionu (x=46..55) - původně bílý inkoust.
+        for (x in 48..54 step 2) {
+            val lum = luminance(patch[20 * w + x])
+            assertTrue(
+                "oříznutý světlý pahýl na x=$x má ztmavnout na pozadí, byl lum=$lum",
+                lum < 100,
+            )
+        }
+    }
+
+    /**
+     * Negativa: samostatný tmavý tah ZA hranou regionu, který s glyphu nespojuje,
+     * je kresba a má přežít - ink-flood seeduje jen z masky dotýkající se hrany.
+     */
+    @Test
+    fun `a separate dark art stroke beyond the OCR box survives the ink flood`() {
+        val w = 90
+        val h = 40
+        val gray = argb(180, 180, 180)
+        val ink = argb(20, 20, 20)
+        // Glyph uvnitř boxu x=30..40 + NESPOJITÝ černý pás x=62..70 (obrys panelu atd.).
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    x in 30..40 && y in 10..30 -> ink
+                    x in 62..70 -> ink
+                    else -> gray
+                }
+            }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = gray,
+            textLeft = 10, textTop = 6, textRight = 45, textBottom = 34,
+        )
+        // Pás kresby za boxem nesmí být zaplaven ani přemalován - flood nemá k němu cestu.
+        assertEquals("nespojený tah kresby má přežít netknutý", ink, patch[20 * w + 66])
+    }
+
+    // -- 5c) Periodická textura - raster se má pod maskou DOKRESLIT, ne roztáhnout -----
+
+    /**
+     * Glyph přes tečkový raster: Voronoi kopíruje nejbližší pixel, takže se pod maskou
+     * roztáhne jedna tečka/mezera do skvrny. Periodická výplň má do mřížky doplnit
+     * skutečnou tečku (tmavé) i mezeru (světlé) - vzorek pokračuje ve správné fázi.
+     */
+    @Test
+    fun `masked glyph on a dot screentone is refilled with the lattice pattern`() {
+        val w = 120
+        val h = 60
+        // Tečka rastru: 2x2 px každých 6 px (černá na bílém).
+        fun isDot(x: Int, y: Int) = x % 6 < 2 && y % 6 < 2
+        // Glyph: tmavě šedý blok 54..66 x 20..40 (písmeno, NE černá - ať je vidět,
+        // že se do něj kopíruje raster a ne vlastní barva).
+        val ink = argb(60, 60, 60)
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    x in 54..66 && y in 20..40 -> ink
+                    isDot(x, y) -> black
+                    else -> white
+                }
+            }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = white,
+            textLeft = 50, textTop = 16, textRight = 70, textBottom = 44,
+        )
+        // Místo, kde má raster tečku: 60%6=0, 24%6=0 -> tečka -> černá.
+        val dotSpot = luminance(patch[24 * w + 60])
+        assertTrue(
+            "uvnitř glyphu má pokračovat tečka rastru (tmavá), byl lum=$dotSpot",
+            dotSpot < 60,
+        )
+        // Místo mezi tečkami: 63%6=3 -> mezera -> světlá, ne roztahaná tečka.
+        val gapSpot = luminance(patch[26 * w + 63])
+        assertTrue(
+            "mezera rastru uvnitř glyphu má zůstat světlá (ne směs), byl lum=$gapSpot",
+            gapSpot > 200,
+        )
+    }
+
+    /**
+     * Glyph přes šrafování (svislé čáry): periodická výplň má čáru protáhnout maskou -
+     * pozice na lince tmavá, mimo ni světlá.
+     */
+    @Test
+    fun `masked glyph on hatch lines keeps the lines running through`() {
+        val w = 120
+        val h = 50
+        fun isHatch(x: Int) = x % 6 < 2
+        val ink = argb(60, 60, 60)
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    x in 54..66 && y in 15..35 -> ink
+                    isHatch(x) -> black
+                    else -> white
+                }
+            }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = white,
+            textLeft = 50, textTop = 10, textRight = 70, textBottom = 40,
+        )
+        // Na lince uvnitř bývalého glyphu: x=60 -> 60%6=0 -> linka -> tmavá.
+        val onLine = luminance(patch[25 * w + 60])
+        assertTrue("čára rastru má projít maskou (tmavá), byl lum=$onLine", onLine < 60)
+        // Mezi linkami: x=63 -> 63%6=3 -> mezera -> světlá.
+        val offLine = luminance(patch[25 * w + 63])
+        assertTrue("mezera mezi čarami má zůstat světlá, byl lum=$offLine", offLine > 200)
+    }
+
     // -- 5) Celá textová oblast = textura -> zůstane nedotčená, ne "placka" -----------
 
     @Test

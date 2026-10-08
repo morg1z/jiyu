@@ -92,6 +92,11 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Pozn.: debug buildy schvalne ZUSTAVAJI na debug klici - vyvojarsky telefon
+            // ma appku nainstalovanou s nim a Android odmicha jakykoliv cross-signature
+            // update (i "pm uninstall -k" si podpis pamatuje). Dusledek: in-app update
+            // z GitHub release APK na debug nainstalovanou appku nemuze fungovat -
+            // k tomu by musela byt jednorazove cista odinstalace s release podpisem.
         }
     }
 

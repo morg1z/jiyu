@@ -102,6 +102,7 @@ class ChapterDaoTest {
             dateUpload = 123456L,
             scanlationGroup = "Some Group",
             volume = "2",
+            language = "en",
             groupsJson = null,
         )
 
@@ -111,6 +112,7 @@ class ChapterDaoTest {
         assertEquals("https://new.example.com/ch5", relinked.url)
         assertEquals("Chapter 5 (renamed)", relinked.name)
         assertEquals("Some Group", relinked.scanlationGroup)
+        assertEquals("en", relinked.language)
         assertNull(dao.getById("old-id"))
     }
 
@@ -132,6 +134,7 @@ class ChapterDaoTest {
             dateUpload = 123456L,
             scanlationGroup = null,
             volume = null,
+            language = null,
             groupsJson = null,
         )
 

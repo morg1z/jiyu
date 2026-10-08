@@ -40,6 +40,9 @@ data class ChapterEntity(
     val pageCount: Int = 0,
     val scanlationGroup: String? = null,
     val volume: String? = null,
+    /** Jazyk kapitoly (ISO kód, např. "en", "pt-br") - perzistence [com.haise.jiyu.source.SChapter.language].
+     * null = zdroj jazyk nehlásí (většina) nebo řádek starší než MIGRATION_44_45. */
+    val language: String? = null,
     /** JSON pole [{"name":...,"slug":...}] - viz SGroup. Zatim se nikde necte zpet do UI (pripraveno pro budouci klikaci stranku skupiny). */
     val groupsJson: String? = null,
     /** Kdy tenhle radek poprve vlozila appka (ne kdy zdroj kapitolu skutecne vydal - to je

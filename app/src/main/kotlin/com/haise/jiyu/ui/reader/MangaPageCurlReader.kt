@@ -123,6 +123,13 @@ fun MangaPageCurlReader(
      * knihy = onNavigatePrev/NextChapter).
      */
     onNeedMorePages: (() -> Unit)? = null,
+    /**
+     * Zpětná symetrie [onNeedMorePages]: přetažení PŘED PRVNÍ načtenou stránku zavolá
+     * tohle (ReaderViewModel.prependPreviousWebtoonSegment) místo tvrdého přepnutí na
+     * předchozí kapitolu. Po prependu se `pages` prodlouží na začátku a tah pokračuje
+     * do nového obsahu plynule. null = klasický režim.
+     */
+    onNeedPrevPages: (() -> Unit)? = null,
 ) {
     val epoch = contentEpoch ?: pages
     val resolvedCurlStyle = resolveCurlStyle(curlStyle)
@@ -219,6 +226,22 @@ fun MangaPageCurlReader(
         val latestGroups by rememberUpdatedState(groups)
         val latestPages by rememberUpdatedState(pages)
 
+        // Nekonecne cteni ZPET: prepend predchozi kapitoly vlozi stranky na ZACATEK
+        // `pages` - plochy index obsahu se posune o `added`. Bez posunu by
+        // `currentSingleIndex` ukazal o `added` stranek novejsi obsah (skok dopredu
+        // uprostred cteni). Poznani prependu: nova listina obsahuje starou jako SUFFIX.
+        // Skupina se odsud nedorovnava - `liveGroupIndex()` ji odvozuje z
+        // `currentSingleIndex` cersve pri kazdem pouziti.
+        var prevPagesList by remember { mutableStateOf(pages) }
+        LaunchedEffect(pages) {
+            val old = prevPagesList
+            prevPagesList = pages
+            val added = pages.size - old.size
+            if (added > 0 && pages.subList(added, pages.size) == old) {
+                currentSingleIndex += added
+            }
+        }
+
         // Skupina (curl "stránka") odvozená VŽDY čerstvě z aktuálních `groups`/`currentSingleIndex`
         // - nikdy uložena jako samostatný stav, který by mohl zůstat neplatný proti `groups`
         // vypočítaným z nové kapitoly (review nález č. 1: stará `pageCount`/`currentPageIndex`
@@ -311,11 +334,12 @@ fun MangaPageCurlReader(
                         // Nekonecne cteni: za koncem posledniho znameho segmentu se
                         // misto tvrdeho prepnuti kapitoly jen dolnatahne dalsi - po
                         // appendu je "hranice" pryc a tah pokracuje do ni plynule.
-                        // PREV zustava navigaci - predchozi kapitoly se na zacatek
-                        // nikdy nepredkladaji (stejne jako ve webtoon scrollu).
                         if (onNeedMorePages != null) onNeedMorePages() else onNavigateNextChapter()
                     } else {
-                        onNavigatePrevChapter()
+                        // Symetricky pred zacatkem proudu: dolnatahnout predchozi
+                        // kapitolu misto tvrde navigace (po prependu tah pokracuje
+                        // do noveho obsahu).
+                        if (onNeedPrevPages != null) onNeedPrevPages() else onNavigatePrevChapter()
                     }
                 }
             }
