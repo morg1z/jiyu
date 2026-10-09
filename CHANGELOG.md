@@ -4,6 +4,43 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.2
+
+### Překlad: bílé duchové písmen, kontaminace textury a falešná čínština
+
+Další kolo oprav přepsaného pozadí pod překladem (`TextPatch`) — tentokrát podle
+reálných stránek z Vagabond ch.6/7, kde zůstávaly čitelné stopy originálu:
+
+- **Široký bílý halo kolem glyphů** — caption lettering má ~5-6 px bílý obrys,
+  který plochá dilatace masky nechytila a po výplni četl jako "zbylá bílá
+  písmena". Nová `expandMaskIntoBrightPixels` rozšiřuje masku jen do pixelů
+  jasně světlejších než medián pozadí regionu (prstenec se sežere celý,
+  rastrové tečky a kresba ne), s limitem počtu průchodů i pokryté plochy.
+- **Bublina uprostřed rastru už neimportuje tečky zvenčí** — `resampleFromLocalField`
+  sbíral donory z celé záplaty, takže se tmavé tečky textury objevily i uvnitř
+  bílé bubliny ("YEAH.", "I MISS.."). Donory, statistika i transplantované
+  tečkové komponenty teď patří jen do textové oblasti.
+- **Čeština sedí přesně na pozici originálu** — lettering bez bubliny se dřív
+  centroval do expandovaného boxu (text uhodl desítky px od originálu); overlay
+  se kotví přesně na souřadnice OCR boxu.
+- **Autodetekce jazyka OCR už nepropouští halucinace** — skóre kandidáta se
+  počítá jen ve vlastním písmu modelu: čínský recognizer na anglické stránce
+  dřív vyhrál díky Han šumu ze šrafury a výsledek ("::新::.:這鲜重") se
+  propašoval rovnou do překladu. Japonština počítá kanu + kanji jen při
+  přítomnosti kany, takže čisté Han stránky zůstávají čínské a kanji-heavy
+  japonské stránky čínštině nepropadnou.
+- Regrese na reálných výřezcích stránek (`RealPagePatchDebugTest` + RGB
+  fixture), syntetické regrese bublina-v-rastru a JP/CN skórování.
+
+### Čtečka: nekonečné čtení oběma směry + dedup kapitol
+
+- **Zpětný infinite scroll** — webtoon, pager i page-curl režimy teď dotahují
+  předchozí kapitolu při čtení směrem k začátku (prepend do flat streamu s
+  kompenzací indexů), ne jen dopředu.
+- **Dedup vícejazyčných kapitol** — zdroje jako ComicK/comick.art vrací kapitolu
+  ve více jazycích; seznam se filtruje na preferovaný jazyk, takže EN řádky
+  už se neduplikují vedle sebe.
+
 ## v2.0.1
 
 ### Překlad: oprava vizuální korupce vyplněných oblastí textu
