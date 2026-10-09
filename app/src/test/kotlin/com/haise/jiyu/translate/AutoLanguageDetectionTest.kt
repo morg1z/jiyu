@@ -99,15 +99,65 @@ class AutoLanguageDetectionTest {
 
     @Test
     fun `the model that found the most text wins when none is confident`() = runTest {
+        // Skóre se počítá ve vlastním písmu modelu (viz scriptCharCount) - tady
+        // proto reálné znaky, ne ASCII placeholdery.
         val (language, _) = resolveAutoLanguage { candidate ->
             when (candidate) {
                 "English" -> blocks("ab")
-                "Japanese" -> blocks("abcd")
-                "Korean" -> blocks("abcdef")
+                "Japanese" -> blocks("かな")
+                "Korean" -> blocks("한국어한")
                 else -> emptyList()
             }
         }
 
         assertEquals("Korean", language)
+    }
+
+    @Test
+    fun `chinese hallucination on latin page does not steal the win`() = runTest {
+        // Vagabond ch.6: čínský model na anglické stránce načte reálnou latinku
+        // PLUS Han šum ze šrafury ("::新::.:這鲜重") - se skórem přes všechny znaky
+        // by vyhrál a šum se propašoval do překladu. Písmo-specifické skóre:
+        // English ~11 latinek, Chinese ~4 Han -> zůstane English.
+        val (language, _) = resolveAutoLanguage { candidate ->
+            when (candidate) {
+                "English" -> blocks("IM A VAGABOND.")
+                "Chinese" -> blocks("::新::.:這鲜重\nIM A VAGABOND.")
+                else -> emptyList()
+            }
+        }
+
+        assertEquals("English", language)
+    }
+
+    @Test
+    fun `kanji-heavy japanese is not stolen by chinese`() = runTest {
+        // Seinen manga má hodně kanji - čínský model přečte všechna Han znaménka,
+        // zatímco japonský přidá ještě kanu. Japonština musí vyhrát i bez
+        // početní výhody v samotných Han znacích.
+        val (language, _) = resolveAutoLanguage { candidate ->
+            when (candidate) {
+                "Japanese" -> blocks("私は剣士だこれは勝負です") // kana + kanji
+                "Chinese" -> blocks("私剣士勝負") // jen Han znaky, jak je čte cinsky
+                else -> emptyList()
+            }
+        }
+
+        assertEquals("Japanese", language)
+    }
+
+    @Test
+    fun `pure han page without kana goes to chinese`() = runTest {
+        // Čistý Han text bez kany je čínština - japonské skóre je nula i když
+        // japonský model ty znaky přečetl, jinak by vyhrál pořadím v seznamu.
+        val (language, _) = resolveAutoLanguage { candidate ->
+            when (candidate) {
+                "Japanese" -> blocks("这是一个测试")
+                "Chinese" -> blocks("这是一个测试")
+                else -> emptyList()
+            }
+        }
+
+        assertEquals("Chinese", language)
     }
 }

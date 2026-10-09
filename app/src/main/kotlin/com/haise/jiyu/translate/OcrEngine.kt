@@ -238,6 +238,16 @@ internal const val VISION_OCR_FALLBACK_TIMEOUT_MILLIS = 15_000L
  *
  * Rozpoznávání se předává jako lambda, aby šlo tohle rozhodování otestovat bez ML Kitu.
  *
+ * Skóre kandidáta = počet znaků v PÍSMU, kterému jeho model rozumí
+ * ([scriptCharCount]): čínský model přečte latinku stejně dobře jako latinkový,
+ * takže na anglické stránce nasbíral skóre za skutečný text PLUS halucinované Han
+ * znaky ze šrafury/textur (audit Vagabond ch.6 - stránka bez jediné čínské bubliny
+ * se rozpoznala jako "Chinese" a šum "::新::.:這鲜重" se propašoval do překladu).
+ * Jen písmo-specifické znaky jsou diskriminační: čínské šumové čtení šrafury nic
+ * nepřidá klatinskému skóre anglického modelu, kdežto svědčí proti čínskému jen
+ * tehdy, když šum čte. U japonštiny rozhoduje přítomnost kany - bez ní (čisté
+ * Han) to zjevně byla čínština, takže čínská stránka japonštině nepropadne.
+ *
  * @return dvojice (rozpoznaný jazyk, jeho bloky); prázdné bloky = nenašlo se nic nikde.
  */
 internal suspend fun resolveAutoLanguage(
@@ -248,7 +258,7 @@ internal suspend fun resolveAutoLanguage(
     var bestChars = -1
     for (candidate in candidates) {
         val blocks = recognizeWith(candidate)
-        val chars = blocks.sumOf { block -> block.text.count { !it.isWhitespace() } }
+        val chars = blocks.sumOf { scriptCharCount(it.text, candidate) }
         if (chars > bestChars) {
             best = candidate to blocks
             bestChars = chars
@@ -256,6 +266,39 @@ internal suspend fun resolveAutoLanguage(
         if (chars >= AUTO_CONFIDENT_CHARS) break
     }
     return best
+}
+
+/**
+ * Počet znaků ve "vlastním" písmu modelu - viz [resolveAutoLanguage]. Čínština
+ * skóruje Han ideogramy, korejština hangul slabikami a vše ostatní latinkou.
+ * Japonština počítá kanu + kanji (Han), ale jen když nějakou kanu má - čistý Han
+ * výstup bez kany je prakticky jistě čínština, takže čínská stránka japonštině
+ * nesmí propadnout na remízu v pořadí kandidátů.
+ */
+internal fun scriptCharCount(text: String, language: String): Int {
+    var count = 0
+    var kana = 0
+    var han = 0
+    for (c in text) {
+        val script = Character.UnicodeScript.of(c.code)
+        when (language) {
+            "Japanese" -> {
+                if (script == Character.UnicodeScript.HIRAGANA || script == Character.UnicodeScript.KATAKANA) {
+                    kana++
+                } else if (script == Character.UnicodeScript.HAN) {
+                    han++
+                }
+            }
+            "Korean" -> if (script == Character.UnicodeScript.HANGUL) count++
+            "Chinese", "Chinese (Traditional)" -> if (script == Character.UnicodeScript.HAN) count++
+            else -> if (script == Character.UnicodeScript.LATIN) count++
+        }
+    }
+    return if (language == "Japanese") {
+        if (kana > 0) kana + han else 0
+    } else {
+        count
+    }
 }
 
 /**

@@ -69,9 +69,12 @@ class RealPagePatchDebugTest {
         restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
         sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
 
-        // Halo-obrys glyphu - zrcadlí HALO_COVER_DILATION v produkční pipeline
+        // Halo-obrys glyphu - zrcadlí HALO_COVER_DILATION + polaritní expanzi
         // (těsný region, před ink-floodem).
         dilate(isText, w, h, 3)
+        restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
+        sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
+        expandMaskIntoBrightPixels(isText, luminance, w, h, rl, rt, rr, rb)
         restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
         sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
         dumpMask("build/outputs/dbg_mask_halo.rgb", isText, luminance, w, h)
@@ -96,7 +99,7 @@ class RealPagePatchDebugTest {
         dumpMask("build/outputs/dbg_mask_afterperiod.rgb", isText, luminance, w, h)
         dumpRgb("build/outputs/dbg_after_period.rgb", pixels, w, h)
 
-        resampleFromLocalField(pixels, luminance, isText, w, h)
+        resampleFromLocalField(pixels, luminance, isText, w, h, rl, rt, rr, rb)
         dumpMask("build/outputs/dbg_mask_afterresample.rgb", isText, luminance, w, h)
         dumpRgb("build/outputs/dbg_after_resample.rgb", pixels, w, h)
 
@@ -104,5 +107,54 @@ class RealPagePatchDebugTest {
         dumpRgb("build/outputs/dbg_final.rgb", pixels, w, h)
 
         assertTrue(true)
+    }
+
+    /**
+     * Vagabond ch.6 p10 ("WHAT AM I DOING!?"): cerny glyph + SIROKY bily halo
+     * (~6 px) na tmavem rastru - plocha dilatace 3 ho nepokryla a zbyly prstenec
+     * se cetl jako bile duchove pismen. Overuje se cela produkcni pipeline.
+     */
+    @Test
+    fun debugRealPatchWideHalo() {
+        val raw = RealPagePatchDebugTest::class.java.getResourceAsStream("/patch_region_p010.rgb")!!
+            .readBytes()
+        val buf = ByteBuffer.wrap(raw)
+        val w = buf.int; val h = buf.int
+        val px = IntArray(w * h)
+        for (i in px.indices) {
+            val r = buf.get().toInt() and 0xFF
+            val g = buf.get().toInt() and 0xFF
+            val b = buf.get().toInt() and 0xFF
+            px[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val source = object : PixelSource {
+            override fun colorAt(x: Int, y: Int): Int = px[y * w + x]
+        }
+        // OCR box "WHAT AM I DOING!?" v souradnicich patchu.
+        val patch = buildTextPatch(
+            source, w, h, 0, 0, w, h, bgArgb = 0xFF808080.toInt(),
+            textLeft = 92, textTop = 94, textRight = 343, textBottom = 307,
+        )
+        dumpRgb("build/outputs/dbg_p10_final.rgb", patch, w, h)
+
+        // Jasove zhodnoceni: v oblasti byvalych glyphu nesmi zustat bily halo
+        // prstenec - podil velmi svetlych pixelu (~halo, >215) ma odpovidat
+        // tomu, co maji svetle mezery rastru kolem.
+        fun brightFrac(x0: Int, y0: Int, x1: Int, y1: Int): Double {
+            var bright = 0; var tot = 0
+            for (y in y0 until y1) for (x in x0 until x1) {
+                val l = luminanceOf(patch[y * w + x])
+                if (l > 215) bright++
+                tot++
+            }
+            return bright.toDouble() / tot
+        }
+        val inside = brightFrac(100, 110, 335, 290)
+        val field = brightFrac(10, 330, 60, 430)
+        println("DBG p10 brightFrac inside=$inside field=$field")
+        assertTrue(
+            "p9 halo: jasne pixely v glyphove oblasti maji odpovidat poli (inside=$inside, field=$field)",
+            inside < field + 0.08,
+        )
     }
 }

@@ -480,6 +480,51 @@ class TextPatchArtifactTest {
     }
 
     /**
+     * Regrese Vagabond ch.6 p15: bílá bublina ("YEAH."/"I MISS..") uprostřed hustého
+     * rastru. Resample dřív sbíral donory z CELÉ záplaty -> tmavé tečky textury mimo
+     * bublinu se transplantovaly DOVNITŘ bílého interiéru a četly se jako tmavé drobky
+     * nad překladem. Donory mají patřit jen do textového regionu (interiér bubliny je
+     * hladký -> resample se tam má vynechat a Voronoi doplní bílou).
+     */
+    @Test
+    fun `white bubble inside speckle field does not import texture dots inside`() {
+        val w = 160
+        val h = 110
+        fun isSpeckle(x: Int, y: Int) = ((x * 73 + y * 149 + x * y * 11) % 5) == 0
+        // Bublina = hladký bílý obdélník; okolí husté tečkové pole.
+        fun inBubble(x: Int, y: Int) = x in 30..129 && y in 15..94
+        fun isGlyph(x: Int, y: Int) = x in 70..100 && y in 50..65
+        val paper = argb(245, 245, 245)
+        val dot = argb(50, 50, 50)
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    isGlyph(x, y) -> black
+                    inBubble(x, y) -> paper
+                    isSpeckle(x, y) -> dot
+                    else -> paper
+                }
+            }
+        }
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = paper,
+            textLeft = 68, textTop = 48, textRight = 103, textBottom = 68,
+        )
+        var dark = 0
+        var total = 0
+        for (y in 40 until 80) {
+            for (x in 55 until 115) {
+                if (luminance(patch[y * w + x]) < 100) dark++
+                total++
+            }
+        }
+        assertTrue(
+            "bílý interiér bubliny nesmí nasát tečky z rastru okolo (dark=$dark/$total)",
+            dark <= total / 50,
+        )
+    }
+
+    /**
      * Proti-test: glyph na HLADKÉ šedé ploše se má vyplnit hladce (Voronoi), resample
      * se nemá zapnout - jinak by do hladké plochy naséval šum.
      */

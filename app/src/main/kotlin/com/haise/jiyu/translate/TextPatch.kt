@@ -145,6 +145,30 @@ internal fun buildTextPatch(
             right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
             enabled = true,
         )
+        // Široký světlý halo (~5+ px u Vagabond caption lettering) plochá dilatace
+        // nepokryje celý - zbylý prstenec čte jako bílý duch písmene. Polaritně
+        // vázaná expanze: maska roste jen do pixelů jasně SVĚTLEJŠÍCH než medián
+        // pozadí regionu, omezený počet průchodů - prstenec se sežere celý, ale
+        // utíkání do tečkovaného pole je ohraničené dosahem (a zaříznuto na těsný
+        // region - kresbu za hranou textu to nesmí zasadit). Na světlém podkladu
+        // (bublina) je limit nad bílou -> no-op.
+        expandMaskIntoBrightPixels(
+            mask = isText, luminance = luminance, w = w, h = h,
+            rl = textLeft - x0 - pad, rt = textTop - y0 - pad,
+            rr = textRight - x0 + pad, rb = textBottom - y0 + pad,
+        )
+        restrictToTextRegion(
+            mask = isText, w = w, h = h,
+            left = textLeft - x0 - pad, top = textTop - y0 - pad,
+            right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+            enabled = true,
+        )
+        sealEnclosedHoles(
+            mask = isText, w = w, h = h,
+            left = textLeft - x0 - pad, top = textTop - y0 - pad,
+            right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
+            enabled = true,
+        )
     }
     // Glyph OŘÍZNUTÝ hranou textové oblasti (OCR box sekl tah doprostřed) má interiér
     // otevřený k okraji - seal ho jako díru nepozná a maska za hranicí regionu vůbec
@@ -202,7 +226,13 @@ internal fun buildTextPatch(
     // Statistika okna se zachová - tečky/mezery se objeví ve správné hustotě a
     // silueta písmene se rozpustí v poli, místo aby zůstala flat placka (viz audit
     // Vagabond ch.6 - bílé "duchové" siluety glyphů nad screentonem).
-    resampleFromLocalField(pixels, luminance, isText, w, h)
+    resampleFromLocalField(
+        pixels, luminance, isText, w, h,
+        rl = if (hasTextRegion) textLeft - x0 - pad else 0,
+        rt = if (hasTextRegion) textTop - y0 - pad else 0,
+        rr = if (hasTextRegion) textRight - x0 + pad else w,
+        rb = if (hasTextRegion) textBottom - y0 + pad else h,
+    )
     fillNearestSource(pixels, isText, w, h)
     return pixels
 }
@@ -357,23 +387,40 @@ internal fun resampleFromLocalField(
     isText: BooleanArray,
     w: Int,
     h: Int,
+    rl: Int = 0,
+    rt: Int = 0,
+    rr: Int = w,
+    rb: Int = h,
 ) {
     val maskedAtEntry = isText.copyOf()
     if (maskedAtEntry.none { it }) return
 
-    // Čistý donor = nemaskovaný pixel, jehož okolí [RESAMPLE_CLEAN_DIST] neobsahuje
-    // masku. Bez pásu by se do statistiky i donor poolu primechal světlý halo obrys
-    // glyphu - jasově stejný jako papír, kontrastem nedetekovatelný - a fill by měl
-    // ~poloviční hustotu teček než skutečný raster (audit Vagabond ch.6).
+    val l = rl.coerceIn(0, w)
+    val t = rt.coerceIn(0, h)
+    val r = rr.coerceIn(l, w)
+    val b = rb.coerceIn(t, h)
+
+    // Čistý donor = nemaskovaný pixel UVNITŘ textové oblasti, jehož okolí
+    // [RESAMPLE_CLEAN_DIST] neobsahuje masku. Bez pásu by se do statistiky i donor
+    // poolu primechal světlý halo obrys glyphu - jasově stejný jako papír, kontrastem
+    // nedetekovatelný - a fill by měl ~poloviční hustotu teček než skutečný raster
+    // (audit Vagabond ch.6). Bez ořezu na region zase bublina uprostřed rastru
+    // "importuje" tečky ZVENČÍ dovnitř bílého interiéru (drobné tmavé zbytky nad
+    // překladem) a text na tmavém poli se naplní papírem z okolního rámu.
     val tainted = maskedAtEntry.copyOf()
     dilate(tainted, w, h, RESAMPLE_CLEAN_DIST)
+    fun clean(i: Int): Boolean {
+        if (tainted[i]) return false
+        val x = i % w; val y = i / w
+        return x in l until r && y in t until b
+    }
 
     // Statistiky čistého pole: medián = pozadí pole (papír), deviant = objekty
     // textury (tečky, zrnky) - pól-agnosticky (světlé tečky na tmavém poli taky).
     val hist = IntArray(256)
     var cleanCount = 0
     for (i in pixels.indices) {
-        if (tainted[i]) continue
+        if (!clean(i)) continue
         hist[luminance[i]]++
         cleanCount++
     }
@@ -395,7 +442,7 @@ internal fun resampleFromLocalField(
     val dots = ArrayList<IntArray>()
     var deviantArea = 0
     for (i in pixels.indices) {
-        if (tainted[i] || seen[i] || !deviant(i)) continue
+        if (!clean(i) || seen[i] || !deviant(i)) continue
         var sp = 0
         stack[sp++] = i
         seen[i] = true
@@ -410,7 +457,7 @@ internal fun resampleFromLocalField(
             if (compLen < comp.size) comp[compLen++] = j else oversized = true
             val jx = j % w; val jy = j / w
             fun push(n: Int) {
-                if (!seen[n] && !tainted[n] && deviant(n)) { seen[n] = true; stack[sp++] = n }
+                if (!seen[n] && clean(n) && deviant(n)) { seen[n] = true; stack[sp++] = n }
             }
             if (jx + 1 < w) push(j + 1)
             if (jx > 0) push(j - 1)
@@ -496,10 +543,10 @@ internal fun resampleFromLocalField(
             var count = 0
             for (dy in -RESAMPLE_RADIUS..RESAMPLE_RADIUS) {
                 val ny = y + dy
-                if (ny < 0 || ny >= h) continue
+                if (ny < t || ny >= b) continue
                 for (dx in -RESAMPLE_RADIUS..RESAMPLE_RADIUS) {
                     val nx = x + dx
-                    if (nx < 0 || nx >= w) continue
+                    if (nx < l || nx >= r) continue
                     val n = ny * w + nx
                     if (passEntry[n]) continue
                     if (dotsFound && abs(luminance[n] - bgLum) > PERIOD_FEATURE_MARGIN) continue
@@ -1040,6 +1087,80 @@ internal fun restrictToTextRegion(
     }
 }
 
+/**
+ * Rozšíří masku jen do SVĚTLÝCH pixelů (jas o [HALO_POLE_MARGIN] nad mediánem
+ * nemaskovaného regionu) - domaskování širokého bílého halo obrysu glyphu, který
+ * plochá [HALO_COVER_DILATION] nepokryje celý (audit Vagabond ch.6 p9: ~5px bílý
+ * prstenec kolem černého jádra četl po výplni jako "zbylá bílá písmena").
+ *
+ * Rozdíl proti ploché dilataci: růst se zastaví na tmavých pixelech (rastrové
+ * tečky, tahy kresby), takže maska nepřekryje víc pole, než je obrys široký.
+ * Světlé mezery rastru jsou nad limitem taky - může "protéct" pár px za halo, ale
+ * dosah je ohraničen [HALO_COVER_EXTRA] průchody a zaříznuto na těsný region u
+ * volajícího; vyplněné navýšení se lijí stejnou texturou, takže je neviditelné.
+ *
+ * Bezpečnostní brzdy:
+ * - světlý podklad (bublina, papír): limit se přehoupne nad jeho jas -> no-op,
+ * - [HALO_MAX_FILL_PERCENT]: kdyby expanze maskovala skoro celý region (maska by
+ *   pak padla na flat bgArgb = viditelná placka), expanze se vrátí zpět.
+ */
+internal fun expandMaskIntoBrightPixels(
+    mask: BooleanArray,
+    luminance: IntArray,
+    w: Int,
+    h: Int,
+    rl: Int,
+    rt: Int,
+    rr: Int,
+    rb: Int,
+) {
+    val l = rl.coerceIn(0, w)
+    val t = rt.coerceIn(0, h)
+    val r = rr.coerceIn(l, w)
+    val b = rb.coerceIn(t, h)
+    if (r - l <= 0 || b - t <= 0) return
+
+    val hist = IntArray(256)
+    var count = 0
+    for (y in t until b) {
+        for (x in l until r) {
+            val i = y * w + x
+            if (!mask[i]) { hist[luminance[i]]++; count++ }
+        }
+    }
+    if (count == 0) return
+    var acc = 0
+    var bgRef = 0
+    val half = count / 2
+    while (bgRef < 255 && acc + hist[bgRef] <= half) { acc += hist[bgRef]; bgRef++ }
+    val lightLimit = bgRef + HALO_POLE_MARGIN
+    if (lightLimit >= 255) return
+
+    val before = mask.copyOf()
+    repeat(HALO_COVER_EXTRA) {
+        val previous = mask.copyOf()
+        for (y in t until b) {
+            for (x in l until r) {
+                val i = y * w + x
+                if (previous[i] || luminance[i] <= lightLimit) continue
+                val touches =
+                    (x > l && previous[i - 1]) ||
+                        (x < r - 1 && previous[i + 1]) ||
+                        (y > t && previous[i - w]) ||
+                        (y < b - 1 && previous[i + w])
+                if (touches) mask[i] = true
+            }
+        }
+    }
+    // Plošný limit: maska nesmí sežrat skoro celý region - to by znamenalo, že
+    // "pozadí" regionu samo je světlé a lemování se utrhlo; spíš nechat jak tak.
+    var masked = 0
+    for (y in t until b) for (x in l until r) if (mask[y * w + x]) masked++
+    if (masked * 100 > (r - l) * (b - t) * HALO_MAX_FILL_PERCENT) {
+        System.arraycopy(before, 0, mask, 0, mask.size)
+    }
+}
+
 /** Rozšíří masku o [radius] pixelů - zachytí antialiasový lem, který by jinak zůstal jako duch. */
 internal fun dilate(mask: BooleanArray, w: Int, h: Int, radius: Int) {
     repeat(radius) {
@@ -1153,6 +1274,24 @@ private const val INK_FLOOD_DILATION = 1
  * kontaminace donorů resamplu).
  */
 private const val HALO_COVER_DILATION = 3
+
+/**
+ * Kolik průchodů navíc smí polaritně-vázaná expanze (viz [expandMaskIntoBrightPixels])
+ * růst přes plochou dilataci - domaskování tlustého světlého obrysu (~5-6 px u
+ * velkoplošného caption letteringu).
+ */
+private const val HALO_COVER_EXTRA = 4
+
+/**
+ * Jak jasně světlý musí pixel být, aby se počítal za halo/obrys, ne pozadí -
+ * jasový odstup nad mediánem nemaskovaného regionu. Halo lettering je skoro bílé
+ * (~230+) na polích ~120-180; na světlém podkladu se limit přehoupne nad 255 a
+ * expanze je no-op.
+ */
+private const val HALO_POLE_MARGIN = 35
+
+/** Strop plochy regionu (%), kterou smí expanze domaskovat - větší = pravděpodobně utržená expanze na světlém poli, revert. */
+private const val HALO_MAX_FILL_PERCENT = 75
 
 // -- Periodická textura (viz [continuePeriodicTexture]) ---------------------------------
 
