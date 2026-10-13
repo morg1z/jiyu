@@ -32,6 +32,7 @@ internal fun List<TranslatedBlock>.toCacheJson(): String = JSONArray().also { ar
             put("lc", b.lineCount)
             put("type", b.bubbleType.name)
             put("untrans", b.isUntranslated)
+            put("degraded", b.degraded)
             put("seamCover", b.seamCover)
             b.seamSpanLF?.let { put("spanL", it.toDouble()) }
             b.seamSpanRF?.let { put("spanR", it.toDouble()) }
@@ -108,6 +109,9 @@ internal fun TranslatedPageEntity.toBlocks(): List<TranslatedBlock>? = try {
             // Starší cache záznamy nemají "seamCover" - default false (žádný blok se nikdy
             // neoznačil za krycí fragment), takže se vykreslují jako dosud.
             seamCover = o.optBoolean("seamCover", false),
+            // Starší cache záznamy nemají "degraded" - default false (nevíme, že
+            // stránka jela přes záložní model), chování stejné jako dosud.
+            degraded = o.optBoolean("degraded", false),
             // Starší cache záznamy nemají "spanL"/"spanR" - null = blok není řezový pár
             // nebo pochází z dedupu bez spanu, krytí drží vlastní OCR rozsah jako dosud.
             seamSpanLF = if (o.has("spanL")) o.getDouble("spanL").toFloat() else null,

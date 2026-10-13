@@ -79,8 +79,10 @@ fun ReaderScreen(
     val loading             by viewModel.loading.collectAsStateWithLifecycle()
     val translateMode       by viewModel.translateMode.collectAsStateWithLifecycle()
     val translationProgress by viewModel.translationProgress.collectAsStateWithLifecycle()
+    val translationDegraded by viewModel.currentPageDegraded.collectAsStateWithLifecycle()
     val translatedPages     by viewModel.translatedPages.collectAsStateWithLifecycle()
     val translatedPagesByChapter by viewModel.translatedPagesByChapter.collectAsStateWithLifecycle()
+    val translateFailedPages by viewModel.translateFailedPages.collectAsStateWithLifecycle()
     val batchTranslating    by viewModel.batchTranslating.collectAsStateWithLifecycle()
     val batchProgress       by viewModel.batchProgress.collectAsStateWithLifecycle()
     val showOriginal        by viewModel.showOriginal.collectAsStateWithLifecycle()
@@ -145,8 +147,21 @@ fun ReaderScreen(
     // "Nekonecne cteni" - sdilene nastaveni webtoonu i paged rezimu (segmenty se
     // seskládaji na jeden plochy proud stranek, viz ReaderContent.useInfinitePaged).
     val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsStateWithLifecycle()
+    // Zbyvajici nastaveni pro sheet ctecky (ozubene kolo v horni liste).
+    val readingMode          by viewModel.readingMode.collectAsStateWithLifecycle()
+    val readingDirection     by viewModel.readingDirection.collectAsStateWithLifecycle()
+    val mangaDirectionOverride by viewModel.mangaDirectionOverride.collectAsStateWithLifecycle()
+    val skipReadChapters     by viewModel.skipReadChapters.collectAsStateWithLifecycle()
 
     var showSleepTimerDialog by rememberSaveable { mutableStateOf(false) }
+    var showReaderSettingsSheet by rememberSaveable { mutableStateOf(false) }
+
+    // Otevreny sheet nastaveni ctecky drzi controls viditelne (stejny hold jako
+    // prekladovy sheet ve spodni liste) - jinak by po 5s auto-hide schoval listy
+    // i s otevrenym sheetem pod sebou.
+    LaunchedEffect(showReaderSettingsSheet) {
+        viewModel.onAdvancedSheetVisibilityChanged(showReaderSettingsSheet)
+    }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
     // je identita bubliny napříč přepočty - viz manualEditId.
     var bubbleEdit by rememberSaveable(stateSaver = BubbleEditState.Saver) { mutableStateOf<BubbleEditState?>(null) }
@@ -282,14 +297,28 @@ fun ReaderScreen(
                 initialScrollOffset = webtoonScrollOffset,
                 onProgressChanged = { idx, off, total -> viewModel.onNovelProgressChanged(idx, off, total) },
             )
-            comickUnavailable -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    stringResource(R.string.detail_comick_read_unavailable),
-                    color = Color.White,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Button(onClick = onFindSource, modifier = Modifier.padding(top = 16.dp)) {
-                    Text(stringResource(R.string.reader_comick_find_source))
+            comickUnavailable -> {
+                // Uzivatel nemusi wall potvrzovat rucne - nevyresolvovana ComicK kapitola
+                // se automaticky prehodi do vyberu zdroje (resolver sam otevre nejlepsi
+                // kandidata; s resolvedMangaId na titulu jen overi zapamatovany zdroj).
+                // Auto-pokus bezi jednou: navrat ze sweepu bez resolvovani (back) ukaze
+                // wall s tlacitkem misto zacykleni navigace.
+                var autoResolveAttempted by rememberSaveable { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    if (!autoResolveAttempted) {
+                        autoResolveAttempted = true
+                        onFindSource()
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        stringResource(R.string.detail_comick_read_unavailable),
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Button(onClick = onFindSource, modifier = Modifier.padding(top = 16.dp)) {
+                        Text(stringResource(R.string.reader_comick_find_source))
+                    }
                 }
             }
             pages.isEmpty() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -416,10 +445,60 @@ fun ReaderScreen(
                 onEditBubble = { chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp ->
                     bubbleEdit = BubbleEditState(chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp)
                 },
+                translateFailedPages = translateFailedPages,
+                onRetranslatePage = { chId, pageIndex -> viewModel.retranslatePage(chId, pageIndex) },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
                 referer = pageReferer,
+                onOpenSettings = { showReaderSettingsSheet = true },
+            )
+        }
+
+        // Sheet nastaveni ctecky - zije tady (ne v ReaderContent), protoze potrebuje
+        // ViewModel kolekce i settery najednou a sheet musi prezit i schovane listy
+        // (je mimo AnimatedVisibility controls, stejne jako sleep timer dialog).
+        if (showReaderSettingsSheet) {
+            ReaderSettingsSheet(
+                mangaDirectionOverride = mangaDirectionOverride,
+                onMangaDirectionChange = { viewModel.setMangaReaderDirection(it) },
+                readingMode = readingMode,
+                onReadingModeChange = { viewModel.setReadingMode(it) },
+                readingDirection = readingDirection,
+                onReadingDirectionChange = { viewModel.setReadingDirection(it) },
+                pageScale = pageScale,
+                onPageScaleChange = { viewModel.setPageScale(it) },
+                doublePageSpread = doublePageSpread,
+                onDoublePageSpreadChange = { viewModel.setDoublePageSpread(it) },
+                cropBorders = cropBorders,
+                onCropBordersChange = { viewModel.setCropBorders(it) },
+                oledMode = oledMode,
+                onOledModeChange = { viewModel.setOledMode(it) },
+                fullscreenEnabled = fullscreenEnabled,
+                onFullscreenChange = { viewModel.setFullscreenEnabled(it) },
+                webtoonScrollSpeed = webtoonScrollSpeed,
+                onWebtoonScrollSpeedChange = { viewModel.setWebtoonScrollSpeed(it) },
+                tapZonesEnabled = tapZonesEnabled,
+                onTapZonesChange = { viewModel.setTapZonesEnabled(it) },
+                volumeKeysNav = volumeKeysNav,
+                onVolumeKeysNavChange = { viewModel.setVolumeKeysNav(it) },
+                keepScreenOn = keepScreenOn,
+                onKeepScreenOnChange = { viewModel.setKeepScreenOn(it) },
+                skipReadChapters = skipReadChapters,
+                onSkipReadChaptersChange = { viewModel.setSkipReadChapters(it) },
+                autoNextChapter = autoNextChapter,
+                onAutoNextChapterChange = { viewModel.setAutoNextChapter(it) },
+                infiniteScrollEnabled = infiniteScrollEnabled,
+                onInfiniteScrollChange = { viewModel.setInfiniteScrollEnabled(it) },
+                pageCurlEnabled = pageCurlEnabled,
+                onPageCurlChange = { viewModel.setPageCurlEnabled(it) },
+                curlStyle = curlStyle,
+                onCurlStyleChange = { viewModel.setCurlStyle(it) },
+                readerTheme = readerTheme,
+                onReaderThemeChange = { viewModel.setReaderTheme(it) },
+                textScale = readerTextScale,
+                onTextScaleChange = { viewModel.setReaderTextScale(it) },
+                onDismiss = { showReaderSettingsSheet = false },
             )
         }
 
@@ -514,6 +593,31 @@ fun ReaderScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Text(fallbackNotice.orEmpty(), color = Color.White, fontSize = 13.sp)
+            }
+        }
+
+        // Stránka přeložená degradovaným záložním modelem proxy (vyčerpaná kvóta
+        // primárního - viz TranslatedBlock.degraded). NENÍ to error banner - jen
+        // decentní indikátor, že kvalita je dočasně omezená. Drží, dokud je
+        // aktuální stránka degradovaná (flag přežívá i v cache).
+        AnimatedVisibility(
+            visible = translateMode && !showOriginal && translationDegraded,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 48.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF6D4C00).copy(alpha = 0.92f))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    stringResource(R.string.reader_translation_degraded),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                )
             }
         }
     }

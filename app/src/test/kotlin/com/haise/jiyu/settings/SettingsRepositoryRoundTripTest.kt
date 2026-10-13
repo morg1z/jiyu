@@ -480,14 +480,6 @@ class SettingsRepositoryRoundTripTest {
         assertEquals("včerejší čas se do dneška nepočítá", 0L, s.todayReadingTimeMs.first())
     }
 
-    @Test
-    fun `pages read accumulates`() = runTest {
-        val s = repository()
-        assertEquals(0L, s.totalPagesRead.first())
-        s.addPagesRead(20); s.addPagesRead(15)
-        assertEquals(35L, s.totalPagesRead.first())
-    }
-
     // ── Streak ───────────────────────────────────────────────────────────────
 
     @Test

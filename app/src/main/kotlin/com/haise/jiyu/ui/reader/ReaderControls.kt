@@ -71,6 +71,7 @@ import compose.icons.tablericons.LayoutRows
 import compose.icons.tablericons.Menu2
 import compose.icons.tablericons.Moon
 import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Settings
 import compose.icons.tablericons.Sun
 import compose.icons.tablericons.WifiOff
 import compose.icons.tablericons.X
@@ -92,6 +93,7 @@ fun ReaderTopBar(
     onOpenManga: () -> Unit,
     onJumpToChapter: (String) -> Unit,
     onResetChapter: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -258,6 +260,17 @@ fun ReaderTopBar(
                         }
                     }
                 }
+            }
+
+            // Nastavení čtečky - sheet s režimem čtení a vším kolem čtení
+            // (uživatelský požadavek, poslední ikona v rohu napravo).
+            IconButton(onClick = onOpenSettings) {
+                Icon(
+                    TablerIcons.Settings,
+                    contentDescription = stringResource(R.string.reader_settings_desc),
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
         // Postup v rámci manga (počet kapitol)
@@ -764,8 +777,12 @@ private fun ReaderAdvancedSheetContent(
 
         if (batchTranslating) {
             batchProgress?.let { progress ->
+                // OCR fáze má vlastní label - jinak čítač "zamrzl" na X/Y dokud běželo
+                // rozpoznávání zbývajících stránek (live test: ~10 min na 14/24).
+                val labelRes = if (progress.ocrStage) R.string.reader_translate_ocr_progress
+                               else R.string.reader_translate_all_progress
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.reader_translate_all_progress, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    Text(stringResource(labelRes, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     IconButton(onClick = onCancelBatch) {
                         Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
                     }
@@ -792,11 +809,20 @@ private fun ReaderAdvancedSheetContent(
         // Progress překladu aktuální stránky (pokud aktivní)
         if (translationProgress != null) {
             translationProgress.let { progress ->
+                val labelRes = if (progress.ocrStage) R.string.reader_translate_ocr_progress
+                               else R.string.reader_translating_progress
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.reader_translating_progress, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    Text("${(progress.done * 100f / progress.total).toInt()} %", color = Color(0xFF4FC3F7), style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(labelRes, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    if (progress.total > 0) {
+                        Text("${(progress.done * 100f / progress.total).toInt()} %", color = Color(0xFF4FC3F7), style = MaterialTheme.typography.labelMedium)
+                    }
                 }
-                LinearProgressIndicator(progress = { progress.done.toFloat() / progress.total }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), color = Color(0xFF4FC3F7), trackColor = Color.White.copy(alpha = 0.2f))
+                LinearProgressIndicator(
+                    progress = { if (progress.total > 0) progress.done.toFloat() / progress.total else 0f },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    color = Color(0xFF4FC3F7),
+                    trackColor = Color.White.copy(alpha = 0.2f),
+                )
             }
         }
     }

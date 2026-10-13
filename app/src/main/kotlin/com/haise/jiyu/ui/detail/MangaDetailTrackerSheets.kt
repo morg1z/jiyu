@@ -322,6 +322,83 @@ internal fun MangaUpdatesSearchSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+internal fun ComickSearchSheet(
+    viewModel: MangaDetailViewModel,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val comickSearchLoading by viewModel.comickSearchLoading.collectAsStateWithLifecycle()
+    val comickSearchResults by viewModel.comickSearchResults.collectAsStateWithLifecycle()
+    val comickSheetColor = Color(0xFF6366F1)
+    ModalBottomSheet(
+        onDismissRequest = { onDismiss(); onQueryChange("") },
+        containerColor = NightBlue,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.detail_info_search_comick_title), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { onQueryChange(it) },
+                    placeholder = { Text(stringResource(R.string.detail_info_manga_title_placeholder), color = TextSecondary) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = comickSheetColor,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                    ),
+                )
+                IconButton(onClick = { viewModel.searchComick(query) }) {
+                    Icon(TablerIcons.Search, contentDescription = stringResource(R.string.common_search), tint = comickSheetColor)
+                }
+            }
+            if (comickSearchLoading) {
+                JiyuLoadingIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    comickSearchResults.forEach { cm ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .clickable { viewModel.linkComick(cm); onDismiss() }
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                model = cm.coverUrl,
+                                contentDescription = null,
+                                modifier = Modifier.size(50.dp, 70.dp).clip(RoundedCornerShape(6.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(cm.title ?: cm.slug ?: cm.hid, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (cm.year != null) Text(stringResource(R.string.detail_info_search_result_year, cm.year), color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (comickSearchResults.isEmpty()) Text(stringResource(R.string.detail_info_no_search_results), color = TextSecondary, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 internal fun MalSearchSheet(
     viewModel: MangaDetailViewModel,
     query: String,

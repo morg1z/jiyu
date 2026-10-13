@@ -123,6 +123,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Comick OAuth callback - Comick vyzaduje reverse-domain scheme
+             (dev.example.reader:/oauth/comick), proto jiyu:// neproslo registraci.
+             URI je "com.haise.jiyu:/oauth/comick?code=..&state=.." - bez host,
+             takze filtr matchuje jen scheme. -->
+        <activity
+            android:name=".ui.auth.ComickCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.haise.jiyu" />
+            </intent-filter>
+        </activity>
+
         <!-- WorkManager tuhle service deklaruje bez foregroundServiceType - na Androidu 14
              (targetSdk 34) je typ povinný, jinak setForeground() v ChapterDownloadWorker
              spadne s InvalidForegroundServiceTypeException. -->

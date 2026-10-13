@@ -137,6 +137,31 @@ class BrowsedMangaCleanupTest {
     }
 
     @Test
+    fun `a manga remembered as a ComicK resolved source survives`() = runTest {
+        // ComicK titul si pamatuje resolvedMangaId = realny zdroj z minuleho
+        // resolvovani (SourceResolverViewModel). Ta manga ma profil "jen prohlizene",
+        // ale jeji smazani by zrusilo fast-path a pristi otevreni kapitoly by znovu
+        // spustilo sweep vsech zdroju.
+        dao.upsert(manga("comick-title", inLibrary = true).copy(sourceId = "comick"))
+        dao.upsert(manga("resolved-source"))
+        dao.setResolvedManga("comick-title", "resolved-source")
+        assertEquals(0, db.deleteBrowsedManga())
+        assertNotNull(dao.getById("resolved-source"))
+    }
+
+    @Test
+    fun `a manga no longer referenced as resolved source is deleted`() = runTest {
+        // Zrusene zapamatovani (resolvedMangaId = null) uz nijak nechrani - radek
+        // se smaze jako kazda jina jen-prohlizena manga.
+        dao.upsert(manga("comick-title", inLibrary = true).copy(sourceId = "comick"))
+        dao.upsert(manga("ex-resolved"))
+        dao.setResolvedManga("comick-title", "ex-resolved")
+        dao.setResolvedManga("comick-title", null)
+        assertEquals(1, db.deleteBrowsedManga())
+        assertNull(dao.getById("ex-resolved"))
+    }
+
+    @Test
     fun `a manga sorted into a category survives`() = runTest {
         // Zarazeni do kategorie je vedome usporadani uzivatele - i kdyz mangu nema v knihovne
         // a necetl ji, rekl o ni "tahle patri sem" a to nesmi uklid smazat.

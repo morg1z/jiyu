@@ -110,6 +110,9 @@ fun ReaderContent(
     currentChapterId: String? = null,
     onJumpToChapter: (String) -> Unit = {},
     onResetChapter: () -> Unit = {},
+    /** Ikona ozubeného kola v horní liště - otevře sheet nastavení čtečky
+     *  (sheet renderuje ReaderScreen, protože drží ViewModel kolekce). */
+    onOpenSettings: () -> Unit = {},
     webtoonSegments: List<WebtoonSegment> = emptyList(),
     onNeedMoreWebtoonSegments: () -> Unit = {},
     /** Zpetna symetrie [onNeedMoreWebtoonSegments] - ReaderViewModel.prependPreviousWebtoonSegment. */
@@ -144,6 +147,12 @@ fun ReaderContent(
     // odscrollanemu segmentu jine kapitoly, nez je aktualni (audit RD-4/RD-10).
     onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
     onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
+    /** Per-chapter stránky s NEÚSPĚŠNÝM překladem - retry chip (viz
+     *  ReaderViewModel.translateFailedPages). Paged proud se projektuje flattenem
+     *  jako translatedPages; webtoon si chapterId řeší per segment. */
+    translateFailedPages: Map<String, Set<Int>> = emptyMap(),
+    /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
+    onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
@@ -233,6 +242,13 @@ fun ReaderContent(
                 flattenTranslatedPages(translatedPagesByChapter, webtoonSegments)
             }
         } else translatedPages
+        // Stejný flatten jako pagedTranslated - neúspěšné stránky překladu na
+        // ploché indexy (retry chip v MangaGroupContent).
+        val pagedFailed = if (useInfinitePaged) {
+            remember(translateFailedPages, webtoonSegments) {
+                flattenFailedPages(translateFailedPages, webtoonSegments)
+            }
+        } else translateFailedPages[pagedChapterId] ?: emptySet()
         // Flip klice "$page:$bubble" premapovane na plochy index - jinak by se
         // lokalni indexy opakujici se v kazde kapitole krizily mezi segmenty.
         val pagedFlipped = if (useInfinitePaged) {
@@ -290,6 +306,8 @@ fun ReaderContent(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                translateFailedPagesByChapter = translateFailedPages,
+                onRetranslatePage = onRetranslatePage,
                 isAppendingNextChapter = webtoonAppendingNextChapter,
                 onScrollPositionChanged = { flatIdx, total ->
                     webtoonFlatIndex = flatIdx
@@ -332,6 +350,8 @@ fun ReaderContent(
                 flippedBubbles = pagedFlipped,
                 onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
                 onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
+                translateFailedPages = pagedFailed,
+                onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
                 // Nekonecne cteni: tah za konec seskladaneho proudu dolnatahne dalsi
@@ -366,6 +386,9 @@ fun ReaderContent(
                 volumeKeysNav = volumeKeysNav,
                 flippedBubbles = pagedFlipped,
                 onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
+                onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
+                translateFailedPages = pagedFailed,
+                onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
             )
@@ -431,6 +454,7 @@ fun ReaderContent(
                     onOpenManga = onOpenManga,
                     onJumpToChapter = onJumpToChapter,
                     onResetChapter = onResetChapter,
+                    onOpenSettings = onOpenSettings,
                 )
 
                 ReaderBottomPanel(

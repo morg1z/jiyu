@@ -128,6 +128,51 @@ interface MangaDao {
     @Query("UPDATE manga SET mangaUpdatesId = :seriesId WHERE id = :id")
     suspend fun setMangaUpdatesId(id: String, seriesId: Long?)
 
+    /** Vazani na Comick Library API entry (opaque HID) - viz ComickImportManager. */
+    @Query("UPDATE manga SET comickHid = :hid WHERE id = :id")
+    suspend fun setComickHid(id: String, hid: String?)
+
+    @Query("SELECT * FROM manga WHERE comickHid = :hid LIMIT 1")
+    suspend fun findByComickHid(hid: String): MangaEntity?
+
+    /** Jako [findByComickHid], ale jen pro tituly v knihovně - pro pasivni sync
+     * (pullLibrarySync), ktery nesmi "ozivit" uzivatelem odebrany titul: bez filtru
+     * by applyProgress na takovem radku znovu nastavil lastReadAt > 0 a browsed
+     * cleanup (ktery vyzaduje lastReadAt = 0) by ho uz nikdy nesmazal. Import
+     * tombstone schvalne matchuje pres nefiltrovany findByComickHid/getMangaBySourceAndUrl
+     * a applyEntry ho vrati do knihovny (import = vedomy akt). */
+    @Query("SELECT * FROM manga WHERE comickHid = :hid AND inLibrary = 1 LIMIT 1")
+    suspend fun findByComickHidInLibrary(hid: String): MangaEntity?
+
+    /** Importovane Comick tituly bez stazeneho seznamu kapitol - pro start-up backfill
+     * (viz ComickImportManager.backfillMissingChapterLists). */
+    @Query("""
+        SELECT * FROM manga WHERE sourceId = 'comick' AND comickHid IS NOT NULL
+        AND inLibrary = 1 AND lastChapterRefreshAt = 0
+        AND NOT EXISTS (SELECT 1 FROM chapter c WHERE c.mangaId = manga.id)
+    """)
+    suspend fun comickMangaMissingChapters(): List<MangaEntity>
+
+    /** Importovane Comick tituly bez zanru - import vytvari radek s genres="",
+     *  detail-refresh (ktery je persistuje) se normalne stane az pri otevreni detailu,
+     *  takze statistika "Oblibene zanry" je u ciste importovane knihovny prazdna.
+     *  Pro start-up backfill (viz ComickImportManager.backfillMissingChapterLists). */
+    @Query("""
+        SELECT * FROM manga WHERE sourceId = 'comick' AND comickHid IS NOT NULL
+        AND inLibrary = 1 AND genres = '' AND detailFetchedAt = 0
+    """)
+    suspend fun comickMangaMissingGenres(): List<MangaEntity>
+
+    /** Zapamatovany realny zdroj ComicK titulu - viz MangaEntity.resolvedMangaId. */
+    @Query("UPDATE manga SET resolvedMangaId = :resolvedMangaId WHERE id = :id")
+    suspend fun setResolvedManga(id: String, resolvedMangaId: String?)
+
+    /** ComicK tituly, jejichz zapamatovany realny zdroj je [resolvedMangaId] - pouziva
+     *  propagateReadProgressToLinkedChapters k doplneni fallback linku a posunu
+     *  "Pokracovat" pri cteni dal na realnem zdroji. Index na resolvedMangaId. */
+    @Query("SELECT * FROM manga WHERE resolvedMangaId = :resolvedMangaId AND inLibrary = 1")
+    suspend fun findByResolvedSource(resolvedMangaId: String): List<MangaEntity>
+
     @Query("UPDATE manga SET readingTimeMs = readingTimeMs + :deltaMs WHERE id = :id")
     suspend fun addReadingTime(id: String, deltaMs: Long)
 
@@ -164,6 +209,19 @@ interface MangaDao {
 
     @Query("UPDATE manga SET readingStatus = :status WHERE id = :id")
     suspend fun setReadingStatus(id: String, status: String?)
+
+    /** Varianta s razitkem: lokalni zapis = "now", Comick remote aplikace = `updated_at`
+     *  z entry (conflict resolution pull syncu - viz MangaEntity.statusUpdatedAt). */
+    @Query("UPDATE manga SET readingStatus = :status, statusUpdatedAt = :statusUpdatedAt WHERE id = :id")
+    suspend fun setReadingStatusAt(id: String, status: String?, statusUpdatedAt: Long)
+
+    /** Razitko uspesneho detail fetchu (backfill konvergence - viz MangaEntity). */
+    @Query("UPDATE manga SET detailFetchedAt = :at WHERE id = :id")
+    suspend fun setDetailFetchedAt(id: String, at: Long)
+
+    /** Razitko uspesneho refreshChapters (backfill konvergence + update throttling). */
+    @Query("UPDATE manga SET lastChapterRefreshAt = :at WHERE id = :id")
+    suspend fun setChapterRefreshAt(id: String, at: Long)
 
     @Query("SELECT * FROM manga WHERE inLibrary = 1 AND readingStatus = :status ORDER BY title ASC")
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>>
@@ -232,6 +290,10 @@ interface MangaDao {
               SELECT DISTINCT mangaId FROM chapter
               WHERE id IN (SELECT fallbackChapterId FROM chapter WHERE fallbackChapterId IS NOT NULL)
           )
+          -- Zapamatovany realny zdroj ComicK titulu (manga.resolvedMangaId) - smazanim
+          -- by se ztratila "fast path" SourceResolverViewModelu a pristi otevreni
+          -- kapitoly by znovu spustilo sweep vsech zdroju.
+          AND id NOT IN (SELECT resolvedMangaId FROM manga WHERE resolvedMangaId IS NOT NULL)
         """
     )
     suspend fun browsedMangaIds(): List<String>

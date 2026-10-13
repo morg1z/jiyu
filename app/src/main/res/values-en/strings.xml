@@ -279,6 +279,30 @@
     <string name="settings_services_mu_login_button">Sign in to MangaUpdates</string>
     <string name="settings_services_kitsu_login_failed">Kitsu sign-in failed — check your email and password</string>
     <string name="settings_services_mu_login_failed">MangaUpdates sign-in failed</string>
+    <string name="settings_services_comick_desc">Connect your Comick account to import your library and sync reading progress.</string>
+    <string name="settings_services_comick_connect">Connect Comick</string>
+    <string name="settings_services_comick_reconnect">Comick connection expired – reconnect</string>
+    <string name="settings_services_comick_import_button">Import library</string>
+    <string name="settings_services_comick_last_sync">Last sync: %1$s</string>
+    <string name="settings_services_comick_sync_label">Sync</string>
+    <string name="settings_services_comick_mode_off">Off</string>
+    <string name="settings_services_comick_mode_pull">Pull from Comick</string>
+    <string name="settings_services_comick_mode_twoway">Two-way</string>
+    <string name="settings_services_comick_disconnect_confirm">Disconnects your Comick account and revokes access on comick.dev. Your local library stays untouched.</string>
+    <string name="comick_import_title">Comick import</string>
+    <string name="comick_import_fetching">Fetching library… %1$d titles</string>
+    <string name="comick_import_new">New titles: %1$d</string>
+    <string name="comick_import_matched">Matched to library: %1$d</string>
+    <string name="comick_import_unmatched">Unmatched (can be linked in title detail): %1$d</string>
+    <string name="comick_import_anime_skipped">Skipped (anime): %1$d</string>
+    <string name="comick_import_apply">Import</string>
+    <string name="comick_import_applying">Importing… %1$d/%2$d</string>
+    <string name="comick_import_done">Import finished</string>
+    <string name="comick_import_report_progress">Reading progress applied: %1$d · kept local: %2$d</string>
+    <string name="comick_import_failed">Import failed – try again</string>
+    <string name="comick_auth_failed">Failed to connect Comick – try again</string>
+    <string name="comick_import_cancel">Cancel</string>
+    <string name="comick_import_close">Close</string>
 
     <!-- Settings: Backup -->
     <string name="settings_backup_error_prefix">Error: %1$s</string>
@@ -622,6 +646,12 @@
     <string name="detail_info_mu_id">MU Series ID: %1$s</string>
     <string name="detail_info_sync_from_mu">Pull status from MangaUpdates</string>
     <string name="detail_info_link_mu">Link with MangaUpdates</string>
+    <string name="detail_info_comick_login_hint">Connect Comick in Settings → Services to link.</string>
+    <string name="detail_info_comick_id">Comick: %1$s</string>
+    <string name="detail_info_sync_from_comick">Pull status from Comick</string>
+    <string name="detail_info_link_comick">Link with Comick</string>
+    <string name="detail_info_comick_unfollow">Unfollow on Comick</string>
+    <string name="detail_info_comick_unfollow_confirm">Removes the title from your Comick library (including remote progress and rating). Your local library stays untouched.</string>
     <string name="detail_info_section_tags">TAGS</string>
     <string name="detail_info_add_tag">Add tag</string>
     <string name="detail_info_new_tag_placeholder">New tag…</string>
@@ -646,6 +676,7 @@
     <string name="detail_info_no_search_results">No results. Enter a manga title.</string>
     <string name="detail_info_search_kitsu_title">Search Kitsu</string>
     <string name="detail_info_search_mu_title">Search MangaUpdates</string>
+    <string name="detail_info_search_comick_title">Search Comick</string>
     <string name="detail_info_search_result_year">Year: %1$d</string>
     <string name="detail_info_search_mal_title">Search MyAnimeList</string>
 
@@ -704,7 +735,6 @@
     <string name="mylist_time_less_than_minute">less than a minute</string>
     <string name="mylist_reading_stats_title">Reading stats</string>
     <string name="mylist_chapters_read">Chapters read</string>
-    <string name="mylist_pages_read">Pages read</string>
     <string name="mylist_detailed_stats">Detailed →</string>
 
     <!-- Reader -->
@@ -738,6 +768,9 @@
     <string name="reader_offline_desc">Offline</string>
     <string name="reader_panel_mode_desc">Panel by panel</string>
     <string name="reader_pick_chapter_desc">Pick chapter</string>
+    <string name="reader_settings_desc">Reading settings</string>
+    <string name="reader_settings_this_manga">This title</string>
+    <string name="reader_settings_defaults_section">Default for other titles</string>
     <string name="reader_chapters_sheet_title">Chapters (%1$d)</string>
     <string name="reader_incognito_off_desc">Turn off incognito</string>
     <string name="reader_incognito_on_desc">Incognito</string>
@@ -754,8 +787,10 @@
     <string name="reader_orientation_portrait">↕ Portrait</string>
     <string name="reader_orientation_landscape">↔ Landscape</string>
     <string name="reader_translate_all_progress">Translating all… %1$d/%2$d</string>
+    <string name="reader_translate_ocr_progress">Recognizing text… %1$d/%2$d</string>
     <string name="reader_translate_all_button">Translate all</string>
     <string name="reader_translating_progress">Translating… %1$d/%2$d</string>
+    <string name="reader_translate_page_failed_retry">Translation failed – tap to retry</string>
     <string name="reader_glossary_title">Translation glossary</string>
     <string name="reader_glossary_desc">Names, techniques, and nicknames will always be translated the same way across every chapter.</string>
     <string name="reader_glossary_translation_placeholder">Translation</string>
@@ -775,6 +810,7 @@
     <string name="reader_error_translation_failed">Chapter translation failed, try again</string>
     <string name="reader_fallback_source_notice">This chapter was fetched from a different source because the original version was incomplete.</string>
     <string name="reader_error_rate_limited">Daily AI translation limit reached, please try again later</string>
+    <string name="reader_translation_degraded">Reduced translation quality (main model quota exhausted)</string>
     <string name="reader_error_language_unsupported_offline">Offline mode (no API key set) doesn\'t support this target language - try a different language or set a key in Settings</string>
     <string name="reader_on_device_warning">No cloud API key configured — showing a rough on-device preview.</string>
 
@@ -964,7 +1000,6 @@
     <string name="stats_total_titles">Titles in library</string>
     <string name="stats_total_chapters">Chapters in library</string>
     <string name="stats_total_read_chapters">Chapters read</string>
-    <string name="stats_total_pages">Pages read</string>
     <string name="stats_total_rated">Titles rated</string>
     <string name="stats_last_read">Last read</string>
     <string name="stats_member_since">First title added</string>

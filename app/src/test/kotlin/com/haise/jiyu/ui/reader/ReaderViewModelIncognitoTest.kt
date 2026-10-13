@@ -12,6 +12,8 @@ import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.tracking.ComickAuthManager
+import com.haise.jiyu.data.tracking.ComickRepository
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
@@ -128,11 +130,15 @@ class ReaderViewModelIncognitoTest {
             malRepository = malRepository,
             kitsuRepository = mockk<KitsuRepository>(relaxed = true),
             muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
+            comickRepository = mockk<ComickRepository>(relaxed = true),
+            comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
+            settings = mockk<SettingsRepository>(relaxed = true),
         ),
         glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
+        translateQueue = mockk(relaxed = true),
     )
 
     @Test
@@ -145,13 +151,12 @@ class ReaderViewModelIncognitoTest {
     }
 
     @Test
-    fun `incognito keeps reading time and page count out of the stats`() = runBlocking {
+    fun `incognito keeps reading time out of the stats`() = runBlocking {
         val vm = viewModel(incognito = true)
         vm.onPageChanged(0)
         vm.onPageChanged(1)
 
         coVerify(exactly = 0) { settings.addReadingTime(any()) }
-        coVerify(exactly = 0) { settings.addPagesRead(any()) }
         coVerify(exactly = 0) { repository.addMangaReadingTime(any(), any()) }
     }
 
@@ -181,11 +186,10 @@ class ReaderViewModelIncognitoTest {
     }
 
     @Test
-    fun `normal reading still counts pages and the streak`() = runBlocking {
+    fun `normal reading still bumps the streak`() = runBlocking {
         val vm = viewModel(incognito = false)
         vm.onPageChanged(0)
 
-        coVerify(atLeast = 1) { settings.addPagesRead(1) }
         coVerify(atLeast = 1) { settings.updateReadingStreak() }
     }
 

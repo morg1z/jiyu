@@ -28,6 +28,9 @@ import com.haise.jiyu.util.report
 
 const val CHANNEL_ID = "chapter_updates"
 
+/** Minimalni interval mezi refreshi kapitol Comick katalogovych titulu (24h) - viz runUpdate. */
+private const val COMICK_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000L
+
 @HiltWorker
 class ChapterUpdateWorker @AssistedInject constructor(
     @Assisted private val context: Context,
@@ -49,12 +52,22 @@ class ChapterUpdateWorker @AssistedInject constructor(
             val library = repository.getAllLibraryManga().filter { !it.excludeFromUpdates }
             val semaphore = Semaphore(5)
             val updatedManga = java.util.Collections.synchronizedList(mutableListOf<UpdatedMangaInfo>())
+            val now = System.currentTimeMillis()
 
             coroutineScope {
                 library.map { manga ->
                     async {
                         semaphore.withPermit {
                             try {
+                                // ComicK katalogove tituly: kazdy refresh je 1+ strankovanych
+                                // callu na api.comick.dev (rate limit ~60 cteni/min) - u ~1100
+                                // importovanych titulu by 12h cyklus znamenal tisice requestu.
+                                // Metadatove kapitoly nepotrebuji takovou cerstvost; pull sync
+                                // stavu bezi pri startu a detail dotahne kapitoly lazy. Proto
+                                // comick tituly preskakujeme, dokud je refresh cerstvejsi nez 24h.
+                                if (manga.sourceId == "comick" &&
+                                    manga.lastChapterRefreshAt > now - COMICK_REFRESH_INTERVAL_MS
+                                ) return@withPermit
                                 val sManga = SManga(manga.sourceId, manga.url, manga.title, manga.coverUrl, contentType = manga.contentType)
                                 val newChapters = repository.refreshChapters(manga.id, sManga)
                                 // Agregovane zdroje (ComicK) umi vydat stejne cislo kapitoly vic

@@ -107,6 +107,9 @@ fun MangaPageCurlReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    /** Stejný význam jako v MangaReader - retry chip nad stránkou se selhaným překladem. */
+    translateFailedPages: Set<Int> = emptySet(),
+    onRetranslatePage: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
     /**
@@ -508,6 +511,8 @@ fun MangaPageCurlReader(
                     resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                     textScale = textScale, flippedBubbles = flippedBubbles,
                     onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                    translateFailedPages = translateFailedPages,
+                    onRetranslatePage = onRetranslatePage,
                     onAllImagesLoaded = { currentLoaded = it },
                     disableCrossfade = true,
                     referer = referer,
@@ -552,6 +557,8 @@ fun MangaPageCurlReader(
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                         textScale = textScale, flippedBubbles = flippedBubbles,
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                        translateFailedPages = translateFailedPages,
+                        onRetranslatePage = onRetranslatePage,
                         onAllImagesLoaded = { nextLoaded = it },
                         disableCrossfade = true,
                         referer = referer,
@@ -581,6 +588,8 @@ fun MangaPageCurlReader(
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
                         textScale = textScale, flippedBubbles = flippedBubbles,
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
+                        translateFailedPages = translateFailedPages,
+                        onRetranslatePage = onRetranslatePage,
                         onAllImagesLoaded = { prevLoaded = it },
                         disableCrossfade = true,
                         referer = referer,

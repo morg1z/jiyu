@@ -88,8 +88,11 @@ class ComicKArtSource(
     // ma vlastni /api/comics/top feed, takze zbyva jen rating navic.
     override val availableSorts = setOf("popular", "latest", "rating")
 
-    /** Cursor stránkování /api/search - cursor z předchozí stránky, resetuje se při page==1. */
-    @Volatile private var nextCursor: String? = null
+    /** Cursor stránkování /api/search jako (parametry dotazu -> next_cursor). Server-side
+     *  cursor je vazany na kontext dotazu; bez fingerprintu by prokluz dvou ruznych dotazu
+     *  (browse vs. global search, zmena filtru mezi strankami) pozil cizi cursor a vratil
+     *  stranku z jine sekvence. @Volatile staci - vzdy jde o atomicky swap reference. */
+    @Volatile private var nextCursor: Pair<String, String>? = null
 
     @Volatile private var cachedTags: List<FilterTag>? = null
 
@@ -157,8 +160,8 @@ class ComicKArtSource(
 
     /** /api/search - cursor stránkování (cursor z předchozí odpovědi, ne číslo stránky). */
     private fun apiSearch(page: Int, filter: MangaFilter, query: String?): List<SManga> {
-        if (page == 1) nextCursor = null
-        val url = buildString {
+        // Parametry dotazu zvlast - slouzi jako fingerprint pro vazbu cursoru.
+        val params = buildString {
             append("$base/api/search?type=comic&showAll=false&exclude_mylist=false")
             // Jedinne platne hodnoty jsou rating/uploaded - "view"/"title"/"follow"
             // vraci 302 redirect na HTML, coz rozbije JSON parsing (audit 2026-10
@@ -189,12 +192,17 @@ class ComicKArtSource(
             filter.year?.takeIf { it > 0 }?.let { append("&from=$it&to=$it") }
             query?.trim()?.takeIf { it.length >= 3 }
                 ?.let { append("&q=${URLEncoder.encode(it, "UTF-8")}") }
-            if (page > 1) nextCursor?.let { append("&cursor=${URLEncoder.encode(it, "UTF-8")}") }
         }
+        if (page == 1) nextCursor = null
+        // Cursor z minule stranky pouzijeme jen pro stejny dotaz - prokluz dvou
+        // sekvenci (nebo zmena filtru) by jinak vratila stranku z ciziho kontextu.
+        val cursor = nextCursor?.takeIf { it.first == params }?.second
+        val url = if (page > 1 && cursor != null) "$params&cursor=${URLEncoder.encode(cursor, "UTF-8")}" else params
         val json = getObject(url)
         nextCursor = (json.optString("next_cursor").ifBlank { null }
             ?: json.optString("cursor").ifBlank { null })
             ?.takeIf { it != "null" }
+            ?.let { params to it }
         val result = parseComicList(json.optJSONArray("data") ?: JSONArray())
         // Málo výsledků na stránce = pravděpodobně konec (stejná heuristika jako Kotatsu).
         if (result.size < 10) nextCursor = null

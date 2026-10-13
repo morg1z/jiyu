@@ -46,6 +46,7 @@ android {
         buildConfigField("Boolean", "FIREBASE_ENABLED", "$firebaseEnabled")
         buildConfigField("String", "MAL_CLIENT_ID", "\"${localProps["MAL_CLIENT_ID"] ?: ""}\"")
         buildConfigField("String", "ANILIST_CLIENT_ID", "\"${localProps["ANILIST_CLIENT_ID"] ?: ""}\"")
+        buildConfigField("String", "COMICK_CLIENT_ID", "\"${localProps["COMICK_CLIENT_ID"] ?: ""}\"")
 
         // Bez tohohle se androidTest NESPUSTI - pouzil by se zastaraly vychozi runner, ktery
         // AndroidX testy neumi, a existujici testy tak byly cele mesice mrtve. Vlastni runner

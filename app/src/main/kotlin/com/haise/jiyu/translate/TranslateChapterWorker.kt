@@ -114,21 +114,26 @@ class TranslateChapterWorker @AssistedInject constructor(
                     showProgress(done, pages.size)
                 }
             }
-            nm?.cancel(notificationId)
             Result.success()
         } catch (e: CancellationException) {
             // Zrušení uživatelem nebo systémem není chyba - hlásit by se nemělo.
-            nm?.cancel(notificationId)
             throw e
         } catch (e: Exception) {
             e.report("translate:worker:${chapter.sourceId}")
-            nm?.cancel(notificationId)
             // Retry, ne failure: nejčastější důvod je vyčerpaná kvóta nebo výpadek sítě, a obojí
             // přejde. Dokončené stránky zůstávají v cache, takže opakování začne tam, kde skončilo.
             // Strop 3 pokusů jako u SyncWorker/AutoBackupWorker/ChapterUpdateWorker - bez něj by
             // TRVALÁ chyba (rozbitý parser jen na téhle kapitole, permanentně smazaná stránka u
             // zdroje) zkoušela pořád dokola na neurčito, místo aby se jednou ohlásila jako selhání.
             if (runAttemptCount < 3) Result.retry() else Result.success()
+        } finally {
+            // Popředová notifikace zůstávala viset jako zombie, když se worker zrušil
+            // v průběhu handoffu zpět do interaktivního čtení (návrat appky do popředí
+            // volá TranslateQueue.cancel) - FGS se zastavil, ale notification v shade
+            // přežila ("Stop FGS timeout" v logu). finally proběhne při KAŽDÉM ukončení
+            // doWork včetně cancel-unwindingu - jediná cesta, která notifikaci uklidí
+            // spolehlivě (onStopped je v CoroutineWorkeru final, přepsat nejde).
+            nm?.cancel(notificationId)
         }
     }
 

@@ -9,6 +9,8 @@ import com.haise.jiyu.anilist.AniListRepository
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.tracking.ComickAuthManager
+import com.haise.jiyu.data.tracking.ComickRepository
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
@@ -97,11 +99,15 @@ class ReaderViewModelNavigationTest {
             malRepository = mockk<MalRepository>(relaxed = true),
             kitsuRepository = mockk<KitsuRepository>(relaxed = true),
             muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
+            comickRepository = mockk<ComickRepository>(relaxed = true),
+            comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
+            settings = mockk<SettingsRepository>(relaxed = true),
         ),
         glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
+        translateQueue = mockk(relaxed = true),
     )
 
     @Test

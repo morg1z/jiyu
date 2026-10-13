@@ -11,6 +11,8 @@ import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.tracking.ComickAuthManager
+import com.haise.jiyu.data.tracking.ComickRepository
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
@@ -117,20 +119,24 @@ class ReaderViewModelBatchTranslateTest {
             malRepository = mockk<MalRepository>(relaxed = true),
             kitsuRepository = mockk<KitsuRepository>(relaxed = true),
             muRepository = mockk<MangaUpdatesRepository>(relaxed = true),
+            comickRepository = mockk<ComickRepository>(relaxed = true),
+            comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
+            settings = mockk<SettingsRepository>(relaxed = true),
         ),
         glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
+        translateQueue = mockk(relaxed = true),
     )
 
     /** Nasimuluje průběh translateChapter - pro každou dvojici (index, bloky) zavolá callback. */
     private fun stubTranslateChapter(vararg pages: Pair<Int, List<TranslatedBlock>>) {
         coEvery {
-            translateRepository.translateChapter(any(), any(), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             pages.forEach { (i, blocks) -> onPageReady(i, blocks) }
         }
     }
@@ -186,7 +192,7 @@ class ReaderViewModelBatchTranslateTest {
     fun `hitting the rate limit shows the rate-limit message, not the generic failure`() = runBlocking {
         every { context.getString(com.haise.jiyu.R.string.reader_error_rate_limited) } returns "limit"
         coEvery {
-            translateRepository.translateChapter(any(), any(), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), any(), any(), any(), any(), any(), any(), any())
         } throws RateLimitedException()
 
         val vm = viewModel()
@@ -223,18 +229,18 @@ class ReaderViewModelBatchTranslateTest {
         // pozadavek, ktery jeste nedobehl v okamziku, kdy uzivatel odejde na dalsi kapitolu.
         val ch1Gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         coEvery {
-            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any(), any(), any())
         } coAnswers {
             ch1Gate.await()
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             onPageReady(0, listOf(block("STARY PREKLAD Z KAPITOLY 1")))
         }
         coEvery {
-            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any(), any(), any())
         } coAnswers {
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             onPageReady(0, listOf(block("Nova kapitola")))
         }
 
@@ -286,7 +292,7 @@ class ReaderViewModelBatchTranslateTest {
         // v putTranslatedPage, ne jen samotny cancel.
         val ch1Gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         coEvery {
-            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any(), any(), any())
         } coAnswers {
             try {
                 ch1Gate.await()
@@ -294,7 +300,7 @@ class ReaderViewModelBatchTranslateTest {
                 // Job byl zrusen, ale naplany callback se stejne jeste vykona.
             }
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             onPageReady(0, listOf(block("STARY PREKLAD Z KAPITOLY 1")))
         }
 
@@ -393,17 +399,17 @@ class ReaderViewModelBatchTranslateTest {
             com.haise.jiyu.source.Page(0, "q1.jpg", "q1.jpg"),
         )
         coEvery {
-            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch1"), any(), any(), any(), any(), any(), any())
         } coAnswers {
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             onPageReady(0, listOf(block("Kapitola 1")))
         }
         coEvery {
-            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any())
+            translateRepository.translateChapter(any(), eq("ch2"), any(), any(), any(), any(), any(), any())
         } coAnswers {
             @Suppress("UNCHECKED_CAST")
-            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(5)
+            val onPageReady = arg<suspend (Int, List<TranslatedBlock>) -> Unit>(7)
             onPageReady(0, listOf(block("Kapitola 2")))
         }
 

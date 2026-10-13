@@ -78,6 +78,9 @@ class JiyuApp : Application(), Configuration.Provider {
     /** Proaktivni reseni Cloudflare vyzv na pozadi - viz [com.haise.jiyu.source.interceptor.CloudflareWarmup]. */
     @Inject lateinit var cloudflareWarmup: com.haise.jiyu.source.interceptor.CloudflareWarmup
 
+    /** Start-up backfill seznamu kapitol importovanych Comick titulu - viz [backfillComickChapters]. */
+    @Inject lateinit var comickImportManager: com.haise.jiyu.data.tracking.ComickImportManager
+
     /**
      * Vynutit sestavení Supabase klienta TADY, na hlavním vlákně při startu appky.
      *
@@ -171,6 +174,33 @@ class JiyuApp : Application(), Configuration.Provider {
         // request na CF zdroj stal ~5-18 s a hromadne operace (globalni hledani, stahovani)
         // na CF hostech vzdycky selhaly.
         cloudflareWarmup.start()
+        backfillComickChapters()
+    }
+
+    /**
+     * Startovni Comick pull: (1) pullLibrarySync pretahne remote status/rating/progress
+     * na navazane tituly (jen v sync mode pull/twoway), (2) backfillMissingChapterLists
+     * dotahne seznamy kapitol titulum, co je nemaji - starsi importy je nechaly bez
+     * kapitol, takze Seznam neukazoval pocet a progress se preskocil. Obe best-effort;
+     * kdyz uz je vse naplnene, je to no-op.
+     */
+    private fun backfillComickChapters() {
+        appScope.launch {
+            try {
+                comickImportManager.pullLibrarySync()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("comick:pullSync")
+            }
+            try {
+                comickImportManager.backfillMissingChapterLists()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("comick:backfillMissingChapters")
+            }
+        }
     }
 
     /**

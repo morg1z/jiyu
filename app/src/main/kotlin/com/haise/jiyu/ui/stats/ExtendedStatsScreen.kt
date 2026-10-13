@@ -203,7 +203,6 @@ fun ExtendedStatsScreen(
                     TotalRow(R.string.stats_total_titles, formatCount(stats.totalInLibrary.toLong()))
                     TotalRow(R.string.stats_total_chapters, formatCount(stats.totalChaptersInLibrary.toLong()))
                     TotalRow(R.string.stats_total_read_chapters, formatCount(stats.chaptersRead.toLong()))
-                    TotalRow(R.string.stats_total_pages, formatCount(stats.pagesRead))
                     TotalRow(R.string.stats_total_rated, formatCount(stats.ratedCount.toLong()))
                     TotalRow(R.string.stats_reading_time_label, formatTime(stats.readingTimeMs))
                     TotalRow(R.string.stats_streak_label, formatCount(stats.readingStreak.toLong()))

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +67,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +86,7 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 // ── Vertikální webtoon reader ────────────────────────────────────────────────
 //
@@ -124,6 +127,11 @@ fun WebtoonReader(
     // aktualni kapitoly (audit RD-4/RD-10).
     onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
     onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
+    /** Per-chapter stránky s NEÚSPĚŠNÝM překladem (viz ReaderViewModel.translateFailedPages) -
+     *  klíčované chapterId stejně jako translatedPagesByChapter (lokální indexy per segment). */
+    translateFailedPagesByChapter: Map<String, Set<Int>> = emptyMap(),
+    /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
+    onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     // True po dobu, co ViewModel stahuje a připojuje další segment (viz
     // ReaderViewModel.appendNextWebtoonSegment) - bez indikace uživatel na konci
     // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
@@ -166,6 +174,35 @@ fun WebtoonReader(
     // v ReaderPager.kt, jen aplikovaný na celý scrollovací kontejner místo jedné stránky.
     var scale by rememberSaveable { mutableStateOf(1f) }
     var panOffset by rememberSaveable(stateSaver = OffsetSaver) { mutableStateOf(Offset.Zero) }
+
+    /**
+     * Posun obsahu při zoomu webtoon pásu. Horizontálně stačí čistý pan (pás je jen
+     * širší než obrazovka), vertikálně se ale `panOffset.y` drží jen v mezích
+     * zvětšeného viewportu a přesahy jdou do scrollu LazyColumn - bez toho by čistý
+     * `graphicsLayer.translationY` posunul vykreslenou vrstvu mimo oblast, kterou
+     * LazyColumn složil, a za jejím okrajem svítila černá (LazyColumn drží jen
+     * stránky u viditelného okna, ne celou kapitolu jako bitmapu). Scroll jde přes
+     * `scope.launch`, protože gesture callbacky (`awaitPointerEventScope`) suspend
+     * volání mimo vlastní scope zakazují.
+     */
+    fun applyZoomPan(delta: Offset, viewport: IntSize) {
+        val maxPanX = viewport.width * (scale - 1f) / 2f
+        val maxPanY = viewport.height * (scale - 1f) / 2f
+        var panY = panOffset.y + delta.y
+        val overflow = when {
+            panY > maxPanY -> panY - maxPanY
+            panY < -maxPanY -> panY + maxPanY
+            else -> 0f
+        }
+        if (overflow != 0f) {
+            panY -= overflow
+            scope.launch { listState.scroll { scrollBy(-overflow) } }
+        }
+        panOffset = Offset(
+            x = (panOffset.x + delta.x).coerceIn(-maxPanX, maxPanX),
+            y = panY,
+        )
+    }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         // Uzsi typ nez Exception zamerne - viz stejne misto v ReaderPager.kt.
@@ -405,7 +442,7 @@ fun WebtoonReader(
                 ) { zoomChange, panChange ->
                     val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                     scale = newScale
-                    if (newScale > 1f) panOffset += panChange else panOffset = Offset.Zero
+                    if (newScale > 1f) applyZoomPan(panChange, size) else panOffset = Offset.Zero
                 }
             }
             // Jednoprsty PAN pri zoomu - scroll LazyColumn je pri scale>1f vypnuty
@@ -416,7 +453,7 @@ fun WebtoonReader(
                     Modifier.pointerInput(Unit) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            panOffset += dragAmount
+                            applyZoomPan(dragAmount, size)
                         }
                     }
                 } else Modifier
@@ -464,6 +501,8 @@ fun WebtoonReader(
                 flippedBubbles = flippedBubbles,
                 onToggleBubbleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+                translateFailedPages = translateFailedPagesByChapter[seg.chapterId] ?: emptySet(),
+                onRetranslatePage = { index -> onRetranslatePage(seg.chapterId, index) },
                 referer = referer,
                 placeholderAspectRatio = placeholderAspectRatio,
                 onPageAspectMeasured = { ratio ->
@@ -503,6 +542,8 @@ private fun LazyListScope.webtoonSegmentItems(
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit,
     onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
+    translateFailedPages: Set<Int>,
+    onRetranslatePage: (pageIndex: Int) -> Unit,
     referer: String?,
     placeholderAspectRatio: Float,
     onPageAspectMeasured: (Float) -> Unit,
@@ -524,6 +565,8 @@ private fun LazyListScope.webtoonSegmentItems(
             flippedBubbles = segmentFlipped,
             onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(segment.chapterId, pi, bi) },
             onEditBubble = { pi, ot, ct, x, y -> onEditBubble(segment.chapterId, pi, ot, ct, x, y) },
+            translationFailed = index in translateFailedPages,
+            onRetranslate = { onRetranslatePage(index) },
             referer = referer,
             placeholderAspectRatio = placeholderAspectRatio,
             onPageAspectMeasured = onPageAspectMeasured,
@@ -643,6 +686,11 @@ private fun WebtoonPage(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    /** true = překlad stránky SELHAL (OCR error / provider nedal výsledek) - retry chip
+     *  (viz ReaderViewModel.translateFailedPages); bez něj byla chyba k nerozeznání od
+     *  legitimní "stránky bez textu" (hlášená str. 13 Vagabond ch7). */
+    translationFailed: Boolean = false,
+    onRetranslate: () -> Unit = {},
     referer: String? = null,
     placeholderAspectRatio: Float = WEBTOON_PLACEHOLDER_ASPECT_RATIO,
     onPageAspectMeasured: (Float) -> Unit = {},
@@ -666,10 +714,22 @@ private fun WebtoonPage(
             context.applicationContext, PageSliceEntryPoint::class.java,
         ).pageSlicer()
     }
+    var planRetryTrigger by remember(pageUrl) { mutableStateOf(0) }
+    // Watchdog: plan() čeká na download/bounds decod a OkHttp call-timeout je 120 s,
+    // takže na mrtvém spojení (nebo zaseklém decoderu) by tu stránka visela na
+    // spinneru donekonečna bez únikové cesty. Po [PLAN_TIMEOUT_MS] se místo
+    // spinneru ukáže error s tlačítkem "Zkusit znovu", které plán spustí znovu
+    // (planCache/stripe mutex mezitím typicky dojede). Fallback na Single tu
+    // naschvál NENÍ - u >8192px stránky by plný decode spadl na GPU texture
+    // limit / OOM, přesně před čím řezy chrání.
+    var planTimedOut by remember(pageUrl) { mutableStateOf(false) }
     val slicePlan by androidx.compose.runtime.produceState<PageSlicePlan?>(
-        initialValue = null, pageUrl, cropBorders, referer,
+        initialValue = null, pageUrl, cropBorders, referer, planRetryTrigger,
     ) {
-        value = pageSlicer.plan(pageUrl, referer, cropBorders)
+        value = null
+        planTimedOut = false
+        val result = withTimeoutOrNull(PLAN_TIMEOUT_MS) { pageSlicer.plan(pageUrl, referer, cropBorders) }
+        if (result == null) planTimedOut = true else value = result
     }
     val tiledPlan = slicePlan as? PageSlicePlan.Tiled
 
@@ -711,7 +771,11 @@ private fun WebtoonPage(
     // uvnitř RetryableAsyncImage neměl kam se vykreslit (nahlášeno: "jsem na page 1 a
     // najednou na page 8, page 2-7 chybí a není tam loading"). Vyhrazený poměr stran po
     // dobu načítání drží rozumnou výšku, než se nahradí SKUTEČNOU výškou obrázku.
-    val pageModifier = if (imageLoaded) {
+    // fillMaxWidth (výška podle obsahu) jen když je obrázek OPRAVDU naměřený -
+    // Coilův Success s painterem bez intrinsic rozměru by se jinak změřil na
+    // nulovou výšku a celá stránka se zhroutila na 0px = neviditelná položka
+    // bez jakéhokoli stavu (hlášeno: "page se nenačte a není tam ani loading").
+    val pageModifier = if (imageLoaded && size.height > 0) {
         Modifier.fillMaxWidth()
     } else {
         Modifier.fillMaxWidth().aspectRatio(planAspect ?: placeholderAspectRatio)
@@ -750,6 +814,28 @@ private fun WebtoonPage(
                 disableCrossfade = true,
                 referer = referer,
             )
+        } else if (planTimedOut) {
+            // Watchdog z produceState výše - plan() nedodal výsledek do
+            // [PLAN_TIMEOUT_MS]. Retry spustí produceState znovu přes nový
+            // planRetryTrigger (starý běžící plán mezitím může naplnit
+            // planCache, takže druhý pokus typicky skončí hned).
+            Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        TablerIcons.AlertCircle, contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(32.dp),
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        stringResource(R.string.reader_page_load_failed),
+                        color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    OutlinedButton(onClick = { planRetryTrigger++ }) {
+                        Text(stringResource(R.string.common_retry))
+                    }
+                }
+            }
         } else {
             // slicePlan == null = plán se ještě počítá (bounds/probe, případně download
             // zdroje pro řezy - trvá to i sekundy na pomalém CDN). Bez indikace tu visela
@@ -781,6 +867,14 @@ private fun WebtoonPage(
                 flippedBubbles = flippedBubbles,
                 onToggleFlip = onToggleBubbleFlip,
                 onEditBubble = onEditBubble,
+            )
+        }
+        if (translateMode && translationFailed) {
+            TranslationFailedChip(
+                onRetry = onRetranslate,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp),
             )
         }
     }
@@ -928,7 +1022,11 @@ private fun WebtoonPageSlice(
         }
         if (isError && autoRetries >= pageAutoRetryCount(errorCause)) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                OutlinedButton(onClick = { isError = false; autoRetries = 0 }) {
+                // retryTrigger++ je povinný - bez něj se jen zhasne error stav, ale
+                // request se NIKDY nezopakuje (request je remember na starý trigger)
+                // a řez zůstane trvale prázdný bez indikátoru i bez tlačítka -
+                // jediná záchrana byl restart kapitoly/aplikace (nahlášeno).
+                OutlinedButton(onClick = { isError = false; autoRetries = 0; retryTrigger++ }) {
                     Icon(TablerIcons.AlertCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                     Text(stringResource(R.string.common_retry), fontSize = 12.sp)
                 }
@@ -939,6 +1037,15 @@ private fun WebtoonPageSlice(
 
 /** Šířka/výška typické manga/manhwa stránky na výšku - jen provizorní odhad, než dorazí skutečný obrázek (viz [WebtoonPage]). */
 private const val WEBTOON_PLACEHOLDER_ASPECT_RATIO = 0.7f
+
+/**
+ * Kolik maximálně smí čekat [WebtoonPage] na [com.haise.jiyu.util.PageSlicer.plan]
+ * - plan na cache-miss čeká na download zdroje (OkHttp call-timeout 120 s), takže
+ * na zdravém spojení je plán hotový řádově rychleji, ale na mrtvém/stuck může
+ * viset až do limitu klienta. Po timeoutu stránka ukáže error + "Zkusit znovu"
+ * místo nekonečného spinneru bez únikové cesty.
+ */
+private const val PLAN_TIMEOUT_MS = 60_000L
 
 /**
  * Bezpecne meze pro odhad pomeru stranek z namerenych vzorku - stranka uzsi nez 0.5

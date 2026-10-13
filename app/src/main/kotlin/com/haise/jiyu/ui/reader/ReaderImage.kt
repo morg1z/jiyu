@@ -206,8 +206,19 @@ fun RetryableAsyncImage(
             contentScale = contentScale,
             modifier = imageModifier,
             onState = { state ->
-                isError = state is AsyncImagePainter.State.Error
-                if (state is AsyncImagePainter.State.Error) errorCause = state.result.throwable
+                // Success s painterem bez rozměrů = "načteno", ale k vykreslení není
+                // nic (poškozený/prázdný drawable). Bez stráží by stránka zůstala
+                // tiše černá díra - žádný spinner (isLoading=false), žádná chyba,
+                // žádné tlačítko (nahlášeno: "page se nenačte a musím restartovat").
+                // Posíláme ji do stejné error/auto-retry cesty jako skutečnou chybu.
+                val badSuccess = state is AsyncImagePainter.State.Success &&
+                    state.painter.intrinsicSize.let { !it.isSpecified || it.width <= 0f || it.height <= 0f }
+                isError = state is AsyncImagePainter.State.Error || badSuccess
+                errorCause = when {
+                    state is AsyncImagePainter.State.Error -> state.result.throwable
+                    badSuccess -> null
+                    else -> errorCause
+                }
                 isLoading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
                 if (state is AsyncImagePainter.State.Success) {
                     val painterSize = state.painter.intrinsicSize
@@ -215,7 +226,10 @@ fun RetryableAsyncImage(
                         onImageSize?.invoke(painterSize)
                     }
                 }
-                onLoadedChange?.invoke(state is AsyncImagePainter.State.Success)
+                // badSuccess hlásí false - webtoon stránka jinak přepne na
+                // fillMaxWidth a zhroutí se na 0px (viz WebtoonPage.pageModifier),
+                // curl čtečka by zamrzla prázdnou bitmapu (viz MangaPageCurlReader).
+                onLoadedChange?.invoke(state is AsyncImagePainter.State.Success && !badSuccess)
             },
         )
         if (isLoading && !isError) {

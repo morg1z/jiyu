@@ -568,21 +568,25 @@ fun MangaDetailScreen(
                                 manga?.followCount?.let { DetailInfoRow(stringResource(R.string.detail_info_followers), formatCount(it)) }
                             }
                             Spacer(modifier = Modifier.weight(1f))
-                            // ComicK API vraci jednu kapitolu vicekrat - jednou za kazdou prekladatelskou
-                            // skupinu, co ji prelozila (proto seznam kapitol nize ukazuje "Ch.5 Asura",
-                            // "Ch.5 QUANTUM" jako samostatne radky). chapters.size by tak u ComicK titulu
-                            // pocital kazdy tenhle duplicitni radek zvlast (napr. 434 misto realnych 156
-                            // unikatnich kapitol) - stejny floor()+distinct() vzorec jako v
-                            // ComicKChapterResolver/SourceResolverViewModel.totalComicKChapters.
+                            // ComicK API vraci jednu kapitolu vicekrat - jednou za kazdou
+                            // prekladatelskou skupinu (proto seznam kapitol nize ukazuje
+                            // "Ch.5 Asura", "Ch.5 QUANTUM" jako samostatne radky).
+                            // Dedup pravidlo = stejny chapterKey jako ChapterDao
+                            // (observeUnreadCounts/observeTotalCounts): chapterNumber>0 ->
+                            // exact cislo (fractional 131.5 JE zvlastni kapitola, floor()
+                            // by ji sloucil a cisla se nesly s Seznamem - audit: Seznam
+                            // 133/204 vs detail 131/202), jinak id.
                             val isComick = manga?.sourceId == "comick"
+                            fun chapterKey(c: ChapterEntity): Any =
+                                if (c.chapterNumber > 0) c.chapterNumber else c.id
                             val totalCount = if (isComick) {
-                                chapters.map { kotlin.math.floor(it.chapterNumber).toInt() }.distinct().size
+                                chapters.map { chapterKey(it) }.distinct().size
                             } else {
                                 chapters.size
                             }
                             val readCount = if (isComick) {
                                 chapters.filter { it.read }
-                                    .map { kotlin.math.floor(it.chapterNumber).toInt() }.distinct().size
+                                    .map { chapterKey(it) }.distinct().size
                             } else {
                                 chapters.count { it.read }
                             }

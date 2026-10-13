@@ -95,4 +95,12 @@ data class TranslatedBlock(
      */
     val seamSpanLF: Float? = null,
     val seamSpanRF: Float? = null,
+    /**
+     * Stránka/bublina byla přeložená degradovaným záložním modelem proxy
+     * (viz [TranslateRepository.DEGRADED_MODELS]) - typicky při vyčerpané denní
+     * kvótě primárního modelu. Výsledek se cachuje a zobrazuje stejně, ale UI
+     * může čtenáři ukázat, že kvalita je dočasně omezená kvótou (ne chybou
+     * appky). False = primární model / starý cache záznam bez příznaku.
+     */
+    val degraded: Boolean = false,
 )

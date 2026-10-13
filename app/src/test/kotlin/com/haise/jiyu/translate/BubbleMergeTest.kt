@@ -374,4 +374,70 @@ class BubbleMergeTest {
         )
         assertEquals(blocks, mergeBlocksInSameYoloBox(blocks, emptyList()))
     }
+
+    // ── mergeArtCaptionBlocks (audit Vagabond ch.6 - caption rozsekaný na slova) ──
+
+    @Test
+    fun `caption fragments outside every box merge into one sentence`() {
+        // "FOR THE FIRST TIME IN" / "MY LIFE" / "I KILLED SOMEONE" jako tri radky
+        // jednoho typeset captionu - stejna vyska pisma, tesne pod sebou, na ose.
+        val blocks = listOf(
+            block("FOR THE FIRST TIME IN", 0.20f, 0.10f, 0.80f, 0.14f),
+            block("MY LIFE...", 0.30f, 0.145f, 0.70f, 0.18f),
+            block("I KILLED SOMEONE", 0.22f, 0.185f, 0.78f, 0.22f),
+        )
+        val merged = mergeArtCaptionBlocks(blocks, emptyList())
+        assertEquals(1, merged.size)
+        assertEquals("FOR THE FIRST TIME IN MY LIFE... I KILLED SOMEONE", merged[0].text)
+    }
+
+    @Test
+    fun `blocks inside a yolo box are not caption-merged`() {
+        // Dve repliky pod sebou v ODLISNYCH bublinach (obe v YOLO boxech) nesmi
+        // splynout jen proto, ze maji stejnou osu.
+        val boxes = listOf(
+            yoloBox(0.1f, 0.05f, 0.9f, 0.25f),
+            yoloBox(0.1f, 0.30f, 0.9f, 0.50f),
+        )
+        val blocks = listOf(
+            block("WHAT DID YOU DO", 0.25f, 0.10f, 0.75f, 0.15f),
+            block("NOTHING.", 0.35f, 0.35f, 0.65f, 0.40f),
+        )
+        val merged = mergeArtCaptionBlocks(blocks, boxes)
+        assertEquals(2, merged.size)
+    }
+
+    @Test
+    fun `a caption line and a big headline do not merge`() {
+        // Nadpis kapitoly ma 3x vetsi pismo nez caption pod nim - jiny typeset prvek.
+        val blocks = listOf(
+            block("VAGABOND", 0.20f, 0.02f, 0.80f, 0.14f),
+            block("CHAPTER SIX", 0.35f, 0.16f, 0.65f, 0.19f),
+        )
+        val merged = mergeArtCaptionBlocks(blocks, emptyList())
+        assertEquals(2, merged.size)
+    }
+
+    @Test
+    fun `side-by-side art texts on different axes stay separate`() {
+        // Dva napisy vuci sobe vlevo/vpravo - stredy dal nez ctvrtina sirky.
+        val blocks = listOf(
+            block("SOUND FX", 0.05f, 0.10f, 0.30f, 0.14f),
+            block("CREDITS", 0.60f, 0.10f, 0.95f, 0.14f),
+        )
+        val merged = mergeArtCaptionBlocks(blocks, emptyList())
+        assertEquals(2, merged.size)
+    }
+
+    @Test
+    fun `a far apart pair of orphan texts does not merge`() {
+        // Stejne pismo a osa, ale vertikalni mezera pres limit - caption radky jdou
+        // tesne za sebou, tohle jsou dva nezavisle prvky stranky.
+        val blocks = listOf(
+            block("NARRATION TOP", 0.25f, 0.05f, 0.75f, 0.09f),
+            block("NARRATION BOTTOM", 0.25f, 0.50f, 0.75f, 0.54f),
+        )
+        val merged = mergeArtCaptionBlocks(blocks, emptyList())
+        assertEquals(2, merged.size)
+    }
 }

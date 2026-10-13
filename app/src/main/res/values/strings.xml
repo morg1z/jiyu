@@ -310,6 +310,30 @@
     <string name="settings_services_mu_login_button">Přihlásit se k MangaUpdates</string>
     <string name="settings_services_kitsu_login_failed">Přihlášení k Kitsu selhalo — zkontroluj e-mail a heslo</string>
     <string name="settings_services_mu_login_failed">Přihlášení k MangaUpdates selhalo</string>
+    <string name="settings_services_comick_desc">Připoj Comick účet pro import knihovny a synchronizaci čtecího stavu.</string>
+    <string name="settings_services_comick_connect">Připojit Comick</string>
+    <string name="settings_services_comick_reconnect">Spojení s Comickem vypršelo – připoj znovu</string>
+    <string name="settings_services_comick_import_button">Importovat knihovnu</string>
+    <string name="settings_services_comick_last_sync">Poslední sync: %1$s</string>
+    <string name="settings_services_comick_sync_label">Synchronizace</string>
+    <string name="settings_services_comick_mode_off">Vypnuto</string>
+    <string name="settings_services_comick_mode_pull">Stahovat z Comicku</string>
+    <string name="settings_services_comick_mode_twoway">Obousměrná</string>
+    <string name="settings_services_comick_disconnect_confirm">Odpojí Comick účet a zruší přístup na comick.dev. Lokální knihovna zůstane nedotčená.</string>
+    <string name="comick_import_title">Import z Comicku</string>
+    <string name="comick_import_fetching">Stahuji knihovnu… %1$d titulů</string>
+    <string name="comick_import_new">Nové tituly: %1$d</string>
+    <string name="comick_import_matched">Spárováno s knihovnou: %1$d</string>
+    <string name="comick_import_unmatched">Nepřiřazené (navázat lze v detailu titulu): %1$d</string>
+    <string name="comick_import_anime_skipped">Přeskočeno (anime): %1$d</string>
+    <string name="comick_import_apply">Importovat</string>
+    <string name="comick_import_applying">Importuji… %1$d/%2$d</string>
+    <string name="comick_import_done">Import dokončen</string>
+    <string name="comick_import_report_progress">Postup čtení aplikován: %1$d · zachován lokální: %2$d</string>
+    <string name="comick_import_failed">Import selhal – zkus to znovu</string>
+    <string name="comick_auth_failed">Připojení k Comicku se nepodařilo – zkus to znovu</string>
+    <string name="comick_import_cancel">Zrušit</string>
+    <string name="comick_import_close">Zavřít</string>
 
     <!-- Settings: Zálohování -->
     <string name="settings_backup_error_prefix">Chyba: %1$s</string>
@@ -660,6 +684,12 @@
     <string name="detail_info_mu_id">MU Series ID: %1$s</string>
     <string name="detail_info_sync_from_mu">Stáhnout status z MangaUpdates</string>
     <string name="detail_info_link_mu">Propojit s MangaUpdates</string>
+    <string name="detail_info_comick_login_hint">Comick připoj v Nastavení → Služby pro párování.</string>
+    <string name="detail_info_comick_id">Comick: %1$s</string>
+    <string name="detail_info_sync_from_comick">Stáhnout status z Comick</string>
+    <string name="detail_info_link_comick">Propojit s Comick</string>
+    <string name="detail_info_comick_unfollow">Přestat sledovat na Comick</string>
+    <string name="detail_info_comick_unfollow_confirm">Odebere titul z tvé Comick knihovny (včetně vzdáleného postupu a hodnocení). Lokální knihovna zůstane nedotčená.</string>
     <string name="detail_info_section_tags">TAGY</string>
     <string name="detail_info_add_tag">Přidat tag</string>
     <string name="detail_info_new_tag_placeholder">Nový tag…</string>
@@ -684,6 +714,7 @@
     <string name="detail_info_no_search_results">Žádné výsledky. Zadej název mangy.</string>
     <string name="detail_info_search_kitsu_title">Hledat na Kitsu</string>
     <string name="detail_info_search_mu_title">Hledat na MangaUpdates</string>
+    <string name="detail_info_search_comick_title">Hledat na Comick</string>
     <string name="detail_info_search_result_year">Rok: %1$d</string>
     <string name="detail_info_search_mal_title">Hledat na MyAnimeList</string>
 
@@ -757,7 +788,6 @@
     <string name="mylist_time_less_than_minute">méně než minutu</string>
     <string name="mylist_reading_stats_title">Statistiky čtení</string>
     <string name="mylist_chapters_read">Přečtené kapitoly</string>
-    <string name="mylist_pages_read">Přečtené stránky</string>
     <string name="mylist_detailed_stats">Detailní →</string>
 
     <!-- Čtečka -->
@@ -792,6 +822,9 @@
     <string name="reader_panel_mode_desc">Panel po panelu</string>
     <string name="reader_pick_chapter_desc">Vybrat kapitolu</string>
     <string name="reader_reset_chapter_desc">Znovu načíst kapitolu</string>
+    <string name="reader_settings_desc">Nastavení čtení</string>
+    <string name="reader_settings_this_manga">Tento titul</string>
+    <string name="reader_settings_defaults_section">Výchozí pro ostatní tituly</string>
     <string name="webtoon_chapter_boundary_finished">Konec: %1$s</string>
     <string name="webtoon_chapter_boundary_next">Další: %1$s</string>
     <string name="webtoon_loading_next_chapter">Načítám další kapitolu…</string>
@@ -813,8 +846,10 @@
     <string name="reader_orientation_portrait">↕ Portrét</string>
     <string name="reader_orientation_landscape">↔ Krajina</string>
     <string name="reader_translate_all_progress">Překlad všech… %1$d/%2$d</string>
+    <string name="reader_translate_ocr_progress">Rozpoznávám text… %1$d/%2$d</string>
     <string name="reader_translate_all_button">Přeložit vše</string>
     <string name="reader_translating_progress">Překládám… %1$d/%2$d</string>
+    <string name="reader_translate_page_failed_retry">Překlad selhal – zkusit znovu</string>
     <string name="reader_glossary_title">Slovník překladu</string>
     <string name="reader_glossary_desc">Jména, techniky a přezdívky se přeloží vždy stejně napříč všemi kapitolami.</string>
     <string name="reader_glossary_translation_placeholder">Překlad</string>
@@ -833,6 +868,7 @@
     <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
     <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>
     <string name="reader_error_rate_limited">Denní limit AI překladů vyčerpán, zkus to prosím později</string>
+    <string name="reader_translation_degraded">Omezená kvalita překladu (vyčerpaná kvóta hlavního modelu)</string>
     <string name="reader_error_language_unsupported_offline">Tento cílový jazyk offline režim (bez nastaveného API klíče) nepodporuje - zkus jiný jazyk nebo nastav klíč v Nastavení</string>
     <string name="reader_fallback_source_notice">Tato kapitola byla dotažena z jiného zdroje, protože původní verze byla neúplná.</string>
     <string name="reader_on_device_warning">Není nastaven žádný cloudový klíč — zobrazená verze je hrubý místní náhled.</string>
@@ -1044,7 +1080,6 @@
     <string name="stats_total_titles">Titulů v knihovně</string>
     <string name="stats_total_chapters">Kapitol v knihovně</string>
     <string name="stats_total_read_chapters">Přečteno kapitol</string>
-    <string name="stats_total_pages">Přečteno stránek</string>
     <string name="stats_total_rated">Hodnocených titulů</string>
     <string name="stats_last_read">Naposledy čteno</string>
     <string name="stats_member_since">První titul přidán</string>

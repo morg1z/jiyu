@@ -66,6 +66,14 @@ private val CONTENT_TYPES_WORTH_VERIFYING = setOf("MANGA", "MANHWA", "MANHUA")
 /** Manga entita v knihovně, o které appka usoudila, že je stejná jako nově přidávaná (podle názvu). */
 data class DuplicateMatch(val manga: MangaEntity, val sourceName: String, val chapterCount: Int)
 
+/** Cil pro Comick progress push: hid katalogoveho (ComicK) titulu + chapter HID z url
+ *  comick kapitoly (nejpresnejsi zaznam), pripadne jen cislo jako fallback. */
+data class ComickProgressTarget(
+    val mangaHid: String,
+    val chapterNumber: Float,
+    val chapterHid: String?,
+)
+
 @Singleton
 class MangaRepository @Inject constructor(
     private val sourceManager: SourceManager,
@@ -331,8 +339,13 @@ class MangaRepository @Inject constructor(
     suspend fun setKitsuId(mangaId: String, kitsuId: String?) = mangaDao.setKitsuId(mangaId, kitsuId)
     suspend fun setKitsuScore(mangaId: String, score: Float?) = mangaDao.setKitsuScore(mangaId, score)
     suspend fun setMangaUpdatesId(mangaId: String, seriesId: Long?) = mangaDao.setMangaUpdatesId(mangaId, seriesId)
+    suspend fun setComickHid(mangaId: String, hid: String?) = mangaDao.setComickHid(mangaId, hid)
+    suspend fun findByComickHid(hid: String): MangaEntity? = mangaDao.findByComickHid(hid)
     suspend fun addMangaReadingTime(mangaId: String, deltaMs: Long) = mangaDao.addReadingTime(mangaId, deltaMs)
-    suspend fun setReadingStatus(mangaId: String, status: String?) = mangaDao.setReadingStatus(mangaId, status)
+    /** Lokalni (UI/ostatni trackery) zapis statusu razitkuje "now" - Comick pull pak
+     *  remote status aplikuje jen kdyz je entry.updatedAt novejsi (conflict resolution). */
+    suspend fun setReadingStatus(mangaId: String, status: String?) =
+        mangaDao.setReadingStatusAt(mangaId, status, System.currentTimeMillis())
     fun observeByReadingStatus(status: String): Flow<List<MangaEntity>> = mangaDao.observeByReadingStatus(status)
     /**
      * Odebrani z knihovny mangu ani kapitoly nemaze (jen inLibrary = false) - zaroven ale
@@ -381,15 +394,18 @@ class MangaRepository @Inject constructor(
      * ten běží tiše na pozadí nad celou knihovnou a stahovat kvůli kosmetickým
      * detailům navíc denně by nebylo úměrné.
      */
-    suspend fun refreshMangaDetails(mangaId: String, manga: SManga) {
-        val source = sourceManager.getById(manga.sourceId) ?: return
+    suspend fun refreshMangaDetails(mangaId: String, manga: SManga): Boolean {
+        val source = sourceManager.getById(manga.sourceId) ?: return false
         val detail = try {
             // force = true: tohle je ruční obnovení (pull-to-refresh, refresh na detailu) - má ukázat čerstvá data.
             contentCache.getOrLoad("details", "${manga.sourceId}|${manga.url}", DETAILS_TTL_MS, DETAILS_MAX, force = true) {
                 source.getMangaDetails(manga)
             }
-        } catch (_: Exception) { return }
-        val existing = mangaDao.getById(mangaId) ?: return
+        } catch (_: Exception) { return false }
+        // Razitko i kdyz se data nezmenila - backfill tak odlisi "nikdy zkouseno" od
+        // "zkuseno a nic" a nepokousi se o neexistujici detail donekonecna.
+        mangaDao.setDetailFetchedAt(mangaId, System.currentTimeMillis())
+        val existing = mangaDao.getById(mangaId) ?: return false
         val updated = existing.copy(
             // Detail ma autoritativni nazev (ComicK z nej preferuje EN md_title - viz
             // ComicKSource.getMangaDetails) - timhle se do knihovny propasle i oprava
@@ -420,6 +436,7 @@ class MangaRepository @Inject constructor(
         // kazdy titul pri kazdem refreshi, i kdyz se ze zdroje nic nezmenilo.
         if (updated != existing) mangaDao.upsert(updated)
         verifyContentType(mangaId)
+        return true
     }
 
     // ── Verifikace typu titulu ───────────────────────────────────────────────
@@ -606,6 +623,9 @@ class MangaRepository @Inject constructor(
         val previousMax = chapterDao.getMaxChapterNumber(mangaId)
         val baselineTs = mangaDao.getById(mangaId)?.addedAt ?: 0L
         val chapters = source.getChapterList(manga)
+        // Razitko uspesneho fetchu - i prazdny vysledek je platna odpoved (titul bez
+        // kapitol se nesmi backfillovat donekonecna).
+        mangaDao.setChapterRefreshAt(mangaId, System.currentTimeMillis())
         // discoveredAt se pouziva jen pri SKUTECNEM prvnim vlozeni radku (insertNewOnly nize
         // duplicity ignoruje) - proto staci jedno "ted" pro celou davku, ne per-kapitola cas.
         val now = System.currentTimeMillis()
@@ -929,15 +949,74 @@ class MangaRepository @Inject constructor(
     suspend fun setChapterFallbackTarget(chapterEntityId: String, targetChapterId: String?) =
         chapterDao.setFallbackTarget(chapterEntityId, targetChapterId)
 
+    /** Zapíše/zruší zapamatovaný reálný zdroj ComicK titulu - viz [MangaEntity.resolvedMangaId]. */
+    suspend fun setResolvedManga(mangaId: String, resolvedMangaId: String?) =
+        mangaDao.setResolvedManga(mangaId, resolvedMangaId)
+
     /** Propaguje postup z reálné čtené kapitoly na kapitoly, které na ni přesměrovávají
-     *  (ComicK metadatová kapitola) - viz [ChapterDao.propagateProgressToFallbackParents]. */
+     *  (ComicK metadatová kapitola) - viz [ChapterDao.propagateProgressToFallbackParents].
+     *  Vraci Comick push cile nalezenych katalogovych rodicu - reader je preda
+     *  TrackerSyncCoordinatoru pri dokonceni kapitoly (remote progress push). */
     suspend fun propagateReadProgressToLinkedChapters(
         chapterEntityId: String,
         read: Boolean,
         lastPageRead: Int,
         lastReadAt: Long,
         pageCount: Int,
-    ) = chapterDao.propagateProgressToFallbackParents(chapterEntityId, read, lastPageRead, lastReadAt, pageCount)
+    ): List<ComickProgressTarget> {
+        val targets = linkFallbackParentsForResolved(chapterEntityId, lastReadAt)
+        chapterDao.propagateProgressToFallbackParents(chapterEntityId, read, lastPageRead, lastReadAt, pageCount)
+        return targets
+    }
+
+    /**
+     * Čtená kapitola může patřit reálnému zdroji, na který nějaký ComicK titul trvale
+     * odkazuje ([MangaEntity.resolvedMangaId]) - typicky když čteš dál přes "další kapitola"
+     * přímo v resolved zdroji a ComicK kapitola pro tohle číslo ještě fallback link nemá
+     * (vzniká jen při explicitním resolvování v SourceResolverViewModel.selectCandidate).
+     * Bez doplnění linku by [ChapterDao.propagateProgressToFallbackParents] na ni nesáhl,
+     * "přečteno" by se na ComicK titulu neprojevilo a "Pokračovat ve čtení" by zůstalo
+     * viset na poslední ručně resolvované kapitole, i když uživatel četl o deset kapitol dál.
+     */
+    private suspend fun linkFallbackParentsForResolved(chapterEntityId: String, lastReadAt: Long): List<ComickProgressTarget> {
+        val chapter = chapterDao.getById(chapterEntityId) ?: return emptyList()
+        if (chapter.sourceId == "comick") return emptyList() // katalog sám není reálný zdroj
+        val targets = LinkedHashMap<String, ComickProgressTarget>()
+        for (comickManga in mangaDao.findByResolvedSource(chapter.mangaId)) {
+            val parents = chapterDao.findByMangaAndNumber(comickManga.id, chapter.chapterNumber)
+            if (parents.isEmpty()) continue
+            for (parent in parents) {
+                if (parent.fallbackChapterId != chapterEntityId) {
+                    chapterDao.setFallbackTarget(parent.id, chapterEntityId)
+                }
+            }
+            // "Pokračovat" na ComicK titulu má ukazovat na poslední čtenou kapitolu,
+            // ne na tu, co byla naposledy ručně resolvována.
+            mangaDao.updateLastReadChapterAndTime(comickManga.id, parents.first().id, lastReadAt)
+            comickManga.comickHid?.let { hid ->
+                targets.putIfAbsent(hid, comickPushTarget(hid, parents.first()))
+            }
+        }
+        // Rodice, co na tuto kapitolu uz fallback link maji (selectCandidate u comick
+        // titulu bez resolvedMangaId, nebo manualni zdrojovy sweep) - autoritativni
+        // vazba i tam, kde resolvedMangaId lookup vyse nic nenasel.
+        for (parentChapter in chapterDao.findComickParentsOf(chapterEntityId)) {
+            val parentManga = mangaDao.getById(parentChapter.mangaId) ?: continue
+            if (!parentManga.inLibrary) continue
+            parentManga.comickHid?.let { hid ->
+                targets.putIfAbsent(hid, comickPushTarget(hid, parentChapter))
+            }
+        }
+        return targets.values.toList()
+    }
+
+    private fun comickPushTarget(mangaHid: String, comickChapter: ChapterEntity) = ComickProgressTarget(
+        mangaHid = mangaHid,
+        chapterNumber = comickChapter.chapterNumber,
+        chapterHid = comickChapter.url
+            .removePrefix(com.haise.jiyu.data.tracking.COMICK_CHAPTER_URL_PREFIX)
+            .takeIf { it != comickChapter.url },
+    )
 
     /** Batched varianta [updateReadProgress] pro import historie ze zálohy (viz
      * TachiyomiBackupImporter) - jedno UPDATE místo jednoho volání na kapitolu.

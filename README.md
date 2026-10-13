@@ -123,7 +123,12 @@ untranslated text, stray punctuation dropped onto its own line, wrong
 spacing around punctuation, and words broken mid-way without a hyphen. If a
 page still comes out wrong, long-pressing a bubble opens an editor that can
 fix just that one line, drag it to a better spot if the overlay placed it
-awkwardly, or retranslate the whole page from scratch.
+awkwardly, or retranslate the whole page from scratch. Pages whose
+translation genuinely fails - an OCR engine error, the provider chain
+coming back empty, or a batch that silently dropped the page's bubbles -
+get a retry chip right on the page instead of silently staying in the
+original, and the progress label reports the OCR stage separately so the
+counter never looks frozen while text recognition is still running.
 
 **Novel translation** - the same LLM chain translates light novel chapters
 too, split to respect sentence and paragraph boundaries (never mid-sentence)
@@ -146,9 +151,12 @@ demographics and maturity ratings to include when the app looks for new
 chapters).
 
 **Library & tracking** - categories, reading history, reading goals,
-statistics, duplicate-title detection, AniList/MyAnimeList/Kitsu/MangaUpdates
-sync, library and settings backup/restore (JSON export/import), sharing a
-manga via QR code, a home screen widget.
+statistics, duplicate-title detection (grouped by creator, so two different
+series sharing a name aren't flagged), AniList/MyAnimeList/Kitsu/MangaUpdates
+sync, an optional ComicK account link - OAuth sign-in, a previewed import of
+your whole ComicK library, and configurable progress sync (off, pull-only,
+or two-way) - library and settings backup/restore (JSON export/import),
+sharing a manga via QR code, a home screen widget.
 
 **First-run setup** - a short guided setup on first launch: app language,
 browsing mode (aggregated vs. manual, see above), reading direction and
@@ -303,7 +311,12 @@ původního textu, osamocenou interpunkci na vlastním řádku, špatné mezery
 kolem interpunkce a slova rozlomená napůl bez pomlčky. Když i tak stránka
 vyjde špatně, dlouhý stisk na bublinu otevře editor, který umí opravit jen
 tenhle jeden řádek, přetáhnout ji na lepší místo, pokud ji overlay umístil
-nešikovně, nebo přeložit celou stránku úplně znovu.
+nešikovně, nebo přeložit celou stránku úplně znovu. Stránka, jejíž překlad
+reálně selže - chyba OCR enginu, prázdná odpověď celého řetězce providerů,
+nebo dávka co tiše vynechala její bubliny - dostane přímo na stránce chip
+pro opakování místo toho, aby tiše zůstala v originále, a ukazatel postupu
+hlásí OCR fázi zvlášť, takže čítač nevypadá zamrzlý, zatímco rozpoznávání
+textu ještě běží.
 
 **Překlad novel** - stejný LLM řetězec překládá i kapitoly light novel,
 rozdělené s respektem k hranicím vět a odstavců (nikdy uprostřed věty), s
@@ -324,9 +337,13 @@ předvolby kontroly aktualizací (jaké typy obsahu, demografie a hodnocení pro
 dospělé se mají brát v úvahu při hledání nových kapitol).
 
 **Knihovna a sledování** - kategorie, historie čtení, cíle čtení, statistiky,
-detekce duplicitně přidaných titulů, sync s AniList/MyAnimeList/Kitsu/
-MangaUpdates, záloha/obnova knihovny i nastavení (JSON export/import),
-sdílení mangy přes QR kód, widget na plochu.
+detekce duplicitně přidaných titulů (seskupená podle tvůrce, takže dvě různé
+série se stejným názvem se nenahlásí jako duplikát), sync s AniList/
+MyAnimeList/Kitsu/MangaUpdates, volitelné připojení ComicK účtu - OAuth
+přihlášení, import celé ComicK knihovny s náhledem předem a nastavitelný
+sync postupu (vypnuto, jen stahovat, nebo obousměrně) - záloha/obnova
+knihovny i nastavení (JSON export/import), sdílení mangy přes QR kód,
+widget na plochu.
 
 **Úvodní nastavení** - krátký průvodce při prvním spuštění: jazyk appky,
 styl procházení (agregovaný vs. ruční, viz výše), styl a směr čtení, složka

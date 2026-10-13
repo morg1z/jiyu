@@ -572,4 +572,213 @@ class TextPatchArtifactTest {
             assertEquals("textura na ($x,$y) ma zustat nedotcena", rows[y][x], patch[y * 12 + x])
         }
     }
+
+    // -- 6) Topologický obrys (port koharu infer_outline) ---------------------------
+
+    private val darkDot = argb(45, 45, 45)
+    private val midField = argb(150, 150, 150)
+    private val inkFill = argb(15, 15, 15)
+    private val haloWhite = argb(245, 245, 245)
+
+    /**
+     * Černý glyph + 3px BÍLÝ obrys na tmavém rastrovaném poli, ve kterém jsou
+     * izolované stejně bílé tečky daleko od glyphu. Topologická detekce má
+     * domaskovat celý prstenec (protože uzavírá fill), ale izolované bílé tečky
+     * stejné barvy NE - nejsou souvislou komponentou pásu.
+     */
+    @Test
+    fun `outline topology masks the enclosing ring but not isolated same-color dots`() {
+        val w = 80; val h = 60
+        val px = IntArray(w * h)
+        // Pole: středně šedé + tmavé tečky rastru (perioda 4).
+        for (y in 0 until h) for (x in 0 until w) {
+            px[y * w + x] = if (x % 4 < 2 && y % 4 < 2) darkDot else midField
+        }
+        // Izolované bílé tečky UVNITŘ regionu (stejná barva jako obrys, ale v poli
+        // daleko od glyphu - nesmí se domaskovat, nejsou souvislá komponenta pásu).
+        val isolated = listOf(22 to 13, 56 to 45, 24 to 44, 57 to 13)
+        for ((ix, iy) in isolated) {
+            for (dy in 0..1) for (dx in 0..1) px[(iy + dy) * w + ix + dx] = haloWhite
+        }
+        // Glyph: fill 15x15 uvnitř 3px bílého prstence -> obrys 30..50 / 20..40.
+        val fL = 33; val fT = 23; val fR = 48; val fB = 38   // fill
+        val rL = 30; val rT = 20; val rR = 51; val rB = 41   // ring outer bounds
+        fun isFill(x: Int, y: Int) = x in fL until fR && y in fT until fB
+        fun isRing(x: Int, y: Int) = x in rL until rR && y in rT until rB && !isFill(x, y)
+        for (y in 0 until h) for (x in 0 until w) {
+            if (isFill(x, y)) px[y * w + x] = inkFill
+            else if (isRing(x, y)) px[y * w + x] = haloWhite
+        }
+
+        // Startovní maska = jen glyph jádro (po adaptivní detekci + dilataci).
+        val mask = BooleanArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            if (isFill(x, y)) mask[y * w + x] = true
+        }
+
+        val found = coverGlyphOutline(px, mask, w, h, rl = 20, rt = 10, rr = 60, rb = 50)
+        assertTrue("bílý prstenec uzavírající glyph má být detekován", found)
+
+        // Celý prstenec maskovaný.
+        var ringUnmasked = 0
+        for (y in 0 until h) for (x in 0 until w) {
+            if (isRing(x, y) && !mask[y * w + x]) ringUnmasked++
+        }
+        assertTrue("celý prstenec má být v masce (unmasked=$ringUnmasked)", ringUnmasked == 0)
+
+        // Izolované bílé tečky stejné barvy zůstaly NEmaskované.
+        for ((ix, iy) in isolated) {
+            assertTrue(
+                "izolovaná tečka ($ix,$iy) stejné barvy nesmí spadnout do masky",
+                !mask[iy * w + ix] && !mask[iy * w + ix + 1],
+            )
+        }
+    }
+
+    /**
+     * Glyph BEZ obrysu (černá na šedém poli) - žádný uzavírající pás -> funkce
+     * vrací false a volající padne na polaritní expanzi.
+     */
+    @Test
+    fun `outline topology returns false when no enclosing ring exists`() {
+        val w = 60; val h = 40
+        val px = IntArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            px[y * w + x] = if (x % 4 < 2 && y % 4 < 2) darkDot else midField
+        }
+        // Holý černý glyph přímo v poli - kolem něj jen rastr.
+        fun isFill(x: Int, y: Int) = x in 22..38 && y in 12..28
+        for (y in 0 until h) for (x in 0 until w) {
+            if (isFill(x, y)) px[y * w + x] = inkFill
+        }
+        val mask = BooleanArray(w * h)
+        for (y in 0 until h) for (x in 0 until w) {
+            if (isFill(x, y)) mask[y * w + x] = true
+        }
+
+        val found = coverGlyphOutline(px, mask, w, h, rl = 10, rt = 4, rr = 50, rb = 36)
+        assertTrue("bez uzavírajícího pásu má funkce vrátit false (fallback)", !found)
+    }
+
+    // -- 7) Uniform flat-fill uvnitř bublinového polygonu (port koharu) --------------
+
+    @Test
+    fun `uniform interior color returns median for clean interior`() {
+        val w = 40; val h = 40
+        val px = IntArray(w * h) { argb(245, 243, 240) }
+        // Lehká odchylka pod prahem.
+        px[5 * w + 5] = argb(240, 238, 235)
+        val mask = BooleanArray(w * h)
+        for (y in 15 until 25) for (x in 15 until 25) mask[y * w + x] = true
+        val poly = BooleanArray(w * h) { true }
+
+        val color = uniformInteriorColor(px, mask, poly, w, h)
+        assertTrue("uniformní interiér má vrátit barvu", color != null)
+        assertTrue("má to být světlá bublina", (color!! shr 16 and 0xFF) > 230)
+    }
+
+    @Test
+    fun `uniform interior color rejects varied interior`() {
+        val w = 40; val h = 40
+        // Polovina světlá, polovina tmavá = akvarell/kresba - ne uniformita.
+        val px = IntArray(w * h) { i -> if (i / w < h / 2) argb(240, 240, 240) else argb(80, 80, 80) }
+        val mask = BooleanArray(w * h)
+        val poly = BooleanArray(w * h) { true }
+
+        assertTrue("neuniformní interiér nemá vrátit barvu", uniformInteriorColor(px, mask, poly, w, h) == null)
+    }
+
+    @Test
+    fun `flat fill fills masked pixels only inside polygon`() {
+        val w = 60; val h = 60
+        // Scéna: světlá bublina (levá polovina) + tmavé rastrované pole (pravá).
+        val px = IntArray(w * h) { i ->
+            val x = i % w
+            if (x < 40) argb(245, 245, 245)
+            else if ((x + i / w) % 4 < 2) darkDot else midField
+        }
+        // Černý glyph přes hranici bublina/pole.
+        for (y in 25 until 35) for (x in 32 until 45) px[y * w + x] = black
+        val source = PixelSource { x, y -> px[y * w + x] }
+
+        // Polygon = bublina (x < 40).
+        val poly = BooleanArray(w * h)
+        for (y in 0 until h) for (x in 0 until 40) poly[y * w + x] = true
+
+        val patch = buildTextPatch(
+            source, w, h, 0, 0, w, h, bgArgb = argb(245, 245, 245),
+            textLeft = 30, textTop = 23, textRight = 47, textBottom = 37,
+            insidePolygon = poly,
+        )
+
+        // Uvnitř polygonu = plochá bílá výplň.
+        var offWhite = 0
+        var insideCount = 0
+        for (y in 27 until 33) for (x in 33 until 39) {
+            val c = patch[y * w + x]
+            if (abs((c shr 16 and 0xFF) - 245) > 15) offWhite++
+            insideCount++
+        }
+        assertTrue("interiér bubliny má být plochě světlý (offWhite=$offWhite/$insideCount)", offWhite <= insideCount / 10)
+    }
+
+    // -- Mask-explosion pojistka (audit Vagabond ch.6 str.11 - světlý rektágl) -------
+
+    /**
+     * Bílý text na TMAVÉ husté šrafě ("KDO...?" na temné pozadí): lokální kontrastní
+     * detekce označí jako "text" skoro každý tah šrafy a expanze (seal/halo/ink-flood)
+     * masku doženou na ~celý textový region. Bez pojistky by Voronoi z hrstky donorů
+     * vyrobil jednolitou světlou placku přes kresbu. Pojistka vrátí konzervativní
+     * masku - šrafa přežije, glyph se překryje.
+     */
+    @Test
+    fun `mask explosion on dense dark hatching falls back to the conservative mask`() {
+        val w = 100
+        val h = 60
+        val dark = argb(40, 40, 40)
+        // Hustá diagonální šrafa na tmavém pozadí - vysoký lokální kontrast všude.
+        fun isHatch(x: Int, y: Int) = (x + y) % 4 < 2
+        // Bílý glyph uprostřed textové oblasti.
+        fun isGlyph(x: Int, y: Int) = x in 45..60 && y in 25..40
+        val rows = (0 until h).map { y ->
+            (0 until w).map { x ->
+                when {
+                    isGlyph(x, y) -> white
+                    isHatch(x, y) -> argb(150, 150, 150)
+                    else -> dark
+                }
+            }
+        }
+
+        val patch = buildTextPatch(
+            sourceOf(rows), w, h, 0, 0, w, h, bgArgb = dark,
+            textLeft = 35, textTop = 18, textRight = 70, textBottom = 48,
+        )
+
+        // Pixel šrafy v regionu daleko od glyphu (x=38,y=20): (38+20)%4=2 -> tmavý
+        // podklad. Bez pojistky by ho uneslo globální resample do světlé placky;
+        // s revertem na konzervativní masku zůstane tmavý nebo zachová šrafový vzorek.
+        var brightInRegion = 0
+        var regionPx = 0
+        for (y in 20 until 46) for (x in 37 until 68) {
+            regionPx++
+            val c = patch[y * w + x]
+            if ((c shr 16 and 0xFF) > 200) brightInRegion++
+        }
+        assertTrue(
+            "patch nesmí vyrobit světlou placku přes tmavou šrafu (bright=$brightInRegion/$regionPx)",
+            brightInRegion < regionPx * 3 / 10,
+        )
+        // Glyph se má překryt (bílé písmeno nesmí prosvítat v patchi).
+        var glyphBright = 0
+        var glyphPx = 0
+        for (y in 28 until 37) for (x in 48 until 57) {
+            glyphPx++
+            if ((patch[y * w + x] shr 16 and 0xFF) > 200) glyphBright++
+        }
+        assertTrue(
+            "bílý glyph má být zakrytý, ne viditelný (bright=$glyphBright/$glyphPx)",
+            glyphBright < glyphPx / 3,
+        )
+    }
 }

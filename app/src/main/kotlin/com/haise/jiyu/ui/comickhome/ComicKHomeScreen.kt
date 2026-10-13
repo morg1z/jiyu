@@ -304,7 +304,7 @@ fun ComicKHomeScreen(
                                     rightLabel = completedLabel,
                                     rightSelected = showCompleted,
                                     onToggle = { viewModel.setShowCompleted(it) },
-                                    comics = (if (showCompleted) feed.completed else feed.recentlyAdded).take(15),
+                                    comics = if (showCompleted) feed.completed else feed.recentlyAdded,
                                     onOpenManga = ::openManga,
                                     onViewAll = { onOpenSection(if (showCompleted) "completed" else "recently_added", null, if (showCompleted) completedLabel else recentlyAddedLabel) },
                                 )
@@ -316,7 +316,7 @@ fun ComicKHomeScreen(
                                     titleStyle = PopularTitleStyle,
                                     window = popularNewWindow,
                                     onWindowChange = { viewModel.setPopularNewWindow(it) },
-                                    comics = feed.popularNew[popularNewWindow].orEmpty().take(15),
+                                    comics = feed.popularNew[popularNewWindow].orEmpty(),
                                     onOpenManga = ::openManga,
                                     onViewAll = { onOpenSection("popular_new", popularNewWindow, label) },
                                 )
@@ -328,7 +328,7 @@ fun ComicKHomeScreen(
                                     titleStyle = TrendingTitleStyle,
                                     window = mostRecentPopularWindow,
                                     onWindowChange = { viewModel.setMostRecentPopularWindow(it) },
-                                    comics = feed.mostRecentPopular[mostRecentPopularWindow].orEmpty().take(15),
+                                    comics = feed.mostRecentPopular[mostRecentPopularWindow].orEmpty(),
                                     onOpenManga = ::openManga,
                                     onViewAll = { onOpenSection("most_recent_popular", mostRecentPopularWindow, label) },
                                 )
@@ -336,7 +336,7 @@ fun ComicKHomeScreen(
                             item {
                                 val label = stringResource(R.string.comick_home_recent_reviews)
                                 ReviewSection(
-                                    reviews = feed.recentReviews.take(15),
+                                    reviews = feed.recentReviews,
                                     onOpenManga = ::openManga,
                                     onViewAll = { onOpenSection("recent_reviews", null, label) },
                                 )

@@ -98,6 +98,17 @@ interface ChapterDao {
     @Query("UPDATE chapter SET fallbackChapterId = :targetChapterId WHERE id = :id")
     suspend fun setFallbackTarget(id: String, targetChapterId: String?)
 
+    /** ComicK metadatove kapitoly odkazujici fallbackem na [resolvedChapterId] - pro
+     *  Comick progress push (jejich url nese chapter HID) a pro zpetny lookup rodicu. */
+    @Query("SELECT * FROM chapter WHERE fallbackChapterId = :resolvedChapterId AND sourceId = 'comick'")
+    suspend fun findComickParentsOf(resolvedChapterId: String): List<ChapterEntity>
+
+    /** Všechny kapitoly mangy se zadaným číslem (tolerance jako u resolveru - ComicK může
+     *  mít "12" a zdroj "12.0"). ComicK eviduje jednu logickou kapitolu vícekrát (po jedné
+     *  za překladatelskou skupinu), proto List - všechny varianty se linkují na stejný cíl. */
+    @Query("SELECT * FROM chapter WHERE mangaId = :mangaId AND ABS(chapterNumber - :number) < 0.01")
+    suspend fun findByMangaAndNumber(mangaId: String, number: Float): List<ChapterEntity>
+
     @Query("UPDATE chapter SET lastScrollOffset = :offset, lastReadAt = :lastReadAt WHERE id = :id")
     suspend fun updateScrollOffset(id: String, offset: Int, lastReadAt: Long)
 
@@ -172,7 +183,18 @@ interface ChapterDao {
     @Query("SELECT * FROM chapter WHERE mangaId = :mangaId ORDER BY chapterNumber DESC")
     suspend fun getAllForManga(mangaId: String): List<ChapterEntity>
 
-    @Query("SELECT COUNT(*) FROM chapter WHERE read = 1")
+    /** Flow varianta [countReadDistinctInLibrary] pro StatsDialog - driv to byl prosty
+     * COUNT(read=1): nafukoval se skupinovymi duplicitami ComicK (jedna kapitola = N radek
+     * za N prekladatelskych skupin) a pocital i prectene kapitoly mimo knihovnu, takze
+     * dialog v Seznamu ukazoval jine cislo nez rozsirene Statistiky. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM (
+            SELECT DISTINCT mangaId, (CASE WHEN chapterNumber > 0 THEN CAST(chapterNumber AS TEXT) ELSE id END) AS chapterKey
+            FROM chapter WHERE read = 1 AND mangaId IN (SELECT id FROM manga WHERE inLibrary = 1)
+        )
+        """
+    )
     fun observeReadCount(): Flow<Int>
 
     /** Jednorázové deduplikované počty pro obrazovku Statistik - stejná logika slučování

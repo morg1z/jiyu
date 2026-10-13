@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +38,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.haise.jiyu.R
+import com.haise.jiyu.settings.ComickSyncMode
+import com.haise.jiyu.ui.comick.ComickImportSheet
 import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import com.haise.jiyu.ui.theme.Cyan
 import com.haise.jiyu.ui.theme.TextSecondary
@@ -58,6 +61,16 @@ fun ServicesSettingsScreen(
     val muUsername          by viewModel.muUsername.collectAsStateWithLifecycle()
     val muLoginLoading      by viewModel.muLoginLoading.collectAsStateWithLifecycle()
     val muLoginError        by viewModel.muLoginError.collectAsStateWithLifecycle()
+    val comickIsConnected    by viewModel.comickIsConnected.collectAsStateWithLifecycle()
+    val comickUsername       by viewModel.comickUsername.collectAsStateWithLifecycle()
+    val comickNeedsReconnect by viewModel.comickNeedsReconnect.collectAsStateWithLifecycle()
+    val comickHasWriteScope  by viewModel.comickHasWriteScope.collectAsStateWithLifecycle()
+    val comickSyncMode       by viewModel.comickSyncMode.collectAsStateWithLifecycle()
+    val comickLastSyncAt     by viewModel.comickLastSyncAt.collectAsStateWithLifecycle()
+    val comickImportState    by viewModel.comickImportState.collectAsStateWithLifecycle()
+    var showComickImport     by remember { mutableStateOf(false) }
+    var showComickDisconnect by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -97,7 +110,6 @@ fun ServicesSettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         )
-                        val context = LocalContext.current
                         OutlinedButton(
                             onClick = {
                                 viewModel.startMalOAuth { uri ->
@@ -234,6 +246,143 @@ fun ServicesSettingsScreen(
                             }
                         }
                     }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── Comick ────────────────────────────────────────────────────
+                SettingsSection(title = "Comick") {
+                    if (comickIsConnected) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text(stringResource(R.string.settings_services_logged_in), color = Cyan, fontWeight = FontWeight.Medium)
+                                if (comickUsername.isNotBlank()) Text(comickUsername, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                if (comickLastSyncAt > 0) {
+                                    Text(
+                                        stringResource(
+                                            R.string.settings_services_comick_last_sync,
+                                            java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                                                .format(java.util.Date(comickLastSyncAt)),
+                                        ),
+                                        color = TextSecondary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = { showComickDisconnect = true }) {
+                                Text(stringResource(R.string.settings_services_logout), color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        if (comickNeedsReconnect) {
+                            Text(
+                                stringResource(R.string.settings_services_comick_reconnect),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                        Text(
+                            stringResource(R.string.settings_services_comick_sync_label),
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                        GlassRadioRow(
+                            label = stringResource(R.string.settings_services_comick_mode_off),
+                            selected = comickSyncMode == ComickSyncMode.OFF,
+                            onClick = { viewModel.setComickSyncMode(ComickSyncMode.OFF) },
+                        )
+                        GlassRadioRow(
+                            label = stringResource(R.string.settings_services_comick_mode_pull),
+                            selected = comickSyncMode == ComickSyncMode.PULL,
+                            onClick = { viewModel.setComickSyncMode(ComickSyncMode.PULL) },
+                        )
+                        GlassRadioRow(
+                            label = stringResource(R.string.settings_services_comick_mode_twoway),
+                            selected = comickSyncMode == ComickSyncMode.TWOWAY,
+                            onClick = {
+                                viewModel.setComickSyncMode(ComickSyncMode.TWOWAY)
+                                if (!comickHasWriteScope) {
+                                    val ctx = context
+                                    viewModel.startComickOAuth(includeWrite = true) { uri ->
+                                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                                    }
+                                }
+                            },
+                        )
+                        OutlinedButton(
+                            onClick = { viewModel.resetComickImport(); showComickImport = true; viewModel.startComickImport() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(stringResource(R.string.settings_services_comick_import_button))
+                        }
+                    } else {
+                        Text(
+                            stringResource(R.string.settings_services_comick_desc),
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                        if (comickNeedsReconnect) {
+                            Text(
+                                stringResource(R.string.settings_services_comick_reconnect),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.startComickOAuth { uri ->
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                                }
+                            },
+                            enabled = viewModel.comickHasClientId,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Violet),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(stringResource(R.string.settings_services_comick_connect))
+                        }
+                        if (!viewModel.comickHasClientId) {
+                            Text(
+                                "Comick Client ID: přidej do local.properties jako COMICK_CLIENT_ID=xxx",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (showComickImport) {
+                    ComickImportSheet(
+                        state = comickImportState,
+                        onConfirmImport = { preview -> viewModel.confirmComickImport(preview) },
+                        onDismiss = { showComickImport = false; viewModel.resetComickImport() },
+                    )
+                }
+
+                if (showComickDisconnect) {
+                    AlertDialog(
+                        onDismissRequest = { showComickDisconnect = false },
+                        title = { Text("Comick") },
+                        text = { Text(stringResource(R.string.settings_services_comick_disconnect_confirm)) },
+                        confirmButton = {
+                            TextButton(onClick = { showComickDisconnect = false; viewModel.comickDisconnect() }) {
+                                Text(stringResource(R.string.settings_services_logout), color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showComickDisconnect = false }) {
+                                Text(stringResource(R.string.comick_import_cancel), color = TextSecondary)
+                            }
+                        },
+                    )
                 }
 
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()

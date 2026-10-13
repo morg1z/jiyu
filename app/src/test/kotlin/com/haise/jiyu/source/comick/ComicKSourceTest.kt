@@ -29,7 +29,7 @@ class ComicKSourceTest {
     """.trimIndent()
 
     private val mangaDetailJson = """
-        {"demographic": "Shounen", "comic": {"hid": "abcd", "desc": "A summary.", "status": 1, "year": 2020, "country": "kr", "translation_completed": true, "has_anime": true, "final_chapter": "200", "final_volume": "3", "bayesian_rating": "9.19", "user_follow_count": 194953, "follow_rank": 5, "md_titles": [{"title": "Test Series", "lang": "en"}, {"title": "Solo Leveling", "lang": "en"}, {"title": "나 혼자만 레벨업", "lang": "ko"}]}, "authors": [{"name": "Jane"}], "genres": [{"name": "Action"}]}
+        {"demographic": "Shounen", "comic": {"hid": "abcd", "desc": "A summary.", "status": 1, "year": 2020, "country": "kr", "translation_completed": true, "has_anime": true, "final_chapter": "200", "final_volume": "3", "bayesian_rating": "9.19", "user_follow_count": 194953, "follow_rank": 5, "md_titles": [{"title": "Test Series", "lang": "en"}, {"title": "Solo Leveling", "lang": "en"}, {"title": "나 혼자만 레벨업", "lang": "ko"}], "md_comic_md_genres": [{"md_genres": {"name": "Action", "slug": "action", "group": "genre"}}, {"md_genres": {"name": "Fantasy", "slug": "fantasy", "group": "genre"}}, {"md_genres": {"name": "Shounen", "slug": "shounen", "group": "demographic"}}]}, "authors": [{"name": "Jane"}]}
     """.trimIndent()
 
     private val chaptersJson = """
@@ -243,6 +243,17 @@ class ComicKSourceTest {
     fun `getMangaDetails reads demographic directly as a resolved label string`() = runTest {
         val manga = source.getPopular(1).first()
         val details = source.getMangaDetails(manga)
+        assertEquals("Shounen", details.demographic)
+    }
+
+    @Test
+    fun `getMangaDetails parses md_comic_md_genres join table and skips demographic group`() = runTest {
+        // Realny tvar /comic/{slug} odpovedi - top-level "genres" pole neexistuje,
+        // zanry jsou v comic.md_comic_md_genres[].md_genres.name. "demographic"
+        // group patri do SManga.demographic, ne do genres.
+        val manga = source.getPopular(1).first()
+        val details = source.getMangaDetails(manga)
+        assertEquals(listOf("Action", "Fantasy"), details.genres)
         assertEquals("Shounen", details.demographic)
     }
 

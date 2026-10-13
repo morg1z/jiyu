@@ -269,8 +269,6 @@ internal fun StatsDialog(stats: ReadingStats, onDismiss: () -> Unit, onOpenExten
             Column(modifier = Modifier.fillMaxWidth()) {
                 StatRow(stringResource(R.string.mylist_chapters_read), "${stats.chaptersRead}")
                 HorizontalDivider(color = GlowViolet.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 6.dp))
-                StatRow(stringResource(R.string.mylist_pages_read), "${stats.pagesRead}")
-                HorizontalDivider(color = GlowViolet.copy(alpha = 0.12f), modifier = Modifier.padding(vertical = 6.dp))
                 StatRow(stringResource(R.string.stats_reading_time_label), timeLabel)
             }
         },

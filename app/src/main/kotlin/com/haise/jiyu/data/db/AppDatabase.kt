@@ -44,7 +44,7 @@ class Converters {
         GlossaryEntity::class,
         ManualTranslationEntity::class,
     ],
-    version = 45,
+    version = 48,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -431,6 +431,35 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE chapter ADD COLUMN language TEXT")
             }
         }
+        val MIGRATION_45_46 = object : Migration(45, 46) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Trvale vazani manga -> Comick Library API entry (opaque HID string,
+                // nikdy cislo). Slug ukladat nemuzeme - je mutable; chapter hid patri
+                // do chapter.url. Index pro findByComickHid pri importu/sync.
+                db.execSQL("ALTER TABLE manga ADD COLUMN comickHid TEXT")
+                db.execSQL("CREATE INDEX index_manga_comickHid ON manga(comickHid)")
+            }
+        }
+        val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Zapamatovany realny zdroj pro ComicK titul (viz MangaEntity.resolvedMangaId).
+                // Index: propagateReadProgressToLinkedChapters filtruje resolvedMangaId pri
+                // kazdem otoceni stranky.
+                db.execSQL("ALTER TABLE manga ADD COLUMN resolvedMangaId TEXT")
+                db.execSQL("CREATE INDEX index_manga_resolvedMangaId ON manga(resolvedMangaId)")
+            }
+        }
+        val MIGRATION_47_48 = object : Migration(47, 48) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Audit M4/M6/M9: razitka pro konvergenci backfillu (nepokouset se
+                // donekonecna o neexistujici detaily/kapitoly) a conflict resolution
+                // Comick pull syncu (remote status prepisuje jen kdyz je novejsi nez
+                // posledni lokalni zapis - viz MangaEntity.statusUpdatedAt).
+                db.execSQL("ALTER TABLE manga ADD COLUMN detailFetchedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE manga ADD COLUMN lastChapterRefreshAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE manga ADD COLUMN statusUpdatedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
@@ -480,6 +509,9 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_42_43,
             MIGRATION_43_44,
             MIGRATION_44_45,
+            MIGRATION_45_46,
+            MIGRATION_46_47,
+            MIGRATION_47_48,
         )
     }
 }

@@ -26,7 +26,6 @@ object SettingsKeys {
     val TOTAL_READING_TIME     = longPreferencesKey("total_reading_time_ms")
     val DAILY_READING_TIME     = longPreferencesKey("daily_reading_time_ms")
     val DAILY_READING_DAY      = stringPreferencesKey("daily_reading_day")
-    val TOTAL_PAGES_READ       = longPreferencesKey("total_pages_read")
     val UPDATE_INTERVAL_HOURS  = longPreferencesKey("update_interval_hours")
     val PENDING_UPDATE_DOWNLOAD_ID = longPreferencesKey("pending_update_download_id")
     val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
@@ -154,6 +153,24 @@ object SettingsKeys {
      * uživatel nevyžádal a nic mu nepřináší, takže se na ni ptáme předem a nezaškrtnutě.
      */
     val CRASH_REPORTING = booleanPreferencesKey("crash_reporting")
+
+    /**
+     * Comick Library API integrace (viz [com.haise.jiyu.data.tracking.ComickRepository]).
+     * Tokeny/scope jsou v sifrovanem ulozisti (ComickAuthManager), tady jen necitlivy stav:
+     * rezim synchronizace, cas posledni sync, display name prihlaseneho uctu a cursor
+     * checkpoint rozdelineho importu (obnovi se po padu appky).
+     */
+    val COMICK_SYNC_MODE      = stringPreferencesKey("comick_sync_mode")
+    val COMICK_LAST_SYNC_AT   = longPreferencesKey("comick_last_sync_at")
+    val COMICK_USER_NAME      = stringPreferencesKey("comick_user_name")
+    val COMICK_IMPORT_CURSOR  = stringPreferencesKey("comick_import_cursor")
+}
+
+/** Hodnoty pro [SettingsKeys.COMICK_SYNC_MODE]. */
+object ComickSyncMode {
+    const val OFF    = "off"     // jen pripojeno, nic se nesynchronizuje
+    const val PULL   = "pull"    // Comick -> Jiyu (status/progress/rating pri sync now / otevreni detailu)
+    const val TWOWAY = "twoway"  // + Jiyu -> Comick (vyzaduje scope library:write)
 }
 
 object ReaderTheme {
@@ -354,9 +371,6 @@ class SettingsRepository @Inject constructor(
     val totalReadingTimeMs: Flow<Long> =
         dataStore.data.map { it[SettingsKeys.TOTAL_READING_TIME] ?: 0L }
 
-    val totalPagesRead: Flow<Long> =
-        dataStore.data.map { it[SettingsKeys.TOTAL_PAGES_READ] ?: 0L }
-
     suspend fun addReadingTime(deltaMs: Long) =
         dataStore.edit { prefs ->
             prefs[SettingsKeys.TOTAL_READING_TIME] = (prefs[SettingsKeys.TOTAL_READING_TIME] ?: 0L) + deltaMs
@@ -372,11 +386,6 @@ class SettingsRepository @Inject constructor(
         val today = java.time.LocalDate.now().toString()
         if (prefs[SettingsKeys.DAILY_READING_DAY] == today) prefs[SettingsKeys.DAILY_READING_TIME] ?: 0L else 0L
     }
-
-    suspend fun addPagesRead(count: Long) =
-        dataStore.edit { prefs ->
-            prefs[SettingsKeys.TOTAL_PAGES_READ] = (prefs[SettingsKeys.TOTAL_PAGES_READ] ?: 0L) + count
-        }
 
     val aniListIdMap: Flow<String>  = dataStore.data.map { it[SettingsKeys.ANILIST_ID_MAP] ?: "{}" }
 
@@ -984,4 +993,38 @@ class SettingsRepository @Inject constructor(
             else -> 1
         }
     }
+
+    // region Comick Library API - necitlivy stav; tokeny jsou v ComickAuthManager/SecureCredentialStore
+
+    val comickSyncMode: Flow<String> =
+        dataStore.data.map { it[SettingsKeys.COMICK_SYNC_MODE] ?: ComickSyncMode.OFF }
+
+    suspend fun setComickSyncMode(mode: String) =
+        dataStore.edit { it[SettingsKeys.COMICK_SYNC_MODE] = mode }
+
+    val comickLastSyncAt: Flow<Long> =
+        dataStore.data.map { it[SettingsKeys.COMICK_LAST_SYNC_AT] ?: 0L }
+
+    suspend fun setComickLastSyncAt(ts: Long) =
+        dataStore.edit { it[SettingsKeys.COMICK_LAST_SYNC_AT] = ts }
+
+    /** Display name pripojeneho uctu pro settings radek (cache - pravda je GET /me). */
+    val comickUserName: Flow<String?> =
+        dataStore.data.map { it[SettingsKeys.COMICK_USER_NAME] }
+
+    suspend fun setComickUserName(name: String?) = dataStore.edit {
+        if (name == null) it.remove(SettingsKeys.COMICK_USER_NAME)
+        else it[SettingsKeys.COMICK_USER_NAME] = name
+    }
+
+    /** Checkpoint rozdeleneho importu - cursor predat API BEZE ZMENY, null = zadny beh. */
+    val comickImportCursor: Flow<String?> =
+        dataStore.data.map { it[SettingsKeys.COMICK_IMPORT_CURSOR] }
+
+    suspend fun setComickImportCursor(cursor: String?) = dataStore.edit {
+        if (cursor == null) it.remove(SettingsKeys.COMICK_IMPORT_CURSOR)
+        else it[SettingsKeys.COMICK_IMPORT_CURSOR] = cursor
+    }
+
+    // endregion
 }

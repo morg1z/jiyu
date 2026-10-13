@@ -26,7 +26,6 @@ import javax.inject.Inject
 data class ExtendedStats(
     val chaptersRead: Int = 0,
     val totalChaptersInLibrary: Int = 0,
-    val pagesRead: Long = 0L,
     val readingTimeMs: Long = 0L,
     val readingStreak: Int = 0,
     val ratedCount: Int = 0,
@@ -102,7 +101,6 @@ class ExtendedStatsViewModel @Inject constructor(
         _stats.value = ExtendedStats(
             chaptersRead = repository.countLibraryReadChaptersDistinct(),
             totalChaptersInLibrary = repository.countLibraryChaptersDistinct(),
-            pagesRead = settings.totalPagesRead.first(),
             readingTimeMs = settings.totalReadingTimeMs.first(),
             readingStreak = settings.readingStreak.first(),
             ratedCount = repository.countLibraryRated(),
@@ -128,7 +126,6 @@ class ExtendedStatsViewModel @Inject constructor(
             val root = JSONObject().apply {
                 put("exportedAt", java.time.Instant.now().toString())
                 put("chaptersRead", s.chaptersRead)
-                put("pagesRead", s.pagesRead)
                 put("readingTimeMs", s.readingTimeMs)
                 put("readingStreak", s.readingStreak)
                 put("totalInLibrary", s.totalInLibrary)
@@ -167,7 +164,6 @@ class ExtendedStatsViewModel @Inject constructor(
             val sb = StringBuilder()
             sb.append("metric,value\n")
             sb.append("chapters_read,${s.chaptersRead}\n")
-            sb.append("pages_read,${s.pagesRead}\n")
             sb.append("reading_time_ms,${s.readingTimeMs}\n")
             sb.append("reading_streak_days,${s.readingStreak}\n")
             sb.append("total_in_library,${s.totalInLibrary}\n")

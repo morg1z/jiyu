@@ -14,6 +14,11 @@ import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.entity.GlossaryEntity
+import com.haise.jiyu.data.tracking.ComickAuthManager
+import com.haise.jiyu.data.tracking.ComickImportManager
+import com.haise.jiyu.data.tracking.ComickRepository
+import com.haise.jiyu.data.tracking.ComickTitle
+import com.haise.jiyu.data.tracking.localStatusToComick
 import com.haise.jiyu.data.tracking.KitsuAuthManager
 import com.haise.jiyu.data.tracking.KitsuManga
 import com.haise.jiyu.data.tracking.KitsuRepository
@@ -61,6 +66,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.roundToInt
 import com.haise.jiyu.util.report
 
 @HiltViewModel
@@ -79,10 +85,14 @@ class MangaDetailViewModel @Inject constructor(
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
+    private val comickAuthManager: ComickAuthManager,
+    private val comickRepository: ComickRepository,
+    private val comickImportManager: ComickImportManager,
     private val sourceManager: SourceManager,
     private val comicKSource: ComicKSource,
     private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
     private val crossSourceSearch: CrossSourceSearch,
+    private val trackerSyncCoordinator: com.haise.jiyu.data.tracking.TrackerSyncCoordinator,
 ) : ViewModel() {
 
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
@@ -324,13 +334,7 @@ class MangaDetailViewModel @Inject constructor(
     // minByOrNull FILTROVANEHO seznamu - tj. na uplne jinou kapitolu, nebo zmizelo
     // uplne (audit - hlaseny "Spatne pokracovani pri zapnutem filtru").
     val continueChapter: StateFlow<ChapterEntity?> = combine(manga, _rawChapters) { m, chs ->
-        if (chs.isEmpty()) return@combine null
-        val lastId = m?.lastReadChapterId
-        if (lastId != null) {
-            chs.find { it.id == lastId }
-        } else {
-            chs.minByOrNull { it.chapterNumber }
-        }
+        pickContinueChapter(chs, m?.lastReadChapterId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── První nepřečtená kapitola (#33) ───────────────────────────────────────
@@ -416,6 +420,7 @@ class MangaDetailViewModel @Inject constructor(
     fun setReadingStatus(status: String?) = viewModelScope.launch {
         repository.setReadingStatus(mangaId, status)
         if (status != null && manga.value?.inLibrary != true) addToLibrary()
+        pushComickStatus(status)
     }
 
     // ── Hodnocení (#41) ───────────────────────────────────────────────────────
@@ -672,6 +677,116 @@ class MangaDetailViewModel @Inject constructor(
         remote.rating?.let { r -> repository.setRating(mangaId, (r * 10).toInt()) }
     }
 
+    // ── Comick tracking ───────────────────────────────────────────────────────
+    val comickHid: StateFlow<String?> = manga.map { it?.comickHid }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val comickIsConnected: StateFlow<Boolean> = comickAuthManager.isConnected
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val comickHasWriteScope: StateFlow<Boolean> = comickAuthManager.hasWriteScope
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _comickSearchResults = MutableStateFlow<List<ComickTitle>>(emptyList())
+    val comickSearchResults: StateFlow<List<ComickTitle>> = _comickSearchResults.asStateFlow()
+
+    private val _comickSearchLoading = MutableStateFlow(false)
+    val comickSearchLoading: StateFlow<Boolean> = _comickSearchLoading.asStateFlow()
+
+    private var searchComickJob: Job? = null
+
+    fun searchComick(query: String) {
+        searchComickJob?.cancel()
+        searchComickJob = viewModelScope.launch {
+            _comickSearchLoading.value = true
+            try {
+                _comickSearchResults.value = comickRepository.searchTitles(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("detail:searchComick")
+            } finally {
+                // Zrušené hledání (nahrazené novějším) vypínač nesmí shodit - běží už další.
+                if (isActive) _comickSearchLoading.value = false
+            }
+        }
+    }
+
+    fun linkComick(title: ComickTitle) = viewModelScope.launch {
+        repository.setComickHid(mangaId, title.hid)
+        // Titul na Comick sledovat nemusíme - getLibraryEntry pak vrati null a sync je no-op.
+        // Schvalne BEZ comickSyncMode gate (na rozdil od syncFromComick): rucni navazani
+        // je vedomy akt uzivatele, takze remote status/rating/progress aplikujeme i v OFF.
+        comickImportManager.syncMangaFromRemote(mangaId, title.hid)
+    }
+
+    fun unlinkComick() = viewModelScope.launch {
+        repository.setComickHid(mangaId, null)
+    }
+
+    fun openComickPage(context: Context) {
+        val m = manga.value ?: return
+        // Comick-source manga ma v url slug (lepsi odkaz); jinak hid - web ho taky resolvne.
+        val slug = m.url.removePrefix("https://api.comick.dev/comic/")
+            .takeIf { m.sourceId == "comick" && it != m.url }
+        val target = slug ?: comickHid.value ?: return
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://comick.dev/comic/$target")))
+    }
+
+    /**
+     * Stáhne uživatelův status/rating/progress z Comick zpět do appky. Stejná pravidla
+     * jako import: remote progress se aplikuje jen když je vyšší než lokální. Zamčené
+     * na sync mode != off (viz Nastavení -> Služby -> Comick).
+     */
+    fun syncFromComick() = viewModelScope.launch {
+        val hid = comickHid.value ?: return@launch
+        if (settings.comickSyncMode.first() == com.haise.jiyu.settings.ComickSyncMode.OFF) return@launch
+        comickImportManager.syncMangaFromRemote(mangaId, hid)
+    }
+
+    /** Spolecny gate pro vsechny write pushy: twoway mode + skutecne udeleny write scope. */
+    private suspend fun canPushComick(hid: String?): Boolean =
+        hid != null &&
+            settings.comickSyncMode.first() == com.haise.jiyu.settings.ComickSyncMode.TWOWAY &&
+            comickAuthManager.hasWriteScope.first()
+
+    private suspend fun pushComickStatus(status: String?) {
+        val hid = comickHid.value
+        if (!canPushComick(hid)) return
+        // null = user status zrusil; Comick neumi status "odebrat" (jen unfollow) - nepushujem.
+        val code = localStatusToComick(status) ?: return
+        try {
+            comickRepository.patchEntry(hid!!, status = code)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("detail:comick:pushStatus")
+        }
+    }
+
+    private suspend fun pushComickRating(rating: Int?, clear: Boolean) {
+        val hid = comickHid.value
+        if (!canPushComick(hid)) return
+        try {
+            comickRepository.patchEntry(hid!!, rating = rating, clearRating = clear)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("detail:comick:pushRating")
+        }
+    }
+
+    /**
+     * Unfollow na Comick - VYHRADNE explicitni potvrzena akce uzivatele (sync nikdy nevola
+     * DELETE). Smaze vzdaleny zaznam (status+progress+poznamky na Comicku) a odpoji lokalni
+     * hid; lokalni knihovna zustava nedotcena. Gated na write scope (sync mode muze byt pull).
+     */
+    fun unfollowComick() = viewModelScope.launch {
+        val hid = comickHid.value ?: return@launch
+        if (!comickAuthManager.hasWriteScope.first()) return@launch
+        if (comickRepository.deleteEntry(hid)) repository.setComickHid(mangaId, null)
+    }
+
     // ── Kategorie ─────────────────────────────────────────────────────────────
     val allCategories: StateFlow<List<CategoryEntity>> = repository.observeCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -708,7 +823,14 @@ class MangaDetailViewModel @Inject constructor(
 
     fun markAllRead() {
         viewModelScope.launch {
-            repository.markChaptersRead(repository.getAllChapters(mangaId).map { it.id })
+            val chapters = repository.getAllChapters(mangaId)
+            repository.markChaptersRead(chapters.map { it.id })
+            // Trackery: "oznacit vse prectene" pushne progress na nejvyssi kapitolu -
+            // bez toho by hromadna akce nechala AniList/Comick/Kitsu/... tise pozadu
+            // (push se normalne dela jen v readeru pri docteni kapitoly).
+            val top = chapters.filter { it.chapterNumber > 0 }.maxByOrNull { it.chapterNumber }
+            val m = manga.value
+            if (top != null && m != null) trackerSyncCoordinator.syncReadProgress(m, top)
         }
     }
 
@@ -1062,11 +1184,16 @@ class MangaDetailViewModel @Inject constructor(
             repository.setRating(mangaId, rating)
             val m = manga.value ?: return@launch
             try { aniListRepository.updateScore(mangaId, m.title, rating * 20) } catch (e: Exception) { e.report("detail:anilist:updateScore") }
+            // Jiyu 0-100 -> Comick 1-10 int (zaokrouhleno).
+            pushComickRating((rating / 10f).roundToInt().coerceIn(1, 10), clear = false)
         }
     }
 
     fun clearRating() {
-        viewModelScope.launch { repository.setRating(mangaId, null) }
+        viewModelScope.launch {
+            repository.setRating(mangaId, null)
+            pushComickRating(null, clear = true)
+        }
     }
 
 
@@ -1085,3 +1212,20 @@ class MangaDetailViewModel @Inject constructor(
 /** `true` = zdroj odpověděl jednoznačným "nenalezeno" (HTTP 404/410, viz `bodyOrThrow`). */
 internal fun isNotFoundError(e: Throwable): Boolean =
     e is java.io.IOException && Regex("""HTTP (404|410)\b""").containsMatchIn(e.message.orEmpty())
+
+/**
+ * Vybere kapitolu pro tlačítko "Pokračovat". Bez historie = nejnižší kapitola.
+ * S historií: rozčtená kapitola (read=false) se resumeuje na ní samé (lastPageRead),
+ * dočtená (read=true) přeskočí na PRVNÍ nepřečtenou za ní - poslední přečtená už
+ * číst znovu nedává smysl (audit importu: ComicK "continue 132" ukazoval Jiyu
+ * "Pokračovat 131" - remote progress.number je poslední přečtená, ne další).
+ * Když za ní nic nepřečteného není, vrátí se poslední kapitola (dočtená série).
+ */
+internal fun pickContinueChapter(chs: List<ChapterEntity>, lastReadId: String?): ChapterEntity? {
+    if (chs.isEmpty()) return null
+    if (lastReadId == null) return chs.minByOrNull { it.chapterNumber }
+    val last = chs.find { it.id == lastReadId } ?: return chs.minByOrNull { it.chapterNumber }
+    if (!last.read) return last
+    return chs.filter { !it.read && it.chapterNumber > last.chapterNumber }
+        .minByOrNull { it.chapterNumber } ?: last
+}

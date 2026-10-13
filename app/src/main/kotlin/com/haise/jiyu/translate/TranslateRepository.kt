@@ -206,6 +206,26 @@ class TranslateRepository @Inject constructor(
         }
 
     /**
+     * true = primární provider pro [targetLanguage] je schopný obsluhy hned - gate pro
+     * NEPODSTATNÉ práce navíc (před-překlad další kapitoly na pozadí, viz
+     * ReaderViewModel.preloadNextChapterMangaTranslation). Bez něj se při vyčerpané
+     * kvótě primárního providera prefetchovalo přes levné záložní modely: výsledek se
+     * trvale cachoval v degradované kvalitě a zároveň to spálilo malý denní rozpočet
+     * zálohy na kapitolu, kterou si uživatel ještě ani neotevřel (důvod, proč se limit
+     * najednou vyčerpal ~2x rychleji - dřív prefetch vůbec nebyl).
+     *
+     * Primární = první krok řetězce v [translateChapterSerialized] pro daný jazyk
+     * (čeština jede přes "ultra" prompt na gemini, ostatní jazyky přes groq). Bez
+     * nakonfigurované proxy je cesta on-device ML Kit, která žádnou kvótu nemá - tam
+     * se neomezuje.
+     */
+    fun hasPrimaryProviderCapacity(targetLanguage: String): Boolean {
+        if (!groqClient.isConfigured) return true
+        val primary = if (targetLanguage == "Czech") "gemini" else "groq"
+        return providerHealth.isAvailable(primary)
+    }
+
+    /**
      * Označí bloky, jejichž český překlad obsahuje podezřelé tokeny ([isSuspiciousCzechOutput]),
      * jako `isUntranslated` - tak projdou repair retry přes [fillUntranslatedBlocks] a když
      * ani jiný provider lepší výsledek nedá, čtenář uvidí originál místo zkomoleniny
@@ -256,11 +276,18 @@ class TranslateRepository @Inject constructor(
         blocks: List<TranslatedBlock>,
         classified: List<ClassifiedBubble>,
         targetLanguage: String,
+        /** true = překlad vyrobil degradovaný záložní model (viz DEGRADED_MODELS) -
+         *  kvóta je právě vzácná a review volání by ji spálilo na kontrolu výstupu,
+         *  který už je označený jako omezené kvality - review se přeskočí. */
+        degraded: Boolean = false,
     ): List<TranslatedBlock> {
         if (targetLanguage != "Czech" || blocks.size != classified.size) return blocks
-        // Bez nakonfigurovaného proxy nemá review smysl; při plně vyčerpané kvótě ho
-        // šetříme (překlad je prioritnější než kontrola).
-        if (!geminiClient.isConfigured || providerHealth.allUnavailable()) return blocks
+        if (degraded) return blocks
+        // Bez nakonfigurovaného proxy nemá review smysl. Gate na primárního providera
+        // (gemini), ne na allUnavailable: když gemini právě cooluje, review by pálilo
+        // kvótu ZÁLOŽNÍHO providera na nepovinnou kontrolu - ta je pro samotný překlad
+        // důležitější. Důvod, proč se limit najednou vyčerpal ~2x rychleji.
+        if (!geminiClient.isConfigured || !providerHealth.isAvailable("gemini")) return blocks
         val indices = blocks.indices.filter { i ->
             val b = blocks[i]
             !b.isSfx && !b.isUntranslated && !b.isArtText &&
@@ -268,9 +295,10 @@ class TranslateRepository @Inject constructor(
         }
         if (indices.isEmpty()) return blocks
         val pairs = indices.map { classified[it].raw.text to blocks[it].translatedText }
-        val raw = runReviewAttempt(pairs, "gemini", targetLanguage)
-            ?: runReviewAttempt(pairs, "openrouter", targetLanguage)
-            ?: return blocks
+        // Bez openrouter fallbacku - review je nepovinná kvalitní vrstva a nemá sahat
+        // na kvótu záložního providera, když primární pokus selže (druhé volání na
+        // dávku navíc). Fail-open, jak je u review zvykem.
+        val raw = runReviewAttempt(pairs, "gemini", targetLanguage) ?: return blocks
         val verdicts = TranslationReview.parse(raw) ?: return blocks
         if (verdicts.isEmpty()) return blocks
         val csDict = csWordlist()
@@ -622,12 +650,18 @@ class TranslateRepository @Inject constructor(
             gapFillSteps(glossary, targetLanguage, sourceLanguage, mangaId, mangaContext, recentLines, onModel = onModel),
             qualityGate = { b, c -> isRetryResultSuspicious(b.translatedText, c.raw.text, targetLanguage) },
         )
+        // Degradovaný upstream model (vyčerpaná kvóta primárního - viz DEGRADED_MODELS)
+        // se propíše na bloky, ať UI i při znovuotevření z cache pozná, že kvalita byla
+        // dočasně omezená (staré záznamy flag nemají -> default false). Počítá se PŘED
+        // self-review - degradovaný výstup review nepálí vzácnou kvótu (viz parametr).
+        val pageDegraded = usedModels.any { it in DEGRADED_MODELS }
         // Self-review pass (WP11): model zdarma zkontroluje vlastní dvojice zdroj->překlad -
         // chytá chyby, které slovníkový lint neodhalí ("ZABIJ U TĚ", "MAČKY", "OBECNÉ").
-        val reviewed = applySelfReview(filled, classified, targetLanguage)
+        val reviewed = applySelfReview(filled, classified, targetLanguage, degraded = pageDegraded)
         // Kanonické tvary jmen + konzistence frází (WP13) a nakonec render safety gate
         // (WP9 - placeholder/echo leak -> untranslated, ".." -> "…").
         val blocks = applyChapterConsistency(reviewed, classified, nameRegistry).applyRenderSafetyGate()
+            .let { b -> if (pageDegraded) b.map { it.copy(degraded = true) } else b }
 
         // Webtoon řez: bublina protnutá spodním okrajem předchozí stránky a horním okrajem
         // téhle se OCR'd dvakrát a oba fragmenty by se vykreslily -> dvojitý text na
@@ -813,6 +847,12 @@ class TranslateRepository @Inject constructor(
      * @param onPageReady zavolá se pro KAŽDOU stránku zvlášť, jakmile je hotová (i když šla
      *   v dávce s ostatními) - zachovává postupné zobrazování stránek v ReaderViewModelu
      *   místo čekání na celou kapitolu najednou.
+     * @param onOcrProgress granularita během úvodní OCR fáze - bez něj progress UI stálo
+     *   na poslední emitované stránce celou dobu, co worker pool rozpoznával stránky
+     *   (u 24stránkové kapitoly klidně minuty; hlášeno jako "counter zmrzl na 14/24").
+     * @param onPageFailed stránka skutečně selhala (OCR error/timeout, žádný provider
+     *   dávky neodpověděl) - odliší "selhalo, jde zkusit znovu" od legitimní "stránka
+     *   bez překladatelného textu", které se do teď slévaly do stejného prázdného emitu.
      * @throws RateLimitedException stejná sémantika jako [translatePage] - NEODCHYTÁVÁ se
      *   tady, volající (ReaderViewModel) na to má vlastní hlášku a přeruší zbytek kapitoly.
      */
@@ -822,6 +862,8 @@ class TranslateRepository @Inject constructor(
         mangaId: String,
         targetLanguage: String = "Czech",
         sourceLanguage: String = "Auto",
+        onOcrProgress: suspend (done: Int, total: Int) -> Unit = { _, _ -> },
+        onPageFailed: suspend (pageIndex: Int) -> Unit = {},
         onPageReady: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit,
     ) {
         // TR-6: per-chapter mutex kolem CELE kapitoly (úvodní cache průchod + OCR
@@ -829,7 +871,7 @@ class TranslateRepository @Inject constructor(
         // jinou kapitolu běží paralelně dál; pro stejnou se počká - výsledek pak
         // dostane z cache, kterou první běh právě zaplnil.
         chapterMutex(chapterId).withLock {
-            translateChapterSerialized(pages, chapterId, mangaId, targetLanguage, sourceLanguage, onPageReady)
+            translateChapterSerialized(pages, chapterId, mangaId, targetLanguage, sourceLanguage, onOcrProgress, onPageFailed, onPageReady)
         }
     }
 
@@ -840,6 +882,8 @@ class TranslateRepository @Inject constructor(
         mangaId: String,
         targetLanguage: String,
         sourceLanguage: String,
+        onOcrProgress: suspend (done: Int, total: Int) -> Unit,
+        onPageFailed: suspend (pageIndex: Int) -> Unit,
         onPageReady: suspend (pageIndex: Int, blocks: List<TranslatedBlock>) -> Unit,
     ) {
         val uncached = mutableListOf<Int>()
@@ -885,6 +929,9 @@ class TranslateRepository @Inject constructor(
         // ploché "ocr_empty"; stejné rozlišení používá translatePage výš).
         // rawCount vysledek nosi vedle classified - "OCR nasel N regionu, bloku vyslo M"
         // je jediny metrika, ktera odhali tichy ztraceny text (audit - vynechane bubliny).
+        // Granulární progress OCR fáze pro UI - bez něj progress stál na poslední
+        // cache-hit stránce celou dobu průchodu (hlášené "zmrzlé 14/24").
+        val ocrDone = AtomicInteger(0)
         val ocrResultsByPage: Map<Int, PageOcrResult> = runOrderedWorkerPool(
             workItems = uncached,
             workerCount = ocrPermits,
@@ -956,6 +1003,7 @@ class TranslateRepository @Inject constructor(
                 englishWords = enOcrDictionary(),
             )
             val dense = isDenseTextPage(cls)
+            onOcrProgress(ocrDone.incrementAndGet(), uncached.size)
             PageOcrResult(
                 pageIndex,
                 if (dense) cls.map { it.asPreservedBlock() } else cls,
@@ -985,6 +1033,10 @@ class TranslateRepository @Inject constructor(
                 // "ok" tady znamená: OCR bubliny našel, ale všechny skončily jako
                 // nepřekladatelné (SFX/šum) - stránka je v pořádku, jen nemá text.
                 TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, emptyList(), emptyList(), note = "ocr_${ocrOutcomes[pageIndex] ?: "empty"}", ocrRawCount = ocrRawCounts[pageIndex] ?: 0)
+                // Selhání OCR (mrtvá bitmapa, timeout, engine error, watchdog stall) se
+                // od legitimní "bez textu" liší - čtenář musí poznat, že se stránka
+                // nepřeložila CHYBOU a jde zkusit znovu, ne že tam nic není.
+                if (ocrOutcomes[pageIndex] in OCR_FAILURE_OUTCOMES) onPageFailed(pageIndex)
                 onPageReady(pageIndex, emptyList())
             }
         }
@@ -1072,6 +1124,21 @@ class TranslateRepository @Inject constructor(
                 )
             }
 
+            // Celá dávka bez výsledku (všichni provideři odpověděli null/prázdno, žádný
+            // 429 - ten by hodil RateLimitedException nahoru) = SELHÁNÍ, ne "stránky bez
+            // textu". Bez hlášení přes onPageFailed se stránky tvářily jako přeložené
+            // s prázdným obsahem a chyba byla neviditelná (hlášená stránka s dialogem,
+            // co "prostě neměla překlad"). Do cache se nic nezapíše - další běh je
+            // zkusí znovu jako uncached.
+            if (chainBlocks.isEmpty()) {
+                for (pageIndex in chunk) {
+                    TranslationDiagnostics.recordPage(context, chapterId, pageIndex, targetLanguage, bubblesByPage[pageIndex].orEmpty(), emptyList(), note = "chain_empty", ocrRawCount = ocrRawCounts[pageIndex] ?: 0)
+                    onPageFailed(pageIndex)
+                    onPageReady(pageIndex, emptyList())
+                }
+                return@forEachIndexed
+            }
+
             // Výstupní lint před gap-fill - viz stejné volání v translatePage výše.
             val linted = flagSuspiciousCzechOutput(chainBlocks, flatBubbles, targetLanguage)
             val filled = fillUntranslatedBlocks(
@@ -1079,15 +1146,19 @@ class TranslateRepository @Inject constructor(
                 gapFillSteps(glossary, targetLanguage, sourceLanguage, mangaId, mangaContext, recentLines, onModel = onModel),
                 qualityGate = { b, c -> isRetryResultSuspicious(b.translatedText, c.raw.text, targetLanguage) },
             )
-            // Self-review + registr jmen/konzistence + render gate - viz translatePage.
-            val reviewed = applySelfReview(filled, flatBubbles, targetLanguage)
-            val blocks = applyChapterConsistency(reviewed, flatBubbles, nameRegistry).applyRenderSafetyGate()
             // Degradace platí pro celou dávku najednou - bubliny z ní se rozdělují po
             // stránkách až dodatečně, takže slabý model zasáhl i stránky, kde se nic
             // nepřeložilo jinak. Do cache se ukládá stejně (viz dao.upsert níž) - tahle
-            // proměnná je čistě diagnostická (note v page záznamu).
+            // proměnná je čistě diagnostická (note v page záznamu). Počítá se PŘED
+            // self-review - degradovaná dávka review nepálí vzácnou kvótu.
             val chunkDegraded = chunkModels.any { it in DEGRADED_MODELS }
-            val perPage = splitBlocksByPage(chunk, chunk.map { bubblesByPage.getValue(it).size }, blocks)
+            // Self-review + registr jmen/konzistence + render gate - viz translatePage.
+            val reviewed = applySelfReview(filled, flatBubbles, targetLanguage, degraded = chunkDegraded)
+            val blocks = applyChapterConsistency(reviewed, flatBubbles, nameRegistry).applyRenderSafetyGate()
+            // Flag degraded na blocích (stejně jako translatePage) - cachuje se a UI
+            // ho čte i po znovuotevření z cache, viz TranslatedBlock.degraded.
+            val markedBlocks = if (chunkDegraded) blocks.map { it.copy(degraded = true) } else blocks
+            val perPage = splitBlocksByPage(chunk, chunk.map { bubblesByPage.getValue(it).size }, markedBlocks)
             for ((pageIndex, untrimmedPageBlocks) in perPage) {
                 // Webtoon řezy: bublina protnutá hranicí stránky N/N+1 se OCR'd dvakrát a
                 // každý fragment se vykreslí -> dvojitý překlad na přešití (audit RWS
@@ -1180,6 +1251,21 @@ class TranslateRepository @Inject constructor(
                     }
                 }
                 onPageReady(pageIndex, pageBlocks)
+                // Tichá per-page ztráta UVNITŘ úspěšné dávky: stránka měla ne-SFX
+                // bubliny (dialog/titulek), ale výsledek pro ni nemá žádný
+                // přeložený blok - model je zahodil (nedodržel počet řádků,
+                // zabalil ji jako SFX...). chain_empty výš chytá jen dávku, co
+                // nevrátila NIC - sem propadne stránka, jejíž chunk přeložil
+                // sousedy a ji vynechal. Bez flagu byla k nerozeznání od stránky
+                // bez textu (hlášená str. 13 Vagabond ch7 - "ARRGH!! YOU
+                // BASTARD!" dvakrát tiše zmizel). Vykreslí se retry chip.
+                // POZOR až PO onPageReady - putTranslatedPage u neprázdného
+                // emitu fail flag hned smaže (řeší "samovolný" repair retry).
+                if (pageBlocks.none { !it.isSfx && !it.isUntranslated } &&
+                    bubblesByPage[pageIndex].orEmpty().any { !it.isSfx }
+                ) {
+                    onPageFailed(pageIndex)
+                }
             }
 
             // Ocásek pro DALŠÍ dávku. Zvukové efekty a bubliny, které model označil za
@@ -2081,8 +2167,17 @@ class TranslateRepository @Inject constructor(
          *   překlad byl správný (změřeno na zařízení: "NA CO ČEKÁŠ,
          *   __JIYU_PROTECT_0__?!"). Prompt nově dokumentuje skutečný tvar ⟦⟧ a zakazuje
          *   přepisování. Cache drží chybné isUntranslated → invalidace.
+         * v44: Audit Vagabond ch.6 - (1) mask-explosion pojistka v TextPatch
+         *   (světlý rektágl za "KDO...?" na tmavé šrafě), (2) invertovaný OCR
+         *   průchod jako fallback pro stránky/recovery cropy kde normal OCR nic
+         *   nenašel (bílý lettering na tmavém art - str.19 ocr_no_text),
+         *   (3) mergeArtCaptionBlocks - rozsekaný art caption se sloučí do jedné
+         *   překladové věty (str.19 "FOR THE FIRST TIME IN MY LIFE..." napůl
+         *   EN napůl CS), (4) slovníkový lint umí číslice->písmena jen přes
+         *   přímý slovníkový hit ("SAYL3"), (5) TranslatedBlock.degraded flag -
+         *   nové persistované pole. Všechno mění uložená data → invalidace.
          */
-        internal const val PIPELINE_VERSION = 43
+        internal const val PIPELINE_VERSION = 44
 
         /**
          * Záložní modely, na které proxy sama přepne při přetížení hlavního (viz
@@ -2154,6 +2249,17 @@ class TranslateRepository @Inject constructor(
          * dvojnásobná rezerva pozná zaseklost do ~2 minut bez falešných poplachů.
          */
         private const val OCR_STALL_TIMEOUT_MS = PAGE_OCR_TIMEOUT_MILLIS * 3
+
+        /**
+         * OCR výsledky, které znamenají SELHÁNÍ stránky (bitmapa se nepodařila, engine
+         * spadl, watchdog abort) - ne legitimní "stránka nemá překladatelný text".
+         * Takové stránky hlásí [translateChapter] přes onPageFailed, aby čtenář
+         * poznal opakovatelnou chybu od prázdné/SFX stránky. "no_text"/"ok"/"partial"
+         * sem NEpatří - OCR doběhl, jen nebylo co překládat.
+         */
+        private val OCR_FAILURE_OUTCOMES = setOf(
+            "bitmap_failed", "bitmap_error", "engine_error", "oom", "timeout", "stall",
+        )
 
         /**
          * EXPERIMENT (plán položka 18) - kolikrát nejvíc se za JEDNU kapitolu smí zkusit

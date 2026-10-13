@@ -128,20 +128,74 @@ private val WORD_TOKEN = Regex("\\S+")
  */
 private fun fixByDictionary(token: String, dictionary: Set<String>): String {
     if (dictionary.isEmpty()) return token
-    val start = token.indexOfFirst { it.isLetter() }
-    val end = token.indexOfLast { it.isLetter() }
+    // Hranice jádra počítají i číslice ("5MALL" -> celé "5MALL", ne jen "MALL") -
+    // jinak by digit na kraji zůstal viset a oprava vratila "5SMALL".
+    val start = token.indexOfFirst { it.isLetterOrDigit() }
+    val end = token.indexOfLast { it.isLetterOrDigit() }
     if (start < 0) return token
     val core = token.substring(start, end + 1)
     if (core.length < 4 || core.length > 16) return token
-    if (!core.all { it in 'A'..'Z' || it == '-' }) return token
+    if (!core.all { it in 'A'..'Z' || it == '-' || it.isDigit() }) return token
     if (core.startsWith('-') || core.endsWith('-') || "--" in core) return token
+    // Číslice uvnitř verzálkového slova = OCR misread ("SAYL3", "TH3RE"): ML Kit
+    // občas přečte ozdobný tah písmene jako číslici. Oprava se přijme JEN když
+    // některá náhrada číslice za vizuálně podobné písmeno dopadne přímo do
+    // slovníku - distance-1 lint se na rozšířený tvar nepouští, jinak by
+    // "SAYL3"->"SAYLE" mohlo dolintovat na "SALE" a překlad by vznikl nad
+    // zcela jiným slovem. Legitimní kódy ("R2D2", "F-16", "I'M 17") žádný
+    // slovníkový hit nemají a zůstanou netknuté.
     val joined = core.replace("-", "")
     if (joined.length < 4) return token
+    if (joined.any { it.isDigit() }) {
+        for (candidate in expandDigitsToLetters(joined)) {
+            if (candidate.lowercase() in dictionary) {
+                return token.take(start) + candidate + token.drop(end + 1)
+            }
+        }
+        return token
+    }
     if (joined.lowercase() in dictionary) return token
     if (BubbleClassifier.isKnownSfx(joined)) return token
     val hit = uniqueDistance1Word(joined.lowercase(), dictionary) ?: return token
     return token.take(start) + hit.uppercase() + token.drop(end + 1)
 }
+
+/**
+ * Pozice číslic v tokenu se postupně nahradí vizuálně zaměnitelnými písmeny
+ * (0→O, 1→I, 3→E, 5→S, 8→B, 4→A, 7→T). Vrátí varianty v rostoucí odvážnosti:
+ * nejdřív jednotlivé náhrady zvlášť (nejmenší zásah), pak všechny najednou.
+ * Číslice, která nemá slovníkově ověřitelné písmeno, se nenahrazuje ("R2D2",
+ * "F-16", "I'M 17" zůstanou beze změny - žádná náhrada nesedne ve slovníku).
+ */
+private fun expandDigitsToLetters(word: String): List<String> {
+    val positions = word.indices.filter { word[it].isDigit() }
+    if (positions.isEmpty()) return listOf(word)
+    if (positions.size > 2) return listOf(word)
+    // Číslice bez mapování (2 apod.) nemá jak se stát písmenem - nedotýkat se.
+    if (positions.any { word[it] !in DIGIT_TO_LETTERS }) return listOf(word)
+    val out = mutableListOf<String>()
+    // Jednotlivé náhrady - pro každou číslici zkusíme každého kandidáta.
+    for (pos in positions) {
+        for (letter in DIGIT_TO_LETTERS.getValue(word[pos])) {
+            out += word.substring(0, pos) + letter + word.substring(pos + 1)
+        }
+    }
+    // Všechny číslice najednou (každá prvním kandidátem).
+    var all = word
+    for (pos in positions) {
+        all = all.substring(0, pos) + DIGIT_TO_LETTERS.getValue(word[pos]).first() + all.substring(pos + 1)
+    }
+    out += all
+    out += word
+    return out
+}
+
+/** Vizuální zaměnitelnosti číslice→verzálka v komiksovém letteringu. */
+private val DIGIT_TO_LETTERS = mapOf(
+    '0' to listOf('O'), '1' to listOf('I'), '3' to listOf('E'),
+    '4' to listOf('A'), '5' to listOf('S'), '6' to listOf('S', 'G'),
+    '7' to listOf('T'), '8' to listOf('B'), '9' to listOf('G'),
+)
 
 /**
  * Slovo ze slovníku na editační vzdálenost přesně 1 - jediné, jinak null.

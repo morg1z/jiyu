@@ -22,6 +22,30 @@ data class DuplicateGroup(
     val items: List<MangaEntity>,
 )
 
+/**
+ * Dva různé zdroje / katalogové záznamy se stejným názvem nejsou automaticky
+ * duplikát - ComicK má např. dvě odlišné série "Demon Devourer" od různých
+ * autorů. Skupinu podle názvu proto ještě rozdělíme podle tvůrce (autor,
+ * případně artist). Položky bez autora se přihodí k největší podskupině -
+ * typicky záznam z druhého zdroje, kde se metadata nenaplnila.
+ * Výsledek: jen podskupiny s >= 2 položkami.
+ */
+internal fun findDuplicateGroups(library: List<MangaEntity>): List<DuplicateGroup> =
+    library
+        .groupBy { normalizeMangaTitle(it.title) }
+        .filter { (_, items) -> items.size > 1 }
+        .flatMap { (key, items) ->
+            val byCreator = items.groupBy { m -> normalizeMangaTitle(m.author ?: m.artist ?: "") }
+            val known = byCreator.filterKeys { it.isNotBlank() }
+            if (known.size <= 1) listOf(items)
+            else {
+                val largest = known.values.maxBy { it.size }
+                known.map { (_, v) -> if (v === largest) v + byCreator[""].orEmpty() else v }
+                    .filter { it.size > 1 }
+            }.map { DuplicateGroup(key, it.sortedBy { m -> m.sourceId }) }
+        }
+        .sortedBy { it.normalizedTitle }
+
 @HiltViewModel
 class DuplicateDetectorViewModel @Inject constructor(
     private val repository: MangaRepository,
@@ -40,13 +64,7 @@ class DuplicateDetectorViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val library = repository.getAllLibraryManga()
-                val grouped = library
-                    .groupBy { normalizeMangaTitle(it.title) }
-                    .filter { (_, items) -> items.size > 1 }
-                    .map { (key, items) -> DuplicateGroup(key, items.sortedBy { it.sourceId }) }
-                    .sortedBy { it.normalizedTitle }
-                _groups.value = grouped
+                _groups.value = findDuplicateGroups(repository.getAllLibraryManga())
             } catch (e: Exception) {
                 // Bez catch by chyba z getAllLibraryManga() (napr. poskozeny radek v DB) byla
                 // nezachycena vyjimka ve viewModelScope (SupervisorJob nema vlastni handler) -

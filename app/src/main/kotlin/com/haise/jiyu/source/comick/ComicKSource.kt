@@ -178,7 +178,7 @@ class ComicKSource @Inject constructor(
 
     /**
      * Doplní popis a stav vydávání.
-     * manga.url je ve formátu "$apiBase/manga/{slug}".
+     * manga.url je ve formátu "$apiBase/comic/{slug}".
      */
     override suspend fun getMangaDetails(manga: SManga): SManga =
         withContext(Dispatchers.IO) {
@@ -206,6 +206,20 @@ class ComicKSource @Inject constructor(
             } else null
 
             val genres = mutableListOf<String>()
+            // Skutecne misto zanru v /comic/{slug} odpovedi: comic.md_comic_md_genres[]
+            // -> .md_genres { name, slug, group }. Top-level "genres"/"tags" pole tam
+            // neni (overeno zive) - driv se proto zanry z Comicku nikdy nenacetly.
+            // "demographic" group preskakujeme - ma vlastni SManga.demographic pole;
+            // zbytek (genre/theme/format) nechavame - Comick je pocita do "Favorite
+            // Genres" cloudu taky (Long Strip, Full Color, Web Comic...).
+            val joinArr = comic.optJSONArray("md_comic_md_genres")
+            if (joinArr != null) {
+                for (i in 0 until joinArr.length()) {
+                    val g = joinArr.optJSONObject(i)?.optJSONObject("md_genres") ?: continue
+                    if (g.optString("group") == "demographic") continue
+                    g.optString("name").takeIf { it.isNotBlank() && it !in genres }?.let { genres.add(it) }
+                }
+            }
             val tagsArr = json.optJSONArray("genres") ?: json.optJSONArray("tags")
             if (tagsArr != null) {
                 for (i in 0 until tagsArr.length()) {
@@ -216,7 +230,7 @@ class ComicKSource @Inject constructor(
                     } else {
                         tagsArr.optString(i).ifBlank { null }
                     }
-                    if (name != null) genres.add(name)
+                    if (name != null && name !in genres) genres.add(name)
                 }
             }
 
@@ -550,7 +564,7 @@ class ComicKSource @Inject constructor(
 
     /**
      * Stáhne kompletní seznam kapitol NAPŘÍČ VŠEMI JAZYKY (ne jen jedním).
-     * API vyžaduje hid (ne slug) pro endpoint /manga/{hid}/chapters,
+     * API vyžaduje hid (ne slug) pro endpoint /comic/{hid}/chapters,
      * proto nejdřív načteme detail mangy abychom hid získali.
      * Prochází stránky po 60 dokud API nevrátí méně výsledků.
      *
@@ -744,7 +758,10 @@ class ComicKSource @Inject constructor(
         return enDefault ?: en ?: romajiDefault ?: romaji ?: primary
     }
 
-    /** ComicK nema vlastni "contentType" pole - odvozujeme ho z puvodu (jp/kr/cn). internal kvuli testu. */
+    /** ComicK nema vlastni "contentType" pole - odvozujeme ho z puvodu (jp/kr/cn).
+     * Zbytek (vc. Comick "others" bucketu) pada na MANGA zamerne: contentType ridi
+     * cross-source resolver (isSameContentGroup) a OTHER by tituly nikdy nevyresolvovalo.
+     * internal kvuli testu. */
     internal fun contentTypeFromCountry(country: String): String = when (country) {
         "jp"  -> "MANGA"
         "kr"  -> "MANHWA"

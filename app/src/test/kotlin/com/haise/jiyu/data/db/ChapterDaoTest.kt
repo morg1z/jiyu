@@ -260,4 +260,31 @@ class ChapterDaoTest {
         assertEquals(3, total)  // dvě bezčíselné + jedna kapitola 5
         assertEquals(2, unread) // kapitola 5 je díky přečtené kopii přečtená
     }
+
+    private fun manga(id: String, inLibrary: Boolean) = com.haise.jiyu.data.db.entity.MangaEntity(
+        id = id, sourceId = "mangadex", url = "https://example.com/$id",
+        title = "Test $id", coverUrl = null, description = null, status = null,
+        inLibrary = inLibrary,
+    )
+
+    @Test
+    fun `observeReadCount dedupes group duplicates and counts library manga only`() = runTest {
+        // StatsDialog v Seznamu sdili stejny dedup+library scope jako rozsirene
+        // Statistiky (countReadDistinctInLibrary) - driv prosty COUNT(read=1) nafukoval
+        // ComicK skupinove duplicity a pocital i mimo knihovnu.
+        db.mangaDao().upsert(manga("manga-1", inLibrary = true))
+        db.mangaDao().upsert(manga("manga-2", inLibrary = false))
+        dao.upsertAll(
+            listOf(
+                chapter("a", chapterNumber = 5f, read = true),  // skupina A kapitoly 5
+                chapter("b", chapterNumber = 5f, read = true),  // skupina B - ta sama
+                chapter("c", chapterNumber = 6f, read = true),  // samostatna kapitola 6
+                chapter("d", chapterNumber = 7f),               // neprectena - nepocita
+                chapter("e", chapterNumber = 1f, read = true).copy(mangaId = "manga-2"),
+            ),
+        )
+
+        // 5 (sloucena skupinova duplicita) + 6 = 2; manga-2 neni v knihovne.
+        assertEquals(2, dao.observeReadCount().first())
+    }
 }

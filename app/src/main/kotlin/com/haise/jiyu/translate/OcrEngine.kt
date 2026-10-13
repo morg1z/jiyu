@@ -210,6 +210,25 @@ internal val AUTO_CANDIDATE_LANGUAGES = listOf("English", "Japanese", "Korean", 
 internal const val AUTO_CONFIDENT_CHARS = 20
 
 /**
+ * Containment-overlap, od kterého YOLO detekce "ručí" za OCR blok, který propadl
+ * strukturální validací ([isPlausibleTextBlock]) - dva nezávislé signály ve
+ * sporu = raději text ponechat (konzervativita proti ztrátě skutečného letteringu).
+ */
+private const val YOLO_CORROBORATE_OVERLAP = 0.5f
+
+/** Kolik nepokrytých YOLO cropů se na stránce přečte znovu jako recovery (cena ~ML Kit volání na crop). */
+private const val MAX_RECOVERY_CROPS = 5
+
+/** Podíl stránky, který smí recovery crop pokrýt - větší je misdetekce panelu, ne lettering. */
+private const val MAX_RECOVERY_BOX_AREA_FRACTION = 0.30f
+
+/** Containment, od kterého je YOLO box považovan za "pokrytý existujícím blokem" (žádná recovery). */
+private const val RECOVERY_COVERED_OVERLAP = 0.3f
+
+/** Margin recovery cropu - stejná hodnota jako [cropBubbleBoxWithMargin] (0.08). */
+private const val RECOVERY_CROP_MARGIN_FRACTION = 0.08f
+
+/**
  * Bezpečná horní hranice jedné manga-ocr inference na bublinu (viz spec sekce 5 - reálně
  * změřeno ~1-1.6s/bublinu i s 10x mobilní ARM penaltou, velká rezerva). Timeout/výjimka
  * padá na ML Kit fallback jen pro TUHLE bublinu, ne pro celou stránku -
@@ -389,7 +408,12 @@ class OcrEngine @Inject constructor(
         // panelu zůstalo nepřeložené) ML Kit v normální polaritě nevidí - na stránce
         // s výrazným tmavým podílem proběhne navíc jeden průchod na INVERTOVANÉ
         // bitmapě a jeho řádky se přidají jen tam, kde normální průchod nic nenašel.
-        val allLines = if (shouldRunInvertedOcrPass(bitmap)) {
+        // Invertovaný průchod se navíc vždy zkusí, když normální nenašel VŮBEC NIC
+        // (stránka ocr_no_text): světlý caption lettering na šedé/pestre kresbě nemá
+        // dost tmavé plochy na práh, ale v inverzi ho ML Kit přečte (audit Vagabond
+        // ch.6 - stránka s bílými captiony "FOR THE FIRST TIME IN MY LIFE" na
+        // kresbě mečů dávala opakovaně 0 bloků).
+        val allLines = if (shouldRunInvertedOcrPass(bitmap) || lines.isEmpty()) {
             val inverted = recognizeLines(
                 resolvedLanguage,
                 InputImage.fromBitmap(invertColors(bitmap), 0),
@@ -398,6 +422,15 @@ class OcrEngine @Inject constructor(
             lines + inverted.filter { cand -> lines.none { normalizedOverlap(it, cand) >= 0.5f } }
         } else {
             lines
+        }
+        // Celostránková nula nemusí znamenat prázdnou stránku - viz [recognizeInQuadrants].
+        // Japonština řádky k OBJEVENÍ textu nepotřebuje (bubliny čte manga-ocr přes YOLO
+        // boxy; `allLines` jí slouží jen pro dopočet lineCount), proto skládací průchod
+        // běží jen pro řádkovou větev.
+        val mergedLines = if (allLines.isEmpty() && resolvedLanguage != "Japanese") {
+            recognizeInQuadrants(bitmap, resolvedLanguage, w, h)
+        } else {
+            allLines
         }
 
         // Sampling barvy pozadí i detekce tvaru bubliny potřebují ještě živou bitmapu,
@@ -443,7 +476,7 @@ class OcrEngine @Inject constructor(
         } else {
             emptyList()
         }
-        val merged = if (resolvedLanguage == "Japanese" && onDeviceModelsOk) {
+        val mergedBase = if (resolvedLanguage == "Japanese" && onDeviceModelsOk) {
             // Kazda dokoncena bublina se hned hlasi jako castecny vysledek - japonska
             // cesta ma per-bublinu strop 8 s a 5+ tezkych bublin pretece strankovy
             // timeout, takze bez sinku by se rozpoznany text zahodil cely (OCR-3).
@@ -460,20 +493,27 @@ class OcrEngine @Inject constructor(
                 // Po řádkovém merge ještě sloučíme bloky padající do STEJNÉHO YOLO boxu -
                 // jsou to dva textové kusy pod jedním kresleným obrysem (audit Vagabondu:
                 // "MATA-HACHI'S BEEN" zůstalo EN vedle přeložené půlky téže bubliny).
-                mergeBlocksInSameYoloBox(
-                    mergeNearbyLines(
-                        allLines,
-                        noWallBetween = { a, b ->
-                            !hasWallBetween(
-                                pixelSource,
-                                bitmap.width,
-                                bitmap.height,
-                                a,
-                                b,
-                                onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
-                            ) && !linesInDifferentYoloBoxes(a, b, yoloBoxes)
-                        },
-                        onStructuredFieldMerge = ::logStructuredFieldMerge,
+                // Poslední sloučení: řádky caption letteringu na kresbě (mimo YOLO
+                // boxy) sesaděné pod sebou do jednoho bloku - jinak se každý díl
+                // věty překládá zvlášť a stránka vyjde napůl EN, napůl CS (viz
+                // [mergeArtCaptionBlocks]).
+                mergeArtCaptionBlocks(
+                    mergeBlocksInSameYoloBox(
+                        mergeNearbyLines(
+                            mergedLines,
+                            noWallBetween = { a, b ->
+                                !hasWallBetween(
+                                    pixelSource,
+                                    bitmap.width,
+                                    bitmap.height,
+                                    a,
+                                    b,
+                                    onWallCheck = { hits, total, hasWall -> logWallCheck(a.text, b.text, hits, total, hasWall) },
+                                ) && !linesInDifferentYoloBoxes(a, b, yoloBoxes)
+                            },
+                            onStructuredFieldMerge = ::logStructuredFieldMerge,
+                        ),
+                        yoloBoxes,
                     ),
                     yoloBoxes,
                 ),
@@ -481,7 +521,47 @@ class OcrEngine @Inject constructor(
                 // doslova "Auto", takže japonská stránka dostala pořadí zleva doprava a model
                 // četl repliky pozpátku.
                 rightToLeft = isRightToLeftScript(resolvedLanguage),
+            ).filter { block ->
+                // Strukturální filtr "je to opravdu text" - ML Kit detekuje i čte
+                // najednou, takže umí halucinovat blok na čisté kresbě (šrafování,
+                // rastr, náplň) a patch pak přemaluje kresbu (audit Vagabond p17).
+                // Japonská větev filtr nepotřebuje - její bloky už jsou gated
+                // YOLO+manga-ocr detektorem. Filtr je konzervativní: zamítá jen
+                // struktury, které lettering nedávají A které zároveň nepotvrdí
+                // nezávislý YOLO detektor (dva nesouhlasné signály -> spíš text).
+                var rejectReason: String? = null
+                val plausible = isPlausibleTextBlock(
+                    pixelSource, bitmap.width, bitmap.height,
+                    block.leftF, block.topF, block.rightF, block.bottomF,
+                ) { rejectReason = it }
+                when {
+                    plausible -> true
+                    yoloBoxes.any { blockOverlapsBox(block, it) >= YOLO_CORROBORATE_OVERLAP } -> {
+                        if (BuildConfig.DEBUG) {
+                            Log.d("OcrBlockFilter", "rescue reason=$rejectReason text=\"${block.text.take(30)}\"")
+                        }
+                        true
+                    }
+                    else -> {
+                        if (BuildConfig.DEBUG) {
+                            Log.d("OcrBlockFilter", "reject reason=$rejectReason text=\"${block.text.take(30)}\" box=[${block.leftF},${block.topF},${block.rightF},${block.bottomF}]")
+                        }
+                        false
+                    }
+                }
+            }
+        }
+        val merged = if (resolvedLanguage != "Japanese" && onDeviceModelsOk) {
+            // Recovery: YOLO textové regiony, do kterých žádný blok nespadá =
+            // lettering, který ML Kit přeskočil (stránky "ocr_no_text" nebo
+            // osamocený free text/SFX). Crop se přečte znovu s větším zoomem -
+            // stejná cesta jako japonská větev, jen s ML Kit recognizerem.
+            sortIntoReadingOrder(
+                mergedBase + recoverMissedTextBlocks(bitmap, resolvedLanguage, mergedBase, yoloBoxes, pixelSource),
+                rightToLeft = isRightToLeftScript(resolvedLanguage),
             )
+        } else {
+            mergedBase
         }
         // Kompletni slouceny seznam (pred anotaci barev/tvaru) - posledni a nejlepsi
         // castecny vysledek, ktery pri timeoutu jeste muze poslouzit (OCR-3).
@@ -560,6 +640,53 @@ class OcrEngine @Inject constructor(
     }
 
     /**
+     * Poslední celostránková záchrana před outcome "no_text": stránku rozřízne na
+     * překrývající se čtvrtky a ML Kit spustí na každé zvlášť, řádky přepočte do
+     * souřadnic stránky a zdeduplikuje. Obří dekorativní plochy (velké kanji SFX,
+     * celostránkové ilustrace) umí nativní detekci textových bloků vyradit natolik,
+     * že recognizer na celé stránce nevrátí ANI JEDEN řádek, i když na ní normální
+     * lettering je (audit: strana s "YOU BASTARD!" vedle obřího kanji SFX - celá
+     * stránka opakovaně 0 řádků). Volá se JEN když normální i invertovaný průchod
+     * skončily prázdné - 4 ML Kit volání se tak platí jen na stránce, jejíž výsledek
+     * by jinak byla nula.
+     */
+    private suspend fun recognizeInQuadrants(
+        bitmap: Bitmap,
+        language: String,
+        w: Float,
+        h: Float,
+    ): List<RawTextBlock> {
+        val out = mutableListOf<RawTextBlock>()
+        for (tile in QUADRANT_TILES) {
+            val l0 = (tile[0] * w).toInt().coerceIn(0, bitmap.width - 1)
+            val t0 = (tile[1] * h).toInt().coerceIn(0, bitmap.height - 1)
+            val r0 = (tile[2] * w).toInt().coerceIn(l0 + 1, bitmap.width)
+            val b0 = (tile[3] * h).toInt().coerceIn(t0 + 1, bitmap.height)
+            val tileW = (r0 - l0).toFloat()
+            val tileH = (b0 - t0).toFloat()
+            val tile = Bitmap.createBitmap(bitmap, l0, t0, r0 - l0, b0 - t0)
+            val tileLines = try {
+                recognizeLines(language, InputImage.fromBitmap(tile, 0), tileW, tileH)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("ocr:quadrant")
+                emptyList()
+            }
+            for (line in tileLines) {
+                val mapped = line.copy(
+                    leftF = (l0 + line.leftF * tileW) / w,
+                    topF = (t0 + line.topF * tileH) / h,
+                    rightF = (l0 + line.rightF * tileW) / w,
+                    bottomF = (t0 + line.bottomF * tileH) / h,
+                )
+                if (out.none { normalizedOverlap(it, mapped) >= 0.5f }) out += mapped
+            }
+        }
+        return out
+    }
+
+    /**
      * Má stránka tolik tmavé plochy, že se vyplatí zkusit invertovaný OCR průchod
      * (bílé písmo na tmavé kresbě - viz komentář u `allLines` v [recognize])?
      * Podmínka drží extra ML Kit call jen na skutečně tmavých stránkách - světlá
@@ -611,6 +738,190 @@ class OcrEngine @Inject constructor(
         val areaA = (a.rightF - a.leftF) * (a.bottomF - a.topF)
         val areaB = (b.rightF - b.leftF) * (b.bottomF - b.topF)
         return inter / minOf(areaA, areaB).coerceAtLeast(0.000001f)
+    }
+
+    /**
+     * Containment-overlap mezi OCR blokem a YOLO detekcí (podíl MENŠÍHO boxu pokrytý
+     * druhým) - stejné měřítko jako [normalizedOverlap], jen pro různé typy.
+     */
+    private fun blockOverlapsBox(block: RawTextBlock, box: DetectedBubbleBox): Float =
+        yoloOverlapFraction(
+            block.leftF, block.topF, block.rightF, block.bottomF,
+            box.leftF, box.topF, box.rightF, box.bottomF,
+        )
+
+    /**
+     * Recovery pro "ocr_no_text" / přeskočený lettering (plán Fáze 2A): YOLO boxy,
+     * do kterých nespadá ŽÁDNÝ finální OCR blok, se oříznou (stejný margin jako
+     * [cropBubbleBoxWithMargin]) a přečtou znovu ML Kitem - na izolovaném výřezu
+     * je text pro recognizer relativně větší, takže ho najde i tam, kde celostránkový
+     * průchod selhal. Řádky z jednoho cropu se sloučí do JEDNOHO bloku (stejně jako
+     * japonská celobublinová cesta), jinak by se každý řádek překládal zvlášť.
+     *
+     * Pojistky: max [MAX_RECOVERY_CROPS] cropů na stránku (cena), strop velikosti
+     * boxu (obří misdetekce = panel, ne text), garbagge/strukturální filtr na
+     * výsledku (crop kresby nesmí vyrobit halucinaci jako p17) a dedup vůči
+     * existujícím i mezi recovery bloky navzájem.
+     */
+    private suspend fun recoverMissedTextBlocks(
+        bitmap: Bitmap,
+        language: String,
+        existing: List<RawTextBlock>,
+        yoloBoxes: List<DetectedBubbleBox>,
+        pixelSource: PixelSource,
+    ): List<RawTextBlock> {
+        val pageW = bitmap.width.toFloat()
+        val pageH = bitmap.height.toFloat()
+        val uncovered = selectRecoveryCrops(existing, yoloBoxes)
+        if (uncovered.isEmpty()) return emptyList()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "OcrRecovery",
+                "yoloBoxes=${yoloBoxes.size} covered=${yoloBoxes.size - uncovered.size} crops=${uncovered.size} existing=${existing.size}",
+            )
+        }
+
+        val out = mutableListOf<RawTextBlock>()
+        for (box in uncovered) {
+            val boxW = (box.rightF - box.leftF) * pageW
+            val boxH = (box.bottomF - box.topF) * pageH
+            val l0 = ((box.leftF * pageW) - boxW * RECOVERY_CROP_MARGIN_FRACTION).toInt()
+                .coerceIn(0, bitmap.width - 1)
+            val t0 = ((box.topF * pageH) - boxH * RECOVERY_CROP_MARGIN_FRACTION).toInt()
+                .coerceIn(0, bitmap.height - 1)
+            val r0 = ((box.rightF * pageW) + boxW * RECOVERY_CROP_MARGIN_FRACTION).toInt()
+                .coerceIn(l0 + 1, bitmap.width)
+            val b0 = ((box.bottomF * pageH) + boxH * RECOVERY_CROP_MARGIN_FRACTION).toInt()
+                .coerceIn(t0 + 1, bitmap.height)
+            val cropW = r0 - l0
+            val cropH = b0 - t0
+            val crop = Bitmap.createBitmap(bitmap, l0, t0, cropW, cropH)
+            val lines = try {
+                recognizeLines(
+                    language,
+                    InputImage.fromBitmap(crop, 0),
+                    cropW.toFloat(),
+                    cropH.toFloat(),
+                )
+            } catch (e: Exception) {
+                emptyList()
+            }
+            // Bílý lettering na tmavém/polrastrům pozadí recognizer v normální
+            // polaritě nepřečte - zkusit inverzi, stejný princip jako celostránkový
+            // invertovaný průchod v [recognize].
+            var cropLines = if (lines.isEmpty()) {
+                try {
+                    recognizeLines(
+                        language,
+                        InputImage.fromBitmap(invertColors(crop), 0),
+                        cropW.toFloat(),
+                        cropH.toFloat(),
+                    )
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                lines
+            }
+            // Stylizovaný display lettering (jagged burst) ML Kit nepřečte ani na
+            // izolovaném výřezu - tahy jsou pro něj na hraně. Zvětšená kopie cropu
+            // mu vrátí víc pixelů na tah (měření: UPSCALE_2X zvedá confidence ve
+            // všech scénářích; na cropu je cena zanedbatelná - na celé stránce by
+            // čtyřnásobek pixelů nešel, viz OcrPreprocessOnDeviceTest). Souřadnice
+            // se mapují přes zlomky, takže rozlišení zdroje nemění nic na výsledku.
+            if (cropLines.isEmpty()) {
+                val upscaled = preprocessForOcr(crop, OcrPreprocessing.UPSCALE_2X)
+                cropLines = try {
+                    recognizeLines(
+                        language,
+                        InputImage.fromBitmap(upscaled, 0),
+                        upscaled.width.toFloat(),
+                        upscaled.height.toFloat(),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+            // Úplně poslední pokus: Otsuova binarizace smyje z cropu šrafování/okraje
+            // burstu, které detektoru zaměňují tahy za texturu (u obyčejného textu
+            // naopak škodí - proto až jako záchrana, viz OcrPreprocessOnDeviceTest).
+            if (cropLines.isEmpty()) {
+                val binarized = preprocessForOcr(crop, OcrPreprocessing.BINARIZE)
+                cropLines = try {
+                    recognizeLines(
+                        language,
+                        InputImage.fromBitmap(binarized, 0),
+                        binarized.width.toFloat(),
+                        binarized.height.toFloat(),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+            // Bez crop.recycle() schvalne (audit Important #5): pri zruseni stranky
+            // uprostred ML Kit volani by recycle mohl bezet, zatimco nativni kod jeste
+            // cte buffer bitmapy - GC ji uklidi normalne.
+            if (cropLines.isEmpty()) continue
+            // Řádky sloučit do jednoho celobublinového bloku (union boxu v page
+            // souřadnicích) - jednotlivé řádky by se překládaly odděleně.
+            val mapped = cropLines.map { line ->
+                line.copy(
+                    leftF = (l0 + line.leftF * cropW) / pageW,
+                    topF = (t0 + line.topF * cropH) / pageH,
+                    rightF = (l0 + line.rightF * cropW) / pageW,
+                    bottomF = (t0 + line.bottomF * cropH) / pageH,
+                )
+            }
+            val block = RawTextBlock(
+                text = mapped.joinToString(" ") { it.text },
+                leftF = mapped.minOf { it.leftF },
+                topF = mapped.minOf { it.topF },
+                rightF = mapped.maxOf { it.rightF },
+                bottomF = mapped.maxOf { it.bottomF },
+                lineCount = mapped.size,
+                isVertical = mapped.all { it.isVertical },
+            )
+            if (existing.any { normalizedOverlap(it, block) >= RECOVERY_COVERED_OVERLAP }) continue
+            if (out.any { normalizedOverlap(it, block) >= RECOVERY_COVERED_OVERLAP }) continue
+            // Crop kresby (YOLO false-positive) nesmí vyrobit novou halucinaci -
+            // stejný strukturální důkaz jako u hlavního filtru.
+            var rejectReason: String? = null
+            val plausible = isPlausibleTextBlock(
+                pixelSource, bitmap.width, bitmap.height,
+                block.leftF, block.topF, block.rightF, block.bottomF,
+                onReject = { rejectReason = it },
+            )
+            // Výjimka jen pro texture_field: vysoké inkoustové pokrytí v boxu, který
+            // YOLO označil za bublinu, je typicky SILNÝ display lettering (audit:
+            // "BATARD" v jagged burstu, coverage 82 %) - dva souhlasné signály
+            // (YOLO + reálné OCR řádky) jako u rescue v hlavním filtru. Ostatní
+            // důvody (no_ink, near_empty, parallel_hatching) jsou struktury, které
+            // text nedává - ty se drží, jinak by tu gate přestal existovat.
+            val rescued = !plausible &&
+                rejectReason?.startsWith("texture_field") == true &&
+                yoloOverlapFraction(
+                    block.leftF, block.topF, block.rightF, block.bottomF,
+                    box.leftF, box.topF, box.rightF, box.bottomF,
+                ) >= YOLO_CORROBORATE_OVERLAP
+            if (!plausible && !rescued) {
+                if (BuildConfig.DEBUG) {
+                    Log.d("OcrRecovery", "reject crop reason=$rejectReason text=\"${block.text.take(30)}\"")
+                }
+                continue
+            }
+            if (rescued && BuildConfig.DEBUG) {
+                Log.d("OcrRecovery", "rescue crop reason=$rejectReason text=\"${block.text.take(30)}\"")
+            }
+            if (BuildConfig.DEBUG) {
+                Log.d("OcrRecovery", "recovered text=\"${block.text.take(40)}\" lines=${block.lineCount}")
+            }
+            out += block
+        }
+        return out
     }
 
     /**
@@ -951,5 +1262,53 @@ class OcrEngine @Inject constructor(
 
         /** Luminace (0-255), pod kterou pixel počítáme jako tmavý - viz [darkPixelFraction]. */
         private const val DARK_LUMINANCE_THRESHOLD = 70.0
+
+        /**
+         * Čtyři překrývající se čtvrtky stránky pro [recognizeInQuadrants] - každá jako
+         * [leftF, topF, rightF, bottomF]. Překryv ~15 % strany: text ležící přesně na
+         * hraně řezu má na sousední čtvrtce celý svůj box.
+         */
+        private val QUADRANT_TILES = listOf(
+            floatArrayOf(0f, 0f, 0.575f, 0.575f),
+            floatArrayOf(0.425f, 0f, 1f, 0.575f),
+            floatArrayOf(0f, 0.425f, 0.575f, 1f),
+            floatArrayOf(0.425f, 0.425f, 1f, 1f),
+        )
     }
 }
+
+/** Containment-overlap dvou normalizovaných boxů (podíl MENŠÍHO pokrytý druhým) - čistá funkce. */
+internal fun yoloOverlapFraction(
+    aL: Float, aT: Float, aR: Float, aB: Float,
+    bL: Float, bT: Float, bR: Float, bB: Float,
+): Float {
+    val interW = minOf(aR, bR) - maxOf(aL, bL)
+    val interH = minOf(aB, bB) - maxOf(aT, bT)
+    if (interW <= 0f || interH <= 0f) return 0f
+    val inter = interW * interH
+    val areaA = (aR - aL) * (aB - aT)
+    val areaB = (bR - bL) * (bB - bT)
+    return inter / minOf(areaA, areaB).coerceAtLeast(0.000001f)
+}
+
+/**
+ * Výběr YOLO boxů pro recovery přečtení (Fáze 2A): ty, do kterých nespadá žádný
+ * finální OCR blok, omezené velikostí a počtem. Čistá funkce pro unit testy.
+ */
+internal fun selectRecoveryCrops(
+    existing: List<RawTextBlock>,
+    yoloBoxes: List<DetectedBubbleBox>,
+    maxCrops: Int = MAX_RECOVERY_CROPS,
+    maxAreaFraction: Float = MAX_RECOVERY_BOX_AREA_FRACTION,
+    coveredOverlap: Float = RECOVERY_COVERED_OVERLAP,
+): List<DetectedBubbleBox> = yoloBoxes
+    .filter { box ->
+        (box.rightF - box.leftF) * (box.bottomF - box.topF) <= maxAreaFraction &&
+            existing.none {
+                yoloOverlapFraction(
+                    it.leftF, it.topF, it.rightF, it.bottomF,
+                    box.leftF, box.topF, box.rightF, box.bottomF,
+                ) >= coveredOverlap
+            }
+    }
+    .take(maxCrops)

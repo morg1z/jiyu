@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
@@ -126,6 +127,11 @@ fun MangaReader(
     flippedBubbles: Set<String> = emptySet(),
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
+    /** Ploché indexy stránek, kde překlad SELHAL (viz ReaderViewModel.translateFailedPages) -
+     *  zobrazí se retry chip místo toho, aby stránka tiše vypadala jako "bez textu". */
+    translateFailedPages: Set<Int> = emptySet(),
+    /** Plochý index -> retry překladu stránky (ReaderContent mapuje na chapterId+lokální). */
+    onRetranslatePage: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
     /**
@@ -425,6 +431,8 @@ fun MangaReader(
                     flippedBubbles = flippedBubbles,
                     onToggleBubbleFlip = onToggleBubbleFlip,
                     onEditBubble = onEditBubble,
+                    translateFailedPages = translateFailedPages,
+                    onRetranslatePage = onRetranslatePage,
                     // Globalni crossfade(true) prehrava ~300ms fade i u stranek z DISK cache
                     // (fade preskoci jen memory-cache hit) - prefetched stranky pak na kazdem
                     // otoceni "dolehaly" misto okamziteho zobrazeni jako v Kotatsu.
@@ -449,6 +457,9 @@ fun MangaGroupContent(
     flippedBubbles: Set<String>,
     onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
     onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
+    /** Indexy stránek s neúspěšným překladem - retry chip (viz TranslationFailedChip). */
+    translateFailedPages: Set<Int> = emptySet(),
+    onRetranslatePage: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.onLoadedChange - curl čtečky tímhle poznají, kdy je bezpečné
     // (znovu) zamrazit skupinu do bitmapy pro ohýbání, místo aby zamrzly prázdný/rozsypaný
     // placeholder navždy.
@@ -502,6 +513,17 @@ fun MangaGroupContent(
                             onEditBubble = onEditBubble,
                         )
                     }
+                    // Překlad stránky SELHAL (OCR error / provider nedal výsledek) -
+                    // bez chipu vypadala jako "bez textu" a šlo to jen přes celkový
+                    // retry kapitoly. Vidět jen v translate módu.
+                    if (indices[0] in translateFailedPages) {
+                        TranslationFailedChip(
+                            onRetry = { onRetranslatePage(indices[0]) },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 16.dp),
+                        )
+                    }
                 }
             }
         }
@@ -543,6 +565,14 @@ fun MangaGroupContent(
                                 flippedBubbles = flippedBubbles,
                                 onToggleFlip = onToggleBubbleFlip,
                                 onEditBubble = onEditBubble,
+                            )
+                        }
+                        if (idx in translateFailedPages) {
+                            TranslationFailedChip(
+                                onRetry = { onRetranslatePage(idx) },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 16.dp),
                             )
                         }
                     }

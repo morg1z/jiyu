@@ -137,4 +137,102 @@ class MangaDaoTest {
         assertEquals(true, item.lastChapterRead)
         assertEquals(20, item.lastPageCount)
     }
+
+    private fun comickManga(id: String, hid: String? = "hid-$id") =
+        manga(id).copy(sourceId = "comick", comickHid = hid)
+
+    private fun chapter(id: String, mangaId: String) =
+        com.haise.jiyu.data.db.entity.ChapterEntity(
+            id = id, mangaId = mangaId, sourceId = "comick", url = "u",
+            name = "Ch 1", chapterNumber = 1f, dateUpload = 0L,
+        )
+
+    @Test
+    fun `comickMangaMissingChapters returns imported comick manga without chapters`() = runTest {
+        dao.upsert(comickManga("imported"))
+        assertEquals(listOf("imported"), dao.comickMangaMissingChapters().map { it.id })
+    }
+
+    @Test
+    fun `comickMangaMissingChapters skips comick manga that already has chapters`() = runTest {
+        dao.upsert(comickManga("with-chapters"))
+        db.chapterDao().insertNewOnly(listOf(chapter("ch-1", "with-chapters")))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingChapters())
+    }
+
+    @Test
+    fun `comickMangaMissingChapters skips comick manga not bound to a library entry`() = runTest {
+        // Bez comickHid nelze remote sync provest - prohlizene Comick tituly
+        // (browse, ne import) backfill neresit, jejich kapitoly se dotahne linie.
+        dao.upsert(comickManga("unlinked", hid = null))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingChapters())
+    }
+
+    @Test
+    fun `comickMangaMissingChapters skips chapterless manga from other sources`() = runTest {
+        dao.upsert(manga("regular"))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingChapters())
+    }
+
+    @Test
+    fun `comickMangaMissingGenres returns imported comick manga with empty genres`() = runTest {
+        dao.upsert(comickManga("imported"))
+        assertEquals(listOf("imported"), dao.comickMangaMissingGenres().map { it.id })
+    }
+
+    @Test
+    fun `comickMangaMissingGenres skips comick manga that already has genres`() = runTest {
+        dao.upsert(comickManga("with-genres").copy(genres = "Action,Fantasy"))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingGenres())
+    }
+
+    @Test
+    fun `comickMangaMissingGenres skips comick manga not bound to a library entry`() = runTest {
+        dao.upsert(comickManga("unlinked", hid = null))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingGenres())
+    }
+
+    @Test
+    fun `comickMangaMissingGenres skips genreless manga from other sources`() = runTest {
+        // Jinym zdrojum genre-backfill neslouzi - jejich detail se naplni linie.
+        dao.upsert(manga("regular"))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingGenres())
+    }
+
+    @Test
+    fun `comickMangaMissingChapters skips comick manga removed from library`() = runTest {
+        // Tombstone (inLibrary=0) - backfill nesmi ozivit uzivatelem odebrany titul.
+        dao.upsert(comickManga("removed").copy(inLibrary = false))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingChapters())
+    }
+
+    @Test
+    fun `comickMangaMissingGenres skips comick manga removed from library`() = runTest {
+        dao.upsert(comickManga("removed").copy(inLibrary = false))
+        assertEquals(emptyList<MangaEntity>(), dao.comickMangaMissingGenres())
+    }
+
+    @Test
+    fun `findByComickHidInLibrary returns only library rows`() = runTest {
+        dao.upsert(comickManga("in-lib"))
+        dao.upsert(comickManga("removed", hid = "hid-x").copy(inLibrary = false))
+        dao.upsert(comickManga("other"))
+
+        assertEquals("in-lib", dao.findByComickHidInLibrary("hid-in-lib")?.id)
+        // Pasivni sync nesmi najit odebrany titul, byt ma stale comickHid.
+        assertNull(dao.findByComickHidInLibrary("hid-x"))
+        // Nefiltrovana varianta (pro import match) ho stale vidi.
+        assertEquals("removed", dao.findByComickHid("hid-x")?.id)
+    }
+
+    @Test
+    fun `findByResolvedSource skips removed comick parents`() = runTest {
+        dao.upsert(manga("real"))
+        dao.upsert(comickManga("parent-in-lib").copy(resolvedMangaId = "real"))
+        dao.upsert(comickManga("parent-removed").copy(resolvedMangaId = "real", inLibrary = false))
+
+        // Propagace progressu ma sahat jen na zive tituly - jinak by re-stamp
+        // lastReadAt chranil odebrany radek pred browsed cleanup.
+        assertEquals(listOf("parent-in-lib"), dao.findByResolvedSource("real").map { it.id })
+    }
 }

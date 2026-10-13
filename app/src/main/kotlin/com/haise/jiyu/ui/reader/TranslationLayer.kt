@@ -13,8 +13,10 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -49,6 +51,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -98,6 +101,8 @@ import com.haise.jiyu.translate.tidyFrenchStyleSpacing
 import com.haise.jiyu.translate.tidyStrandedPunctuation
 import com.haise.jiyu.translate.TranslationDiagnostics
 import com.haise.jiyu.translate.truncateToFit
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Refresh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -191,6 +196,36 @@ fun imageDisplayRect(intrinsicSizePx: Size, containerSizeDp: Size, contentScale:
  */
 internal fun shouldShowTranslationOverlay(hasBlocks: Boolean, imageLoaded: Boolean): Boolean =
     hasBlocks && imageLoaded
+
+/**
+ * Chip "Překlad selhal - zkusit znovu" na stránce, kde překlad spadl (OCR
+ * error/timeout, žádný provider v dávce nedal výsledek - viz
+ * ReaderViewModel.translateFailedPages). Bez odlišení od legitimní "stránky bez
+ * textu" byla chyba neviditelná a stránka s reálným dialogem vypadala, jako by
+ * překládat nešlo (hlášená str. 13 Vagabond ch7). Sdílí ho MangaReader i
+ * WebtoonPage; klepnutí zavolá translatePage(forceRefresh) přes ViewModel.
+ */
+@Composable
+internal fun TranslationFailedChip(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(onClick = onRetry)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Icon(
+            TablerIcons.Refresh, contentDescription = null,
+            tint = Color(0xFFFFB74D), modifier = Modifier.size(14.dp),
+        )
+        androidx.compose.material3.Text(
+            stringResource(R.string.reader_translate_page_failed_retry),
+            color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
 
 /**
  * Vrstva všech (ne-SFX) přeložených bublin jedné stránky - jediné místo, odkud se volá

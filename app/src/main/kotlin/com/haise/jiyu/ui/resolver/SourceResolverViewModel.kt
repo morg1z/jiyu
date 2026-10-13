@@ -6,10 +6,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
+import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
+import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.comick.ComicKChapterResolver
 import com.haise.jiyu.source.comick.ResolvedCandidate
+import com.haise.jiyu.source.comickart.ComicKArtSource
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -39,6 +44,22 @@ internal fun isCompleteEnoughForEarlyExit(matchedChapterCount: Int, totalComicKC
 }
 
 private const val EARLY_EXIT_COMPLETENESS_THRESHOLD = 0.9
+
+/**
+ * Je zapamatovaný reálný zdroj (viz MangaEntity.resolvedMangaId) použitelný pro požadovanou
+ * kapitolu? Musí ji mít A zároveň pokrývat rozsah ComicK titulu (viz [coversChapterRange]) -
+ * zdroj, který je oproti ComicKu pozadu (chybí mu nejnovější kapitoly), se přeskočí a místo
+ * něj proběhne plný sweep, aby se našel aktuálnější. Bez druhé podmínky by se appka "lepila"
+ * na zdroj, který přestal vydávat - nahlaseny pozadavek "kdyztak projit, jestli tam je
+ * nejaktualnejsi kapitola".
+ */
+internal fun rememberedSourceUsable(
+    sourceChapterNumbers: List<Float>,
+    requestedChapter: Float,
+    comicKRange: ChapterRange?,
+): Boolean =
+    sourceChapterNumbers.any { abs(it - requestedChapter) < 0.01f } &&
+        coversChapterRange(sourceChapterNumbers.minOrNull(), sourceChapterNumbers.maxOrNull(), comicKRange)
 
 /** Od které do které kapitoly ComicK titul eviduje (nejnižší a nejvyšší číslo kapitoly). */
 internal data class ChapterRange(val first: Float, val last: Float)
@@ -165,6 +186,8 @@ class SourceResolverViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val resolver: ComicKChapterResolver,
     private val repository: MangaRepository,
+    private val sourceManager: SourceManager,
+    private val settings: SettingsRepository,
     @param:ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -255,9 +278,41 @@ class SourceResolverViewModel @Inject constructor(
                 // přeložila jen začátek, se nepreferuje - její zdroj bývá zrušený/nedokončený. Když nemáme žádný
                 // zdroj aktivních skupin, hledá se dál mezi všemi anglickými zdroji včetně agregátorů.
                 val signals = deriveGroupSignals(allComicKChapters, ::normalizeGroupToken, ::isGenericGroupToken)
-                preferredGroupTokens = signals.preferredTokens
+                preferredGroupTokens = (signals.preferredTokens +
+                    (chapter.scanlationGroup ?: "").split(",")
+                        .map(::normalizeGroupToken)
+                        .filter { it.length >= 3 && !isGenericGroupToken(it) })
+                    .distinct()
                 val numbers = allComicKChapters.map { it.chapterNumber }
                 comicKRange = if (numbers.isEmpty()) null else ChapterRange(numbers.min(), numbers.max())
+
+                // Fast path A: tahle kapitola uz byla drive vyresolvovana na konkretni
+                // realnou kapitolu (fallbackChapterId) - otevrit ji rovnou, nula site.
+                chapter.fallbackChapterId
+                    ?.let { repository.getChapter(it) }
+                    ?.takeIf { it.sourceId != "comick" }
+                    ?.let { resolved ->
+                        // Stejne ukotveni "Pokracovat" jako selectCandidate - otevrena
+                        // ComicK kapitola se stane lastRead titulu.
+                        repository.updateLastReadChapter(manga.id, chapterId)
+                        _loading.value = false
+                        _openedChapterId.value = resolved.id
+                        return@launch
+                    }
+
+                // Fast path B: titul ma zapamatovany realny zdroj z minuleho resolvovani
+                // (resolvedMangaId) - refreshnout jen jeho seznam kapitol, overit cil i
+                // aktualnost (nejnovetsi ComicK kapitola) a otevrit bez sweepu vsech zdroju.
+                rememberedCandidate(manga, chapter.chapterNumber)?.let { candidate ->
+                    // Stejny duvod jako early-exit v collect nize: auto-vyber bez kompletniho
+                    // seznamu kandidatu - resolveCompleteChapter pak nezapisuje
+                    // verifiedPageCount, dokud nemelo sanci zkusit zadnou alternativu.
+                    hasAutoResolved = true
+                    _loading.value = false
+                    selectCandidate(candidate)
+                    return@launch
+                }
+
                 _searchingMore.value = true
                 resolver.findCandidatesFlow(
                     comicKMangaId = manga.id,
@@ -359,6 +414,63 @@ class SourceResolverViewModel @Inject constructor(
     private fun rankedCandidates(): List<ResolvedCandidate> =
         rankCandidates(_candidates.value, _totalComicKChapters.value, ::matchesPreferredGroup, comicKRange)
 
+    /**
+     * Fast-path kandidát ze zapamatovaného reálného zdroje titulu ([MangaEntity.resolvedMangaId]).
+     * Refreshne jeho seznam kapitol (tim zaroven overi, ze ma cilovou i nejnovetsi ComicK
+     * kapitolu - viz [rememberedSourceUsable]) a vrati synteticky kandidat pro
+     * [selectCandidate]; null = sweep se spusti normalne (neexistujici/mrtvy/nedostatecny
+     * zdroj, sitovy vypadek - vse se hlasit neresi, plny sweep to vyresi sam).
+     */
+    private suspend fun rememberedCandidate(manga: MangaEntity, requested: Float): ResolvedCandidate? {
+        val resolvedManga = manga.resolvedMangaId?.let { repository.getManga(it) } ?: return null
+        if (resolvedManga.sourceId == "comick") return null
+        val source = sourceManager.getById(resolvedManga.sourceId) ?: return null
+        val smanga = resolvedManga.toSManga()
+        val chapters = try {
+            repository.refreshChapters(resolvedManga.id, smanga)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("resolver:remembered:${source.id}")
+            return null
+        }
+        if (!rememberedSourceUsable(chapters.map { it.chapterNumber }, requested, comicKRange)) return null
+        return ResolvedCandidate(
+            source = source,
+            manga = smanga,
+            matchedChapterCount = chapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
+            hasRequestedChapter = true,
+            isFavorite = source.id in settings.favoriteSourceIds.first(),
+            nearestChapterDistance = 0f,
+            minChapterNumber = chapters.minOfOrNull { it.chapterNumber },
+            maxChapterNumber = chapters.maxOfOrNull { it.chapterNumber },
+            isDirectMirror = source.id == ComicKArtSource.SOURCE_ID,
+        )
+    }
+
+    /** Rekonstrukce SManga z entity zapamatovaneho zdroje. Upsert (openPreview) null/blank
+     *  hodnoty nikdy neprepisuje bohatsi ulozena metadata, takze staci pole, co entity nese. */
+    private fun MangaEntity.toSManga() = SManga(
+        sourceId = sourceId,
+        url = url,
+        title = title,
+        coverUrl = coverUrl,
+        description = description,
+        status = status,
+        author = author,
+        artist = artist,
+        genres = genres.split(",").filter { it.isNotBlank() },
+        year = year,
+        contentType = contentType,
+        demographic = demographic,
+        translationCompleted = translationCompleted,
+        hasAnime = hasAnime,
+        finalChapter = finalChapter,
+        rating = rating,
+        followCount = followCount,
+        rank = rank,
+    )
+
     fun selectCandidate(candidate: ResolvedCandidate) {
         val target = requestedChapterNumber ?: return
         _resolving.value = true
@@ -390,6 +502,10 @@ class SourceResolverViewModel @Inject constructor(
                     if (comicKId != null) {
                         repository.setChapterFallbackTarget(chapterId, finalChapter.id)
                         repository.updateLastReadChapter(comicKId, chapterId)
+                        // Zapamatovat zdroj, na kterem se skutecne cte (i kdyz
+                        // resolveCompleteChapter presmerovalo na jineho kandidata) -
+                        // pristi otevreni kapitoly titulu ho zkusi prvni misto sweepu.
+                        repository.setResolvedManga(comicKId, finalChapter.mangaId)
                     }
                     _openedChapterId.value = finalChapter.id
                 }

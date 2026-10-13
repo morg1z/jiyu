@@ -27,7 +27,10 @@ import androidx.room.withTransaction
  *    soubory ležet na disku bez čehokoli, co by na ně ukazovalo,
  *  - manga vlastnící kapitolu, na kterou aktuálně ukazuje nějaký `fallbackChapterId` - viz
  *    `SourceResolverViewModel.resolveCompleteChapter`, trvale zapsaná naučená náhrada za
- *    kapitolu s málo stránkami, ne náhodný bordel.
+ *    kapitolu s málo stránkami, ne náhodný bordel,
+ *  - manga, na kterou odkazuje `MangaEntity.resolvedMangaId` nějakého ComicK titulu -
+ *    zapamatovaný reálný zdroj, jehož smazání by příští otevření kapitoly znovu
+ *    spustilo sweep všech zdrojů (viz `SourceResolverViewModel.rememberedCandidate`).
  */
 suspend fun AppDatabase.deleteBrowsedManga(): Int = withTransaction {
     val dao = mangaDao()

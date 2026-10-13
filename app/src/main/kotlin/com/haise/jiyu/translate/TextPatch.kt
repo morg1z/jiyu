@@ -62,6 +62,7 @@ internal fun buildTextPatch(
     textRight: Int = -1,
     textBottom: Int = -1,
     meanTextArgbOut: IntArray? = null,
+    insidePolygon: BooleanArray? = null,
 ): IntArray {
     val x0 = left.coerceIn(0, imageWidth)
     val y0 = top.coerceIn(0, imageHeight)
@@ -82,7 +83,7 @@ internal fun buildTextPatch(
         }
     }
 
-    val isText = markTextPixels(luminance, w, h)
+    var isText = markTextPixels(luminance, w, h)
     val hasTextRegion = textLeft >= 0 && textTop >= 0 && textRight > textLeft && textBottom > textTop
     val pad = if (hasTextRegion) textRegionPadding(textBottom - textTop) else 0
     // Ořez na textovou oblast už PŘED filtrováním - komponenty/densita se hodnotí jen
@@ -122,6 +123,14 @@ internal fun buildTextPatch(
         right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
         enabled = hasTextRegion,
     )
+    // Snapshot "jisté" masky: lokální práh + texture suppress + dilatace + seal
+    // dají glyphy včetně uzavřených vnitřků, ale PŘED halo/obrys/ink-flood
+    // expanzemi. Ty na husté šrafě vybuchnou na prakticky celý region (každý
+    // tah a mezera mezi tahy se po sealu stane "textem") a Voronoi fill pak z
+    // řídkých donorů vybuduje jednolitou placku - viditelný obdélník přes
+    // kresbu (audit Vagabond ch.6: světlý rektágl za "KDO...?" na tmavé šrafě).
+    // Při takovém výbuchu se níže maska vrátí na tenhle konzervativní stav.
+    val conservativeMask = if (hasTextRegion) isText.copyOf() else null
     // Světlý halo-obrys glyphu (~3px) kontrastní detekci neprojde (bílá na bílé
     // halftone pozadí) - zůstal by nemaskovaný, četl by se jako bílá silueta
     // písmene a jako donor kontaminoval lokální resample (fill pak má poloviční
@@ -145,18 +154,28 @@ internal fun buildTextPatch(
             right = textRight - x0 + pad, bottom = textBottom - y0 + pad,
             enabled = true,
         )
-        // Široký světlý halo (~5+ px u Vagabond caption lettering) plochá dilatace
-        // nepokryje celý - zbylý prstenec čte jako bílý duch písmene. Polaritně
-        // vázaná expanze: maska roste jen do pixelů jasně SVĚTLEJŠÍCH než medián
-        // pozadí regionu, omezený počet průchodů - prstenec se sežere celý, ale
-        // utíkání do tečkovaného pole je ohraničené dosahem (a zaříznuto na těsný
-        // region - kresbu za hranou textu to nesmí zasadit). Na světlém podkladu
-        // (bublina) je limit nad bílou -> no-op.
-        expandMaskIntoBrightPixels(
-            mask = isText, luminance = luminance, w = w, h = h,
-            rl = textLeft - x0 - pad, rt = textTop - y0 - pad,
-            rr = textRight - x0 + pad, rb = textBottom - y0 + pad,
-        )
+        // Obrys glyphu: nejdřív TOPOLOGICKÁ detekce (port koharu infer_outline) -
+        // barevný pásový cluster, který uzavírá fill písmen, se domaskuje přesně
+        // v naměřené šířce. Zvládne obrys libovolné barvy (bílý i tmavý i barevný)
+        // a nerozsype se do stejně barevných teček rastru, protože bere jen
+        // souvislou komponentu pásu objímající fill.
+        // Když topologie selže (žádný uzavírající pás - typicky malý jasný text na
+        // světlém pozadí), padne na polarity-expanzi: maska roste jen do pixelů
+        // jasně SVĚTLEJŠÍCH než medián pozadí regionu, omezený počet průchodů
+        // (klasické ~5px bílé halo u Vagabond caption lettering). Na světlém
+        // podkladu (bublina) je limit nad bílou -> no-op.
+        if (!coverGlyphOutline(
+                pixels = pixels, mask = isText, w = w, h = h,
+                rl = textLeft - x0 - pad, rt = textTop - y0 - pad,
+                rr = textRight - x0 + pad, rb = textBottom - y0 + pad,
+            )
+        ) {
+            expandMaskIntoBrightPixels(
+                mask = isText, luminance = luminance, w = w, h = h,
+                rl = textLeft - x0 - pad, rt = textTop - y0 - pad,
+                rr = textRight - x0 + pad, rb = textBottom - y0 + pad,
+            )
+        }
         restrictToTextRegion(
             mask = isText, w = w, h = h,
             left = textLeft - x0 - pad, top = textTop - y0 - pad,
@@ -207,12 +226,54 @@ internal fun buildTextPatch(
         )
     }
 
+    // Výbuch masky na husté kresbě: expanze (halo/obrys/ink-flood) označila jako
+    // "text" prakticky celou textovou oblast. Taková maska není písmo - Voronoi z
+    // hrstky donorů by vyrobil jednolitou placku přes kresbu (světlý obdélník na
+    // tmavé šrafě, audit Vagabond ch.6). Vrátí se konzervativní maska pořízená
+    // před expanzemi; překryje jen jisté glyphy, kresba kolem přežije.
+    if (conservativeMask != null) {
+        val rl = (textLeft - x0 - pad).coerceIn(0, w)
+        val rt = (textTop - y0 - pad).coerceIn(0, h)
+        val rr = (textRight - x0 + pad).coerceIn(rl, w)
+        val rb = (textBottom - y0 + pad).coerceIn(rt, h)
+        var regionPx = 0
+        var maskedPx = 0
+        for (y in rt until rb) {
+            for (x in rl until rr) {
+                regionPx++
+                if (isText[y * w + x]) maskedPx++
+            }
+        }
+        if (regionPx > 0 && maskedPx.toFloat() / regionPx > MASK_EXPLOSION_FRACTION) {
+            isText = conservativeMask
+        }
+    }
+
     // Nemá se z čeho počítat (celá oblast vyšla jako text) - vrátí se navzorkované pozadí.
     // Lepší než nic a nikdy to nespadne.
     if (isText.all { it }) return IntArray(w * h) { bgArgb or OPAQUE }
 
     if (meanTextArgbOut != null && meanTextArgbOut.isNotEmpty()) {
         meanTextArgbOut[0] = coreTextArgb(pixels, luminance, isText)
+    }
+
+    // Flat-fill uvnitř PROKÁZANÉHO bublinového polygonu (port koharu
+    // fill_uniform_regions/uniform_region_color): když je měřitelně uniformní
+    // interiér (medián + per-kanál std-dev pod prahem, vzorky s odstupem od hrany
+    // a mimo masku), maskované pixely UVNITŘ polygonu se vyplní tím mediánem rovnou
+    // - dokonale plochá bublina bez texturových zbytků, a jen tam, kde je důkaz,
+    // že jsme uvnitř bubliny (kresbu mimo polygon to nikdy nepřejme). Zbylá maska
+    // (mimo polygon nebo neuniformní interiér) pokračuje texturovou kaskádou.
+    if (insidePolygon != null && insidePolygon.size == w * h) {
+        val flatColor = uniformInteriorColor(pixels, isText, insidePolygon, w, h)
+        if (flatColor != null) {
+            for (i in 0 until w * h) {
+                if (isText[i] && insidePolygon[i]) {
+                    pixels[i] = flatColor
+                    isText[i] = false
+                }
+            }
+        }
     }
 
     // Raster/šrafura pod textem: Voronoi kopíruje NEJBLIŽŠÍ zdroj, takže tečkové pole
@@ -1161,6 +1222,401 @@ internal fun expandMaskIntoBrightPixels(
     }
 }
 
+// -- Topologická detekce obrysu glyphu (port koharu infer_outline) ----------------
+//
+// ExpandMaskIntoBrightPixels hádá obrys podle JASU - funguje pro bílé halo na
+// tmavém poli, ale ne pro tmavý/barevný obrys a může "protéct" do světlých mezer
+// rastru. Koharu místo toho hledá barevný pásový cluster, který TOPOLOGICKY
+// uzavírá fill písmen (flood z okraje okna s clusterem jako barriérou -> fill
+// pixely nedosažitelné = uvnitř prstence) a domaskuje přesně ten prstenec.
+// Detekuje obrys libovolné barvy, měří jeho šířku a nerozsype se do pole, protože
+// vybírá jen souvislou komponentu pásu, která objímá fill - izolované stejně
+// barevné tečky rastru ignoruje.
+
+private const val OUTLINE_CLUSTER_COUNT = 4
+private const val OUTLINE_MIN_CLUSTER_PX = 8
+private const val OUTLINE_MIN_CLUSTER_DIST_SQ = 32 * 32
+private const val OUTLINE_MIN_STROKE_WIDTH = 2
+private const val OUTLINE_MAX_FILL_PERCENT = 75
+
+private class OutlinePixel(val color: Int, val x: Int, val y: Int, val insideMask: Boolean)
+
+private class OutlineCluster(val color: IntArray, val pixels: MutableList<OutlinePixel>)
+
+/**
+ * Pokusí se najít a domaskovat skutečný obrys lettering jako barvový pásový
+ * cluster uzavírající fill. Vrací true při úspěchu; false = volající padne na
+ * [expandMaskIntoBrightPixels].
+ */
+internal fun coverGlyphOutline(
+    pixels: IntArray,
+    mask: BooleanArray,
+    w: Int,
+    h: Int,
+    rl: Int,
+    rt: Int,
+    rr: Int,
+    rb: Int,
+): Boolean {
+    val l = rl.coerceIn(0, w)
+    val t = rt.coerceIn(0, h)
+    val r = rr.coerceIn(l, w)
+    val b = rb.coerceIn(t, h)
+    val rw = r - l
+    val rh = b - t
+    if (rw < 8 || rh < 8) return false
+
+    // Region pixely + semafor "v maskovém jádru" (fill evidence).
+    val regionPixels = ArrayList<OutlinePixel>(rw * rh)
+    val histR = IntArray(256)
+    val histG = IntArray(256)
+    val histB = IntArray(256)
+    var unmasked = 0
+    for (y in t until b) {
+        for (x in l until r) {
+            val i = y * w + x
+            val c = pixels[i]
+            val m = mask[i]
+            regionPixels += OutlinePixel(c, x - l, y - t, m)
+            if (!m) {
+                histR[(c shr 16) and 0xFF]++
+                histG[(c shr 8) and 0xFF]++
+                histB[c and 0xFF]++
+                unmasked++
+            }
+        }
+    }
+    if (unmasked < 32) return false
+    val background = intArrayOf(
+        histMedian(histR, unmasked),
+        histMedian(histG, unmasked),
+        histMedian(histB, unmasked),
+    )
+
+    val clusters = outlineClusters(regionPixels, background) ?: return false
+    val ring = inferGlyphOutline(clusters, background, rw, rh) ?: return false
+
+    // Prstenec + uzavřený fill -> maska. Fill je interiér obrysu = určitě text.
+    var added = 0
+    val before = mask.copyOf()
+    for (i in ring.indices) {
+        if (ring[i]) {
+            mask[(t + i / rw) * w + l + i % rw] = true
+            added++
+        }
+    }
+    if (added < OUTLINE_MIN_CLUSTER_PX) return false
+    // Stejná brzda jako u expandMaskIntoBrightPixels: maska nesmí pokrýt skoro
+    // celý region, jinak by záplata padla na plochou placku.
+    var masked = 0
+    for (y in t until b) for (x in l until r) if (mask[y * w + x]) masked++
+    if (masked * 100 > rw * rh * OUTLINE_MAX_FILL_PERCENT) {
+        System.arraycopy(before, 0, mask, 0, mask.size)
+        return false
+    }
+    return true
+}
+
+private fun histMedian(hist: IntArray, count: Int): Int {
+    var acc = 0
+    var v = 0
+    val half = count / 2
+    while (v < 255 && acc + hist[v] <= half) { acc += hist[v]; v++ }
+    return v
+}
+
+/**
+ * k-means k=4 nad 4-bit paletou s pevným seedem [pozadí, nejtmavší, nejsvětlejší,
+ * nejvzdálenější] - port koharu color_clusters.
+ */
+private fun outlineClusters(
+    pixels: List<OutlinePixel>,
+    background: IntArray,
+): Array<OutlineCluster>? {
+    // Paleta: 4-bit kvantizace -> max 4096 binů.
+    val bins = Array(4096) { LongArray(4) } // r,g,b sums + count
+    var binCount = 0
+    for (p in pixels) {
+        val key = ((p.color shr 20) and 0xF00) or ((p.color shr 12) and 0x0F0) or ((p.color shr 4) and 0x00F)
+        val bin = bins[key]
+        if (bin[3] == 0L) binCount++
+        bin[0] += (p.color shr 16) and 0xFF
+        bin[1] += (p.color shr 8) and 0xFF
+        bin[2] += p.color and 0xFF
+        bin[3]++
+    }
+    if (binCount < 3) return null
+    val binColor = { key: Int -> intArrayOf(
+        (bins[key][0] / bins[key][3]).toInt(),
+        (bins[key][1] / bins[key][3]).toInt(),
+        (bins[key][2] / bins[key][3]).toInt(),
+    ) }
+
+    // Seedové barvy: pozadí, nejtmavší, nejsvětlejší, nejvzdálenější od předchozích.
+    var darkest = -1
+    var lightest = -1
+    var darkestLum = Int.MAX_VALUE
+    var lightestLum = -1
+    for (key in 0 until 4096) {
+        if (bins[key][3] == 0L) continue
+        val lum = colorLum(binColor(key))
+        if (lum < darkestLum) { darkestLum = lum; darkest = key }
+        if (lum > lightestLum) { lightestLum = lum; lightest = key }
+    }
+    if (darkest < 0 || lightest < 0) return null
+    var distant = -1
+    var distantScore = -1L
+    for (key in 0 until 4096) {
+        if (bins[key][3] == 0L) continue
+        val c = binColor(key)
+        var minD = Int.MAX_VALUE
+        for (s in intArrayOf(darkest, lightest)) {
+            val d = colorDistSq(c, binColor(s)); if (d < minD) minD = d
+        }
+        val d = colorDistSq(c, background); if (d < minD) minD = d
+        val score = minD.toLong() * minOf(bins[key][3], 64L)
+        if (score > distantScore) { distantScore = score; distant = key }
+    }
+    if (distant < 0) return null
+
+    val centers = arrayOf(background, binColor(darkest), binColor(lightest), binColor(distant))
+    // 4 k-means iterace nad paletou.
+    repeat(4) {
+        val acc = Array(OUTLINE_CLUSTER_COUNT) { LongArray(4) }
+        for (key in 0 until 4096) {
+            if (bins[key][3] == 0L) continue
+            val c = binColor(key)
+            var best = 0
+            var bestD = Int.MAX_VALUE
+            for (k in 0 until OUTLINE_CLUSTER_COUNT) {
+                val d = colorDistSq(c, centers[k]); if (d < bestD) { bestD = d; best = k }
+            }
+            val a = acc[best]
+            a[0] += c[0] * bins[key][3]; a[1] += c[1] * bins[key][3]; a[2] += c[2] * bins[key][3]; a[3] += bins[key][3]
+        }
+        for (k in 0 until OUTLINE_CLUSTER_COUNT) {
+            val a = acc[k]
+            if (a[3] > 0) centers[k] = intArrayOf(
+                (a[0] / a[3]).toInt(), (a[1] / a[3]).toInt(), (a[2] / a[3]).toInt(),
+            )
+        }
+    }
+
+    // Přiřazení pixelů k nejbližšímu centru.
+    val groups = Array(OUTLINE_CLUSTER_COUNT) { OutlineCluster(centers[it].copyOf(), ArrayList()) }
+    for (p in pixels) {
+        val c = intArrayOf((p.color shr 16) and 0xFF, (p.color shr 8) and 0xFF, p.color and 0xFF)
+        var best = 0
+        var bestD = Int.MAX_VALUE
+        for (k in 0 until OUTLINE_CLUSTER_COUNT) {
+            val d = colorDistSq(c, groups[k].color); if (d < bestD) { bestD = d; best = k }
+        }
+        groups[best].pixels += p
+    }
+    return groups
+}
+
+private fun colorDistSq(a: IntArray, b: IntArray): Int {
+    val dr = a[0] - b[0]; val dg = a[1] - b[1]; val db = a[2] - b[2]
+    return dr * dr + dg * dg + db * db
+}
+
+private fun colorLum(c: IntArray) = c[0] * 54 + c[1] * 183 + c[2] * 19
+
+private fun medianPxColor(pixels: List<OutlinePixel>): IntArray {
+    val hr = IntArray(256); val hg = IntArray(256); val hb = IntArray(256)
+    for (p in pixels) {
+        hr[(p.color shr 16) and 0xFF]++; hg[(p.color shr 8) and 0xFF]++; hb[p.color and 0xFF]++
+    }
+    return intArrayOf(histMedian(hr, pixels.size), histMedian(hg, pixels.size), histMedian(hb, pixels.size))
+}
+
+/**
+ * BFS z okraje okna přes pixely, které NEJSOU v bariérovém clusteru -> BooleanArray
+ * "dosažitelné zvenčí". Fill pixely nedosažitelné = uzavřené uvnitř barriéry.
+ */
+private fun outlineReachable(assignments: IntArray, barrier: Int, w: Int, h: Int): BooleanArray {
+    val outside = BooleanArray(w * h)
+    val queue = ArrayDeque<Int>()
+    val enqueue = { x: Int, y: Int ->
+        val i = y * w + x
+        if (!outside[i] && assignments[i] != barrier) { outside[i] = true; queue += i }
+    }
+    for (x in 0 until w) { enqueue(x, 0); enqueue(x, h - 1) }
+    for (y in 0 until h) { enqueue(0, y); enqueue(w - 1, y) }
+    while (queue.isNotEmpty()) {
+        val i = queue.removeFirst()
+        val x = i % w; val y = i / w
+        if (x > 0) enqueue(x - 1, y); if (x < w - 1) enqueue(x + 1, y)
+        if (y > 0) enqueue(x, y - 1); if (y < h - 1) enqueue(x, y + 1)
+    }
+    return outside
+}
+
+/**
+ * Hlavní inferenční smyčka: pro každý ne-pozadí cluster jako kandidát stroke ->
+ * flood z okraje -> uzavřený fill jiného clusteru -> souvislá komponenta pásu
+ * objímající fill -> kontrastní a lůžkové guardy -> změřená šířka -> nejlepší
+ * kandidát podle skóre. Port koharu infer_outline; vrací BooleanArray prstence
+ * (+ uzavřený fill) nad oknem, nebo null.
+ */
+private fun inferGlyphOutline(
+    clusters: Array<OutlineCluster>,
+    background: IntArray,
+    w: Int,
+    h: Int,
+): BooleanArray? {
+    val assignments = IntArray(w * h) { -1 }
+    for ((idx, cluster) in clusters.withIndex()) {
+        for (p in cluster.pixels) assignments[p.y * w + p.x] = idx
+    }
+    var bgIndex = -1
+    var bgD = Int.MAX_VALUE
+    for ((idx, cluster) in clusters.withIndex()) {
+        if (cluster.pixels.isEmpty()) continue
+        val d = colorDistSq(cluster.color, background)
+        if (d < bgD) { bgD = d; bgIndex = idx }
+    }
+    if (bgIndex < 0) return null
+
+    var best: BooleanArray? = null
+    var bestScore = 0L
+    for (strokeIdx in clusters.indices) {
+        if (strokeIdx == bgIndex || clusters[strokeIdx].pixels.size < OUTLINE_MIN_CLUSTER_PX) continue
+        val outside = outlineReachable(assignments, strokeIdx, w, h)
+        for (fillIdx in clusters.indices) {
+            if (fillIdx == strokeIdx || clusters[fillIdx].pixels.isEmpty()) continue
+            val enclosedFill = clusters[fillIdx].pixels.filter { !outside[it.y * w + it.x] }
+            if (enclosedFill.size < OUTLINE_MIN_CLUSTER_PX) continue
+
+            // Souvislá komponenta stroke clusteru objímající fill (jen prstenec,
+            // ne izolované tečky stejné barvy jinde v okně).
+            val ring = BooleanArray(w * h)
+            val queue = ArrayDeque<Int>()
+            for (p in enclosedFill) {
+                for (dy in -1..1) for (dx in -1..1) {
+                    val nx = p.x + dx; val ny = p.y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+                    val i = ny * w + nx
+                    if (assignments[i] == strokeIdx && !ring[i]) { ring[i] = true; queue += i }
+                }
+            }
+            while (queue.isNotEmpty()) {
+                val i = queue.removeFirst()
+                val x = i % w; val y = i / w
+                for (dy in -1..1) for (dx in -1..1) {
+                    val nx = x + dx; val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+                    val ni = ny * w + nx
+                    if (assignments[ni] == strokeIdx && !ring[ni]) { ring[ni] = true; queue += ni }
+                }
+            }
+            var ringPx = 0
+            for (v in ring) if (v) ringPx++
+            if (ringPx < OUTLINE_MIN_CLUSTER_PX) continue
+
+            // Kontrastní guardy: fill, stroke i pozadí musí být navzájem dost
+            // vzdálené a žádná barva nesmí ležet "mezi" dvěma dalšími (antialias
+            // pásek), jinak to není skutečný obrys.
+            val fillColor = medianPxColor(enclosedFill)
+            val strokePxInRing = ArrayList<OutlinePixel>(ringPx)
+            for (p in clusters[strokeIdx].pixels) if (ring[p.y * w + p.x]) strokePxInRing += p
+            val strokeColor = medianPxColor(strokePxInRing)
+            val fillStrokeD = colorDistSq(fillColor, strokeColor)
+            if (fillStrokeD < OUTLINE_MIN_CLUSTER_DIST_SQ) continue
+            if (colorDistSq(fillColor, background) < OUTLINE_MIN_CLUSTER_DIST_SQ) continue
+            if (colorDistSq(strokeColor, background) < OUTLINE_MIN_CLUSTER_DIST_SQ) continue
+            if (colorLiesBetween(strokeColor, fillColor, background)) continue
+            if (colorLiesBetween(fillColor, strokeColor, background)) continue
+
+            val width = measuredRingWidth(ring, enclosedFill, outside, w, h) ?: continue
+            if (width < OUTLINE_MIN_STROKE_WIDTH) continue
+
+            var insideFill = 0
+            for (p in enclosedFill) if (p.insideMask) insideFill++
+            val score = fillStrokeD.toLong() * minOf(enclosedFill.size + insideFill, 4096)
+            if (score > bestScore) {
+                // Maska = prstenec + uzavřený fill (interiér obrysu = text).
+                val result = ring.copyOf()
+                for (p in enclosedFill) result[p.y * w + p.x] = true
+                best = result; bestScore = score
+            }
+        }
+    }
+    return best
+}
+
+/**
+ * BFS (Chebyshev) vzdálenostní transformace od fill pixelů; šířka pásu = medián
+ * vzdáleností stroke pixelů, které sousedí s [outside] (vnější hrana prstence).
+ * Port koharu measured_stroke_width.
+ */
+private fun measuredRingWidth(
+    ring: BooleanArray,
+    enclosedFill: List<OutlinePixel>,
+    outside: BooleanArray,
+    w: Int,
+    h: Int,
+): Int? {
+    val dist = IntArray(w * h) { -1 }
+    val queue = ArrayDeque<Int>()
+    for (p in enclosedFill) { val i = p.y * w + p.x; if (dist[i] < 0) { dist[i] = 0; queue += i } }
+    while (queue.isNotEmpty()) {
+        val i = queue.removeFirst()
+        val x = i % w; val y = i / w
+        val d = dist[i] + 1
+        for (dy in -1..1) for (dx in -1..1) {
+            if (dx == 0 && dy == 0) continue
+            val nx = x + dx; val ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+            val ni = ny * w + nx
+            if (dist[ni] < 0) { dist[ni] = d; queue += ni }
+        }
+    }
+    val hist = IntArray(maxOf(w, h) + 1)
+    var count = 0
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            val i = y * w + x
+            if (!ring[i] || dist[i] <= 0) continue
+            var touchesOutside = false
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    val nx = x + dx; val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h || outside[ny * w + nx]) {
+                        touchesOutside = true; break
+                    }
+                }
+                if (touchesOutside) break
+            }
+            if (touchesOutside) { hist[dist[i].coerceAtMost(hist.size - 1)]++; count++ }
+        }
+    }
+    if (count < OUTLINE_MIN_CLUSTER_PX) return null
+    var acc = 0
+    var v = 1
+    val half = count / 2
+    while (v < hist.size - 1 && acc + hist[v] <= half) { acc += hist[v]; v++ }
+    return v
+}
+
+/** Port koharu color_lies_between: leží [candidate] na úsečce [start]-[end] v RGB. */
+private fun colorLiesBetween(candidate: IntArray, start: IntArray, end: IntArray): Boolean {
+    val dir = DoubleArray(3) { (end[it] - start[it]).toDouble() }
+    val lenSq = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]
+    if (lenSq <= 1e-7) return false
+    var proj = 0.0
+    for (k in 0..2) proj += (candidate[k] - start[k]) * dir[k]
+    proj /= lenSq
+    if (proj < 0.0 || proj > 1.0) return false
+    var perp = 0.0
+    for (k in 0..2) {
+        val d = candidate[k] - (start[k] + dir[k] * proj)
+        perp += d * d
+    }
+    return perp <= 24.0 * 24.0 * 3.0
+}
+
 /** Rozšíří masku o [radius] pixelů - zachytí antialiasový lem, který by jinak zůstal jako duch. */
 internal fun dilate(mask: BooleanArray, w: Int, h: Int, radius: Int) {
     repeat(radius) {
@@ -1232,6 +1688,14 @@ private const val LONG_LINE_PX = 8
  * texturu a erodovala - viz [suppressTextureNoise] bod 3.
  */
 private const val DENSE_MASK_PERCENT = 55
+
+/**
+ * Výbuch expanzní masky: pokud po halo/obrys/ink-flood fázích maska pokrývá víc
+ * než tolik procent textové oblasti, nejde o písmo, ale o texturu seznanou za
+ * text - viz komentář u `conservativeMask` v [buildTextPatch] (audit Vagabond
+ * ch.6: světlá placka za "KDO...?").
+ */
+private const val MASK_EXPLOSION_FRACTION = 0.8f
 
 /** Rezerva kolem textové oblasti jako podíl její výšky - viz [textRegionPadding]. */
 private const val TEXT_PAD_DIVISOR = 4
@@ -1364,3 +1828,94 @@ private const val RESAMPLE_MIN_DOTS = 8
 
 /** Pojistka proti nekonečné smyčce; při ~2px za kolo pokryje i velmi tlusté tahy. */
 private const val MAX_FILL_ROUNDS = 64
+
+// -- Uniformní interiér bublinového polygonu (port koharu uniform_region_color) ----
+
+/** Vzorky pro měření uniformity musí být aspoň takto daleko od hrany polygonu. */
+private const val FLAT_FILL_EDGE_MARGIN = 3
+
+/** Minimálně tolik čistých vzorků v interiéru, aby šlo uniformity posoudit. */
+private const val UNIFORM_SAMPLE_MIN_PX = 16
+
+/**
+ * Per-kanál medián interiéru polygonu (mimo masku, s odstupem od hrany) + std-dev
+ * okolo mediánu; když jsou všechny odchylky pod prahem (koharu pravidlo 7/10 podle
+ * rozptylu odchylek mezi kanály), interiér je uniformní -> vrátí se jeho barva.
+ * Null = neuniformní (gradient, akvarell, kresba) -> volající nechá texturovou
+ * kaskádu. Mimo array se polygon považuje za pokračující (patch ho může oříznout).
+ */
+internal fun uniformInteriorColor(
+    pixels: IntArray,
+    mask: BooleanArray,
+    insidePoly: BooleanArray,
+    w: Int,
+    h: Int,
+): Int? {
+    // Eroze polygonu o FLAT_FILL_EDGE_MARGIN = vzorkovací zóna. Out-of-bounds =
+    // "uvnitř" (polygon může sahat za řez patchu - jeho hrana tam není doklad).
+    var zone = insidePoly.copyOf()
+    repeat(FLAT_FILL_EDGE_MARGIN) {
+        val prev = zone
+        zone = BooleanArray(w * h)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val i = y * w + x
+                if (!prev[i]) continue
+                zone[i] =
+                    (x == 0 || prev[i - 1]) &&
+                    (x == w - 1 || prev[i + 1]) &&
+                    (y == 0 || prev[i - w]) &&
+                    (y == h - 1 || prev[i + w])
+            }
+        }
+    }
+
+    val histR = IntArray(256)
+    val histG = IntArray(256)
+    val histB = IntArray(256)
+    var n = 0
+    for (i in 0 until w * h) {
+        if (!zone[i] || mask[i]) continue
+        val c = pixels[i]
+        histR[(c shr 16) and 0xFF]++
+        histG[(c shr 8) and 0xFF]++
+        histB[c and 0xFF]++
+        n++
+    }
+    if (n < UNIFORM_SAMPLE_MIN_PX) return null
+
+    fun histMedian(hist: IntArray): Int {
+        var acc = 0
+        var v = 0
+        val half = n / 2
+        while (v < 255 && acc + hist[v] <= half) { acc += hist[v]; v++ }
+        return v
+    }
+    fun stdDev(hist: IntArray, median: Int): Double {
+        var sum = 0.0
+        for (v in 0..255) {
+            val d = (v - median).toDouble()
+            sum += hist[v] * d * d
+        }
+        return sqrt(sum / n)
+    }
+
+    val medR = histMedian(histR)
+    val medG = histMedian(histG)
+    val medB = histMedian(histB)
+    val devR = stdDev(histR, medR)
+    val devG = stdDev(histG, medG)
+    val devB = stdDev(histB, medB)
+
+    val meanDev = (devR + devG + devB) / 3.0
+    val spread = sqrt(
+        ((devR - meanDev) * (devR - meanDev) +
+            (devG - meanDev) * (devG - meanDev) +
+            (devB - meanDev) * (devB - meanDev)) / 3.0,
+    )
+    // Koharu: při odlišném chování kanálů (barevný gradient) je práh přísnější.
+    val threshold = if (spread > 1.0) 7.0 else 10.0
+    if (maxOf(devR, devG, devB) >= threshold) return null
+
+    return OPAQUE or (medR shl 16) or (medG shl 8) or medB
+}

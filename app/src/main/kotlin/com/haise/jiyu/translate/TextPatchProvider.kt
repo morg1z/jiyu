@@ -275,6 +275,29 @@ class TextPatchProvider @Inject constructor(
         val patchDiag = HashMap<Int, PatchState>()
         val patchDims = HashMap<Int, Pair<Int, Int>>()
 
+        // Rasterizace scanline-obrysu ([BubbleShapePoint] yF+leftF/rightF, normované
+        // souřadnice PŮVODNÍ bitmapy) do patch-lokální BooleanArray pro flat-fill
+        // interiéru v [buildTextPatch]. toX/toY mapují orig px -> patch px.
+        fun rasterizeShape(
+            shape: List<BubbleShapePoint>?,
+            pw: Int,
+            ph: Int,
+            toX: (Float) -> Int,
+            toY: (Float) -> Int,
+        ): BooleanArray? {
+            if (shape == null || pw <= 0 || ph <= 0) return null
+            val inside = BooleanArray(pw * ph)
+            var any = false
+            for (p in shape) {
+                val y = toY(p.yF)
+                if (y < 0 || y >= ph) continue
+                val xl = toX(p.leftF).coerceIn(0, pw)
+                val xr = toX(p.rightF).coerceIn(0, pw)
+                for (x in xl until xr) { inside[y * pw + x] = true; any = true }
+            }
+            return if (any) inside else null
+        }
+
         fun runPatchLoop(session: PageRegionSource.Session?) {
             for ((index, rect) in plan) {
                 val b = positioned[index].block
@@ -374,6 +397,13 @@ class TextPatchProvider @Inject constructor(
                                 textRight = (((origX(b.rightF) * session.width - cLeft) / sample)).toInt(),
                                 textBottom = (((origY(b.bottomF) * session.height - cTop) / sample)).toInt(),
                                 meanTextArgbOut = textArgbOut,
+                                // Flat-fill interiéru jen uvnitř obnoveného obrysu
+                                // (prokázaná bublina) - kresbu mimo něj to nepřejme.
+                                insidePolygon = rasterizeShape(
+                                    shape, tileW, tileH,
+                                    toX = { ((it * session.width - cLeft) / sample).toInt() },
+                                    toY = { ((it * session.height - cTop) / sample).toInt() },
+                                ),
                             )
                             tile.recycle()
                             if (out.isNotEmpty()) {
@@ -386,6 +416,8 @@ class TextPatchProvider @Inject constructor(
 
                 // -- Base fallback (downscale cesta jako dosud) ----------------------------
                 if (argb == null) {
+                    val px0 = left.coerceIn(0, w)
+                    val py0 = top.coerceIn(0, h)
                     argb = buildTextPatch(
                         source = source,
                         imageWidth = w,
@@ -402,6 +434,13 @@ class TextPatchProvider @Inject constructor(
                         textRight = (origX(b.rightF) * w).toInt(),
                         textBottom = (origY(b.bottomF) * h).toInt(),
                         meanTextArgbOut = textArgbOut,
+                        insidePolygon = rasterizeShape(
+                            shape,
+                            (right.coerceIn(0, w) - px0).coerceAtLeast(0),
+                            (bottom.coerceIn(0, h) - py0).coerceAtLeast(0),
+                            toX = { (it * w).toInt() - px0 },
+                            toY = { (it * h).toInt() - py0 },
+                        ),
                     )
                     argbW = (right.coerceIn(0, w) - left.coerceIn(0, w)).coerceAtLeast(0)
                 }

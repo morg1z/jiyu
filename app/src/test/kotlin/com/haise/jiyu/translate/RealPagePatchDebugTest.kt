@@ -69,12 +69,14 @@ class RealPagePatchDebugTest {
         restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
         sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
 
-        // Halo-obrys glyphu - zrcadlí HALO_COVER_DILATION + polaritní expanzi
-        // (těsný region, před ink-floodem).
+        // Halo-obrys glyphu - zrcadlí HALO_COVER_DILATION + topologickou detekci
+        // s fallbackem na polaritní expanzi (těsný region, před ink-floodem).
         dilate(isText, w, h, 3)
         restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
         sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
-        expandMaskIntoBrightPixels(isText, luminance, w, h, rl, rt, rr, rb)
+        if (!coverGlyphOutline(pixels, isText, w, h, rl, rt, rr, rb)) {
+            expandMaskIntoBrightPixels(isText, luminance, w, h, rl, rt, rr, rb)
+        }
         restrictToTextRegion(isText, w, h, rl, rt, rr, rb, true)
         sealEnclosedHoles(isText, w, h, rl, rt, rr, rb, true)
         dumpMask("build/outputs/dbg_mask_halo.rgb", isText, luminance, w, h)

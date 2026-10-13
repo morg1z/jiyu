@@ -236,6 +236,67 @@ class SourceResolverViewModelTest {
         assertEquals("comickart", ranked.first().source.id)
     }
 
+    // ── rememberedSourceUsable (zapamatovany zdroj, fast-path B) ─────────────
+
+    @Test
+    fun `remembered source is usable when it has the requested chapter and covers the ComicK range`() {
+        assertEquals(
+            true,
+            rememberedSourceUsable(
+                sourceChapterNumbers = (1..150).map { it.toFloat() },
+                requestedChapter = 12f,
+                comicKRange = ChapterRange(1f, 150f),
+            ),
+        )
+    }
+
+    @Test
+    fun `remembered source missing the requested chapter is not usable`() {
+        assertEquals(
+            false,
+            rememberedSourceUsable(
+                sourceChapterNumbers = (1..150).map { it.toFloat() },
+                requestedChapter = 200f,
+                comicKRange = ChapterRange(1f, 200f),
+            ),
+        )
+    }
+
+    @Test
+    fun `remembered source that stopped releasing is not usable even though it has the requested chapter`() {
+        // Zdroj ma pozadovanou kap. 12, ale ComicK uz je na 200 a zdroj skoncil na 150
+        // - fast-path ho preskoci a plny sweep najde aktualnejsi zdroj.
+        assertEquals(
+            false,
+            rememberedSourceUsable(
+                sourceChapterNumbers = (1..150).map { it.toFloat() },
+                requestedChapter = 12f,
+                comicKRange = ChapterRange(1f, 200f),
+            ),
+        )
+    }
+
+    @Test
+    fun `remembered source a few chapters behind is still usable - same tolerance as coversChapterRange`() {
+        // Rozdil par kapitol na konci se toleruje (zdroje vydavaji nove pozdeji).
+        assertEquals(
+            true,
+            rememberedSourceUsable(
+                sourceChapterNumbers = (1..148).map { it.toFloat() },
+                requestedChapter = 148f,
+                comicKRange = ChapterRange(1f, 150f),
+            ),
+        )
+    }
+
+    @Test
+    fun `an empty remembered chapter list is never usable`() {
+        assertEquals(
+            false,
+            rememberedSourceUsable(emptyList(), 12f, ChapterRange(1f, 150f)),
+        )
+    }
+
     @Test
     fun `an incomplete mirror gets no bonus and loses to a complete source`() {
         val mirror = candidate("comickart", matchedChapterCount = 40, isDirectMirror = true, minChapter = 110f, maxChapter = 150f)

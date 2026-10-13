@@ -1,5 +1,7 @@
 package com.haise.jiyu.translate
 
+import kotlin.math.abs
+
 /**
  * Slučování OCR řádků do bublinových bloků - extrahováno z [OcrEngine], aby šlo testovat čistě
  * (bez Bitmap/Androidu), stejný důvod jako [ReadingOrder]/[BubbleShapeAnalysis].
@@ -360,6 +362,78 @@ internal fun mergeBlocksInSameYoloBox(blocks: List<RawTextBlock>, boxes: List<De
         if (idxs.size == 1) blocks[idxs[0]] else mergeBubbleGroup(idxs.map { blocks[it] })
     }
 }
+
+/**
+ * Sloučí ŘÁDKY caption letteringu ležícího přímo na kresbě (mimo všechny YOLO boxy)
+ * do jednoho bloku. Typeset captiony ("FOR THE FIRST TIME IN" / "MY LIFE" / "I KILLED
+ * SOMEONE") sází každý díl věty jako samostatný řádek pod sebou; když se každý přeloží
+ * zvlášť, věta na stránce vychází napůl anglicky, napůl česky (audit Vagabond ch.6:
+ * "FOR THE FIRST TIME IN" + "I KILLED SOMEONE" EN vedle "MŮJ ŽIVOT" CS), a navíc
+ * izolovaný fragment ("FOR THE") dostane nesmyslný překlad ("v").
+ *
+ * Bezpečnost: slučují se jen bloky, jejichž střed neleží v ŽÁDNÉM YOLO boxu - text
+ * uvnitř bublin už pokryl [mergeBlocksInSameYoloBox] a řádkový merge. Geometrické
+ * podmínky jsou konzervativní: vertikálně těsně nad sebou (mezera menší než výška
+ * řádků - caption řádky jdou těsně za sebou), zhruba vycentrované na stejnou osu a
+ * podobné výšky písma (stejný typeset font). Životní případ "DVĚ cizí repliky
+ * náhodou pod sebou" je zde prakticky vyloučený - všechno v bublině je v YOLO boxu
+ * a tohle pravidlo se na něj nevztahuje.
+ */
+internal fun mergeArtCaptionBlocks(blocks: List<RawTextBlock>, boxes: List<DetectedBubbleBox>): List<RawTextBlock> {
+    if (blocks.size < 2) return blocks
+    val orphans = blocks.withIndex().filter { (_, b) ->
+        !b.isVertical && yoloBoxIndexContaining(b, boxes) == null
+    }
+    if (orphans.size < 2) return blocks
+
+    val parent = IntArray(blocks.size) { it }
+    fun find(x: Int): Int {
+        var r = x
+        while (parent[r] != r) r = parent[r]
+        var c = x
+        while (parent[c] != r) { val next = parent[c]; parent[c] = r; c = next }
+        return r
+    }
+
+    for (i in orphans.indices) {
+        for (j in i + 1 until orphans.size) {
+            val a = orphans[i].value
+            val b = orphans[j].value
+            val heightA = a.bottomF - a.topF
+            val heightB = b.bottomF - b.topF
+            val avgHeight = (heightA + heightB) / 2f
+            if (avgHeight <= 0f) continue
+            // Jiná velikost písma = jiný typeset prvek (nadpis + caption, kredit + text).
+            // Poměr menší:vetší výšky - nadpis s 3x větším písmem než caption pod ním
+            // se nesmí sloučit jen proto, že sedí na stejné ose.
+            if (maxOf(heightA, heightB) > minOf(heightA, heightB) * CAPTION_HEIGHT_RATIO) continue
+            val verticalGap = maxOf(0f, maxOf(a.topF, b.topF) - minOf(a.bottomF, b.bottomF))
+            if (verticalGap > avgHeight * CAPTION_MAX_GAP_LINES) continue
+            // Stejná typeset osa: středy blíž než čtvrtina širšího bloku - captiony
+            // se centrovaně sází na osu, dva cizí nápisy se středy skoro nikdy
+            // nesetkají. Případ podbarveného caption pruhu (stejné leftF/rightF)
+            // kryje i slabý překryv.
+            val centerA = (a.leftF + a.rightF) / 2f
+            val centerB = (b.leftF + b.rightF) / 2f
+            val wider = maxOf(a.rightF - a.leftF, b.rightF - b.leftF)
+            val overlap = minOf(a.rightF, b.rightF) - maxOf(a.leftF, b.leftF)
+            if (abs(centerA - centerB) > wider * 0.25f && overlap < wider * 0.3f) continue
+            val ri = find(orphans[i].index)
+            val rj = find(orphans[j].index)
+            if (ri != rj) parent[ri] = rj
+        }
+    }
+
+    return blocks.indices.groupBy { find(it) }.map { (_, idxs) ->
+        if (idxs.size == 1) blocks[idxs[0]] else mergeBubbleGroup(idxs.map { blocks[it] })
+    }
+}
+
+/** Viz [mergeArtCaptionBlocks] - caption řádky stejného fontu mají téměř stejnou výšku. */
+private const val CAPTION_HEIGHT_RATIO = 1.6f
+
+/** Viz [mergeArtCaptionBlocks] - řádky jednoho captionu jdou těsně za sebou. */
+private const val CAPTION_MAX_GAP_LINES = 1.2f
 
 /**
  * Sestaví jeden blok z členů téže bubliny - stejné zásady jako skupinový merge v

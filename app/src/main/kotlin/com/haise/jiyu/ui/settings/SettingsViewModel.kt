@@ -65,7 +65,6 @@ sealed interface SourceTestState {
 
 data class ReadingStats(
     val chaptersRead: Int  = 0,
-    val pagesRead: Long    = 0L,
     val readingTimeMs: Long = 0L,
 )
 
@@ -95,6 +94,9 @@ class SettingsViewModel @Inject constructor(
     private val kitsuAuthManager: KitsuAuthManager,
     private val kitsuRepository: KitsuRepository,
     private val muRepository: MangaUpdatesRepository,
+    private val comickAuthManager: com.haise.jiyu.data.tracking.ComickAuthManager,
+    private val comickRepository: com.haise.jiyu.data.tracking.ComickRepository,
+    private val comickImportManager: com.haise.jiyu.data.tracking.ComickImportManager,
     private val customFontRepository: com.haise.jiyu.translate.CustomFontRepository,
     private val byokTranslateClient: com.haise.jiyu.translate.ByokTranslateClient,
     private val proxyRepository: com.haise.jiyu.source.interceptor.ProxyRepository,
@@ -210,10 +212,9 @@ class SettingsViewModel @Inject constructor(
     // ── Statistiky ────────────────────────────────────────────────────────────
     val readingStats: StateFlow<ReadingStats> = combine(
         settings.totalReadingTimeMs,
-        settings.totalPagesRead,
         repository.observeReadChaptersCount(),
-    ) { timeMs, pages, chaptersRead ->
-        ReadingStats(chaptersRead, pages, timeMs)
+    ) { timeMs, chaptersRead ->
+        ReadingStats(chaptersRead, timeMs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReadingStats())
 
     // ── Záloha ────────────────────────────────────────────────────────────────
@@ -411,6 +412,87 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun malLogout() = viewModelScope.launch { malAuthManager.logout() }
+
+    // ── Comick OAuth + knihovna ───────────────────────────────────────────────
+    val comickIsConnected: StateFlow<Boolean> = comickAuthManager.isConnected
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val comickNeedsReconnect: StateFlow<Boolean> = comickAuthManager.needsReconnect
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** Scope skutecne udeleny na consent obrazovce - write funkce se gate'uji podle nej. */
+    val comickHasWriteScope: StateFlow<Boolean> = comickAuthManager.hasWriteScope
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _comickUsername = MutableStateFlow("")
+    val comickUsername: StateFlow<String> = _comickUsername.asStateFlow()
+
+    private val _comickAvatarUrl = MutableStateFlow<String?>(null)
+    val comickAvatarUrl: StateFlow<String?> = _comickAvatarUrl.asStateFlow()
+
+    // Init AZ za deklaracemi _comickUsername/_comickAvatarUrl - viewModelScope bezi na
+    // Main.immediate a isConnected emituje aktualni hodnotu synchronne pri collect,
+    // takze blok deklarovany drive by se prisel na pole, ktera jeste nejsou
+    // inicializovana (NPE pri konstrukci ViewModelu - realny pad zaznamenany na zarizeni).
+    init {
+        viewModelScope.launch {
+            comickAuthManager.isConnected.collect { connected ->
+                if (connected) {
+                    val me = comickRepository.getMe()
+                    _comickUsername.value = me?.username ?: ""
+                    _comickAvatarUrl.value = me?.avatarUrl
+                    settings.setComickUserName(me?.username)
+                } else {
+                    _comickUsername.value = ""
+                    _comickAvatarUrl.value = null
+                    settings.setComickUserName(null)
+                }
+            }
+        }
+    }
+
+    val comickSyncMode: StateFlow<String> = settings.comickSyncMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.haise.jiyu.settings.ComickSyncMode.OFF)
+
+    val comickLastSyncAt: StateFlow<Long> = settings.comickLastSyncAt
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val comickImportState: StateFlow<com.haise.jiyu.data.tracking.ComickImportState> = comickImportManager.state
+
+    val comickHasClientId: Boolean get() = comickRepository.hasClientId
+
+    /** [includeWrite] = re-auth se scope library:write (zapnuti obousmerne sync). */
+    fun startComickOAuth(includeWrite: Boolean = false, openBrowser: (Uri) -> Unit) = viewModelScope.launch {
+        val clientId = BuildConfig.COMICK_CLIENT_ID.takeIf { it.isNotBlank() } ?: return@launch
+        val uri = comickAuthManager.startOAuthFlow(clientId, includeWrite = includeWrite)
+        openBrowser(uri)
+    }
+
+    /** Odpojeni = revoke tokenu na Comicku + smazani lokalnich credentials. Lokalni knihovna zustava. */
+    fun comickDisconnect() = viewModelScope.launch {
+        val clientId = BuildConfig.COMICK_CLIENT_ID
+        comickAuthManager.disconnect(clientId)
+        settings.setComickSyncMode(com.haise.jiyu.settings.ComickSyncMode.OFF)
+    }
+
+    fun setComickSyncMode(mode: String) = viewModelScope.launch { settings.setComickSyncMode(mode) }
+
+    fun startComickImport() = viewModelScope.launch { comickImportManager.fetchAndPreview() }
+
+    fun confirmComickImport(preview: com.haise.jiyu.data.tracking.ComickImportPreview) =
+        viewModelScope.launch {
+            try {
+                comickImportManager.applyPreview(preview)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Zavreni settings uprostred apply: aplikovane entry zustanou (idempotentni),
+                // ale _state nesmi zustat viset v "Applying" - po znovuotevreni sheetu by se
+                // ukazal mrtvy indikátor. Reset na Idle je bezpecny (state zije v singletonu).
+                comickImportManager.reset()
+                throw e
+            }
+        }
+
+    fun resetComickImport() = comickImportManager.reset()
 
     // ── Kitsu OAuth ───────────────────────────────────────────────────────────
     val kitsuIsLoggedIn: StateFlow<Boolean> = kitsuAuthManager.isLoggedIn

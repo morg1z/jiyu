@@ -145,6 +145,12 @@ fun MangaDetailInfoScreen(
     val muIsLoggedIn        by viewModel.muIsLoggedIn.collectAsStateWithLifecycle()
     var showMuSheet         by remember { mutableStateOf(false) }
     var muSearchQuery       by remember { mutableStateOf("") }
+    val comickHid           by viewModel.comickHid.collectAsStateWithLifecycle()
+    val comickIsConnected   by viewModel.comickIsConnected.collectAsStateWithLifecycle()
+    val comickHasWriteScope by viewModel.comickHasWriteScope.collectAsStateWithLifecycle()
+    var showComickSheet     by remember { mutableStateOf(false) }
+    var comickSearchQuery   by remember { mutableStateOf("") }
+    var showComickUnfollow  by remember { mutableStateOf(false) }
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
@@ -632,6 +638,69 @@ fun MangaDetailInfoScreen(
                         }
                     }
 
+                    // Comick
+                    item {
+                        val comickColor = Color(0xFF6366F1)
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Text(
+                                text = "Comick",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = comickColor,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            if (!comickIsConnected) {
+                                Text(
+                                    stringResource(R.string.detail_info_comick_login_hint),
+                                    color = TextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                )
+                            } else if (comickHid != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(comickColor.copy(alpha = 0.08f))
+                                        .border(1.dp, comickColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                        .clickable { viewModel.openComickPage(context) }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(stringResource(R.string.detail_info_comick_id, comickHid!!), color = TextPrimary, fontSize = 14.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(onClick = {
+                                            comickSearchQuery = manga?.title ?: ""
+                                            viewModel.searchComick(comickSearchQuery)
+                                            showComickSheet = true
+                                        }) { Text(stringResource(R.string.common_change), color = comickColor, fontSize = 12.sp) }
+                                        IconButton(onClick = { viewModel.syncFromComick() }) {
+                                            Icon(TablerIcons.Refresh, contentDescription = stringResource(R.string.detail_info_sync_from_comick), tint = comickColor, modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(onClick = { viewModel.unlinkComick() }) {
+                                            Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_disconnect), tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                        }
+                                        if (comickHasWriteScope) {
+                                            IconButton(onClick = { showComickUnfollow = true }) {
+                                                Icon(TablerIcons.Trash, contentDescription = stringResource(R.string.detail_info_comick_unfollow), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        comickSearchQuery = manga?.title ?: ""
+                                        viewModel.searchComick(comickSearchQuery)
+                                        showComickSheet = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    border = BorderStroke(1.dp, comickColor.copy(alpha = 0.4f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = comickColor),
+                                ) { Text(stringResource(R.string.detail_info_link_comick)) }
+                            }
+                        }
+                    }
+
                     // ── Tagy ──────────────────────────────────────────────────
                     item {
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -898,23 +967,27 @@ fun MangaDetailInfoScreen(
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                             Text(text = stringResource(R.string.detail_info_section_downloads), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 8.dp))
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 6.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.04f))
-                                    .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
-                                    .clickable { viewModel.toggleAutoDownload() }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(stringResource(R.string.detail_info_auto_download), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                Switch(
-                                    checked = autoDownload,
-                                    onCheckedChange = { viewModel.toggleAutoDownload() },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
-                                )
+                            // Comick katalogove tituly nemaji stazitelne stranky (metadatove
+                            // kapitoly) - toggle by byl tiche no-op (viz ChapterUpdateWorker).
+                            if (manga?.sourceId != "comick") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.White.copy(alpha = 0.04f))
+                                        .border(1.dp, GlowViolet.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                                        .clickable { viewModel.toggleAutoDownload() }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(stringResource(R.string.detail_info_auto_download), color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                    Switch(
+                                        checked = autoDownload,
+                                        onCheckedChange = { viewModel.toggleAutoDownload() },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Violet, checkedTrackColor = GlowViolet.copy(alpha = 0.5f)),
+                                    )
+                                }
                             }
 
                             Row(
@@ -972,6 +1045,31 @@ fun MangaDetailInfoScreen(
             query = malSearchQuery,
             onQueryChange = { malSearchQuery = it },
             onDismiss = { showMalSheet = false },
+        )
+    }
+    if (showComickSheet) {
+        ComickSearchSheet(
+            viewModel = viewModel,
+            query = comickSearchQuery,
+            onQueryChange = { comickSearchQuery = it },
+            onDismiss = { showComickSheet = false },
+        )
+    }
+    if (showComickUnfollow) {
+        AlertDialog(
+            onDismissRequest = { showComickUnfollow = false },
+            title = { Text(stringResource(R.string.detail_info_comick_unfollow)) },
+            text = { Text(stringResource(R.string.detail_info_comick_unfollow_confirm)) },
+            confirmButton = {
+                TextButton(onClick = { showComickUnfollow = false; viewModel.unfollowComick() }) {
+                    Text(stringResource(R.string.detail_info_comick_unfollow), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showComickUnfollow = false }) {
+                    Text(stringResource(R.string.comick_import_cancel), color = TextSecondary)
+                }
+            },
         )
     }
 

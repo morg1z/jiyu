@@ -258,4 +258,34 @@ class OcrTextCleanupTest {
         // souseda - zustane kompaktni "MATA-HACHI", ne rozbite jmeno.
         assertEquals("MATA-HACHI", cleanOcrLatinText("MATA- HACHI", dict))
     }
+
+    // ── Číslice za písmena uvnitř verzálkových slov (audit Vagabond ch.6) ──
+
+    @Test
+    fun `a digit inside an uppercase word is fixed only via a dictionary hit`() {
+        // "B0RN" je moc kratke na heuristicky fixNoisyUpperToken (3 pismena), ale
+        // slovnik potvrdi nahradu 0->O primo. Stejne 5->S, 4->A, 8->B.
+        assertEquals("BORN", cleanOcrLatinText("B0RN", dict))
+        assertEquals("SMALL", cleanOcrLatinText("5MALL", dict))
+        assertEquals("LAVA", cleanOcrLatinText("L4VA", dict))
+        assertEquals("BORE", cleanOcrLatinText("80RE", dict))
+    }
+
+    @Test
+    fun `a digit word without a dictionary hit is left alone`() {
+        // "SAYL3" by po nahradach dalo max "SAYLE" - ve slovniku neni a distance-1
+        // lint se na rozsireny tvar nepousti (jinak by to mohlo dolintovat na
+        // jine realne slovo a preklad by vznikl nad necim uplne jinym).
+        assertEquals("SAYL3", cleanOcrLatinText("SAYL3", dict))
+    }
+
+    @Test
+    fun `real codes and numbers stay untouched`() {
+        // '2' nema vizualni pismenovou analogii -> R2D2 se nerozsiri.
+        assertEquals("R2D2", cleanOcrLatinText("R2D2", dict))
+        // Ciste ciselny token nema pismeno -> lint se ho netyka.
+        assertEquals("I'M 17", cleanOcrLatinText("I'M 17", dict))
+        // "F-16" po odstraneni pomlcky "F16" - jen 3 znaky, pod prahem.
+        assertEquals("F-16", cleanOcrLatinText("F-16", dict))
+    }
 }

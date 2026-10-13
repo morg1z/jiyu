@@ -75,6 +75,24 @@ fun flattenTranslatedPages(
 }
 
 /**
+ * Per-chapter set stránek s NEÚSPĚŠNÝM překladem (`chapterId` -> lokální indexy)
+ * -> plochý set přes všechny segmenty - stejný offset princip jako
+ * [flattenTranslatedPages], jen pro retry chip místo bublin.
+ */
+fun flattenFailedPages(
+    byChapter: Map<String, Set<Int>>,
+    segments: List<WebtoonSegment>,
+): Set<Int> {
+    val out = HashSet<Int>()
+    var offset = 0
+    for (seg in segments) {
+        byChapter[seg.chapterId]?.forEach { local -> out += offset + local }
+        offset += seg.pages.size
+    }
+    return out
+}
+
+/**
  * Globalni flip klice "$chapterId:$page:$bubble" -> plochy "$flatPage:$bubble" pres
  * vsechny segmenty. Bez tohohle by se lokalni indexy opakujici v kazde kapitole
  * krizily (flip na str. 3 kap. 1 by se zobrazil i na str. 3 kap. 2).
