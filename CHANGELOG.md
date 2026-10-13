@@ -4,6 +4,69 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.3
+
+### ComicK účet: přihlášení, import knihovny a dvoucestný sync
+
+- **Připojení ComicK účtu** — OAuth flow (`ComickCallbackActivity`), token se
+  drží v `ComickAuthManager`; připojení se nastavuje v Nastavení → Služby.
+- **Import knihovny z ComicK** — `ComickImportManager` stáhne celou ComicK
+  knihovnu přes Library API a před importem ukáže náhled: tituly se mapují
+  na lokální položky podle HID → slug → normalizovaného názvu (včetně
+  alt-title indexu), zbytek skončí jako nové/nespárované. Statusy,
+  progress i hodnocení se přepočítají na lokální hodnoty.
+- **Režim synchronizace** — `ComickSyncMode`: OFF (jen připojeno), PULL
+  (Comick → Jiyu: status/progress/rating při syncu a otevření detailu) a
+  TWOWAY (navíc Jiyu → Comick přes `putEntry`/`patchEntry`).
+
+### Překlad: recall OCR, selhané stránky a nižší spotřeba kvóty
+
+- **Stránka s dialogem už nekončí slepě** — na stránce, kde celostránkový ML
+  Kit vrátil 0 řádků (obří kanji SFX + jagged burst lettering), se spustí
+  záchranný průchod po překrývajících se čtvrtkách a recovery cropy mají
+  navíc upscale a binarizovanou variantu. Zamítnutý recovery blok teď
+  přežije, když je důvod `texture_field` (silný display lettering, audit:
+  "BATARD" s 82% pokrytím) a zdrojový YOLO box ho koroboruje — ostatní
+  důvody zamítnutí (no_ink, near_empty, parallel_hatching) se drží.
+- **Chip na selhané stránce** — stránka, která reálně selhala (chyba OCR
+  enginu/bitmapy, timeout, prázdná odpověď celého řetězce providerů, nebo
+  dávka co tiše vynechala její bubliny), dostane dole chip "Překlad selhal –
+  zkusit znovu"; tap spustí force-refresh retranslate jen té stránky.
+  Funguje ve všech třech čtečkách (pager, webtoon, page-curl). Stránky
+  bez textu a čisté SFX chip nedostanou - nejsou selhání.
+- **Postup OCR fáze je vidět** — ukazatel se nemrznul na posledním čísle,
+  protože počítal jen dokončené stránky; nově hlásí i průběh OCR
+  ("Rozpoznávám text… x/y") před samotnou překladovou fází.
+- **Menší spotřeba API kvóty** — self-review pass se spouští jen při zdravém
+  primárním provideru (Gemini), přeskočí se na degraded dávkách a už nemůže
+  vyvolat další OpenRouter fallback; přednačítání překladu další kapitoly se
+  gateuje zdravím primárního providera místo spuštění za každou cenu.
+- **Zombie notifikace po zrušeném workeru** — `TranslateChapterWorker` ruší
+  svoji foreground notifikaci ve `finally`, takže nevisí ve shade ani po
+  návratu aplikace do popředí.
+
+### Čtečka: mrtvé stránky bez indikátoru a webtoon zoom
+
+- **"Stránka se nenačte, loading se neukazuje"** — retry tlačítko u řezu
+  vysoké webtoon stránky nezvýšilo `retryTrigger`, takže po klepnutí na
+  "Zkusit znovu" se request nikdy nezopakoval a stránka zůstala prázdná do
+  restartu. Navíc: degenerate `Success` bez pixelů už neprochází jako úspěch
+  (jde do error/auto-retry cesty), stránka se nemůže zhroutit na 0 px výšky
+  a zaseklé `plan()` po 60 s přejde na error + funkční retry.
+- **Webtoon pinch zoom** — pan je ohraničený na obsah, tah přes okraj posune
+  webtoon pás (přestalo se ukazovat černo), zoom přežije přechod na další
+  kapitolu v infinite readingu.
+
+### Knihovna: duplikáty, drobné opravy
+
+- **Detekce duplicit podle tvůrce** — skupiny se už netvoří čistě podle
+  názvu: dvě různé série se stejným jménem a jiným autorem (typické u
+  ComicK, kde stejný název nese víc děl) se jako duplikát nenabídnou;
+  shoda autora/artisty je povinná, položky bez autora se přiřadí
+  k největší podskupině.
+- Fix NPE v `ReaderViewModel` init na JVM testech (ProcessLifecycleOwner
+  registrace bez main loopu).
+
 ## v2.0.2
 
 ### Překlad: bílé duchové písmen, kontaminace textury a falešná čínština
