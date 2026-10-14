@@ -85,6 +85,7 @@ fun NovelContent(
     onToggleGlossaryProtectExact: (GlossaryEntity) -> Unit = {},
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
+    autoNextChapter: Boolean = false,
     // Audit RD-6: pozice v novele = (index odstavce, pixel offset v nem) - obnovi se
     // z chapter.lastPageRead/lastScrollOffset a hlasi se zpet do VM
     // (onNovelProgressChanged), jinak novela nikdy nezapisuje postup/historii.
@@ -287,7 +288,11 @@ fun NovelContent(
                 textColor = textColor,
                 bgColor = bgColor,
                 onChapterBoundary = { direction ->
-                    if (direction == TurnDirection.NEXT) onNext() else onPrev()
+                    // Auto-next vypnuty = obrat za okraj kapitoly se jen vrati,
+                    // preklepnuty fling nesmi hodit na jinou kapitolu ani dozadu.
+                    if (autoNextChapter) {
+                        if (direction == TurnDirection.NEXT) onNext() else onPrev()
+                    }
                 },
                 curlStyle = curlStyle,
                 // Curl strankuje interne - hlasi (index stranky, 0, pocet stranek).

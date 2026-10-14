@@ -474,6 +474,7 @@
     <string name="resolver_missing_chapter">No tiene este capítulo</string>
     <string name="resolver_opening">Abriendo…</string>
     <string name="resolver_chapter_missing_after_select">Esta fuente no tiene realmente ese capítulo.</string>
+    <string name="resolver_chapter_not_in_english">Este capítulo solo existe en otro idioma - ninguna fuente disponible lo tiene en inglés.</string>
 
     <!-- Novela - modo agregado para fuentes de novelas -->
     <string name="novel_home_title">Novela</string>

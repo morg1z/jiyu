@@ -337,12 +337,17 @@ fun MangaPageCurlReader(
                         // Nekonecne cteni: za koncem posledniho znameho segmentu se
                         // misto tvrdeho prepnuti kapitoly jen dolnatahne dalsi - po
                         // appendu je "hranice" pryc a tah pokracuje do ni plynule.
-                        if (onNeedMorePages != null) onNeedMorePages() else onNavigateNextChapter()
+                        // Auto-next vypnuty = obrat za posledni stranku se jen vrati
+                        // (preklepnuty fling nesmi hodit na dalsi kapitolu).
+                        if (onNeedMorePages != null) onNeedMorePages()
+                        else if (autoNextChapter) onNavigateNextChapter()
                     } else {
                         // Symetricky pred zacatkem proudu: dolnatahnout predchozi
                         // kapitolu misto tvrde navigace (po prependu tah pokracuje
-                        // do noveho obsahu).
-                        if (onNeedPrevPages != null) onNeedPrevPages() else onNavigatePrevChapter()
+                        // do noveho obsahu). Bez auto-next se ani obrat zpet pred
+                        // prvni stranku na minulou kapitolu nehodi.
+                        if (onNeedPrevPages != null) onNeedPrevPages()
+                        else if (autoNextChapter) onNavigatePrevChapter()
                     }
                 }
             }

@@ -83,4 +83,35 @@ class ChapterLanguageTest {
         )
         assertEquals(listOf("10-en", "9-pt", "8-en"), list.preferEnglishChapters().map { it.id })
     }
+
+    // ── englishOnlyChapters (strict gate pro otevreni - silnejsi nez dedup) ────
+
+    @Test
+    fun `englishOnly drops non-EN rows even without EN counterpart - VN-ahead chapter`() {
+        // "Coffee wo Shizuka ni" bug: VN scanlation predbehnuta, dedup ne-EN radky
+        // necha (kompletnost cisel), ale otevrit se nesmi.
+        val list = listOf(ch("10-vi", 10f, "vi"), ch("9-en", 9f, "en"))
+        assertEquals(listOf("9-en"), list.englishOnlyChapters().map { it.id })
+    }
+
+    @Test
+    fun `englishOnly keeps en variants and null language`() {
+        val list = listOf(
+            ch("5-en", 5f, "en"), ch("5-enus", 5f, "en-us"),
+            ch("5-null", 5f, null), ch("5-vi", 5f, "vi"),
+        )
+        assertEquals(listOf("5-en", "5-enus", "5-null"), list.englishOnlyChapters().map { it.id })
+    }
+
+    @Test
+    fun `isEnglishChapterLanguage - null and blank are acceptable, families honored`() {
+        assert(isEnglishChapterLanguage(null))
+        assert(isEnglishChapterLanguage(""))
+        assert(isEnglishChapterLanguage("en"))
+        assert(isEnglishChapterLanguage("en-US"))
+        assert(isEnglishChapterLanguage("EN"))
+        assert(!isEnglishChapterLanguage("vi"))
+        assert(!isEnglishChapterLanguage("pt-br"))
+        assert(!isEnglishChapterLanguage("jp"))
+    }
 }

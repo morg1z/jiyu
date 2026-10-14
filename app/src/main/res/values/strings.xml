@@ -515,6 +515,7 @@
     <string name="resolver_missing_chapter">Tuhle kapitolu nemá</string>
     <string name="resolver_opening">Otevírám…</string>
     <string name="resolver_chapter_missing_after_select">Tenhle zdroj nakonec danou kapitolu nemá.</string>
+    <string name="resolver_chapter_not_in_english">Kapitola existuje jen v jiném jazyce - v angličtině ji žádný dostupný zdroj nemá.</string>
 
     <!-- Novela - agregovaný režim pro novelové zdroje -->
     <string name="novel_home_title">Novela</string>

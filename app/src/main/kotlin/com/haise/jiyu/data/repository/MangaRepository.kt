@@ -982,9 +982,18 @@ class MangaRepository @Inject constructor(
         val chapter = chapterDao.getById(chapterEntityId) ?: return emptyList()
         if (chapter.sourceId == "comick") return emptyList() // katalog sám není reálný zdroj
         val targets = LinkedHashMap<String, ComickProgressTarget>()
+        val lastReadUpdated = HashSet<String>()
         for (comickManga in mangaDao.findByResolvedSource(chapter.mangaId)) {
             val parents = chapterDao.findByMangaAndNumber(comickManga.id, chapter.chapterNumber)
             if (parents.isEmpty()) continue
+            // ComicK eviduje jednu logickou kapitolu viceradkové (skupina/jazyk) a dotaz
+            // neni razeny - parents.first() muze byt ne-EN radek, ktery EN filtr v
+            // continueChapter skryje; "Pokracovat" by pak pres fallback minByOrNull
+            // spadlo na kapitolu 1. lastReadChapterId (a remote push hid) proto mirí
+            // na radku, ktery se skutecne resolvoval, resp. prvni EN-oteviratelnou.
+            val primary = parents.firstOrNull { it.fallbackChapterId == chapterEntityId && it.isEnglishChapter() }
+                ?: parents.firstOrNull { it.isEnglishChapter() }
+                ?: parents.first()
             for (parent in parents) {
                 if (parent.fallbackChapterId != chapterEntityId) {
                     chapterDao.setFallbackTarget(parent.id, chapterEntityId)
@@ -992,19 +1001,25 @@ class MangaRepository @Inject constructor(
             }
             // "Pokračovat" na ComicK titulu má ukazovat na poslední čtenou kapitolu,
             // ne na tu, co byla naposledy ručně resolvována.
-            mangaDao.updateLastReadChapterAndTime(comickManga.id, parents.first().id, lastReadAt)
+            mangaDao.updateLastReadChapterAndTime(comickManga.id, primary.id, lastReadAt)
+            lastReadUpdated += comickManga.id
             comickManga.comickHid?.let { hid ->
-                targets.putIfAbsent(hid, comickPushTarget(hid, parents.first()))
+                targets.putIfAbsent(hid, comickPushTarget(hid, primary))
             }
         }
         // Rodice, co na tuto kapitolu uz fallback link maji (selectCandidate u comick
         // titulu bez resolvedMangaId, nebo manualni zdrojovy sweep) - autoritativni
-        // vazba i tam, kde resolvedMangaId lookup vyse nic nenasel.
-        for (parentChapter in chapterDao.findComickParentsOf(chapterEntityId)) {
-            val parentManga = mangaDao.getById(parentChapter.mangaId) ?: continue
+        // vazba i tam, kde resolvedMangaId lookup vyse nic nenasel. Bez zapisu
+        // lastReadChapterId by "Pokracovat" na nich zustalo viset na stare kapitole.
+        for ((parentMangaId, parentChapters) in chapterDao.findComickParentsOf(chapterEntityId).groupBy { it.mangaId }) {
+            val parentManga = mangaDao.getById(parentMangaId) ?: continue
             if (!parentManga.inLibrary) continue
+            val primary = parentChapters.firstOrNull { it.isEnglishChapter() } ?: parentChapters.first()
+            if (lastReadUpdated.add(parentMangaId)) {
+                mangaDao.updateLastReadChapterAndTime(parentMangaId, primary.id, lastReadAt)
+            }
             parentManga.comickHid?.let { hid ->
-                targets.putIfAbsent(hid, comickPushTarget(hid, parentChapter))
+                targets.putIfAbsent(hid, comickPushTarget(hid, primary))
             }
         }
         return targets.values.toList()

@@ -291,6 +291,7 @@ fun ReaderScreen(
                 onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
+                autoNextChapter = autoNextChapter,
                 // Audit RD-6: obnoveni a persist postupu i u novel (drive se nikdy
                 // nezapisoval lastPageRead/lastScrollOffset/read/historie).
                 initialIndex = currentPage,

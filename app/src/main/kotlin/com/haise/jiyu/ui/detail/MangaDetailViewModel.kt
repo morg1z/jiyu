@@ -35,6 +35,7 @@ import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.repository.DuplicateMatch
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.data.repository.chapterMatchKey
+import com.haise.jiyu.data.repository.englishOnlyChapters
 import com.haise.jiyu.data.repository.preferEnglishChapters
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.source.CrossSourceSearch
@@ -324,6 +325,13 @@ class MangaDetailViewModel @Inject constructor(
         // Vicejazycne agregatory (ComicK, comickart): u cisla s EN verzi zahodit
         // ne-EN radky, jinak se michaly jako nerozlisitelne duplicity (audit).
         result = result.preferEnglishChapters()
+        // Otevrit jde vzdycky jen EN radek (resolver na to ma strict gate), takze
+        // cizojazycne radky - i ty bez EN protejsku, ktere dedup necha - ze
+        // seznamu schovat uplne, jinak tap konci chybou/necitelnou kapitolou
+        // (nahlaseno: "Coffee wo Shizuka ni" oteviralo vietnamstinu). Kdyby
+        // filtr seznam vyprazdnil cely (titul existuje jen v jinem jazyce),
+        // nechat vsechno - titul zustane citelny.
+        result.englishOnlyChapters().takeIf { it.isNotEmpty() }?.let { result = it }
         if (asc) result.sortedBy { it.chapterNumber }
         else result.sortedByDescending { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -334,12 +342,14 @@ class MangaDetailViewModel @Inject constructor(
     // minByOrNull FILTROVANEHO seznamu - tj. na uplne jinou kapitolu, nebo zmizelo
     // uplne (audit - hlaseny "Spatne pokracovani pri zapnutem filtru").
     val continueChapter: StateFlow<ChapterEntity?> = combine(manga, _rawChapters) { m, chs ->
-        pickContinueChapter(chs, m?.lastReadChapterId)
+        // Jen EN-oteviratelne radky - "Pokracovat" jinak mohlo skocit na
+        // cizojazycnou verzi (resolver ji stejne neotevre). Fallback viz chapters.
+        pickContinueChapter(chs.englishOnlyChapters().ifEmpty { chs }, m?.lastReadChapterId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── První nepřečtená kapitola (#33) ───────────────────────────────────────
     val firstUnreadChapter: StateFlow<ChapterEntity?> = _rawChapters.map { chs ->
-        chs.filter { !it.read }.minByOrNull { it.chapterNumber }
+        chs.englishOnlyChapters().ifEmpty { chs }.filter { !it.read }.minByOrNull { it.chapterNumber }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── Auto-stahování (#32) ──────────────────────────────────────────────────

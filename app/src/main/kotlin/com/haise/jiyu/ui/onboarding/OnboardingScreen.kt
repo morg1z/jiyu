@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +30,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -120,6 +123,7 @@ fun OnboardingScreen(
             modifier = Modifier
                 .widthIn(max = 480.dp)
                 .fillMaxWidth()
+                .fillMaxHeight()
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -130,6 +134,9 @@ fun OnboardingScreen(
 
             // ── Obsah kroku (animovaný přechod) ──────────────────────────────
             AnimatedContent(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 targetState = step,
                 transitionSpec = {
                     val dir = if (targetState > initialState) 1 else -1
@@ -256,7 +263,13 @@ private fun BirthDatePickerDialog(onDismiss: () -> Unit, onPicked: (LocalDate) -
 // ── Krok 1: Jazyk ─────────────────────────────────────────────────────────────
 @Composable
 private fun LanguageStep(selectedLang: String, onSelect: (String) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         StepIcon(TablerIcons.Language)
         Spacer(Modifier.height(16.dp))
         Text(
@@ -291,7 +304,13 @@ private fun LanguageStep(selectedLang: String, onSelect: (String) -> Unit) {
 // ── Krok 2: Styl procházení (agregovaný vs. ruční výběr zdrojů) ────────────────
 @Composable
 private fun ModeStep(appMode: String, onSelect: (String) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         StepIcon(TablerIcons.Stack)
         Spacer(Modifier.height(16.dp))
         Text(
@@ -411,7 +430,13 @@ private fun ReadingStep(
     onDirSelect: (String) -> Unit,
     onModeSelect: (String) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         StepIcon(TablerIcons.Book)
         Spacer(Modifier.height(16.dp))
         Text(
@@ -455,7 +480,13 @@ private fun StorageStep(
     onPickFolder: () -> Unit,
     onClearFolder: () -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         StepIcon(TablerIcons.Folder)
         Spacer(Modifier.height(16.dp))
         Text(
@@ -534,7 +565,13 @@ private fun PrivacyStep(
     crashReporting: Boolean,
     onCrashReportingChange: (Boolean) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         StepIcon(TablerIcons.Lock)
         Spacer(Modifier.height(16.dp))
         Text(
@@ -654,7 +691,13 @@ private fun PrivacyStep(
 // ── Krok 6: Dokončení ─────────────────────────────────────────────────────────
 @Composable
 private fun DoneStep() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Box(
             modifier = Modifier
                 .size(80.dp)

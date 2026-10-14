@@ -1,5 +1,6 @@
 package com.haise.jiyu.source.comick
 
+import com.haise.jiyu.data.repository.isEnglishChapterLanguage
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.MangaFilter
 import com.haise.jiyu.source.MangaSource
@@ -141,26 +142,33 @@ class ComicKChapterResolver @Inject constructor(
         cache.put(comicKMangaId, CacheEntry(found.toList(), nowMs()))
     }
 
-    private fun toResolvedCandidate(c: CachedCandidate, favorites: Set<String>, requestedChapterNumber: Float?): ResolvedCandidate =
+    private fun toResolvedCandidate(c: CachedCandidate, favorites: Set<String>, requestedChapterNumber: Float?): ResolvedCandidate {
         // floor(), ne primy distinct(chapterNumber): nektere zdroje (napr. MangaPark) delci
         // jeden "logicky" preklad na vic zapisu s cisly X, X.1, X.2 - bez floor() by to
         // v pomeru vypadalo jako "242/209 kapitol" (vic nez 100 %), overeno zive na
         // MangaPark API pro Solo Leveling. floor() je stejna transformace jako u
         // SourceResolverViewModel.totalComicKChapters, takze pomer zustava srovnatelny.
-        ResolvedCandidate(
+        //
+        // Statistiky se pocitaji JEN z EN radku - comick.art mirror nese vsechny
+        // jazyky a cizojazycna verze cilove kapitoly by jinak ohlasila
+        // hasRequestedChapter=true (early-exit/auto-open na necitlivy jazyk -
+        // nahlaseny bug u "Coffee wo Shizuka ni") a nafoukla kompletnost.
+        val enChapters = c.chapters.filter { isEnglishChapterLanguage(it.language) }
+        return ResolvedCandidate(
             source = c.source,
             manga = c.manga,
-            matchedChapterCount = c.chapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
+            matchedChapterCount = enChapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
             hasRequestedChapter = requestedChapterNumber == null ||
-                c.chapters.any { abs(it.chapterNumber - requestedChapterNumber) < 0.01f },
+                enChapters.any { abs(it.chapterNumber - requestedChapterNumber) < 0.01f },
             isFavorite = c.source.id in favorites,
             nearestChapterDistance = requestedChapterNumber?.let { target ->
-                c.chapters.minOfOrNull { abs(it.chapterNumber - target) }
+                enChapters.minOfOrNull { abs(it.chapterNumber - target) }
             },
-            minChapterNumber = c.chapters.minOfOrNull { it.chapterNumber },
-            maxChapterNumber = c.chapters.maxOfOrNull { it.chapterNumber },
+            minChapterNumber = enChapters.minOfOrNull { it.chapterNumber },
+            maxChapterNumber = enChapters.maxOfOrNull { it.chapterNumber },
             isDirectMirror = c.isDirectMirror,
         )
+    }
 
     /**
      * `comicKTitle` je jen JEDEN z ComicK titulu md_titles - u řady titulů to není ten, pod

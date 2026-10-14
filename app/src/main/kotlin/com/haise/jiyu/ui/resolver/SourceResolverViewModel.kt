@@ -8,6 +8,8 @@ import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.repository.englishOnlyChapters
+import com.haise.jiyu.data.repository.isEnglishChapterLanguage
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
@@ -264,7 +266,11 @@ class SourceResolverViewModel @Inject constructor(
                 // sjednocuje granularitu s ComicKChapterResolver.matchedChapterCount (některé
                 // zdroje dělí jeden překlad na X, X.1, X.2 - bez floor() by šel poměr přes
                 // 100 %, viz komentář tam).
-                val allComicKChapters = repository.getAllChapters(chapter.mangaId)
+                // Jen EN radky - kompletnost/rozsah/signaly se meri proti cislum,
+                // ktera jdou skutecne otevrit v anglictine (viz strict gate v
+                // selectCandidate; jinak by VN/PT-predbehnuty titul nafouknul
+                // total i rozsah a kompletni EN zdroj selhal v thresholdu).
+                val allComicKChapters = repository.getAllChapters(chapter.mangaId).englishOnlyChapters()
                 _totalComicKChapters.value = allComicKChapters
                     .map { floor(it.chapterNumber).toInt() }.distinct().size
 
@@ -434,16 +440,19 @@ class SourceResolverViewModel @Inject constructor(
             e.report("resolver:remembered:${source.id}")
             return null
         }
-        if (!rememberedSourceUsable(chapters.map { it.chapterNumber }, requested, comicKRange)) return null
+        // Stejny EN gate jako selectCandidate - zapamatovany mirror by jinak mohl
+        // byt "usable" diky cizojazycne verzi cilove kapitoly.
+        val enChapters = chapters.filter { isEnglishChapterLanguage(it.language) }
+        if (!rememberedSourceUsable(enChapters.map { it.chapterNumber }, requested, comicKRange)) return null
         return ResolvedCandidate(
             source = source,
             manga = smanga,
-            matchedChapterCount = chapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
+            matchedChapterCount = enChapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
             hasRequestedChapter = true,
             isFavorite = source.id in settings.favoriteSourceIds.first(),
             nearestChapterDistance = 0f,
-            minChapterNumber = chapters.minOfOrNull { it.chapterNumber },
-            maxChapterNumber = chapters.maxOfOrNull { it.chapterNumber },
+            minChapterNumber = enChapters.minOfOrNull { it.chapterNumber },
+            maxChapterNumber = enChapters.maxOfOrNull { it.chapterNumber },
             isDirectMirror = source.id == ComicKArtSource.SOURCE_ID,
         )
     }
@@ -478,9 +487,19 @@ class SourceResolverViewModel @Inject constructor(
             try {
                 val mangaId = repository.openPreview(candidate.manga)
                 val resolvedChapters = repository.getAllChapters(mangaId)
-                val bestMatch = resolvedChapters.minByOrNull { abs(it.chapterNumber - target) }
+                // Cilova kapitola se vybira JEN z EN radku - comick.art mirror
+                // nese vsechny jazyky a cisty minByOrNull podle cisla mohl otevrit
+                // vietnamskou/cizojazycnou verzi tehoz cisla (nahlaseny bug u
+                // "Coffee wo Shizuka ni"). Null jazyk projde - zdroj jazyk
+                // nerozlisuje (EN zdroje uz jsou filtrovane ve sweepu).
+                val bestMatch = resolvedChapters.englishOnlyChapters()
+                    .minByOrNull { abs(it.chapterNumber - target) }
                 if (bestMatch == null) {
-                    _error.value = appContext.getString(R.string.resolver_chapter_missing_after_select)
+                    val existsInAnotherLanguage = resolvedChapters.any { abs(it.chapterNumber - target) < 0.01f }
+                    _error.value = appContext.getString(
+                        if (existsInAnotherLanguage) R.string.resolver_chapter_not_in_english
+                        else R.string.resolver_chapter_missing_after_select
+                    )
                 } else {
                     val finalChapter = resolveCompleteChapter(candidate, bestMatch, target)
                     // Realny zdroj (ktery appka jen tise pouziva na pozadi) se do knihovny
@@ -560,7 +579,9 @@ class SourceResolverViewModel @Inject constructor(
                 val altResult = kotlinx.coroutines.withTimeoutOrNull(FALLBACK_PAGE_CHECK_TIMEOUT_MS) {
                     val altMangaId = repository.openPreview(alt.manga)
                     val altChapters = repository.getAllChapters(altMangaId)
-                    val altChapter = altChapters.firstOrNull { abs(it.chapterNumber - target) < 0.01f } ?: return@withTimeoutOrNull null
+                    val altChapter = altChapters.firstOrNull {
+                        abs(it.chapterNumber - target) < 0.01f && isEnglishChapterLanguage(it.language)
+                    } ?: return@withTimeoutOrNull null
                     val altPages = repository.getChapterPages(altChapter.sourceId, altChapter.url, alt.manga.url)
                     altChapter to altPages.size
                 }

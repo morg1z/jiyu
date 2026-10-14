@@ -474,6 +474,7 @@
     <string name="resolver_missing_chapter">N\'a pas ce chapitre</string>
     <string name="resolver_opening">Ouverture…</string>
     <string name="resolver_chapter_missing_after_select">Cette source n\'a finalement pas ce chapitre.</string>
+    <string name="resolver_chapter_not_in_english">Ce chapitre n\'existe que dans une autre langue - aucune source disponible ne l\'a en anglais.</string>
 
     <!-- Novela - mode agrégé pour les sources de romans -->
     <string name="novel_home_title">Novela</string>

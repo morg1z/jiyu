@@ -7,6 +7,29 @@ private fun languageFamily(lang: String?): String? =
     lang?.substringBefore('-')?.lowercase()?.ifBlank { null }
 
 /**
+ * Strict EN gate pro "co se smi otevrit" - silnejsi nez [preferEnglishChapters]
+ * (dedup schvalne necha ne-EN cisla bez EN protejsku kvuli kompletnosti cislovani
+ * seznamu). Agregovany rezim cte anglicky: radek s jinym jazykem se pro otevreni/
+ * navigaci/pokracovani preskoci uplne, i kdyz EN verze tehoz cisla neexistuje
+ * (audit - "Coffee wo Shizuka ni" oteviralo vietnamskou kapitolu, protoze
+ * vyber ciloveho radku bezel jen podle cisla).
+ *
+ * null jazyk PROJDE - zdroj jazyk nerozlisuje a EN-only zdroje uz jsou odfiltrovane
+ * driv ve vyhledavani (viz ComicKChapterResolver.isSearchLanguage).
+ */
+fun isEnglishChapterLanguage(lang: String?): Boolean {
+    val fam = languageFamily(lang) ?: return true
+    return fam == "en"
+}
+
+/** Viz [isEnglishChapterLanguage]. */
+fun ChapterEntity.isEnglishChapter(): Boolean = isEnglishChapterLanguage(language)
+
+/** Jen radky otevritelne v anglictine - viz [isEnglishChapterLanguage]. */
+fun List<ChapterEntity>.englishOnlyChapters(): List<ChapterEntity> =
+    filter { it.isEnglishChapter() }
+
+/**
  * Dedup viceradkovych kapitol podle jazyka. Agregatory (ComicK, comickart) vraci
  * jednu logickou kapitolu per jazyk - bez filtru se v seznamu objevi "Ch.5" dvakrat
  * (anglicky i portugalsky) a radek neslibuje, co se otevre (audit - uzivatel hlasil

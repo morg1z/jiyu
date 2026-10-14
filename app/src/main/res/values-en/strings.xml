@@ -477,6 +477,7 @@
     <string name="resolver_missing_chapter">Doesn\'t have this chapter</string>
     <string name="resolver_opening">Opening…</string>
     <string name="resolver_chapter_missing_after_select">This source doesn\'t actually have that chapter.</string>
+    <string name="resolver_chapter_not_in_english">This chapter only exists in another language - no available source has it in English.</string>
 
     <!-- Novela - aggregated mode for novel sources -->
     <string name="novel_home_title">Novela</string>
