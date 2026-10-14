@@ -4,6 +4,39 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.4
+
+### Čtečka: jazyky, postup a plynulost
+
+- **Jen anglické kapitoly** — resolver na ComicK/comick.art vybíral kapitolu
+  čistě podle čísla, takže vietnamská/jiná variante se stejným číslem mohla
+  vyhrát (nahlášeno u Coffee wo Shizuka ni). Výběr kandidáta, statistiky,
+  early-exit i zapamatovaný zdroj teď jedou přes strict EN filtr
+  (`isEnglishChapterLanguage`); kapitola, co existuje jen v jiném jazyce,
+  skončí chybovou hláškou místo otevření. Filtr se drží i v detailu, ve
+  výběru "Pokračovat", v navigaci prev/next a nekonečném čtení. Tituly bez
+  EN řádků zůstávají čitelné (fallback na plný seznam).
+- **"Pokračovat" ukazuje na správnou kapitolu** — ComicK rodič pro
+  `lastReadChapterId` se vybíral jako `parents.first()` z neřazeného dotazu,
+  takže progress mohl přistát na skryté ne-EN variantě čísla a Continue
+  spadl zpátky na kapitolu 1. Nově se preferuje EN řádek a fallback-linked
+  rodiče bez `resolvedMangaId` dostávají `lastReadChapterId` taky.
+- **Žádné nechtěné přepínání kapitol v page-curl** — obrat/tap za poslední
+  (i zpět před první) stránku přeskakoval kapitolu bez ohledu na nastavení;
+  teď obě hranice respektují "Auto další kapitola".
+- **Plynulý návrat o kapitolu zpět** — předbíhání existovalo jen dopředu;
+  `preloadPrevChapter` stáhne seznam stránek předchozího dílu a jeho
+  poslední stránky předem, sdílená `adjacentChapterCache` slouží oběma
+  směrům i webtoon prependu.
+
+### Ostatní
+
+- Onboarding: při 4 kartách režimu čtení se tlačítko "Další" vytlačilo mimo
+  obrazovku — kroky teď scrollují a tlačítka drží dole.
+- Audit jazykových tagů všech ~130 zdrojů: fake EN tag nenalezen,
+  multijazyčné agregátory (ComicK, MangaDex, MangaPlus, Hitomi) jazyk řeší
+  správně na úrovni kapitol.
+
 ## v2.0.3
 
 ### ComicK účet: přihlášení, import knihovny a dvoucestný sync
