@@ -1236,6 +1236,14 @@ internal fun pickContinueChapter(chs: List<ChapterEntity>, lastReadId: String?):
     if (lastReadId == null) return chs.minByOrNull { it.chapterNumber }
     val last = chs.find { it.id == lastReadId } ?: return chs.minByOrNull { it.chapterNumber }
     if (!last.read) return last
-    return chs.filter { !it.read && it.chapterNumber > last.chapterNumber }
-        .minByOrNull { it.chapterNumber } ?: last
+    val candidates = chs.filter { !it.read && it.chapterNumber > last.chapterNumber }
+    val nextNum = candidates.minOfOrNull { it.chapterNumber } ?: return last
+    val block = candidates.filter { it.chapterNumber == nextNum }
+    // Vic verzi tehoz cisla (ruzne scanlacni skupiny) - drzet se skupiny, kterou
+    // uzivatel cetl; neni-li u ciloveho cisla, prvni dostupna verze (stejna
+    // lepivost jako adjacentChapterIndex v ctecce).
+    val lastGroup = last.scanlationGroup?.trim()?.lowercase()?.ifBlank { null }
+    return block.firstOrNull {
+        lastGroup != null && it.scanlationGroup?.trim()?.lowercase() == lastGroup
+    } ?: block.first()
 }

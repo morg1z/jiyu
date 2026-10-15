@@ -1399,6 +1399,57 @@ class ReaderViewModel @Inject constructor(
         return toMutableList().apply { add(pos, chapter) }
     }
 
+    /**
+     * Index sousedni kapitoly o [direction] od [fromIdx] v [allChapters] (seznam je
+     * DESC: -1 = dalsi/novejsi cislo, +1 = predchozi/starsi). Preskakuje vsechny
+     * radky se STEJNYM cislem kapitoly - vicenasobne verze od ruznych scanlacnich
+     * skupin jsou jedna logicka kapitola; bez dedupu "dalsi kapitola" prochazela
+     * 3x stejne cislo (hlaseno: 4 kliknuti na postup o jednu kapitolu v
+     * agregovanem ComicK rezimu).
+     *
+     * V bloku tehoz cisla preferuje radek se stejnou scanlacni skupinou jako
+     * vychozi kapitola ("drz se vybraneho prekladatele"); jeho skupina cilove
+     * cislo nema-li, vezme se prvni dostupna verze (fallback na jinou skupinu).
+     *
+     * [unreadOnly] (nastaveni "preskocit prectene") preskoci cela cisla, jejichz
+     * NEJAKA verze uz je prectena - prectenost se hodnoti na urovni cisla, ne
+     * radku, jinak by se neprectena duplikatni verze dala znovu otevrit.
+     *
+     * Cislo 0 znamena "zdroj cislo neudelil" - kazdy takovy radek je samostatna
+     * kapitola a dedup se na nej nevztahuje (stejna konvence jako
+     * preferEnglishChapters/chapterKey).
+     *
+     * @return index v [allChapters], nebo -1 kdyz zadny cil neexistuje.
+     */
+    private fun adjacentChapterIndex(fromIdx: Int, direction: Int, unreadOnly: Boolean): Int {
+        if (fromIdx !in allChapters.indices) return -1
+        val from = allChapters[fromIdx]
+        val fromGroup = from.scanlationGroup?.trim()?.lowercase()?.ifBlank { null }
+        fun sameGroup(i: Int) = fromGroup != null &&
+            allChapters[i].scanlationGroup?.trim()?.lowercase() == fromGroup
+        var i = fromIdx + direction
+        // Preskocit radky tehoz cisla jako vychozi kapitola (jen ocislovane).
+        if (from.chapterNumber != 0f) {
+            while (i in allChapters.indices &&
+                allChapters[i].chapterNumber == from.chapterNumber) i += direction
+        }
+        while (i in allChapters.indices) {
+            val num = allChapters[i].chapterNumber
+            // Konec bloku radku se stejnym nenulovym cislem.
+            var end = i
+            if (num != 0f) {
+                while (end + direction in allChapters.indices &&
+                    allChapters[end + direction].chapterNumber == num) end += direction
+            }
+            val block = minOf(i, end)..maxOf(i, end)
+            val pick = block.firstOrNull(::sameGroup) ?: i
+            if (!unreadOnly) return pick
+            if (block.none { allChapters[it].read }) return pick
+            i = end + direction
+        }
+        return -1
+    }
+
     private fun updateNavState() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "updateNavState")
@@ -1407,8 +1458,8 @@ class ReaderViewModel @Inject constructor(
         // idx == -1 = aktualni kapitola uz v seznamu neni (refresh/migrace mezi
         // getChapter a getAllChapters ji nahradil jinym id) - bez podminky by se
         // prev chapalo jako target=0 a skocilo na NEJNOVEJSI kapitolu.
-        _hasPrevChapter.value = idx >= 0 && idx < allChapters.lastIndex
-        _hasNextChapter.value = idx > 0
+        _hasPrevChapter.value = idx >= 0 && adjacentChapterIndex(idx, +1, unreadOnly = false) >= 0
+        _hasNextChapter.value = idx >= 0 && adjacentChapterIndex(idx, -1, unreadOnly = false) >= 0
     }
 
     fun jumpToChapter(chapterId: String) {
@@ -1418,12 +1469,10 @@ class ReaderViewModel @Inject constructor(
     fun navigateNext() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "navigateNext")
-        if (idx <= 0) return
-        val target = if (skipReadChapters.value) {
-            (idx - 1 downTo 0).firstOrNull { !allChapters[it].read } ?: (idx - 1)
-        } else {
-            idx - 1
-        }
+        if (idx < 0) return
+        val target = adjacentChapterIndex(idx, -1, skipReadChapters.value)
+            .takeIf { it >= 0 } ?: adjacentChapterIndex(idx, -1, unreadOnly = false)
+        if (target < 0) return
         launchLoadChapter(allChapters[target].id)
     }
 
@@ -1433,12 +1482,10 @@ class ReaderViewModel @Inject constructor(
         // idx == -1 = aktualni kapitola se v allChapters nenachazi (mezitim
         // probehla migrace/relink entit) - bez guardu by target=0 hodil na
         // allChapters[0], tedy NEJNOVEJSI kapitolu (hlaseny skok ch1 -> ch ~200).
-        if (idx < 0 || idx >= allChapters.lastIndex) return
-        val target = if (skipReadChapters.value) {
-            (idx + 1..allChapters.lastIndex).firstOrNull { !allChapters[it].read } ?: (idx + 1)
-        } else {
-            idx + 1
-        }
+        if (idx < 0) return
+        val target = adjacentChapterIndex(idx, +1, skipReadChapters.value)
+            .takeIf { it >= 0 } ?: adjacentChapterIndex(idx, +1, unreadOnly = false)
+        if (target < 0) return
         launchLoadChapter(allChapters[target].id)
     }
 
@@ -1447,8 +1494,10 @@ class ReaderViewModel @Inject constructor(
     private fun preloadNextChapter() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "preloadNextChapter")
-        if (idx <= 0) return
-        val nextChapter = allChapters[idx - 1]
+        if (idx < 0) return
+        val nextIdx = adjacentChapterIndex(idx, -1, unreadOnly = false)
+        if (nextIdx < 0) return
+        val nextChapter = allChapters[nextIdx]
         if (adjacentChapterCache.containsKey(nextChapter.id)) return
         if (preloadChapterId == nextChapter.id) return // in-flight - dalsi otoceni ho nesmi restartovat
         if (nextChapter.downloadStatus == DownloadStatus.DOWNLOADED) return
@@ -1486,8 +1535,10 @@ class ReaderViewModel @Inject constructor(
     private fun preloadPrevChapter() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "preloadPrevChapter")
-        if (idx < 0 || idx >= allChapters.lastIndex) return
-        val prevChapter = allChapters[idx + 1]
+        if (idx < 0) return
+        val prevIdx = adjacentChapterIndex(idx, +1, unreadOnly = false)
+        if (prevIdx < 0) return
+        val prevChapter = allChapters[prevIdx]
         if (adjacentChapterCache.containsKey(prevChapter.id)) return
         if (prevPreloadChapterId == prevChapter.id) return // in-flight
         if (prevChapter.downloadStatus == DownloadStatus.DOWNLOADED) return
@@ -1709,8 +1760,11 @@ class ReaderViewModel @Inject constructor(
         val lastChapterId = segments.lastOrNull()?.chapterId ?: return
         val lastIdx = chapterIndexOrTrace(lastChapterId, "appendNextWebtoonSegment")
         // allChapters je DESC (nejnovější první) - dalsi/novejsi kapitola je NIZSI index.
-        if (lastIdx <= 0) return
-        val nextChapter = allChapters[lastIdx - 1]
+        // Dedup podle cisla + lepivost na skupinu - viz adjacentChapterIndex.
+        if (lastIdx < 0) return
+        val nextIdx = adjacentChapterIndex(lastIdx, -1, unreadOnly = false)
+        if (nextIdx < 0) return
+        val nextChapter = allChapters[nextIdx]
         if (segments.any { it.chapterId == nextChapter.id }) return
         _webtoonAppendingNext.value = true
         appendingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1775,8 +1829,11 @@ class ReaderViewModel @Inject constructor(
         val firstChapterId = segments.firstOrNull()?.chapterId ?: return
         val firstIdx = chapterIndexOrTrace(firstChapterId, "prependPreviousWebtoonSegment")
         // allChapters je DESC (nejnovější první) - predchozi/starsi kapitola je VYSSI index.
-        if (firstIdx < 0 || firstIdx + 1 >= allChapters.size) return
-        val prevChapter = allChapters[firstIdx + 1]
+        // Dedup podle cisla + lepivost na skupinu - viz adjacentChapterIndex.
+        if (firstIdx < 0) return
+        val prevIdx = adjacentChapterIndex(firstIdx, +1, unreadOnly = false)
+        if (prevIdx < 0) return
+        val prevChapter = allChapters[prevIdx]
         if (segments.any { it.chapterId == prevChapter.id }) return
         _webtoonPrependingPrev.value = true
         prependingSegmentJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -2013,8 +2070,10 @@ class ReaderViewModel @Inject constructor(
     private fun preloadNextNovelChapter() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "preloadNextNovelChapter")
-        if (idx <= 0) return
-        val nextChapter = allChapters[idx - 1]
+        if (idx < 0) return
+        val nextIdx = adjacentChapterIndex(idx, -1, unreadOnly = false)
+        if (nextIdx < 0) return
+        val nextChapter = allChapters[nextIdx]
         val targetLanguage = _targetLanguage.value
         val sourceLanguage = _sourceLanguage.value
 
@@ -2054,8 +2113,10 @@ class ReaderViewModel @Inject constructor(
     private fun preloadNextChapterMangaTranslation() {
         val chapter = currentChapter ?: return
         val idx = chapterIndexOrTrace(chapter.id, "preloadNextChapterMangaTranslation")
-        if (idx <= 0) return
-        val nextChapter = allChapters[idx - 1]
+        if (idx < 0) return
+        val nextIdx = adjacentChapterIndex(idx, -1, unreadOnly = false)
+        if (nextIdx < 0) return
+        val nextChapter = allChapters[nextIdx]
         val targetLanguage = _targetLanguage.value
         val sourceLanguage = _sourceLanguage.value
 
