@@ -4,6 +4,22 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.5
+
+### Čtečka: duplicitní kapitoly od více překladatelů
+
+- **Navigace jde po číslech, ne po řádcích** — zdroj se 3 verzemi kap. 5 od
+  různých scanlačních skupin nutil 4 kliknutí na postup o jednu kapitolu;
+  "další/předchozí kapitola" teď přeskakuje všechny řádky stejného čísla.
+- **Lepivost na překladatele** — z verzí stejného čísla se preferuje skupina,
+  kterou uživatel čte; když ji cílová kapitola nemá, automaticky se vezme
+  jiná dostupná (kapitola se nikdy nepřeskočí). Skupinu si vybereš ťuknutím
+  na její řádek v seznamu kapitol.
+- **"Přeskočit přečtené" hodnotí číslo, ne řádek** — nepřečtená duplicitní
+  verze už přečtené kapitoly se znovu nenabídne.
+- Aplikováno jednotně: navigace, oba preloadery, webtoon append/prepend,
+  "Pokračovat" v detailu i přednačítání překladů.
+
 ## v2.0.4
 
 ### Čtečka: jazyky, postup a plynulost
