@@ -4,6 +4,33 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.6
+
+### Knihovna: správný postup i po přeskočení kapitol
+
+- **Otevření kapitoly se zapíše hned** — `lastReadChapterId` se dřív aktualizovalo
+  až při otočení stránky, takže přeskočení z kap. 0 na kap. 5 a odchod bez listování
+  nechával "Pokračovat" na kap. 0. Nové `recordChapterOpened` zapíše pozici už při
+  otevření, aniž by stránku označilo za přečtenou.
+- **ComicK propagace najde rodiče i bez přímého resolveru** — postup na resolved
+  zdroji se na ComicK katalog přenášel jen přes `resolvedMangaId` nebo přímý
+  fallback link na konkrétní kapitolu; kapitola, co se nikdy neresolvovala
+  (např. přeskočená kap. 8), propagaci minula. Nový dotaz najde ComicK rodiče
+  přes fallback link na jakoukoli jinou kapitolu téhož resolved zdroje a číslo
+  se nalinkuje zpětně.
+- **Self-heal starých záznamů** — `lastReadChapterId` ukazující na skrytou
+  ne-EN variantu čísla se při otevření detailu přemapuje na EN řádek tehoz
+  čísla místo návratu na kap. 0.
+
+### Čtečka: zaseknuté stránky se samy restartují
+
+- **Watchdog na načítání stránky** — request, co do 45 s nenahlásil výsledek
+  (mrtvé spojení, fronta hostitele), se sám zruší a zkusí znovu; dřív visel
+  jako věčný spinner až ~2,5 min a pomohl jen restart kapitoly/appky.
+- **Spinner místo černé díry při auto-retry** — stránka po selhání během
+  čekání na opakování ukazovala prázdný černý box; teď drží indikátor.
+  Stejná oprava platí pro řezy vysokých webtoon stránek.
+
 ## v2.0.5
 
 ### Čtečka: duplicitní kapitoly od více překladatelů
