@@ -1329,6 +1329,16 @@ class ReaderViewModel @Inject constructor(
         }
         lastPageChangeMs = System.currentTimeMillis()
         _loading.value = false
+        // "Naposledy ctena kapitola" se zapise uz pri OTEVRENI, ne az pri prvnim otoceni
+        // stranky - pristavaci stranka snapshotFlow neemituje, takze preskoceni na jinou
+        // kapitolu + odchod bez otoceni nechal "Pokracovat" trvale na predchozi kapitole
+        // (hlaseno: skok z kap.0 na kap.5 a domu stale ukazovalo 0). Pod inkognitem se
+        // jako vsude nezapisuje nic.
+        if (!_incognitoMode.value) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                repository.recordChapterOpened(chapter.id, chapter.mangaId)
+            }
+        }
         // Kazde plne nacteni kapitoly (jumpToChapter/navigateNext/navigatePrev/pocatecni otevreni)
         // zacina cerstvym jednosegmentovym seznamem - i pri zapnutem "Nekonecnem cteni" se dalsi
         // segmenty pridavaji az prubezne za cteni (viz appendNextWebtoonSegment), ne predem.

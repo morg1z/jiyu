@@ -99,6 +99,14 @@ class MangaDetailViewModel @Inject constructor(
     private val mangaId: String = checkNotNull(savedStateHandle["mangaId"])
 
     init {
+        // Self-heal lastReadChapterId ukazujiciho na ne-EN radek (zapis z doby pred
+        // EN preferenci) - namapuje se na EN radek tehoz cisla, jinak "Pokracovat"
+        // i karta knihovny ukazuji spatnou kapitolu. Jednorazova DB operace.
+        viewModelScope.launch {
+            try { repository.healLastReadChapter(mangaId) } catch (e: Exception) {
+                e.report("detail:healLastRead")
+            }
+        }
         // Auto-retry chapter load when connectivity is restored after an error
         viewModelScope.launch {
             networkMonitor.networkState.drop(1).collect { online ->
@@ -342,9 +350,9 @@ class MangaDetailViewModel @Inject constructor(
     // minByOrNull FILTROVANEHO seznamu - tj. na uplne jinou kapitolu, nebo zmizelo
     // uplne (audit - hlaseny "Spatne pokracovani pri zapnutem filtru").
     val continueChapter: StateFlow<ChapterEntity?> = combine(manga, _rawChapters) { m, chs ->
-        // Jen EN-oteviratelne radky - "Pokracovat" jinak mohlo skocit na
-        // cizojazycnou verzi (resolver ji stejne neotevre). Fallback viz chapters.
-        pickContinueChapter(chs.englishOnlyChapters().ifEmpty { chs }, m?.lastReadChapterId)
+        // EN filtr i fallback na plny seznam resi pickContinueChapter uvnitr -
+        // potrebuje raw radky i pro mapovani lastReadId skryteho EN filtrem.
+        pickContinueChapter(chs, m?.lastReadChapterId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // ── První nepřečtená kapitola (#33) ───────────────────────────────────────
@@ -1231,10 +1239,25 @@ internal fun isNotFoundError(e: Throwable): Boolean =
  * "Pokračovat 131" - remote progress.number je poslední přečtená, ne další).
  * Když za ní nic nepřečteného není, vrátí se poslední kapitola (dočtená série).
  */
-internal fun pickContinueChapter(chs: List<ChapterEntity>, lastReadId: String?): ChapterEntity? {
-    if (chs.isEmpty()) return null
+internal fun pickContinueChapter(rawChs: List<ChapterEntity>, lastReadId: String?): ChapterEntity? {
+    if (rawChs.isEmpty()) return null
+    // Jen EN-oteviratelne radky (resolver na ne-EN odpovi errorem); fallback na plny
+    // seznam u titulu, co EN radky nema vubec.
+    val chs = rawChs.englishOnlyChapters().ifEmpty { rawChs }
     if (lastReadId == null) return chs.minByOrNull { it.chapterNumber }
-    val last = chs.find { it.id == lastReadId } ?: return chs.minByOrNull { it.chapterNumber }
+    var last = chs.find { it.id == lastReadId }
+    if (last == null) {
+        // lastReadId ukazuje na radek, ktery zobrazovany seznam nema - typicky stary
+        // zapis z doby pred EN preferenci (ne-EN varianta cisla, kterou EN filtr ted
+        // skryva). Namapovat podle cisla na EN radek tehoz cisla misto padu na
+        // minByOrNull = kapitola 1/0 (hlaseno: "cetl do 8, knihovna ukazuje 0").
+        // Cislo 0 nededuplikujeme - vice bezciselnych kapitol jsou odlisne entity.
+        val stored = rawChs.find { it.id == lastReadId }
+        if (stored != null && stored.chapterNumber != 0f) {
+            last = chs.firstOrNull { it.chapterNumber == stored.chapterNumber }
+        }
+    }
+    if (last == null) return chs.minByOrNull { it.chapterNumber }
     if (!last.read) return last
     val candidates = chs.filter { !it.read && it.chapterNumber > last.chapterNumber }
     val nextNum = candidates.minOfOrNull { it.chapterNumber } ?: return last

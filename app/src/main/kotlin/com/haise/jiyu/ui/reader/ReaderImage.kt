@@ -100,8 +100,26 @@ internal fun buildPageImageRequest(
  * ([SourceRateLimitedException]) je z principu přechodný stav - zdroj si sám řekl,
  * kdy máme přijít znovu - takže dostane víc pokusů než obyčejná síťová chyba.
  */
-internal fun pageAutoRetryCount(error: Throwable?): Int =
-    if (error is SourceRateLimitedException) 3 else 1
+internal fun pageAutoRetryCount(error: Throwable?): Int = when (error) {
+    is SourceRateLimitedException -> 3
+    // Zaseknutý request (watchdog) - stall se po zrušení typicky rozpadne,
+    // takže jeden pokus navíc oproti obyčejné síťové chybě.
+    is PageLoadTimeoutException -> 2
+    else -> 1
+}
+
+/**
+ * Watchdog strop jednoho image requestu - stránka, co do této doby nenahlásila
+ * Success/Error, skoro určitě visí na mrtvém spojení nebo frontě hostitele
+ * (OkHttp ji povolí držet až ~callTimeout ≈ 2,5 min - uživatel to vidí jako
+ * věčný spinner nebo černou díru a restartuje appku). Překročení se přehodí do
+ * error/auto-retry cesty - request se zruší a zkusí se znovu, stejný trik jako
+ * ruční "Zkusit znovu", jen automaticky.
+ */
+internal const val PAGE_LOAD_WATCHDOG_MS = 45_000L
+
+/** Sentinel pro "request nedoběhl do [PAGE_LOAD_WATCHDOG_MS]" - rozlišuje watchdog od síťové chyby v retry politice. */
+internal class PageLoadTimeoutException : Exception("Načtení stránky vypršelo")
 
 /**
  * Prodleva před automatickým opakováním. U 429 respektuje `Retry-After` ze serveru
@@ -177,6 +195,19 @@ fun RetryableAsyncImage(
     // viz pageAutoRetryCount/pageAutoRetryDelayMs). Trvalá chyba se po vyčerpání
     // pokusů ukáže s tlačítkem "Zkusit znovu".
     var autoRetries by remember(url) { mutableStateOf(0) }
+    // Watchdog na zaseknutý request - viz PAGE_LOAD_WATCHDOG_MS. Bez něj Loading
+    // stav visel do limitu OkHttp klienta (~2,5 min) jako věčný spinner; "za ní
+    // je vše načtené, jen tahle jedna se točí" (nahlášeno). Přehození do error
+    // stavu nechává existující auto-retry smyčku request zrušit a zkusit znovu.
+    // `retryTrigger` je součástí klíče - každý nový pokus hodinky re-armuje.
+    LaunchedEffect(isLoading, retryTrigger) {
+        if (!isLoading) return@LaunchedEffect
+        kotlinx.coroutines.delay(PAGE_LOAD_WATCHDOG_MS)
+        if (isLoading) {
+            errorCause = PageLoadTimeoutException()
+            isError = true
+        }
+    }
     LaunchedEffect(isError) {
         // autoRetries se navyšuje až PO delay - jinak by podmínka error UI
         // (autoRetries >= max) blýskla během čekání na opakovaný pokus.
@@ -232,7 +263,10 @@ fun RetryableAsyncImage(
                 onLoadedChange?.invoke(state is AsyncImagePainter.State.Success && !badSuccess)
             },
         )
-        if (isLoading && !isError) {
+        // Během čekání na automatický retry (isError=true, pokusy ještě nevyčerpány)
+        // taky držet indikátor - jinak byla stránka po dobu prodlevy jen černá díra
+        // (nahlášeno: "page je černá, za ní vše načtené").
+        if ((isLoading && !isError) || (isError && autoRetries < pageAutoRetryCount(errorCause))) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 ReaderPageLoadingIndicator()
             }

@@ -168,4 +168,52 @@ class MangaRepositoryComickProgressTest {
         assertEquals(en.id, db.mangaDao().getById(comickMangaId)!!.lastReadChapterId)
         assertTrue(db.chapterDao().getById(en.id)!!.read)
     }
+
+    @Test
+    fun `propagace najde rodice pres link na jinou kapitolu tehoz resolved zdroje`() = runTest {
+        // Hlaseny bug: cteni dopredu v resolved zdroji na kapitolu, ktera sama
+        // nikdy neprosla resolverem (skok z kap.0 na kap.8) - lastReadChapterId
+        // zustalo viset na stare kapitole, knihovna ukazovala kap.0.
+        // ComicK manga BEZ resolvedMangaId; kap.5 ma fallback link na resolved
+        // kap.5 (kdysi resolvovana), kap.8 link nema - propagace ji musi najit
+        // podle cisla pres manga-level vazbu.
+        seed(resolvedLink = false)
+        val res5 = resolvedChapter(5f)
+        val res8 = resolvedChapter(8f)
+        val comick5 = comickChapter(5f, hid = "en5", lang = "en")
+        val comick8 = comickChapter(8f, hid = "en8", lang = "en")
+        db.chapterDao().upsertAll(listOf(res5, res8, comick5, comick8))
+        db.chapterDao().setFallbackTarget(comick5.id, res5.id)
+
+        repository.propagateReadProgressToLinkedChapters(
+            res8.id, read = false, lastPageRead = 12, lastReadAt = 2000L, pageCount = 24,
+        )
+
+        // ComicK kap.8 se nalinkovala a lastRead ukazuje na ni
+        assertEquals(res8.id, db.chapterDao().getById(comick8.id)!!.fallbackChapterId)
+        assertEquals(comick8.id, db.mangaDao().getById(comickMangaId)!!.lastReadChapterId)
+        assertTrue(db.chapterDao().getById(comick8.id)!!.lastPageRead == 12)
+    }
+
+    @Test
+    fun `recordChapterOpened zapise lastRead i na ComicK rodice bez dotknuti postupu`() = runTest {
+        // Skok na jinou kapitolu + odchod bez otoceni stranky - zadny
+        // PageProgressEvent se neposlal, takze "Pokracovat" zustavalo na stare
+        // kapitole. recordChapterOpened zapise jen lastReadChapterId (resolved
+        // mange + ComicK rodicum), ale read/lastPageRead nesmi hybat.
+        seed()
+        val resolved = resolvedChapter(3f)
+        db.chapterDao().upsertAll(listOf(resolved))
+
+        repository.recordChapterOpened(resolved.id, resolved.mangaId)
+
+        assertEquals(resolved.id, db.mangaDao().getById(resolvedMangaId)!!.lastReadChapterId)
+        val (vn, en) = db.chapterDao().findByMangaAndNumber(comickMangaId, 3f)
+            .partition { it.language == "vi" }.let { it.first.single() to it.second.single() }
+        assertEquals(en.id, db.mangaDao().getById(comickMangaId)!!.lastReadChapterId)
+        // Jen otevreni - nic se neoznacilo prectenym ani se neposunula pozice.
+        assertTrue(!db.chapterDao().getById(vn.id)!!.read)
+        assertTrue(!db.chapterDao().getById(en.id)!!.read)
+        assertEquals(0, db.chapterDao().getById(en.id)!!.lastPageRead)
+    }
 }

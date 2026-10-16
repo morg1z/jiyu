@@ -989,6 +989,17 @@ private fun WebtoonPageSlice(
             retryTrigger++
         }
     }
+    // Watchdog jako v RetryableAsyncImage - zaseknutý fetch řezu (mrtvé spojení /
+    // fronta hostitele) by jinak visel jako trvalá černá díra uprostřed řezané
+    // stránky do limitu OkHttp klienta.
+    LaunchedEffect(isLoading, retryTrigger) {
+        if (!isLoading) return@LaunchedEffect
+        delay(PAGE_LOAD_WATCHDOG_MS)
+        if (isLoading) {
+            errorCause = PageLoadTimeoutException()
+            isError = true
+        }
+    }
     val request = remember(pageUrl, sliceIndex, referer, cropBorders, retryTrigger) {
         ImageRequest.Builder(context)
             .data(PageSliceRequest(pageUrl, sliceIndex, referer, cropBorders))
@@ -1011,7 +1022,8 @@ private fun WebtoonPageSlice(
                 isLoading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
             },
         )
-        if (isLoading && !isError) {
+        // Během čekání na auto-retry držet indikátor - jinak je řez černá díra.
+        if ((isLoading && !isError) || (isError && autoRetries < pageAutoRetryCount(errorCause))) {
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(24.dp),

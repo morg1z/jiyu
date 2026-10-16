@@ -103,6 +103,18 @@ interface ChapterDao {
     @Query("SELECT * FROM chapter WHERE fallbackChapterId = :resolvedChapterId AND sourceId = 'comick'")
     suspend fun findComickParentsOf(resolvedChapterId: String): List<ChapterEntity>
 
+    /** ID ComicK mang, ktere maji NEJAKOU kapitolu nalinkovanou fallbackem na
+     *  jakoukoli kapitolu resolved mangy [resolvedMangaId] - doplneni k
+     *  MangaDao.findByResolvedSource pro tituly, kde resolvedMangaId nebylo
+     *  zapsano nebo ukazuje na jiny resolved zdroj (cteni dopredu v resolved
+     *  zdroji na kapitolu, ktera se sama nikdy explicitne neresolvovala). */
+    @Query(
+        "SELECT DISTINCT c.mangaId FROM chapter c " +
+            "JOIN chapter r ON c.fallbackChapterId = r.id " +
+            "WHERE r.mangaId = :resolvedMangaId AND c.sourceId = 'comick'"
+    )
+    suspend fun findComickMangasLinkedToResolved(resolvedMangaId: String): List<String>
+
     /** Všechny kapitoly mangy se zadaným číslem (tolerance jako u resolveru - ComicK může
      *  mít "12" a zdroj "12.0"). ComicK eviduje jednu logickou kapitolu vícekrát (po jedné
      *  za překladatelskou skupinu), proto List - všechny varianty se linkují na stejný cíl. */

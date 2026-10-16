@@ -983,9 +983,12 @@ class MangaRepository @Inject constructor(
         if (chapter.sourceId == "comick") return emptyList() // katalog sám není reálný zdroj
         val targets = LinkedHashMap<String, ComickProgressTarget>()
         val lastReadUpdated = HashSet<String>()
-        for (comickManga in mangaDao.findByResolvedSource(chapter.mangaId)) {
+        // Spolecna cast pro vsechny cesty nalezeni ComicK rodice: podle cisla
+        // kapitoly najde rodicovske radky, nalinkuje je na resolved kapitolu a
+        // prepise lastReadChapterId na EN-oteviratelny radek.
+        suspend fun linkParentManga(comickManga: com.haise.jiyu.data.db.entity.MangaEntity) {
             val parents = chapterDao.findByMangaAndNumber(comickManga.id, chapter.chapterNumber)
-            if (parents.isEmpty()) continue
+            if (parents.isEmpty()) return
             // ComicK eviduje jednu logickou kapitolu viceradkové (skupina/jazyk) a dotaz
             // neni razeny - parents.first() muze byt ne-EN radek, ktery EN filtr v
             // continueChapter skryje; "Pokracovat" by pak pres fallback minByOrNull
@@ -1006,6 +1009,19 @@ class MangaRepository @Inject constructor(
             comickManga.comickHid?.let { hid ->
                 targets.putIfAbsent(hid, comickPushTarget(hid, primary))
             }
+        }
+        for (comickManga in mangaDao.findByResolvedSource(chapter.mangaId)) {
+            linkParentManga(comickManga)
+        }
+        // Rodice nalinkovani na TUTO resolved mangu pres kteroukoli JINOU svoji
+        // kapitolu (resolvedMangaId nebylo zapsano nebo ukazuje na jiny zdroj) -
+        // cteni dopredu na kapitolu, ktera sama nikdy neprosla resolverem
+        // (hlaseno: preskoceni z kap.0 na kap.8 - knihovna pak ukazovala 0).
+        for (parentMangaId in chapterDao.findComickMangasLinkedToResolved(chapter.mangaId)) {
+            if (parentMangaId in lastReadUpdated) continue
+            val parentManga = mangaDao.getById(parentMangaId) ?: continue
+            if (!parentManga.inLibrary) continue
+            linkParentManga(parentManga)
         }
         // Rodice, co na tuto kapitolu uz fallback link maji (selectCandidate u comick
         // titulu bez resolvedMangaId, nebo manualni zdrojovy sweep) - autoritativni
@@ -1050,6 +1066,39 @@ class MangaRepository @Inject constructor(
 
     suspend fun updateLastReadChapter(mangaId: String, chapterId: String) =
         mangaDao.updateLastReadChapterAndTime(mangaId, chapterId, System.currentTimeMillis())
+
+    /**
+     * Zapise "naposledy otevrena kapitola" uz pri OTEVRENI ctecky, ne az pri prvnim
+     * otoceni stranky (to teprve vyvola PageProgressEvent). Bez toho preskoceni na
+     * jinou kapitolu + okamzity odchod nechal "Pokracovat" trvale ukazovat na
+     * predchozi kapitolu - snapshotFlow v UI hlasi jen ZMENY stranky, pristavaci
+     * stranka event nevyvola (hlaseno: skok z kap.0 na kap.5 a domu stale ukazovalo 0).
+     * Meni jen lastReadChapterId (+ propagace na ComicK rodice); lastPageRead ani
+     * stav "precteno" se nezapisuje - ty pise az skutecne strankovani.
+     */
+    suspend fun recordChapterOpened(chapterEntityId: String, mangaId: String) {
+        val now = System.currentTimeMillis()
+        mangaDao.updateLastReadChapterAndTime(mangaId, chapterEntityId, now)
+        linkFallbackParentsForResolved(chapterEntityId, now)
+    }
+
+    /**
+     * Self-heal starych zapisu: [MangaEntity.lastReadChapterId] ukazuje na radek,
+     * ktery EN filtr ted skryva (zapis z doby pred EN preferenci - ne-EN varianta
+     * cisla, viz linkFallbackParentsForResolved). Zobrazovaci cesty (detail
+     * "Pokracovat", karta knihovny pres JOIN) by ho nenasly/zobrazily spatne cislo.
+     * Namapovat na EN-oteviratelny radek TEHOZ cisla; ostatni pripady (radek
+     * chybi uplne, cislo 0 - nededuplikovatelne) nechat byt.
+     */
+    suspend fun healLastReadChapter(mangaId: String) {
+        val manga = mangaDao.getById(mangaId) ?: return
+        val lastId = manga.lastReadChapterId ?: return
+        val stored = chapterDao.getById(lastId) ?: return
+        if (stored.isEnglishChapter() || stored.chapterNumber == 0f) return
+        val enSibling = chapterDao.findByMangaAndNumber(mangaId, stored.chapterNumber)
+            .firstOrNull { it.isEnglishChapter() } ?: return
+        mangaDao.updateLastReadChapterAndTime(mangaId, enSibling.id, manga.lastReadAt)
+    }
 
     suspend fun getChapter(chapterEntityId: String) = chapterDao.getById(chapterEntityId)
     suspend fun getManga(mangaId: String) = mangaDao.getById(mangaId)
