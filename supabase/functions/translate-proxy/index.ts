@@ -304,7 +304,9 @@ function retryDelaySecondsFromGeminiBody(bodyText: string): number | undefined {
 
 /**
  * Denní strop. ZÁMĚRNĚ globální (jedna řádka na den za celý projekt), ne per-uživatel -
- * funkce běží s verify_jwt=false a appka je osobní, takže tu není koho identifikovat.
+ * funkce běží s verify_jwt=true (gateway pustí jen platný JWT, klient posílá anon klíč),
+ * ale appka je osobní, takže tu není koho smysluplně identifikovat - volající s anon
+ * klíčem z APK není rozlišitelný od uživatele.
  *
  * Důsledek, o kterém je dobré vědět: kdo si z veřejného APK vytáhne URL + anon klíč,
  * může tenhle strop vyčerpat a tím odstavit překlad i skutečnému uživateli. U osobní
