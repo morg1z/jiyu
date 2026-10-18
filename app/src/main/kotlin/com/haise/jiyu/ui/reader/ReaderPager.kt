@@ -132,6 +132,9 @@ fun MangaReader(
     translateFailedPages: Set<Int> = emptySet(),
     /** Plochý index -> retry překladu stránky (ReaderContent mapuje na chapterId+lokální). */
     onRetranslatePage: (pageIndex: Int) -> Unit = {},
+    /** Plochý index stránky, co definitivně selhala - cross-source donor splice
+     *  (ReaderContent mapuje na chapterId+lokální jako onRetranslatePage). */
+    onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
     /**
@@ -433,6 +436,7 @@ fun MangaReader(
                     onEditBubble = onEditBubble,
                     translateFailedPages = translateFailedPages,
                     onRetranslatePage = onRetranslatePage,
+                    onPagePermanentlyFailed = onPagePermanentlyFailed,
                     // Globalni crossfade(true) prehrava ~300ms fade i u stranek z DISK cache
                     // (fade preskoci jen memory-cache hit) - prefetched stranky pak na kazdem
                     // otoceni "dolehaly" misto okamziteho zobrazeni jako v Kotatsu.
@@ -460,6 +464,8 @@ fun MangaGroupContent(
     /** Indexy stránek s neúspěšným překladem - retry chip (viz TranslationFailedChip). */
     translateFailedPages: Set<Int> = emptySet(),
     onRetranslatePage: (pageIndex: Int) -> Unit = {},
+    /** Index stránky v `pages`, co vyčerpala retry - donor splice (viz ReaderViewModel). */
+    onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.onLoadedChange - curl čtečky tímhle poznají, kdy je bezpečné
     // (znovu) zamrazit skupinu do bitmapy pro ohýbání, místo aby zamrzly prázdný/rozsypaný
     // placeholder navždy.
@@ -488,6 +494,7 @@ fun MangaGroupContent(
                     onLoadedChange = { imageLoaded = it },
                     disableCrossfade = disableCrossfade,
                     referer = referer,
+                    onPermanentFailure = { onPagePermanentlyFailed(indices[0]) },
                 )
                 if (translateMode) {
                     val blocks = translatedPages[indices[0]]
@@ -546,6 +553,7 @@ fun MangaGroupContent(
                         onLoadedChange = { loaded -> loadedFlags[i] = loaded },
                         disableCrossfade = disableCrossfade,
                         referer = referer,
+                        onPermanentFailure = { onPagePermanentlyFailed(idx) },
                     )
                     if (translateMode) {
                         val blocks = translatedPages[idx]

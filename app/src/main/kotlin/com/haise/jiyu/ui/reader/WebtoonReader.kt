@@ -132,6 +132,9 @@ fun WebtoonReader(
     translateFailedPagesByChapter: Map<String, Set<Int>> = emptyMap(),
     /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
     onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
+    /** Stránka definitivně selhala (retry vyčerpány) - cross-source donor splice
+     *  (viz ReaderViewModel.onPagePermanentlyFailed). */
+    onPagePermanentlyFailed: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     // True po dobu, co ViewModel stahuje a připojuje další segment (viz
     // ReaderViewModel.appendNextWebtoonSegment) - bez indikace uživatel na konci
     // poslední stránky jen marně swipoval, než fetch doběhl (live audit: ~28 s
@@ -503,6 +506,7 @@ fun WebtoonReader(
                 onEditBubble = onEditBubble,
                 translateFailedPages = translateFailedPagesByChapter[seg.chapterId] ?: emptySet(),
                 onRetranslatePage = { index -> onRetranslatePage(seg.chapterId, index) },
+                onPagePermanentlyFailed = { index -> onPagePermanentlyFailed(seg.chapterId, index) },
                 referer = referer,
                 placeholderAspectRatio = placeholderAspectRatio,
                 onPageAspectMeasured = { ratio ->
@@ -544,6 +548,7 @@ private fun LazyListScope.webtoonSegmentItems(
     onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
     translateFailedPages: Set<Int>,
     onRetranslatePage: (pageIndex: Int) -> Unit,
+    onPagePermanentlyFailed: (pageIndex: Int) -> Unit,
     referer: String?,
     placeholderAspectRatio: Float,
     onPageAspectMeasured: (Float) -> Unit,
@@ -567,6 +572,7 @@ private fun LazyListScope.webtoonSegmentItems(
             onEditBubble = { pi, ot, ct, x, y -> onEditBubble(segment.chapterId, pi, ot, ct, x, y) },
             translationFailed = index in translateFailedPages,
             onRetranslate = { onRetranslatePage(index) },
+            onPermanentFailure = { onPagePermanentlyFailed(index) },
             referer = referer,
             placeholderAspectRatio = placeholderAspectRatio,
             onPageAspectMeasured = onPageAspectMeasured,
@@ -691,6 +697,9 @@ private fun WebtoonPage(
      *  legitimní "stránky bez textu" (hlášená str. 13 Vagabond ch7). */
     translationFailed: Boolean = false,
     onRetranslate: () -> Unit = {},
+    /** Stránka definitivně selhala (image retry vyčerpány / plan timeout / mrtvý řez) -
+     *  volající zkusí donor splice z jiného zdroje. */
+    onPermanentFailure: () -> Unit = {},
     referer: String? = null,
     placeholderAspectRatio: Float = WEBTOON_PLACEHOLDER_ASPECT_RATIO,
     onPageAspectMeasured: (Float) -> Unit = {},
@@ -732,6 +741,14 @@ private fun WebtoonPage(
         if (result == null) planTimedOut = true else value = result
     }
     val tiledPlan = slicePlan as? PageSlicePlan.Tiled
+
+    // Plan timeout = stránka se nedaří ani naplánovat (mrtvé spojení / mrtvá stránka) -
+    // nahlásit nahoru pro donor splice. Donor lookup běží na pozadí (≤20 s) a případný
+    // splice změní pageUrl -> produceState se restartuje na donor URL. Ruční retry
+    // chip mezitím zůstává dostupný, takže se nic neztratí.
+    LaunchedEffect(planTimedOut) {
+        if (planTimedOut) onPermanentFailure()
+    }
 
     // U řezané stránky známe přesný poměr stran hned z plánu - žádný placeholder skok
     // a overlay má souřadný rámec dřív, než dojedou pixely řezů.
@@ -793,6 +810,7 @@ private fun WebtoonPage(
                 cropBorders = cropBorders,
                 zoomActive = zoomActive,
                 onSizeChanged = { size = it },
+                onPermanentFailure = onPermanentFailure,
             )
         } else if (slicePlan is PageSlicePlan.Single) {
             RetryableAsyncImage(
@@ -813,6 +831,7 @@ private fun WebtoonPage(
                 // "dolehal" obrazek ~300ms po zobrazeni boxu (viz ReaderPager).
                 disableCrossfade = true,
                 referer = referer,
+                onPermanentFailure = onPermanentFailure,
             )
         } else if (planTimedOut) {
             // Watchdog z produceState výše - plan() nedodal výsledek do
@@ -898,6 +917,9 @@ private fun TiledWebtoonPage(
     cropBorders: Boolean,
     zoomActive: Boolean,
     onSizeChanged: (IntSize) -> Unit,
+    /** Trvale mrtvý řez = celá stránka je u zdroje poškozená - nahoru pro donor splice
+     *  (granularita doplnění je stránka, ne řez - splice změní pageUrl a plán se přepočte). */
+    onPermanentFailure: () -> Unit = {},
 ) {
     val view = androidx.compose.ui.platform.LocalView.current
     var visibleSlices by remember(plan) { mutableStateOf(0..0) }
@@ -942,6 +964,7 @@ private fun TiledWebtoonPage(
                     sliceAspect = sliceAspect,
                     referer = referer,
                     cropBorders = cropBorders,
+                    onPermanentFailure = onPermanentFailure,
                 )
             } else {
                 // Mimo viewport: jen vyhrazené místo se správným poměrem - žádná bitmapa.
@@ -968,6 +991,7 @@ private fun WebtoonPageSlice(
     sliceAspect: Float,
     referer: String?,
     cropBorders: Boolean,
+    onPermanentFailure: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var retryTrigger by remember(sliceIndex) { mutableStateOf(0) }
@@ -1000,6 +1024,13 @@ private fun WebtoonPageSlice(
             isError = true
         }
     }
+    // Trvale mrtvý řez hlásit nahoru - stránka se může doplnit z donor zdroje
+    // (viz WebtoonPage.onPermanentFailure). Ruční "Zkusit znovu" může event vyvolat
+    // znovu po dalším cyklu - donor URL se mezitím mohla objevit.
+    val slicePermanentlyFailed = isError && autoRetries >= pageAutoRetryCount(errorCause)
+    LaunchedEffect(slicePermanentlyFailed) {
+        if (slicePermanentlyFailed) onPermanentFailure()
+    }
     val request = remember(pageUrl, sliceIndex, referer, cropBorders, retryTrigger) {
         ImageRequest.Builder(context)
             .data(PageSliceRequest(pageUrl, sliceIndex, referer, cropBorders))
@@ -1013,6 +1044,9 @@ private fun WebtoonPageSlice(
     ) {
         AsyncImage(
             model = request,
+            // Stejny duvod jako v RetryableAsyncImage - display loader s vlastnim
+            // dispatcherem, aby rez necekal za prefetch frontou hostitele.
+            imageLoader = com.haise.jiyu.util.PageDisplayImageLoader.get(context),
             contentDescription = null,
             contentScale = ContentScale.FillWidth,
             modifier = Modifier.fillMaxSize(),

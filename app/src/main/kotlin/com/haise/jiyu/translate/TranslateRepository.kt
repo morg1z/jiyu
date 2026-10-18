@@ -618,12 +618,17 @@ class TranslateRepository @Inject constructor(
             // vyřazený (2026-09-19): free kvóta vyčerpaná, API vrací HTTP 402 "Payment required" a
             // pokračování by vyžadovalo kartu, což projekt nikdy nepoužívá.
             translateChain(
-                { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                // Stejná politika jako v dávkové cestě níž (viz komentář tam): degradaci
+                // z prvního Gemini kroku odmítnout, když je zdravá alternativa.
+                { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines,
+                    acceptDegradedModel = !providerHealth.isAvailable("groq") && !providerHealth.isAvailable("openrouter") && !providerHealth.isAvailable("mistral"),
+                    onModel = onModel) },
                 { translateWithGemini(classified, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines, onModel = onModel) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
                 { translateWithGroq(classified, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                 { translateWithByok(classified, glossary, targetLanguage, sourceLanguage) },
+                { translateWithGemini(classified, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, skipHealthCheck = true, onModel = onModel) },
                 { translateOnDevice(classified, targetLanguage, sourceLanguage, mangaId) },
             )
         } else {
@@ -1106,12 +1111,22 @@ class TranslateRepository @Inject constructor(
                 translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) ?: emptyList()
             } else if (targetLanguage == "Czech") {
                 translateChain(
-                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, onModel = onModel) },
+                    // První Gemini krok degradovaný model ODMÍTNE, když je po cestě
+                    // nedegradovaná alternativa - dřív každá dávka zůstala na flash-lite
+                    // a stránka se označila degraded, přestože groq/gpt-oss-120b byl
+                    // zdravý (hlášené "po jedné kapitole omezená kvalita").
+                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines,
+                        acceptDegradedModel = !providerHealth.isAvailable("groq") && !providerHealth.isAvailable("openrouter") && !providerHealth.isAvailable("mistral"),
+                        onModel = onModel) },
                     { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "openrouter", mangaId, targetLanguage, recentLines, onModel = onModel) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "groq", mangaContext, recentLines, onModel = onModel) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "openrouter", mangaContext, recentLines, onModel = onModel) },
                     { translateWithGroq(flatBubbles, glossary, targetLanguage, sourceLanguage, mangaId, "mistral", mangaContext, recentLines, onModel = onModel) },
                     { translateWithByok(flatBubbles, glossary, targetLanguage, sourceLanguage) },
+                    // Poslední pojistka před on-device: degradovaný překlad je pořád
+                    // lepší než žádný - skipHealthCheck, protože první krok providera
+                    // za degradaci mohl odstavit.
+                    { translateWithGemini(flatBubbles, glossary, mangaContext, provider = "gemini", mangaId, targetLanguage, recentLines, skipHealthCheck = true, onModel = onModel) },
                     { translateOnDevice(flatBubbles, targetLanguage, sourceLanguage, mangaId) },
                 )
             } else {
@@ -1317,6 +1332,16 @@ class TranslateRepository @Inject constructor(
         mangaId: String,
         targetLanguage: String,
         previousLines: List<String> = emptyList(),
+        // false = degradovaný výsledek (proxy na vyčerpaném primáru sama sestoupí na
+        // slabší model - DEGRADED_MODELS) ODMÍTNOUT a providera odstavit, ať řetězec
+        // zkusí jiného nedegradovaného providera plné kvality (hlášené "po jedné
+        // kapitole hned omezená kvalita" - každá dávka sama skončila na flash-lite,
+        // přitom groq/gpt-oss-120b byl zdravý). Poslední pojistka řetězce volá s
+        // defaultem a přijme cokoli.
+        acceptDegradedModel: Boolean = true,
+        // Přeskočit ProviderHealth odstavení - jen pro pojistný krok na konci řetězce
+        // (viz komentář u parametru v GeminiTranslateClient.translateBubbles).
+        skipHealthCheck: Boolean = false,
         // Zpětná volba pro hlášení upstream modelu, který doopravdy odpověděl (viz
         // GeminiTranslationResponse.model) - volající podle něj pozná degradaci na
         // slabší záložní model a takový výsledek necachuje (viz translatePage).
@@ -1333,9 +1358,19 @@ class TranslateRepository @Inject constructor(
         val substitution = GlossaryPlaceholders.substitute(classified, glossaryRepository.getProtectedEntries(mangaId, targetLanguage))
         // Poslední nahlášený model - pro diagnostiku provider záznamu (viz níže).
         var lastModel: String? = null
-        val response = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines)
-            ?.let(substitution::restoreResponse)
-            ?.also { lastModel = it.model; onModel(it.model) } ?: return null
+        val response = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines, skipHealthCheck)
+            ?.let(substitution::restoreResponse) ?: return null
+        lastModel = response.model
+        if (!acceptDegradedModel && response.model in DEGRADED_MODELS) {
+            // Degradace = proxy interně přepnula na záložní model (primár upstream
+            // odmítl). Odstavíme providera, ať další dávky kapitoly rovnou zkouší
+            // zdravé alternativy místo opakovaného pálení dvou requestů za jeden
+            // zamítnutý výsledek. onModel se záměrně nehlásí - zamítnutý model nemá
+            // do diagnostiky/degraded flagu stránky co mluvit.
+            providerHealth.markUnavailable(provider)
+            return null
+        }
+        onModel(response.model)
 
         // Model občas bublinu v odpovědi vynechá, vrátí prázdný řetězec, zacyklí se
         // (isRepetitionLoop) nebo ztratí větu (likelyDroppedSentence). Doptáme se JEN na ty
@@ -1353,6 +1388,7 @@ class TranslateRepository @Inject constructor(
                 provider = provider,
                 mangaContext = mangaContext,
                 previousLines = previousLines,
+                skipHealthCheck = skipHealthCheck,
             )?.let(substitution::restoreResponse)
                 ?.also { lastModel = it.model; onModel(it.model) }
             mergeRetry(response.bubbles.associateBy { it.id }, missing, retryResponse, classified)
@@ -1370,7 +1406,7 @@ class TranslateRepository @Inject constructor(
             .mapNotNull { i -> byId[i]?.translated?.trim()?.takeIf { it.isNotEmpty() && it != GeminiUltraPrompt.UNTRANSLATED_MARKER } }
             .joinToString(" ")
         if (isWrongTargetLanguage(combinedText, targetLanguage, identifyLanguage = ::identifyLanguageCode)) {
-            val wholeBatchRetry = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines)
+            val wholeBatchRetry = geminiClient.translateBubbles(substitution.classified, glossary, provider, mangaContext, previousLines, skipHealthCheck)
                 ?.let(substitution::restoreResponse)
                 ?.also { lastModel = it.model; onModel(it.model) }
             if (wholeBatchRetry != null) byId = wholeBatchRetry.bubbles.associateBy { it.id }

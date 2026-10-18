@@ -128,6 +128,78 @@ class PageGapFiller @Inject constructor(
         }
     }
 
+    /**
+     * Donor kandidát pro jednu konkrétní mrtvou/nesplnitelnou stránku - runtime
+     * varianta gap fillu pro selhání, která [fillIfGapped] principielne nepozná:
+     * detekce der v cislovani URL (144.webp -> 146.webp) nechytí stránku, která v
+     * seznamu JE, ale její obsah je mrtvý/poškozený (404 na CDN, useknutý upload),
+     * ani díry u zdrojů s necíselnými jmény souborů (b2key hashe). Takovou stránku
+     * pozná až načtení - čtečka ji po vyčerpání retry nahlásí přes
+     * ReaderViewModel.onPagePermanentlyFailed a tenhle lookup najde stejnou kapitolu
+     * na jiném zdroji.
+     *
+     * Stejná donor discovery jako [fillInternal] (CrossSourceSearch seeds + shoda
+     * čísla kapitoly, zkoušeno paralelně, první donor s neprázdným page listem
+     * vítězí). Zarovnání indexu na obsah se NEDĚLÁ - host stránka je mrtvá, není
+     * z čeho profilovat; volající mapuje same-index (přijatelné pro doplnění 1
+     * stránky, složitější alignment řeší právě fillIfGapped).
+     *
+     * @return donor zdroj + jeho seznam stránek kapitoly, nebo null (žádný donor /
+     *   timeout / titul nikde jinde není).
+     */
+    suspend fun donorPagesFor(
+        source: MangaSource,
+        chapterUrl: String,
+        mangaUrl: String,
+    ): Pair<MangaSource, List<Page>>? {
+        val manga = mangaDao.getMangaBySourceAndUrl(source.id, mangaUrl) ?: return null
+        val chapter = chapterDao.getAllForManga(manga.id).firstOrNull { it.url == chapterUrl }
+        val chapterNumber = chapter?.chapterNumber ?: chapterNumberFromUrl(chapterUrl) ?: return null
+        val found = java.util.concurrent.atomic.AtomicReference<Pair<MangaSource, List<Page>>?>(null)
+        val donorsSeen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        try {
+            withTimeoutOrNull(DONOR_LOOKUP_TIMEOUT_MS) {
+                try {
+                    kotlinx.coroutines.coroutineScope {
+                        crossSourceSearch.seeds(manga, source, relaxedTitleMatch = true).collect { seed ->
+                            if (!donorsSeen.add(seed.source.id)) return@collect
+                            seed.chapters
+                                .firstOrNull { abs(it.chapterNumber - chapterNumber) < 0.01f }
+                                ?.let { donorChapter ->
+                                    launch {
+                                        val donorPages = try {
+                                            seed.source.getPageList(donorChapter)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            null
+                                        }
+                                        if (!donorPages.isNullOrEmpty() &&
+                                            found.compareAndSet(null, seed.source to donorPages)
+                                        ) {
+                                            coroutineContext[kotlinx.coroutines.Job]?.cancel()
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    // Viz fillInternal - zruseni z vlastniho uspesneho donoru neni
+                    // skutecna kancelace behu.
+                    if (found.get() == null) throw e
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.report("gapfill:donorPages")
+            return null
+        }
+        if (BuildConfig.DEBUG) android.util.Log.i(TAG,
+            "donorPagesFor ch.$chapterNumber on ${source.id}: found=${found.get()?.first?.id}")
+        return found.get()
+    }
+
     private suspend fun fillInternal(
         source: MangaSource,
         chapterUrl: String,
@@ -713,6 +785,9 @@ class PageGapFiller @Inject constructor(
         /** Pod-strop kontentového zarovnání jednoho donoru - po jeho vypršení se
          *  vrátí i částečné insertions místo ztráty všech v globálním timeoutu. */
         const val CONTENT_ALIGN_BUDGET_MS = 20_000L
+        /** Strop donor lookupu pro mrtvou stránku (viz donorPagesFor) - čtenář na
+         *  doplnění čeká u obrazovky, takže kratší než GAP_FILL_TIMEOUT_MS. */
+        const val DONOR_LOOKUP_TIMEOUT_MS = 20_000L
         /** Uvolněný práh pro "implied" druhou kotvu - je podepřená silnou první
          *  kotvou, jen se ověřuje, že spočítaná donor stránka vůbec sedí. Margin
          *  zde řeší jen ambiguitu OFFSETU v rámci stránky (u cropu ≈ desítky px,

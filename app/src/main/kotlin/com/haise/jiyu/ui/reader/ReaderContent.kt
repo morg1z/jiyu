@@ -153,6 +153,9 @@ fun ReaderContent(
     translateFailedPages: Map<String, Set<Int>> = emptyMap(),
     /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
     onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
+    /** (chapterId, lokální index) -> stránka definitivně selhala; VM zkusí donor splice
+     *  z jiného zdroje (viz ReaderViewModel.onPagePermanentlyFailed). */
+    onPagePermanentlyFailed: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
@@ -308,6 +311,7 @@ fun ReaderContent(
                 onEditBubble = onEditBubble,
                 translateFailedPagesByChapter = translateFailedPages,
                 onRetranslatePage = onRetranslatePage,
+                onPagePermanentlyFailed = onPagePermanentlyFailed,
                 isAppendingNextChapter = webtoonAppendingNextChapter,
                 onScrollPositionChanged = { flatIdx, total ->
                     webtoonFlatIndex = flatIdx
@@ -352,6 +356,7 @@ fun ReaderContent(
                 onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
                 translateFailedPages = pagedFailed,
                 onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
+                onPagePermanentlyFailed = { pi -> val (cid, li) = pagedLocateChapter(pi); onPagePermanentlyFailed(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
                 // Nekonecne cteni: tah za konec seskladaneho proudu dolnatahne dalsi
@@ -389,6 +394,7 @@ fun ReaderContent(
                 onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
                 translateFailedPages = pagedFailed,
                 onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
+                onPagePermanentlyFailed = { pi -> val (cid, li) = pagedLocateChapter(pi); onPagePermanentlyFailed(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
             )

@@ -21,6 +21,7 @@ import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -131,6 +132,16 @@ internal fun isGenericGroupToken(token: String): Boolean = token in GENERIC_GROU
  * cteni, na ktere uzivatel primo ceka. */
 private const val FALLBACK_PAGE_CHECK_TIMEOUT_MS = 15_000L
 
+/**
+ * Kdyz je nainstalovany zdroj preferovane prekladatelske skupiny (Asura...), comick.art
+ * mirror nesmi auto-otevrit hned po probe fazi 0 - skupinovy zdroj se prohledava az ve
+ * sweepu (faze 1, po probeJob.join()) a bez teto brzdy by mirror early-exitem zrusil
+ * hledani jeste pred jeho startem (nahlaseny bug: "Asuru mame, presto otevre comick.art").
+ * Po uplynuti lhuty se vybere nejlepe zarazeny kandidat (typicky mirror) - lhuta je
+ * vetsi nez per-source timeout sweepu (8 s), takze skupinove zdroje stihnou odpovedet.
+ */
+private const val MIRROR_GROUP_GRACE_MS = 12_000L
+
 /** Kapitola s min poctem stranek je podezrela z neuplnosti - viz nahlaseny bug (MangaK/The
  * Raider/kap.19: 5 stranek vs. 11-19 u sousednich). Zaporne/nulove hodnoty (getPageList
  * selhalo/prazdne) jsou taky podezrele. */
@@ -147,18 +158,23 @@ internal fun <T> pickBetterAlternative(originalPageCount: Int, alternatives: Lis
         ?.first
 
 /**
- * Sdilene razeni kandidatu zdroje - comick.art mirror > oblibeny > shoda prekladatelske
- * skupiny > ma pozadovanou kapitolu > nejuplnejsi pokryti > nejblizsi kapitola.
+ * Sdilene razeni kandidatu zdroje - shoda prekladatelske skupiny > comick.art mirror >
+ * oblibeny > ma pozadovanou kapitolu > nejuplnejsi pokryti > nejblizsi kapitola.
  *
- * "Oblibeny"/"shoda skupiny" bonus plati JEN kdyz je kandidat aspon skoro kompletni (stejny
- * prah jako [isCompleteEnoughForEarlyExit], zamerne sdileny - jedna hranice "kompletnosti" v
- * cele tride) - bez tehle podminky vyhral oblibeny/skupinovy zdroj se 4 kapitolami ze 163 nad
- * uplnym, jen neoblibenym zdrojem (nahlaseno uzivatelem: early-exit ma tenhle strop uz drive,
- * ale finalni razeni po dokoncenem hledani ho vubec nepouzivalo). Uzivatelsky pozadavek
- * "oblibeny/skupina napred" porad plati, jen ne na ukor drasticky neuplneho pokryti - kompletni
- * zdroj bez preference porad vyhraje nad neuplnym s preferenci. Kdyz ZADNY kandidat neni dost
- * kompletni, oba boolean bonusy vyjdou false pro vsechny a razeni spadne na matchedChapterCount
- * nize - stale se vybere nejlepsi dostupny, jen uz bez umeleho zvyhodneni.
+ * Skupinovy zdroj je PRVNI - uzivatelsky pozadavek: kdyz titul preklada skupina, jejiz
+ * zdroj appka ma (Asura, Thunderscans, ...), cte se PRIMO u ni (vlastni web prekladatele
+ * ma typicky lepsi kvalitu i rychlejsi vydavani nez aggregator mirror) a comick.art je
+ * fallback pro pripad, ze skupinovy zdroj titul nema / nema cilovou kapitolu / je neuplny.
+ * Proto tier-1 vyzaduje i hasRequestedChapter - skupinovy zdroj bez pozadovane kapitoly
+ * propadne pod mirror, ktery ji ma (uzivatelsky fallback "kdyz tam chybi kapitola").
+ *
+ * "Oblibeny"/"shoda skupiny"/"mirror" bonus plati JEN kdyz je kandidat aspon skoro
+ * kompletni (stejny prah jako [isCompleteEnoughForEarlyExit], zamerne sdileny - jedna
+ * hranice "kompletnosti" v cele tride) - bez tehle podminky vyhral oblibeny/skupinovy
+ * zdroj se 4 kapitolami ze 163 nad uplnym, jen neoblibenym zdrojem (nahlaseno uzivatelem:
+ * early-exit ma tenhle strop uz drive, ale finalni razeni po dokoncenem hledani ho vubec
+ * nepouzivalo). Kdyz ZADNY kandidat neni dost kompletni, bonusy vyjdou false pro vsechny
+ * a razeni spadne na matchedChapterCount nize - stale se vybere nejlepsi dostupny.
  */
 internal fun rankCandidates(
     candidates: List<ResolvedCandidate>,
@@ -170,13 +186,12 @@ internal fun rankCandidates(
         isCompleteEnoughForEarlyExit(c.matchedChapterCount, totalComicKChapters) &&
             coversChapterRange(c.minChapterNumber, c.maxChapterNumber, comicKRange)
     return candidates.sortedWith(
-        // comick.art mirror (sdileny slug = stejna serie) PRVNI - uzivatelsky
-        // pozadavek: comick.art ma byt vychozi zdroj pro kazdy titul, kdyz ho ma.
-        // Nese stejne kapitoly i skupinove verze jako ComicK, takze kompletni
-        // mirror je spolehlivejsi shoda nez fuzzy title-match cehokoliv jineho.
-        compareByDescending<ResolvedCandidate> { it.isDirectMirror && isCompleteEnough(it) }
+        // Zdroj preferovane prekladatelske skupiny PRVNI (viz doc vyse) - musi byt
+        // kompletni A mit pozadovanou kapitolu, jinak je to jen "nejaky zdroj se
+        // sedici jmenem" a mirror/fallback ho poradi nize.
+        compareByDescending<ResolvedCandidate> { isPreferredGroup(it) && isCompleteEnough(it) && it.hasRequestedChapter }
+            .thenByDescending { it.isDirectMirror && isCompleteEnough(it) }
             .thenByDescending { it.isFavorite && isCompleteEnough(it) }
-            .thenByDescending { isPreferredGroup(it) && isCompleteEnough(it) }
             .thenByDescending { it.hasRequestedChapter }
             .thenByDescending { it.matchedChapterCount }
             .thenBy { it.nearestChapterDistance ?: Float.MAX_VALUE }
@@ -218,6 +233,14 @@ class SourceResolverViewModel @Inject constructor(
     // ktery po zruseni jobu taky jeste dobehne - viz onCompletion nize).
     private var searchJob: Job? = null
     private var hasAutoResolved = false
+
+    // Odlozeny auto-vyber mirroru - viz MIRROR_GROUP_GRACE_MS. Bezva se jen, kdyz
+    // dorazil mirror a zaroven existuje nainstalovany zdroj skupiny, co by se jeste
+    // mohl najit ve sweepu.
+    private var mirrorGraceJob: Job? = null
+
+    // null = jeste nevime; podle nej se gateuje mirror early-exit i remembered-mirror fast path.
+    private var groupSourceInstalled: Boolean? = null
 
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -334,6 +357,9 @@ class SourceResolverViewModel @Inject constructor(
                         // zrusil) - onCompletion po zruseni jobu porad jeste dobehne (s
                         // CancellationException jako "cause"), ale znovu vybirat/otevirat netreba.
                         if (hasAutoResolved) return@onCompletion
+                        // Odlozeny mirror-vyber (grace za existenci skupinoveho zdroje) zrusit -
+                        // rozhoduje se tady a ted z kompletniho seznamu kandidatu.
+                        mirrorGraceJob?.cancel()
                         // Trideni az na konci hledani, ne po kazdem prubeznem vysledku - uzivatelsky
                         // pozadavek: seznam by se jinak mohl prehazet pod prstem, kdyz uz si nekdo
                         // vybira, zatimco jeste hleda dal na pozadi.
@@ -360,7 +386,11 @@ class SourceResolverViewModel @Inject constructor(
                         // se tak realne ukaze jen na kratky okamzik pred prekrytim "resolving"
                         // overlayem, pripadne vubec, kdyz zadny kandidat nebyl nalezen (viz
                         // candidates.isEmpty() stav v SourceResolverScreen).
-                        sorted.firstOrNull()?.let { selectCandidate(it) }
+                        sorted.firstOrNull()?.let {
+                            // Flag proti dvojimu vyberu s odlozenym mirrorGraceJob - viz collect.
+                            hasAutoResolved = true
+                            selectCandidate(it)
+                        }
                     }
                     .collect { candidate ->
                         _candidates.value = _candidates.value + candidate
@@ -370,21 +400,44 @@ class SourceResolverViewModel @Inject constructor(
 
                         // Early-exit: uzivatelsky pozadavek - kdyz dorazi zdroj, ktery je
                         // oblibeny NEBO stejne prekladatelske skupiny jako otevirana kapitola
-                        // (Asura, Thunderscans, ...) NEBO je to comick.art mirror nalezeny
-                        // primo pres sdileny slug (isDirectMirror - mirror nese stejnou DB
-                        // i skupinove verze jako ComicK, takze "shoda skupiny" je u nej
-                        // implicitni) A rovnou ma pozadovanou kapitolu, appka uz
+                        // (Asura, Thunderscans, ...) A rovnou ma pozadovanou kapitolu, appka uz
                         // nema duvod cekat, az se prohledaji zbyvajici desitky zdroju - tohle je
                         // uz jasna volba (nejsilnejsi kriteria z razeni v onCompletion), takze
                         // rovnou otevre a zbytek hledani zrusi (viz searchJob).
+                        //
+                        // comick.art mirror tu muze early-exitnout JEN kdyz zadny skupinovy
+                        // zdroj nenainstalovany neni - jinak probe faze 0 (mirror se hleda
+                        // driv, nez sweep odstartuje) vyhrala vzdy a skupinovy zdroj se
+                        // nikdy ani neprohledal (nahlaseny bug). V tom pripade se misto
+                        // toho spusti odlozeny vyber - viz mirrorGraceJob nize.
+                        val mirrorMayEarlyExit = candidate.isDirectMirror && !hasInstalledGroupSource()
                         if (!hasAutoResolved && candidate.hasRequestedChapter &&
-                            (candidate.isFavorite || matchesPreferredGroup(candidate) || candidate.isDirectMirror) &&
+                            (candidate.isFavorite || matchesPreferredGroup(candidate) || mirrorMayEarlyExit) &&
                             isCompleteEnoughForEarlyExit(candidate.matchedChapterCount, _totalComicKChapters.value) &&
                             coversChapterRange(candidate.minChapterNumber, candidate.maxChapterNumber, comicKRange)
                         ) {
                             hasAutoResolved = true
+                            mirrorGraceJob?.cancel()
                             selectCandidate(candidate)
                             searchJob?.cancel()
+                        } else if (!hasAutoResolved && candidate.isDirectMirror &&
+                            hasInstalledGroupSource() && mirrorGraceJob == null
+                        ) {
+                            // Mirror dorazil, ale skupinovy zdroj se jeste muze najit ve
+                            // sweepu (faze 1 ho prohledava prednostne). Pockat lhutu -
+                            // kdyz se do ni skupinovy kandidat neobjevi/nevyhral, otevrit
+                            // nejlepe zarazeneho kandidata s pozadovanou kapitolou
+                            // (typicky tenhle mirror; skupinovy zdroj bez cilove kapitoly
+                            // ji v rankCandidates nepreskoci - viz doc tieru 1).
+                            mirrorGraceJob = viewModelScope.launch {
+                                delay(MIRROR_GROUP_GRACE_MS)
+                                if (hasAutoResolved) return@launch
+                                val best = rankedCandidates().firstOrNull { it.hasRequestedChapter }
+                                    ?: return@launch
+                                hasAutoResolved = true
+                                selectCandidate(best)
+                                searchJob?.cancel()
+                            }
                         }
                     }
             } catch (e: Exception) {
@@ -406,11 +459,29 @@ class SourceResolverViewModel @Inject constructor(
      * preferredGroupTokens vyfiltrovalo pri nastaveni, aby se predeslo falesnym shodam u
      * krakich/prilis obecnych jmen skupin.
      */
-    private fun matchesPreferredGroup(candidate: ResolvedCandidate): Boolean {
+    private fun matchesPreferredGroup(candidate: ResolvedCandidate): Boolean =
+        sourceNameMatchesPreferredGroup(candidate.source.name)
+
+    private fun sourceNameMatchesPreferredGroup(sourceName: String): Boolean {
         if (preferredGroupTokens.isEmpty()) return false
-        val sourceName = normalizeGroupToken(candidate.source.name)
-        return preferredGroupTokens.any { token -> sourceName.contains(token) || token.contains(sourceName) }
+        val normalized = normalizeGroupToken(sourceName)
+        return normalized.isNotEmpty() &&
+            preferredGroupTokens.any { token -> normalized.contains(token) || token.contains(normalized) }
     }
+
+    /**
+     * Je mezi zdroji appky aspon jeden, jehoz jmeno fuzzy-matchne preferovanou
+     * skupinu? Uziva se pro:
+     *  - mirror early-exit: kdyz skupinovy zdroj existuje, mirror pocka na sweep
+     *    (jinak by probe faze 0 vyhral drive, nez se skupina vubec prohledala)
+     *  - remembered-mirror fast path: zapamatovany comick.art nesmi obejit
+     *    skupinovy zdroj napořad
+     */
+    private suspend fun hasInstalledGroupSource(): Boolean =
+        groupSourceInstalled ?: (
+            preferredGroupTokens.isNotEmpty() &&
+                sourceManager.getAllForCrossSourceSearch().any { sourceNameMatchesPreferredGroup(it.name) }
+            ).also { groupSourceInstalled = it }
 
     /**
      * Sdilene razeni kandidatu - viz [rankCandidates] pro poradi priorit a duvod, proc "oblibeny"/
@@ -430,6 +501,14 @@ class SourceResolverViewModel @Inject constructor(
     private suspend fun rememberedCandidate(manga: MangaEntity, requested: Float): ResolvedCandidate? {
         val resolvedManga = manga.resolvedMangaId?.let { repository.getManga(it) } ?: return null
         if (resolvedManga.sourceId == "comick") return null
+        // Zapamatovany MIRROR nesmi obejit skupinovy zdroj - uzivatelsky pozadavek:
+        // vlastni web prekladatele (Asura...) ma prednost pred comick.art (viz
+        // rankCandidates - skupina je tier 1). Kdyz skupinovy zdroj existuje,
+        // nech probehnout normalni sweep (cache dela opakovane otevreni levne a
+        // probe emituje mirror hned - early-exit/grace ho pridrzi az po
+        // prohledani skupiny); az se absence skupiny potvrdi, vyhraje mirror a
+        // znovu se zapamatuje.
+        if (resolvedManga.sourceId == ComicKArtSource.SOURCE_ID && hasInstalledGroupSource()) return null
         val source = sourceManager.getById(resolvedManga.sourceId) ?: return null
         val smanga = resolvedManga.toSManga()
         val chapters = try {

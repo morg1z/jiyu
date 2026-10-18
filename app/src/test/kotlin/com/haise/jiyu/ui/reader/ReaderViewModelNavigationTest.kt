@@ -108,6 +108,8 @@ class ReaderViewModelNavigationTest {
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
         translateQueue = mockk(relaxed = true),
+        sourceManager = mockk(relaxed = true),
+        pageGapFiller = mockk(relaxed = true),
     )
 
     @Test

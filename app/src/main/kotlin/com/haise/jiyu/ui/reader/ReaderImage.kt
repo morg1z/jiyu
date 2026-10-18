@@ -177,6 +177,10 @@ fun RetryableAsyncImage(
     // sedi na jejich vlastni domenu) - appka dosud stahovala obrazky stranek uplne bez
     // Refereru, coz se u takovych zdroju projevovalo jako cerne/nenactene stranky.
     referer: String? = null,
+    // Zavolá se JEDNOU, když stránka vyčerpá všechny automatické retry a skončí
+    // v trvalém error stavu (error chip s "Zkusit znovu"). Čtečka tím zkusí
+    // doplnit stránku z jiného zdroje (viz ReaderViewModel.onPagePermanentlyFailed).
+    onPermanentFailure: (() -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var retryTrigger by remember(url) { mutableStateOf(0) }
@@ -218,6 +222,13 @@ fun RetryableAsyncImage(
             retryTrigger++
         }
     }
+    // Trvalé selhání po vyčerpání retry - nahoru se signalizuje jen přechod do
+    // finálního stavu (ruční "Zkusit znovu" ho může vyvolat znovu po dalším
+    // nezdařeném cyklu, což je správně - donor URL se mezitím mohla objevit).
+    val permanentlyFailed = isError && autoRetries >= pageAutoRetryCount(errorCause)
+    LaunchedEffect(permanentlyFailed) {
+        if (permanentlyFailed) onPermanentFailure?.invoke()
+    }
 
     Box(modifier = modifier) {
         val request = remember(url, retryTrigger, cropBorders, disableCrossfade, referer) {
@@ -233,6 +244,10 @@ fun RetryableAsyncImage(
         }
         AsyncImage(
             model = request,
+            // Display loader s vlastnim OkHttp dispatcherem - viditelna stranka nesmi
+            // cekat ve fronte za prefetch requesty stejneho hostitele (hlaseny bug:
+            // "naucita se donekonecna, scroll pryc/zpet ji spravi" = queue starvation).
+            imageLoader = com.haise.jiyu.util.PageDisplayImageLoader.get(context),
             contentDescription = contentDescription,
             contentScale = contentScale,
             modifier = imageModifier,

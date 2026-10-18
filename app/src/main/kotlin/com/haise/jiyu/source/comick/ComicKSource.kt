@@ -40,6 +40,13 @@ import javax.inject.Singleton
  *  - slug  = URL-friendly název ("one-piece"), používá se v adrese mangy
  *  - hid   = hash ID ("abc123"), používá se pro kapitoly a stránky
  */
+/**
+ * ComicK `content_rating` hodnoty, které bereme jako 18+ (resolver pro ně
+ * nepáruje ne-adult zdroje a API detail jim data nevrací). Sdílené mezi
+ * [ComicKSource] (filtrování výsledků) a [ComicKChapterResolver].
+ */
+internal val ADULT_COMICK_CONTENT_RATINGS = setOf("erotica", "pornographic")
+
 @Singleton
 class ComicKSource @Inject constructor(
     private val client: OkHttpClient,
@@ -95,6 +102,21 @@ class ComicKSource @Inject constructor(
         filter.year?.takeIf { it > 0 }?.let { append("&from=$it&to=$it") }
     }
 
+    /**
+     * Výchozí vyloučení 18+ titulů, když má uživatel 18+ zdroje vypnuté. Bez tohohle
+     * `/v1.0/search` vrací i erotica/pornographic položky (v top-follow stránce ~13 %),
+     * které pak nejdou otevřít - API detail pro ně nevrací data a resolver pro
+     * ne-adult titul hledá jen v ne-adult zdrojích. Opakovaný parametr content_rating
+     * se chová jako OR (ověřeno živě), takže "safe"+"suggestive" vyloučí jen skutečně
+     * 18+ a suggestive tituly zůstanou.
+     * Explicitní `content_rating` od uživatele (filtr sheet) má přednost - viz volající.
+     */
+    private suspend fun StringBuilder.appendAdultFilter() {
+        if (!settings.showAdultSources.first()) {
+            append("&content_rating=safe&content_rating=suggestive")
+        }
+    }
+
     override suspend fun search(query: String, page: Int, filter: MangaFilter): List<SManga> =
         withContext(Dispatchers.IO) {
             val q = URLEncoder.encode(query, "UTF-8")
@@ -102,6 +124,7 @@ class ComicKSource @Inject constructor(
                 append("$apiBase/v1.0/search?q=$q&limit=20&page=$page")
                 appendGenreFilter(filter)
                 appendStatusYearFilter(filter)
+                appendAdultFilter()
             }
             parseComicList(getArray(url))
         }
@@ -118,6 +141,7 @@ class ComicKSource @Inject constructor(
                 append("$apiBase/v1.0/search?sort=$sort&limit=20&page=$page")
                 appendGenreFilter(filter)
                 appendStatusYearFilter(filter)
+                appendAdultFilter()
             }
             parseComicList(getArray(url))
         }
@@ -166,7 +190,12 @@ class ComicKSource @Inject constructor(
                 filters.demographics.forEach { append("&demographic=$it") }
                 filters.countries.forEach { append("&country=${URLEncoder.encode(it, "UTF-8")}") }
                 filters.status?.let { append("&status=$it") }
-                filters.contentRating?.let { append("&content_rating=${URLEncoder.encode(it, "UTF-8")}") }
+                if (filters.contentRating != null) {
+                    append("&content_rating=${URLEncoder.encode(filters.contentRating, "UTF-8")}")
+                } else {
+                    // Uzivatel rating nevybral - aplikuj vychozi vylouceni 18+ podle nastaveni.
+                    appendAdultFilter()
+                }
                 filters.minChapters?.let { append("&minimum=$it") }
                 filters.yearFrom?.let { append("&from=$it") }
                 filters.yearTo?.let { append("&to=$it") }
@@ -466,7 +495,10 @@ class ComicKSource @Inject constructor(
             }.sortedByDescending { it.upCount }
         }
 
-    @Volatile private var cachedTop: TopFeed? = null
+    // Kešujeme raw JSON, ne parsovany TopFeed - parseFeed() aplikuje 18+ filtr
+    // podle AKTUALNIHO nastaveni, takze prepnuti showAdultSources se projevi hned
+    // (u kešovaneho feedu az po restartu appky).
+    @Volatile private var cachedTopJson: JSONObject? = null
 
     /**
      * ComicK domovská data (Sub-projekt: Home Feed) - jeden request vrátí data
@@ -476,21 +508,32 @@ class ComicKSource @Inject constructor(
      */
     suspend fun getTop(): TopFeed =
         withContext(Dispatchers.IO) {
-            cachedTop?.let { return@withContext it }
-            val json = getObject("$apiBase/top")
+            val json = cachedTopJson ?: getObject("$apiBase/top").also { cachedTopJson = it }
+            // /top parametr content_rating neprijima - stejny 18+ default jako
+            // appendAdultFilter() musime udelat klientsky nad raw JSON polem.
+            val hideAdult = !settings.showAdultSources.first()
+            fun parseFeed(arr: JSONArray?): List<SManga> {
+                arr ?: return emptyList()
+                return (0 until arr.length()).mapNotNull { i ->
+                    val item = arr.optJSONObject(i) ?: return@mapNotNull null
+                    if (hideAdult && item.optString("content_rating") in ADULT_COMICK_CONTENT_RATINGS) {
+                        return@mapNotNull null
+                    }
+                    comicFromJson(item)
+                }
+            }
             val windows = listOf("7", "30", "90")
             fun windowMap(key: String): Map<String, List<SManga>> {
                 val obj = json.optJSONObject(key) ?: JSONObject()
-                return windows.associateWith { w -> parseComicList(obj.optJSONArray(w) ?: JSONArray()) }
+                return windows.associateWith { w -> parseFeed(obj.optJSONArray(w)) }
             }
             val feed = TopFeed(
-                recentlyAdded     = parseComicList(json.optJSONArray("news") ?: JSONArray()),
-                completed         = parseComicList(json.optJSONArray("completions") ?: JSONArray()),
+                recentlyAdded     = parseFeed(json.optJSONArray("news")),
+                completed         = parseFeed(json.optJSONArray("completions")),
                 popularNew        = windowMap("topFollowNewComics"),
                 mostRecentPopular = windowMap("topFollowComics"),
                 recentReviews     = parseReviewList(json.optJSONArray("recentReviews") ?: JSONArray()),
             )
-            cachedTop = feed
             feed
         }
 

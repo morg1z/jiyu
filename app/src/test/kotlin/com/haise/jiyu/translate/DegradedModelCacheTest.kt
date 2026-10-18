@@ -29,6 +29,8 @@ class DegradedModelCacheTest {
     private fun repository(
         groqClient: GroqTranslateClient,
         dao: com.haise.jiyu.data.db.TranslatedPageDao,
+        geminiClient: GeminiTranslateClient = mockk(relaxed = true), // isConfigured=false -> Gemini kroky se přeskočí
+        providerHealth: ProviderHealth = mockk(relaxed = true), // allUnavailable() -> false
     ): TranslateRepository {
         val context = mockk<android.content.Context>(relaxed = true).also {
             // Diagnostika zapisuje do getExternalFilesDir - null = zápis se přeskočí,
@@ -51,7 +53,6 @@ class DegradedModelCacheTest {
         val mangaDao = mockk<com.haise.jiyu.data.db.MangaDao>(relaxed = true).also {
             coEvery { it.getById(any()) } returns null
         }
-        val geminiClient = mockk<GeminiTranslateClient>(relaxed = true) // isConfigured=false -> Gemini krok se přeskočí
         return TranslateRepository(
             context = context,
             ocrEngine = ocrEngine,
@@ -59,7 +60,7 @@ class DegradedModelCacheTest {
             groqClient = groqClient,
             geminiClient = geminiClient,
             glossaryRepository = glossaryRepository,
-            providerHealth = mockk(relaxed = true), // allUnavailable() -> false
+            providerHealth = providerHealth,
             mangaDao = mangaDao,
             dao = dao,
             novelDao = mockk(relaxed = true),
@@ -110,6 +111,69 @@ class DegradedModelCacheTest {
             .translatePage("page-url", "ch1", "m1", pageIndex = 0)
 
         coVerify(exactly = 1) { dao.upsert(any()) }
+    }
+
+    private fun degradedGemini(): GeminiTranslateClient = mockk<GeminiTranslateClient>().also { client ->
+        every { client.isConfigured } returns true
+        // Self-review (běží jen pro nedegradovaný výsledek) tady neřešíme - fail-open.
+        coEvery { client.reviewPairs(any(), any(), any()) } returns null
+        coEvery {
+            // Reálně proxy na vyčerpaném primáru vrátí flash-lite jen u providera
+            // "gemini"; openrouter gemma cesta tu pro jistotu spadne (null).
+            client.translateBubbles(any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            if (arg<String>(2) != "gemini") return@coAnswers null
+            GeminiTranslationResponse(
+                bubbles = listOf(
+                    GeminiBubbleTranslation(
+                        id = 0,
+                        original = "Hello there, friend.",
+                        translated = "Tichá odpověď.",
+                        bubbleSizeTag = "MEDIUM",
+                        isSfx = false,
+                        syllableBreaks = "",
+                    )
+                ),
+                model = "gemini-3.5-flash-lite",
+            )
+        }
+    }
+
+    @Test
+    fun `degraded gemini result is rejected when a healthy alternative exists`() = runTest {
+        // Hlášené "jedna kapitola a hned omezená kvalita": proxy degradovala na
+        // flash-lite, ale groq/gpt-oss-120b byl zdravý - degradovaný výsledek se teď
+        // zahodí, provider se odstaví a řetězec dojede na plnou kvalitu.
+        val health = mockk<ProviderHealth>(relaxed = true).also {
+            every { it.isAvailable(any()) } returns true
+            every { it.allUnavailable() } returns false
+        }
+        val dao = mockk<com.haise.jiyu.data.db.TranslatedPageDao>(relaxed = true)
+        val groq = groqReturning("openai/gpt-oss-120b")
+        val result = repository(groq, dao, geminiClient = degradedGemini(), providerHealth = health)
+            .translatePage("page-url", "ch1", "m1", pageIndex = 0)
+
+        assertEquals("Krátká odpověď.", result.single().translatedText)
+        assertTrue("výsledek ze zdravého primáru nesmí nést degraded flag", !result.single().degraded)
+        coVerify { health.markUnavailable("gemini") }
+        coVerify(exactly = 1) { groq.translateBatch(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `degraded gemini result is accepted when it is the last option`() = runTest {
+        // Všichni ostatní provideři odstavení -> degradace je lepší než nic a musí se
+        // označit, ať banner "omezená kvalita" mluví pravdu.
+        val health = mockk<ProviderHealth>(relaxed = true).also {
+            every { it.isAvailable(match { it != "gemini" }) } returns false
+            every { it.isAvailable("gemini") } returns true
+            every { it.allUnavailable() } returns false
+        }
+        val dao = mockk<com.haise.jiyu.data.db.TranslatedPageDao>(relaxed = true)
+        val result = repository(groqReturning("openai/gpt-oss-120b"), dao, geminiClient = degradedGemini(), providerHealth = health)
+            .translatePage("page-url", "ch1", "m1", pageIndex = 0)
+
+        assertEquals("Tichá odpověď.", result.single().translatedText)
+        assertTrue("akceptovaná degradace se má označit", result.single().degraded)
     }
 
     @Test

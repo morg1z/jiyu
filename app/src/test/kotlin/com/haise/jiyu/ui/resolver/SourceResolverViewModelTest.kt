@@ -205,16 +205,49 @@ class SourceResolverViewModelTest {
     // ── comick.art mirror (fáze 0, sdílený slug) ─────────────────────────────
 
     @Test
-    fun `a complete direct-mirror candidate outranks a complete group-matched source`() {
-        // Mirror = potvrzena stejna serie pres sdileny slug - kompletni mirror ma
-        // vyssi prioritu nez fuzzy skupinova shoda (mirror nese stejne verze skupin).
+    fun `a complete group-matched source outranks a complete direct mirror`() {
+        // Uzivatelsky pozadavek: kdyz titul preklada skupina, jejiz zdroj mame
+        // nainstalovany (Asura...), cte se primo u ni - comick.art je az fallback.
         val groupMatch = candidate("group-source", matchedChapterCount = 160)
+        val mirror = candidate("comickart", matchedChapterCount = 160, isDirectMirror = true)
+
+        val ranked = rankCandidates(
+            candidates = listOf(mirror, groupMatch),
+            totalComicKChapters = 163,
+            isPreferredGroup = { it.source.id == "group-source" },
+        )
+
+        assertEquals("group-source", ranked.first().source.id)
+    }
+
+    @Test
+    fun `a group source missing the requested chapter falls back to the mirror`() {
+        // Fallback "kdyz tam chybi kapitola" - skupinovy zdroj je kompletni, ale
+        // cilovou kapitolu nema -> mirror, co ji ma, ho poradi.
+        val groupMatch = candidate("group-source", matchedChapterCount = 160, hasRequestedChapter = false)
         val mirror = candidate("comickart", matchedChapterCount = 160, isDirectMirror = true)
 
         val ranked = rankCandidates(
             candidates = listOf(groupMatch, mirror),
             totalComicKChapters = 163,
             isPreferredGroup = { it.source.id == "group-source" },
+        )
+
+        assertEquals("comickart", ranked.first().source.id)
+    }
+
+    @Test
+    fun `an incomplete group source loses to a complete mirror`() {
+        // Fallback "kdyz skupina nema kapitoly" - neuplny skupinovy zdroj neziskava
+        // tier-1 bonus a propadne pod kompletni mirror.
+        val thinGroup = candidate("group-thin", matchedChapterCount = 40, minChapter = 110f, maxChapter = 150f)
+        val mirror = candidate("comickart", matchedChapterCount = 148, isDirectMirror = true, minChapter = 1f, maxChapter = 150f)
+
+        val ranked = rankCandidates(
+            candidates = listOf(thinGroup, mirror),
+            totalComicKChapters = 150,
+            isPreferredGroup = { it.source.id == "group-thin" },
+            comicKRange = ChapterRange(1f, 150f),
         )
 
         assertEquals("comickart", ranked.first().source.id)

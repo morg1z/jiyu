@@ -358,7 +358,7 @@ class ComicKChapterResolver @Inject constructor(
             return name.isNotEmpty() && tokens.any { name.contains(it) || it.contains(name) }
         }
 
-        val ADULT_CONTENT_RATINGS = setOf("erotica", "pornographic")
+        val ADULT_CONTENT_RATINGS = ADULT_COMICK_CONTENT_RATINGS
         const val MAX_CACHED_TITLES = 128
         /** Kolik ruznych nazvu titulu se na jeden zdroj zkusi jako dotaz (viz SRC-3). */
         const val MAX_QUERY_TITLES = 4

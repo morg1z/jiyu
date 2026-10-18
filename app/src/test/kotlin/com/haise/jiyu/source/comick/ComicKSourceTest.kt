@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -873,6 +874,77 @@ class ComicKSourceTest {
             listOf("Manga Title", "Manhwa Title", "Suggestive Title", "Erotica Title", "Graphic Violence Title"),
             titles,
         )
+    }
+
+    // ── Vychozi 18+ filtr (appendAdultFilter + parseFeed v getTop) ──
+
+    @Test
+    fun `search sends safe+suggestive content_rating when adult sources are off`() = runTest {
+        source.search("solo", 1, MangaFilter())
+        val url = request().path.orEmpty()
+        // Opakovany parametr je OR - safe+suggestive vylouci jen erotica/pornographic.
+        assertTrue(url.contains("content_rating=safe"))
+        assertTrue(url.contains("content_rating=suggestive"))
+    }
+
+    @Test
+    fun `search sends no content_rating when adult sources are on`() = runTest {
+        settings.setShowAdultSources(true)
+        source.search("solo", 1, MangaFilter())
+        assertFalse(request().path.orEmpty().contains("content_rating"))
+    }
+
+    @Test
+    fun `getPopular applies the same default adult filter`() = runTest {
+        source.getPopular(1)
+        val url = request().path.orEmpty()
+        assertTrue(url.contains("content_rating=safe"))
+        assertTrue(url.contains("content_rating=suggestive"))
+    }
+
+    @Test
+    fun `searchAdvanced explicit content rating overrides the adult default`() = runTest {
+        source.searchAdvanced(1, ComicKSearchFilters(contentRating = "erotica"))
+        val url = request().path.orEmpty()
+        assertTrue(url.contains("content_rating=erotica"))
+        assertFalse(url.contains("content_rating=safe"))
+    }
+
+    @Test
+    fun `searchAdvanced without explicit rating applies the adult default`() = runTest {
+        source.searchAdvanced(1, ComicKSearchFilters(query = "solo"))
+        val url = request().path.orEmpty()
+        assertTrue(url.contains("content_rating=safe"))
+        assertTrue(url.contains("content_rating=suggestive"))
+    }
+
+    @Test
+    fun `getTop drops erotica and pornographic items client-side when adult is off`() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setBody("""{"news": [
+                    {"title": "Safe Title", "slug": "safe-t", "country": "kr", "content_rating": "safe"},
+                    {"title": "Suggestive Title", "slug": "sug-t", "country": "kr", "content_rating": "suggestive"},
+                    {"title": "Ero Title", "slug": "ero-t", "country": "jp", "content_rating": "erotica"},
+                    {"title": "Porn Title", "slug": "porn-t", "country": "jp", "content_rating": "pornographic"}
+                ]}""")
+        }
+        val titles = source.getTop().recentlyAdded.map { it.title }
+        assertEquals(listOf("Safe Title", "Suggestive Title"), titles)
+    }
+
+    @Test
+    fun `getTop keeps adult items when adult sources are on`() = runTest {
+        settings.setShowAdultSources(true)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                MockResponse().setBody("""{"news": [
+                    {"title": "Safe Title", "slug": "safe-t", "country": "kr", "content_rating": "safe"},
+                    {"title": "Ero Title", "slug": "ero-t", "country": "jp", "content_rating": "erotica"}
+                ]}""")
+        }
+        val titles = source.getTop().recentlyAdded.map { it.title }
+        assertEquals(listOf("Safe Title", "Ero Title"), titles)
     }
 
     private fun request() = server.takeRequest()

@@ -448,6 +448,7 @@ fun ReaderScreen(
                 },
                 translateFailedPages = translateFailedPages,
                 onRetranslatePage = { chId, pageIndex -> viewModel.retranslatePage(chId, pageIndex) },
+                onPagePermanentlyFailed = { chId, pageIndex -> viewModel.onPagePermanentlyFailed(chId, pageIndex) },
                 onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,

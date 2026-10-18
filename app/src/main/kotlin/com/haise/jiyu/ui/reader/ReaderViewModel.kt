@@ -47,6 +47,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -117,6 +118,8 @@ class ReaderViewModel @Inject constructor(
     private val networkMonitor: com.haise.jiyu.util.NetworkMonitor,
     private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
     private val translateQueue: com.haise.jiyu.translate.TranslateQueue,
+    private val sourceManager: com.haise.jiyu.source.SourceManager,
+    private val pageGapFiller: com.haise.jiyu.source.PageGapFiller,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -1711,15 +1714,24 @@ class ReaderViewModel @Inject constructor(
         val imageLoader = Coil.imageLoader(context)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val referer = repository.sourceHomepage(sourceId)
-            kotlinx.coroutines.coroutineScope {
-                urls.forEach { url ->
-                    if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) return@forEach
-                    launch {
-                        val request = buildPageImageRequest(context, url, referer, cropBorders.value)
-                            .newBuilder()
-                            .size(PREFETCH_DECODE_SIZE)
-                            .build()
-                        imageLoader.execute(request)
+            // Davky po 3 - dřívější `urls.forEach { launch }` pustil všechny stránky
+            // najednou: na pomalém hostu sežraly celý dispatcher pool (10 slotů/host)
+            // a ZOBRAZOVACÍ request čekal za nimi ve frontě až po 120s timeouty -
+            // "stránka se načítá donekonečna". Display requesty mají dnes vlastní
+            // dispatcher (PageDisplayImageLoader), ale davkovani stejne nechavame -
+            // burst ~12 soubezných requestů na jeden host provokuje rate-limity.
+            urls.chunked(3).forEach { batch ->
+                ensureActive()
+                kotlinx.coroutines.coroutineScope {
+                    batch.forEach { url ->
+                        if (url.isBlank() || url.startsWith("/") || url.startsWith("file://")) return@forEach
+                        launch {
+                            val request = buildPageImageRequest(context, url, referer, cropBorders.value)
+                                .newBuilder()
+                                .size(PREFETCH_DECODE_SIZE)
+                                .build()
+                            imageLoader.execute(request)
+                        }
                     }
                 }
             }
@@ -1913,6 +1925,70 @@ class ReaderViewModel @Inject constructor(
         // nezabalovat, dvojitý fragment by se při decode rozbil.
         if (LazyPageUrl.isMarked(url)) return url
         return LazyPageUrl.encode(sourceId, page.index, url)
+    }
+
+    // ── Cross-source doplnění mrtvé stránky ("gap fill" za běhu) ──────────────
+    //
+    // Stránka, která je v seznamu, ale její obsah je mrtvý/poškozený (404 na CDN,
+    // useknutý upload), projde detekcí PageGapDetector (ta chytá jen díry v
+    // číslování URL) a dopadne na trvalou chybu RetryableAsyncImage. Čtečka ji po
+    // vyčerpání retry nahlásí sem a my ji zkusíme doplnit z jiného zdroje: stejná
+    // donor discovery jako PageGapFiller (CrossSourceSearch seeds + shoda čísla
+    // kapitoly), donor page na stejném indexu se splícne do _pages/_webtoonSegments
+    // a Coil ji načte se správným refererem donorova zdroje (LazyPageUrl marker).
+
+    // donor lookup je drahý (cross-source sweep) - jednou na kapitolu, výsledek
+    // (i negativní) se kešuje. Mutex serializuje souběžná selhání více stránek.
+    private val donorMutex = kotlinx.coroutines.sync.Mutex()
+    private val donorCache = HashMap<String, Pair<String, List<Page>>?>()
+
+    /** Stránka definitivně selhala (retries vyčerpány) - zkusit ji doplnit z jiného zdroje. */
+    fun onPagePermanentlyFailed(chapterId: String, pageIndex: Int) {
+        val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return
+        if (chapter.sourceId == "comick") return
+        viewModelScope.launch {
+            val (donorSourceId, donorPages) = donorFor(chapter) ?: return@launch
+            val donorPage = donorPages.getOrNull(pageIndex) ?: return@launch
+            spliceDonorPage(chapterId, pageIndex, donorPage, donorSourceId)
+        }
+    }
+
+    private suspend fun donorFor(chapter: ChapterEntity): Pair<String, List<Page>>? =
+        donorMutex.withLock {
+            if (donorCache.containsKey(chapter.id)) return donorCache[chapter.id]
+            val manga = repository.getManga(chapter.mangaId)
+            val source = sourceManager.getById(chapter.sourceId)
+            val result = if (manga != null && source != null) {
+                pageGapFiller.donorPagesFor(source, chapter.url, manga.url)
+                    ?.let { (src, pages) -> src.id to pages }
+            } else null
+            donorCache[chapter.id] = result
+            result
+        }
+
+    /** Přepíše URL stránky všude, kde žije - _pages (klasický/aktivní) i segment webtoon/infinite režimu.
+     *  Donor URL se VŽDY zabalí do LazyPageUrl markeru donorova zdroje - fetcher je pak
+     *  resolvuje a stahuje se SPRÁVNÝM refererem donorova zdroje (host referer by na
+     *  hotlink CDN skončil 403). Výjimka: URL nesoucí fragment (scrambled) - dvojitý
+     *  marker by fragment rozbil, tak se vezme raw (scrambled zdroje referer typicky
+     *  nepotřebují). */
+    private fun spliceDonorPage(chapterId: String, pageIndex: Int, donorPage: Page, donorSourceId: String) {
+        val raw = donorPage.imageUrl?.takeIf { it.isNotBlank() } ?: donorPage.url
+        if (raw.isBlank()) return
+        // Fragment (scrambled i jiny marker) nese payload, co by dvojity '#' rozbil -
+        // takovou URL spliznout raw. '#' zachyti oboji bez android.net.Uri (unit testy).
+        val replacement =
+            if (raw.contains('#')) raw
+            else LazyPageUrl.encode(donorSourceId, donorPage.index, raw)
+        if (com.haise.jiyu.BuildConfig.DEBUG) Log.i(TAG,
+            "donor splice: $chapterId page $pageIndex -> $donorSourceId")
+        if (_currentChapterId.value == chapterId && pageIndex in _pages.value.indices) {
+            _pages.value = _pages.value.toMutableList().also { it[pageIndex] = replacement }
+        }
+        _webtoonSegments.value = _webtoonSegments.value.map { seg ->
+            if (seg.chapterId != chapterId || pageIndex !in seg.pages.indices) seg
+            else seg.copy(pages = seg.pages.toMutableList().also { it[pageIndex] = replacement })
+        }
     }
 
     /** Sdílená logika stažení stránek jedné kapitoly (offline i online) - viz stejné větvení v loadChapter. */

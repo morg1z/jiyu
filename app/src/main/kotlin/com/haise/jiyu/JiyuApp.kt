@@ -108,42 +108,54 @@ class JiyuApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
-        Coil.setImageLoader(
-            ImageLoader.Builder(this)
-                .memoryCache {
-                    MemoryCache.Builder(this)
-                        // 30 % (driv 20): webtoon stranka ~800x1280 px ≈ 4 MB bitmapy -
-                        // pri 20 % se stranky ~15-25 zpet uz vyhodily a vraceni se nahoru
-                        // znamenalo re-decode z disku (viditelny indikator). Vice drzene
-                        // pameti = "back pages zustanou nactene".
-                        .maxSizePercent(0.30)
-                        .build()
-                }
-                .diskCache {
-                    DiskCache.Builder()
-                        .directory(cacheDir.resolve("image_cache"))
-                        // 1 GB (driv 512/256): velka webtoon kapitola (~400 hi-res stranek)
-                        // muze mit 150-400 MB a prefetch cele kapitoly + par okolnich ji
-                        // protaci rychle - vraceni se zpet pak znamenalo znovu-stazeni
-                        // ("obrazky maji zustat nactene").
-                        .maxSizeBytes(1024L * 1024 * 1024)
-                        .build()
-                }
-                .okHttpClient(imageHttpClient)
-                .crossfade(true)
-                .respectCacheHeaders(false)
-                .components {
-                    add(MangaPlusImageFetcher.Factory(imageHttpClient))
-                    // Stránky zdrojů s líným resolvováním (MangaHome, FanFox...) -
-                    // jejich Page.url není obrázek, resolvuje se přes getImageUrl.
-                    add(com.haise.jiyu.source.LazyPageFetcher.Factory(imageHttpClient, mangaRepository))
-                    // Řezy extrémně vysokých stránek (>8192 px) - dekódují se přes
-                    // BitmapRegionDecoder per-řez, celá bitmapa se nikdy nematerializuje
-                    // (OOM + GPU texture limit - viz PageSlicer).
-                    add(com.haise.jiyu.source.PageSliceFetcher.Factory(pageSlicer))
-                }
-                .build()
-        )
+        // Cache jako sdilené INSTANCE pro oba loadery (viz PageDisplayImageLoader) -
+        // disk cache je pres Coil SingletonDiskCache na stejnem adresari automaticky
+        // ta sama, memory cache by byla jinak u druheho loaderu separatni nadrz.
+        val pageMemoryCache = MemoryCache.Builder(this)
+            // 30 % (driv 20): webtoon stranka ~800x1280 px ≈ 4 MB bitmapy -
+            // pri 20 % se stranky ~15-25 zpet uz vyhodily a vraceni se nahoru
+            // znamenalo re-decode z disku (viditelny indikator). Vice drzene
+            // pameti = "back pages zustanou nactene".
+            .maxSizePercent(0.30)
+            .build()
+        val pageDiskCache = DiskCache.Builder()
+            .directory(cacheDir.resolve("image_cache"))
+            // 1 GB (driv 512/256): velka webtoon kapitola (~400 hi-res stranek)
+            // muze mit 150-400 MB a prefetch cele kapitoly + par okolnich ji
+            // protaci rychle - vraceni se zpet pak znamenalo znovu-stazeni
+            // ("obrazky maji zustat nactene").
+            .maxSizeBytes(1024L * 1024 * 1024)
+            .build()
+
+        fun buildImageLoader(client: okhttp3.OkHttpClient) = ImageLoader.Builder(this)
+            .memoryCache(pageMemoryCache)
+            .diskCache(pageDiskCache)
+            .okHttpClient(client)
+            .crossfade(true)
+            .respectCacheHeaders(false)
+            .components {
+                add(MangaPlusImageFetcher.Factory(client))
+                // Stránky zdrojů s líným resolvováním (MangaHome, FanFox...) -
+                // jejich Page.url není obrázek, resolvuje se přes getImageUrl.
+                add(com.haise.jiyu.source.LazyPageFetcher.Factory(client, mangaRepository))
+                // Řezy extrémně vysokých stránek (>8192 px) - dekódují se přes
+                // BitmapRegionDecoder per-řez, celá bitmapa se nikdy nematerializuje
+                // (OOM + GPU texture limit - viz PageSlicer).
+                add(com.haise.jiyu.source.PageSliceFetcher.Factory(pageSlicer))
+            }
+            .build()
+
+        Coil.setImageLoader(buildImageLoader(imageHttpClient))
+        // Display loader: vlastni OkHttp Dispatcher, aby zobrazovaci request stranky
+        // nikdy necekal ve fronte za prefetch requesty stejneho hostitele (viz
+        // PageDisplayImageLoader). Klient sdili connection pool i interceptory.
+        val displayClient = imageHttpClient.newBuilder()
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 32
+                maxRequestsPerHost = 8
+            })
+            .build()
+        com.haise.jiyu.util.PageDisplayImageLoader.install(buildImageLoader(displayClient))
 
         proxyRepository.bind(appScope)
 

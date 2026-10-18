@@ -110,6 +110,8 @@ fun MangaPageCurlReader(
     /** Stejný význam jako v MangaReader - retry chip nad stránkou se selhaným překladem. */
     translateFailedPages: Set<Int> = emptySet(),
     onRetranslatePage: (pageIndex: Int) -> Unit = {},
+    /** Stejný význam jako v MangaReader - donor splice pro mrtvou stránku. */
+    onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
     /**
@@ -518,6 +520,7 @@ fun MangaPageCurlReader(
                     onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                     translateFailedPages = translateFailedPages,
                     onRetranslatePage = onRetranslatePage,
+                    onPagePermanentlyFailed = onPagePermanentlyFailed,
                     onAllImagesLoaded = { currentLoaded = it },
                     disableCrossfade = true,
                     referer = referer,
@@ -564,6 +567,7 @@ fun MangaPageCurlReader(
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                         translateFailedPages = translateFailedPages,
                         onRetranslatePage = onRetranslatePage,
+                        onPagePermanentlyFailed = onPagePermanentlyFailed,
                         onAllImagesLoaded = { nextLoaded = it },
                         disableCrossfade = true,
                         referer = referer,
@@ -595,6 +599,7 @@ fun MangaPageCurlReader(
                         onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
                         translateFailedPages = translateFailedPages,
                         onRetranslatePage = onRetranslatePage,
+                        onPagePermanentlyFailed = onPagePermanentlyFailed,
                         onAllImagesLoaded = { prevLoaded = it },
                         disableCrossfade = true,
                         referer = referer,

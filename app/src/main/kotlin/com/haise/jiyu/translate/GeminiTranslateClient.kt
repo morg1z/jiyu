@@ -69,6 +69,10 @@ class GeminiTranslateClient @Inject constructor(
         provider: String = "gemini",
         mangaContext: String = "",
         previousLines: List<String> = emptyList(),
+        // Poslední pojistný krok řetězce ho nastaví: degradovaný překlad (proxy na
+        // vyčerpaném primáru sama sestoupí na slabší model) je pořád lepší než žádný,
+        // takže se volá i když první krok providera za degradaci odstavil.
+        skipHealthCheck: Boolean = false,
     ): GeminiTranslationResponse? = withContext(Dispatchers.IO) {
         // TR-8: do promptu jdou jen skutečně překládané bubliny. Dřív se posílal celý
         // `bubbles` včetně SFX - model je "překládal", odpověď se pak zahazovala přes
@@ -80,7 +84,7 @@ class GeminiTranslateClient @Inject constructor(
         if (!isConfigured || toTranslate.isEmpty()) return@withContext null
         // Provider, o kterém z předchozí dávky víme, že odmítá obsluhu, se přeskočí bez
         // jediného requestu - tohle je hlavní úspora u dlouhé kapitoly, viz ProviderHealth.
-        if (!providerHealth.isAvailable(provider)) return@withContext null
+        if (!skipHealthCheck && !providerHealth.isAvailable(provider)) return@withContext null
         val origIndex = bubbles.mapIndexedNotNull { i, b -> if (!b.isSfx) i else null }
 
         val raw = sendPrompt(
