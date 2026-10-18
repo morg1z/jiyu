@@ -2387,7 +2387,7 @@ class ReaderViewModel @Inject constructor(
                         chapterId = chapterId,
                         mangaId = chapter.mangaId,
                         mangaTitle = manga.title,
-                        coverUrl = manga.coverUrl,
+                        coverUrl = manga.coverUrl ?: _comickParent.value?.coverUrl,
                         chapterName = chapter.name,
                         readAt = System.currentTimeMillis(),
                     )

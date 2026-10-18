@@ -13,7 +13,26 @@ interface ReadHistoryDao {
     @Upsert
     suspend fun record(entry: ReadHistoryEntity)
 
-    @Query("SELECT * FROM read_history ORDER BY readAt DESC LIMIT 200")
+    // Obalka se necte primo ze snapshotu, ale zije pres join na manga tabulku:
+    // historie si coverUrl zmrazuje v okamziku cteni a resolved ComicK kapitola
+    // tehdy casto jeste nema detail (coverUrl null) - snapshot by zustal prazdny
+    // navzdy, i kdyz se obalka mezitim do entity dotahla. Druhy fallback je ComicK
+    // rodic (resolvedMangaId ukazuje rodic -> tato entita), kde obalka katalogu
+    // je skoro vzdy. Teprve kdyz oboji chybi, padne se na ulozeny snapshot.
+    @Query("""
+        SELECT h.chapterId, h.mangaId, h.mangaTitle,
+               COALESCE(
+                   NULLIF(m.coverUrl, ''),
+                   (SELECT p.coverUrl FROM manga p
+                     WHERE p.resolvedMangaId = h.mangaId
+                       AND p.coverUrl IS NOT NULL AND p.coverUrl != '' LIMIT 1),
+                   h.coverUrl
+               ) AS coverUrl,
+               h.chapterName, h.readAt
+        FROM read_history h
+        LEFT JOIN manga m ON m.id = h.mangaId
+        ORDER BY h.readAt DESC LIMIT 200
+    """)
     fun observeRecent(): Flow<List<ReadHistoryEntity>>
 
     @Query("SELECT * FROM read_history WHERE mangaId = :mangaId ORDER BY readAt DESC")
