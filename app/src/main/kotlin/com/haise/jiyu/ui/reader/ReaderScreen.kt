@@ -104,6 +104,10 @@ fun ReaderScreen(
     val readerTextScale     by viewModel.readerTextScale.collectAsStateWithLifecycle()
     val doublePageSpread    by viewModel.doublePageSpread.collectAsStateWithLifecycle()
     val translationError    by viewModel.translationError.collectAsStateWithLifecycle()
+    val comickParent        by viewModel.comickParent.collectAsStateWithLifecycle()
+    val sourceSwitchRows    by viewModel.sourceSwitchRows.collectAsStateWithLifecycle()
+    val sourceScanning      by viewModel.sourceScanning.collectAsStateWithLifecycle()
+    val sourceSwitching     by viewModel.sourceSwitching.collectAsStateWithLifecycle()
     val fallbackNotice     by viewModel.fallbackNotice.collectAsStateWithLifecycle()
     val fullscreenEnabled   by viewModel.fullscreenEnabled.collectAsStateWithLifecycle()
     val readerTheme         by viewModel.readerTheme.collectAsStateWithLifecycle()
@@ -411,6 +415,17 @@ fun ReaderScreen(
                 currentChapterId = currentChapterId,
                 onJumpToChapter = { viewModel.jumpToChapter(it) },
                 onResetChapter = { currentChapterId?.let { viewModel.jumpToChapter(it) } },
+                // Prepinac zdroju - jen u agregovaneho ComicK titulu (rodic
+                // nalezeny); jinak null a tlacitko se neukaze.
+                sourceSwitch = comickParent?.let {
+                    SourceSwitchState(
+                        rows = sourceSwitchRows,
+                        scanning = sourceScanning,
+                        switching = sourceSwitching,
+                        onOpen = { viewModel.openSourceSwitcher() },
+                        onSelect = { row -> viewModel.switchSource(row) },
+                    )
+                },
                 webtoonSegments = webtoonSegments,
                 onNeedMoreWebtoonSegments = { viewModel.appendNextWebtoonSegment() },
                 // Zpetne nekonecne cteni - dolnatahnout PREDCHOZI kapitolu na zacatek

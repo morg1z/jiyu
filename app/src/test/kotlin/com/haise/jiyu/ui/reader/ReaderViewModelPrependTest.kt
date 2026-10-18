@@ -130,6 +130,7 @@ class ReaderViewModelPrependTest {
         translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
+            comicKResolver = mockk(relaxed = true),
     )
 
     private suspend fun awaitLoaded(vm: ReaderViewModel) {

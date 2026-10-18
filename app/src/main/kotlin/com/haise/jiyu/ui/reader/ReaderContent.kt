@@ -113,6 +113,9 @@ fun ReaderContent(
     /** Ikona ozubeného kola v horní liště - otevře sheet nastavení čtečky
      *  (sheet renderuje ReaderScreen, protože drží ViewModel kolekce). */
     onOpenSettings: () -> Unit = {},
+    /** Přepínač zdrojů v horní liště (agregovaný ComicK titul) - null = tlačítko
+     *  se neukáže (normální neagregovaný titul, ComicK rodič se nenašel). */
+    sourceSwitch: SourceSwitchState? = null,
     webtoonSegments: List<WebtoonSegment> = emptyList(),
     onNeedMoreWebtoonSegments: () -> Unit = {},
     /** Zpetna symetrie [onNeedMoreWebtoonSegments] - ReaderViewModel.prependPreviousWebtoonSegment. */
@@ -461,6 +464,7 @@ fun ReaderContent(
                     onJumpToChapter = onJumpToChapter,
                     onResetChapter = onResetChapter,
                     onOpenSettings = onOpenSettings,
+                    sourceSwitch = sourceSwitch,
                 )
 
                 ReaderBottomPanel(

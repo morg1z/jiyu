@@ -125,6 +125,9 @@ private val GENERIC_GROUP_TOKENS = setOf(
 
 internal fun isGenericGroupToken(token: String): Boolean = token in GENERIC_GROUP_TOKENS
 
+/** lowercase + jen alfanumericke znaky, aby "Asura Scans" a "Asura" vysly stejne. */
+internal fun normalizeGroupToken(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
+
 /** Strop na kontrolu kompletnosti kapitoly (viz resolveCompleteChapter) - stejny duvod jako
  * ReaderViewModel.CHAPTER_LOAD_TIMEOUT_MS (RetryInterceptor x CloudflareInterceptor umi viset
  * beze jakekoli vyjimky i pres minutu). Kratsi nez tam (45s) - u alternativnich kandidatu jde
@@ -141,6 +144,14 @@ private const val FALLBACK_PAGE_CHECK_TIMEOUT_MS = 15_000L
  * vetsi nez per-source timeout sweepu (8 s), takze skupinove zdroje stihnou odpovedet.
  */
 private const val MIRROR_GROUP_GRACE_MS = 12_000L
+
+/**
+ * Jak dlouho platí zapamatovaná resoluce bez KONTROLY zdroje vůbec (uživatelský
+ * požadavek "zapamatovat na pár dní, hledat znovu jen když přibyla kapitola") -
+ * viz source_resolution. Po expiraci se nejede full sweep, jen levný refresh
+ * zapamatovaného zdroje (ten resoluzi zase prodlouží, dokud zdroj funguje).
+ */
+internal const val RESOLUTION_FRESH_MS = 3L * 24 * 60 * 60 * 1000
 
 /** Kapitola s min poctem stranek je podezrela z neuplnosti - viz nahlaseny bug (MangaK/The
  * Raider/kap.19: 5 stranek vs. 11-19 u sousednich). Zaporne/nulove hodnoty (getPageList
@@ -381,6 +392,22 @@ class SourceResolverViewModel @Inject constructor(
                         //    kandidat pozadovanou kapitolu nema)
                         val sorted = rankedCandidates()
                         _candidates.value = sorted
+                        // Zapamatovat kompletni seznam kandidatu - ctecka ho ukaze
+                        // v prepinaci zdroju bez opakovaneho sweepu (uzivatelsky
+                        // pozadavek "vsechny zdroje, kde kapitoly jsou"). Resoluce
+                        // se tim označi za čerstvou (RESOLUTION_FRESH_MS).
+                        comicKMangaId?.let { cid ->
+                            upsertResolution(
+                                comickMangaId = cid,
+                                resolvedMangaId = sorted.firstOrNull()
+                                    ?.let { repository.mangaId(it.source.id, it.manga.url) }
+                                    ?: "",
+                                resolvedLastChapter = sorted.firstOrNull()?.maxChapterNumber,
+                                candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                                    sorted.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
+                                ),
+                            )
+                        }
                         // Uzivatelsky pozadavek: appka ma vzdycky sama vybrat a rovnou otevrit
                         // nejvhodnejsi zdroj podle poradi vyse - rucni seznam (SourceResolverScreen)
                         // se tak realne ukaze jen na kratky okamzik pred prekrytim "resolving"
@@ -449,9 +476,6 @@ class SourceResolverViewModel @Inject constructor(
         }
     }
 
-    /** lowercase + jen alfanumericke znaky, aby "Asura Scans" a "Asura" vysly stejne. */
-    private fun normalizeGroupToken(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
-
     /**
      * Fuzzy shoda: normalizovane jmeno zdroje obsahuje normalizovany token skupiny nebo naopak
      * (delsi retezec obvykle obsahuje kratsi - "asurascans" obsahuje "asura", ne naopak). Kratke
@@ -511,6 +535,27 @@ class SourceResolverViewModel @Inject constructor(
         if (resolvedManga.sourceId == ComicKArtSource.SOURCE_ID && hasInstalledGroupSource()) return null
         val source = sourceManager.getById(resolvedManga.sourceId) ?: return null
         val smanga = resolvedManga.toSManga()
+
+        // Cerstva resoluce (< RESOLUTION_FRESH_MS) a zdroj, co nezaostava za ComicKem
+        // (resolvedLastChapter >= aktualni max titulu - novou kapitolu by ComicK uz
+        // evidoval) = otevreni kapitoly bez JEDINEHO sitoveho requestu; kapitoly se
+        // ctou z DB. Driv se zapamatovany zdroj refreshoval pri kazdem otevreni.
+        val resolution = repository.getSourceResolution(manga.id)
+        val comicKMax = comicKRange?.last
+        if (resolution != null &&
+            System.currentTimeMillis() - resolution.resolvedAt < RESOLUTION_FRESH_MS &&
+            (comicKMax == null || resolution.resolvedLastChapter >= comicKMax - 0.01f)
+        ) {
+            val localNumbers = repository.getAllChapters(resolvedManga.id)
+                .englishOnlyChapters()
+                .map { it.chapterNumber }
+            if (rememberedSourceUsable(localNumbers, requested, comicKRange)) {
+                return rememberedToCandidate(source, smanga, localNumbers)
+            }
+            // Zaznam cerstvy, ale lokalni data cil nepokryvaji (divoky stav typu
+            // castecne smazane kapitoly) - spadne do klasicke refresh cesty nize.
+        }
+
         val chapters = try {
             repository.refreshChapters(resolvedManga.id, smanga)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -523,16 +568,47 @@ class SourceResolverViewModel @Inject constructor(
         // byt "usable" diky cizojazycne verzi cilove kapitoly.
         val enChapters = chapters.filter { isEnglishChapterLanguage(it.language) }
         if (!rememberedSourceUsable(enChapters.map { it.chapterNumber }, requested, comicKRange)) return null
-        return ResolvedCandidate(
-            source = source,
-            manga = smanga,
-            matchedChapterCount = enChapters.map { floor(it.chapterNumber).toInt() }.distinct().size,
-            hasRequestedChapter = true,
-            isFavorite = source.id in settings.favoriteSourceIds.first(),
-            nearestChapterDistance = 0f,
-            minChapterNumber = enChapters.minOfOrNull { it.chapterNumber },
-            maxChapterNumber = enChapters.maxOfOrNull { it.chapterNumber },
-            isDirectMirror = source.id == ComicKArtSource.SOURCE_ID,
+        // Uspech = zdroj overen jako aktualni - zaznam resoluce prodlouzit/zalozit.
+        // ResolvedLast drzi skutecne maximum zdroje pro detekci "pribyla kapitola".
+        upsertResolution(manga.id, resolvedManga.id, enChapters.maxOfOrNull { it.chapterNumber })
+        return rememberedToCandidate(source, smanga, enChapters.map { it.chapterNumber })
+    }
+
+    /** Synteticky kandidat pro [selectCandidate] z overeneho zapamatovaneho zdroje. */
+    private suspend fun rememberedToCandidate(
+        source: com.haise.jiyu.source.MangaSource,
+        smanga: SManga,
+        chapterNumbers: List<Float>,
+    ) = ResolvedCandidate(
+        source = source,
+        manga = smanga,
+        matchedChapterCount = chapterNumbers.map { floor(it).toInt() }.distinct().size,
+        hasRequestedChapter = true,
+        isFavorite = source.id in settings.favoriteSourceIds.first(),
+        nearestChapterDistance = 0f,
+        minChapterNumber = chapterNumbers.minOrNull(),
+        maxChapterNumber = chapterNumbers.maxOrNull(),
+        isDirectMirror = source.id == ComicKArtSource.SOURCE_ID,
+    )
+
+    /** Zapise/obnovi source_resolution zaznam po uspesnem resolvovani/validaci. */
+    private suspend fun upsertResolution(
+        comickMangaId: String,
+        resolvedMangaId: String,
+        resolvedLastChapter: Float?,
+        candidatesJson: String? = null,
+    ) {
+        val existing = repository.getSourceResolution(comickMangaId)
+        repository.upsertSourceResolution(
+            com.haise.jiyu.data.db.entity.SourceResolutionEntity(
+                comickMangaId = comickMangaId,
+                resolvedMangaId = resolvedMangaId,
+                candidatesJson = candidatesJson ?: existing?.candidatesJson ?: "[]",
+                comicKLastChapter = comicKRange?.last ?: existing?.comicKLastChapter ?: 0f,
+                resolvedLastChapter = resolvedLastChapter
+                    ?: existing?.resolvedLastChapter ?: 0f,
+                resolvedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -604,6 +680,15 @@ class SourceResolverViewModel @Inject constructor(
                         // resolveCompleteChapter presmerovalo na jineho kandidata) -
                         // pristi otevreni kapitoly titulu ho zkusi prvni misto sweepu.
                         repository.setResolvedManga(comicKId, finalChapter.mangaId)
+                        // Zaznam resoluce - vitez muze byt jiny nez prvni kandidat
+                        // sweepu (ruční výběr / resolveCompleteChapter přesměrování).
+                        // resolvedLast drzime jen kdyz zname kapitoly finalniho
+                        // zdroje (pri presmerovani na jineho kandidata nechame
+                        // predchozi namerenou hodnotu).
+                        val finalMax = if (finalChapter.mangaId == mangaId) {
+                            resolvedChapters.englishOnlyChapters().maxOfOrNull { it.chapterNumber }
+                        } else null
+                        upsertResolution(comicKId, finalChapter.mangaId, finalMax)
                     }
                     _openedChapterId.value = finalChapter.id
                 }

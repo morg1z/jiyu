@@ -130,6 +130,7 @@ class ReaderViewModelBatchTranslateTest {
         translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
+            comicKResolver = mockk(relaxed = true),
     )
 
     /** Nasimuluje průběh translateChapter - pro každou dvojici (index, bloky) zavolá callback. */

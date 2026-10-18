@@ -953,6 +953,43 @@ class MangaRepository @Inject constructor(
     suspend fun setResolvedManga(mangaId: String, resolvedMangaId: String?) =
         mangaDao.setResolvedManga(mangaId, resolvedMangaId)
 
+    // ── Cache resoluce (source_resolution) ──────────────────────────────────
+    // Uzivatelsky pozadavek: vyresena volba zdroje se pamatuje par dni a znovu se
+    // nehleda, dokud ComicK neeviduje novou kapitolu. Drzi i seznam kandidatu pro
+    // prepinac zdroju v ctecce - viz SourceResolutionEntity.
+
+    suspend fun getSourceResolution(comickMangaId: String) =
+        db.sourceResolutionDao().get(comickMangaId)
+
+    suspend fun upsertSourceResolution(entity: com.haise.jiyu.data.db.entity.SourceResolutionEntity) =
+        db.sourceResolutionDao().upsert(entity)
+
+    suspend fun deleteSourceResolution(comickMangaId: String) =
+        db.sourceResolutionDao().delete(comickMangaId)
+
+    /**
+     * ComicK (agregovaný) rodič právě čtené kapitoly - pro přepínač zdrojů v čtečce.
+     * Cesty vazby: čtená kapitola PATŘÍ ComicK entitě (katalogová kapitola), je cílem
+     * fallback linku nějaké ComicK kapitoly (selectCandidate), nebo patří mangovi, na
+     * který ComicK titul trvale ukazuje přes resolvedMangaId / který se kdy nalinkoval.
+     */
+    suspend fun comickParentForResolvedChapter(chapterEntityId: String): MangaEntity? {
+        val chapter = chapterDao.getById(chapterEntityId) ?: return null
+        if (chapter.sourceId == "comick") return mangaDao.getById(chapter.mangaId)
+        chapterDao.findComickParentsOf(chapterEntityId)
+            .firstOrNull()?.mangaId
+            ?.let { mangaDao.getById(it) }
+            ?.let { return it }
+        for (manga in mangaDao.findByResolvedSource(chapter.mangaId)) {
+            if (manga.inLibrary) return manga
+        }
+        chapterDao.findComickMangasLinkedToResolved(chapter.mangaId)
+            .firstOrNull()
+            ?.let { mangaDao.getById(it) }
+            ?.let { return it }
+        return null
+    }
+
     /** Propaguje postup z reálné čtené kapitoly na kapitoly, které na ni přesměrovávají
      *  (ComicK metadatová kapitola) - viz [ChapterDao.propagateProgressToFallbackParents].
      *  Vraci Comick push cile nalezenych katalogovych rodicu - reader je preda

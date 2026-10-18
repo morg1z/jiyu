@@ -30,6 +30,14 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import com.haise.jiyu.data.repository.englishOnlyChapters
+import com.haise.jiyu.data.repository.isEnglishChapter
+import com.haise.jiyu.ui.resolver.ChapterRange
+import com.haise.jiyu.ui.resolver.RESOLUTION_FRESH_MS
+import com.haise.jiyu.ui.resolver.deriveGroupSignals
+import com.haise.jiyu.ui.resolver.isGenericGroupToken
+import com.haise.jiyu.ui.resolver.normalizeGroupToken
+import com.haise.jiyu.ui.resolver.rankCandidates
+import com.haise.jiyu.util.toFriendlyMessage
 import com.haise.jiyu.data.repository.preferEnglishChapters
 import com.haise.jiyu.source.Page
 import com.haise.jiyu.settings.ReadingDirection
@@ -120,6 +128,7 @@ class ReaderViewModel @Inject constructor(
     private val translateQueue: com.haise.jiyu.translate.TranslateQueue,
     private val sourceManager: com.haise.jiyu.source.SourceManager,
     private val pageGapFiller: com.haise.jiyu.source.PageGapFiller,
+    private val comicKResolver: com.haise.jiyu.source.comick.ComicKChapterResolver,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
@@ -389,6 +398,26 @@ class ReaderViewModel @Inject constructor(
     // Jediné probíhající načtení kapitoly - rychlé přepínání (další/předchozí, skok) by jinak
     // nechalo běžet víc loadChapter najednou, které si mezi suspend body přepisují stejné StateFlow.
     private var loadJob: Job? = null
+
+    // ── Přepínač zdrojů (agregovaný ComicK režim) - stav musí být deklarovaný
+    // PŘED init blokem: launchLoadChapter z init běží na unconfined dispatcheru
+    // eager už během konstrukce a pole deklarovaná až za init by tehdy byla null.
+    private val _comickParent = MutableStateFlow<com.haise.jiyu.data.db.entity.MangaEntity?>(null)
+    /** Non-null = kapitola patri agregovanemu ComicK titulu -> horni lista ukaze tlacitko prepinace. */
+    val comickParent: StateFlow<com.haise.jiyu.data.db.entity.MangaEntity?> = _comickParent.asStateFlow()
+
+    private val _sourceSwitchRows = MutableStateFlow<List<SourceSwitchRow>>(emptyList())
+    val sourceSwitchRows: StateFlow<List<SourceSwitchRow>> = _sourceSwitchRows.asStateFlow()
+
+    /** true = probiha prepinani (openPreview + hledani kapitoly) - sheet ukaze spinner na radce. */
+    private val _sourceSwitching = MutableStateFlow(false)
+    val sourceSwitching: StateFlow<Boolean> = _sourceSwitching.asStateFlow()
+
+    /** true = na pozadi bezi sweep zdroju (stara cache) - sheet ukaze "hledam dalsi" stav. */
+    private val _sourceScanning = MutableStateFlow(false)
+    val sourceScanning: StateFlow<Boolean> = _sourceScanning.asStateFlow()
+
+    private var rescanJob: Job? = null
 
     private fun launchLoadChapter(id: String) {
         loadJob?.cancel()
@@ -1161,6 +1190,11 @@ class ReaderViewModel @Inject constructor(
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
         _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
+        // ComicK rodic pro prepinac zdroju v horni liste (uzivatelsky pozadavek:
+        // rucni prepnuti na jiny zdroj, kde kapitoly jsou). null u bezneho
+        // neagregovaneho titulu = tlacitko se neukaze.
+        _comickParent.value = repository.comickParentForResolvedChapter(chapter.id)
+        _sourceSwitchRows.value = emptyList()
         // Hlaska se MUSI vycistit i pro ne-fallback kapitolu - jinak by po prechodu
         // z fallback kapitoly na normalni zustala viset navzdy (audit - stale notice).
         _fallbackNotice.value = if (chapter.isFallbackSource) {
@@ -2698,6 +2732,217 @@ class ReaderViewModel @Inject constructor(
         translationJobChapterId = null
         _translationProgress.value = null
         cancelBatchTranslation()
+    }
+
+    // ── Přepínač zdrojů (agregovaný ComicK režim) ─────────────────────────
+    //
+    // Uzivatelsky pozadavek: v horni liste ctecky tlacitko, co otevre seznam vsech
+    // zdroju, kde se kapitoly titulu nasly, a rucne prepne na jiny. Kandidati se
+    // ctou ze source_resolution cache (zapisuje ji resolver po sweepu) - prepinac
+    // tak vetsinou netreba sit vubec; pri starem/chybejicim zaznamu se sweep
+    // pusti na pozadi a radky se doplni prubezne (viz rescanSourceCandidates).
+
+    /** Jeden radek v prepinaci zdroju - viz [openSourceSwitcher]. */
+    data class SourceSwitchRow(
+        val sourceId: String,
+        val sourceName: String,
+        val mangaUrl: String,
+        val mangaTitle: String,
+        val coverUrl: String?,
+        val minChapter: Float?,
+        val maxChapter: Float?,
+        val chapterCount: Int,
+        /** Aktualne cteny zdroj - radka je oznacena a kliknuti se ignoruje. */
+        val isCurrent: Boolean,
+        /** Aktualni cislo kapitoly lezi v zaznamenanem rozsahu zdroje (odhad - diry uvnitr rozsahu se z cache nepoznaji). */
+        val hasCurrentChapter: Boolean,
+    )
+
+    /** Otevreni sheetu prepinace: cache do radku hned, pri starem/chybejicim zaznamu sweep na pozadi. */
+    fun openSourceSwitcher() {
+        val parent = _comickParent.value ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val currentNumber = currentChapter?.chapterNumber
+            val resolution = repository.getSourceResolution(parent.id)
+            val cached = com.haise.jiyu.data.repository.SourceResolutionCodec
+                .decode(resolution?.candidatesJson ?: "[]")
+            _sourceSwitchRows.value = cached.map { it.toRow(currentNumber) }
+            val stale = resolution == null ||
+                System.currentTimeMillis() - resolution.resolvedAt >= RESOLUTION_FRESH_MS
+            if (stale || cached.isEmpty()) rescanSourceCandidates(parent)
+        }
+    }
+
+    /** Full sweep zdroju na pozadi - radky se do _sourceSwitchRows pridavaji prubezne. */
+    private fun rescanSourceCandidates(parent: com.haise.jiyu.data.db.entity.MangaEntity) {
+        if (rescanJob?.isActive == true) return
+        rescanJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _sourceScanning.value = true
+            try {
+                val currentNumber = currentChapter?.chapterNumber
+                val allComicKChapters = repository.getAllChapters(parent.id).englishOnlyChapters()
+                val signals = deriveGroupSignals(
+                    allComicKChapters,
+                    ::normalizeGroupToken,
+                    ::isGenericGroupToken,
+                )
+                val found = mutableListOf<com.haise.jiyu.source.comick.ResolvedCandidate>()
+                comicKResolver.findCandidatesFlow(
+                    comicKMangaId = parent.id,
+                    comicKMangaUrl = parent.url,
+                    comicKTitle = parent.title,
+                    comicKContentType = parent.contentType,
+                    requestedChapterNumber = currentNumber,
+                    priorityGroupTokens = signals.preferredTokens,
+                ).collect { candidate ->
+                    found += candidate
+                    // Prubezne radit podle stejneho klice jako resolver screen -
+                    // sheet se vyplnuje zive, jak zdroje odpovidaji.
+                    val total = allComicKChapters.map { kotlin.math.floor(it.chapterNumber).toInt() }.distinct().size
+                    val range = allComicKChapters.map { it.chapterNumber }
+                        .let { if (it.isEmpty()) null else ChapterRange(it.min(), it.max()) }
+                    _sourceSwitchRows.value = rankCandidates(
+                        found.toList(), total,
+                        isPreferredGroup = { c -> signals.preferredTokens.any { t -> sourceMatchesToken(sourceNameOf(c.source.id), t) } },
+                        comicKRange = range,
+                    ).map { it.toRow(currentNumber) }
+                }
+                // Vysledky sweepu zapsat do source_resolution - dalsi otevreni
+                // sheetu i otevirani kapitol zase jedou z cache bez site.
+                if (found.isNotEmpty()) {
+                    val sorted = _sourceSwitchRows.value
+                    repository.upsertSourceResolution(
+                        com.haise.jiyu.data.db.entity.SourceResolutionEntity(
+                            comickMangaId = parent.id,
+                            resolvedMangaId = repository.getSourceResolution(parent.id)?.resolvedMangaId
+                                ?: repository.mangaId(found.first().source.id, found.first().manga.url),
+                            candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                                found.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
+                            ),
+                            comicKLastChapter = allComicKChapters.maxOfOrNull { it.chapterNumber } ?: 0f,
+                            resolvedLastChapter = found.firstOrNull()?.maxChapterNumber ?: 0f,
+                            resolvedAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("reader:sourceRescan")
+            } finally {
+                _sourceScanning.value = false
+            }
+        }
+    }
+
+    private fun sourceNameOf(sourceId: String): String =
+        sourceManager.getByIdSync(sourceId)?.name ?: sourceId
+
+    /** Stejna fuzzy shoda jako SourceResolverViewModel.sourceNameMatchesPreferredGroup - top-level verze. */
+    private fun sourceMatchesToken(sourceName: String, token: String): Boolean {
+        val normalized = normalizeGroupToken(sourceName)
+        return normalized.isNotEmpty() && (normalized.contains(token) || token.contains(normalized))
+    }
+
+    private fun com.haise.jiyu.data.repository.CachedSourceCandidate.toRow(currentNumber: Float?) =
+        SourceSwitchRow(
+            sourceId = sourceId,
+            sourceName = sourceNameOf(sourceId),
+            mangaUrl = mangaUrl,
+            mangaTitle = mangaTitle,
+            coverUrl = coverUrl,
+            minChapter = minChapter,
+            maxChapter = maxChapter,
+            chapterCount = chapterCount,
+            isCurrent = repository.mangaId(sourceId, mangaUrl) == currentChapter?.mangaId,
+            hasCurrentChapter = currentNumber == null ||
+                (minChapter != null && maxChapter != null &&
+                    currentNumber >= minChapter - 0.01f && currentNumber <= maxChapter + 0.01f),
+        )
+
+    private fun com.haise.jiyu.source.comick.ResolvedCandidate.toRow(currentNumber: Float?) =
+        SourceSwitchRow(
+            sourceId = source.id,
+            sourceName = source.name,
+            mangaUrl = manga.url,
+            mangaTitle = manga.title,
+            coverUrl = manga.coverUrl,
+            minChapter = minChapterNumber,
+            maxChapter = maxChapterNumber,
+            chapterCount = matchedChapterCount,
+            isCurrent = repository.mangaId(source.id, manga.url) == currentChapter?.mangaId,
+            hasCurrentChapter = currentNumber == null || hasRequestedChapter,
+        )
+
+    /** Rucni prepnuti na jiny zdroj - najde stejne cislo kapitoly a nacte ji. */
+    fun switchSource(row: SourceSwitchRow) {
+        val parent = _comickParent.value ?: return
+        val targetNumber = currentChapter?.chapterNumber ?: return
+        if (row.isCurrent || _sourceSwitching.value) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _sourceSwitching.value = true
+            try {
+                val smanga = com.haise.jiyu.source.SManga(
+                    sourceId = row.sourceId,
+                    url = row.mangaUrl,
+                    title = row.mangaTitle,
+                    coverUrl = row.coverUrl,
+                )
+                val mangaId = repository.openPreview(smanga)
+                val chapters = repository.getAllChapters(mangaId).englishOnlyChapters()
+                val best = chapters.minByOrNull { kotlin.math.abs(it.chapterNumber - targetNumber) }
+                if (best == null) {
+                    _fallbackNotice.value = context.getString(R.string.resolver_chapter_missing_after_select)
+                    return@launch
+                }
+                // Pamet volby: resolvedMangaId na ComicK entite + resolution zaznam
+                // (dalsi otevreni kapitol i prepinace vidi novy zdroj hned).
+                repository.setResolvedManga(parent.id, mangaId)
+                val existing = repository.getSourceResolution(parent.id)
+                if (existing != null) {
+                    repository.upsertSourceResolution(
+                        existing.copy(
+                            resolvedMangaId = mangaId,
+                            resolvedLastChapter = chapters.maxOfOrNull { it.chapterNumber }
+                                ?: existing.resolvedLastChapter,
+                            resolvedAt = System.currentTimeMillis(),
+                        )
+                    )
+                } else {
+                    repository.upsertSourceResolution(
+                        com.haise.jiyu.data.db.entity.SourceResolutionEntity(
+                            comickMangaId = parent.id,
+                            resolvedMangaId = mangaId,
+                            candidatesJson = "[]",
+                            comicKLastChapter = 0f,
+                            resolvedLastChapter = chapters.maxOfOrNull { it.chapterNumber } ?: 0f,
+                            resolvedAt = System.currentTimeMillis(),
+                        )
+                    )
+                }
+                // Nalinkovat ComicK kapitolu se stejnym cislem na novy cil (fallback
+                // link + "Pokracovat" ukotveni, stejne jako resolver selectCandidate).
+                repository.getAllChapters(parent.id)
+                    .firstOrNull { kotlin.math.abs(it.chapterNumber - targetNumber) < 0.01f && it.isEnglishChapter() }
+                    ?.let {
+                        repository.setChapterFallbackTarget(it.id, best.id)
+                        repository.updateLastReadChapter(parent.id, it.id)
+                    }
+                _sourceSwitchRows.value = _sourceSwitchRows.value.map {
+                    it.copy(isCurrent = it.sourceId == row.sourceId && it.mangaUrl == row.mangaUrl)
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    jumpToChapter(best.id)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.report("reader:switchSource")
+                _fallbackNotice.value = e.toFriendlyMessage()
+            } finally {
+                _sourceSwitching.value = false
+            }
+        }
     }
 
     fun toggleShowOriginal() {

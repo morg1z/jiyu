@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +73,7 @@ import compose.icons.tablericons.Menu2
 import compose.icons.tablericons.Moon
 import compose.icons.tablericons.Refresh
 import compose.icons.tablericons.Settings
+import compose.icons.tablericons.SwitchHorizontal
 import compose.icons.tablericons.Sun
 import compose.icons.tablericons.WifiOff
 import compose.icons.tablericons.X
@@ -94,6 +96,8 @@ fun ReaderTopBar(
     onJumpToChapter: (String) -> Unit,
     onResetChapter: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    /** Přepínač zdrojů pro agregovaný ComicK titul - null = tlačítko se neukáže. */
+    sourceSwitch: SourceSwitchState? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -259,6 +263,27 @@ fun ReaderTopBar(
                             }
                         }
                     }
+                }
+            }
+
+            // Prepínač zdroju pro agregovany ComicK titul - sheet se vsemi zdroji,
+            // kde se kapitoly nasly (uzivatelsky pozadavek: rucni prepnuti na jiny
+            // zdroj). Vedle nastaveni, jen kdyz kapitola ComicK rodice ma.
+            if (sourceSwitch != null) {
+                var showSourceSheet by remember { mutableStateOf(false) }
+                IconButton(onClick = { sourceSwitch.onOpen(); showSourceSheet = true }) {
+                    Icon(
+                        TablerIcons.SwitchHorizontal,
+                        contentDescription = stringResource(R.string.reader_switch_source_desc),
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                if (showSourceSheet) {
+                    SourceSwitchSheet(
+                        state = sourceSwitch,
+                        onDismiss = { showSourceSheet = false },
+                    )
                 }
             }
 
@@ -827,3 +852,129 @@ private fun ReaderAdvancedSheetContent(
         }
     }
 }
+
+// ── Přepínač zdrojů (agregovaný ComicK režim) ─────────────────────────────
+
+/** Stav pro tlačítko/sheet přepínače zdrojů v [ReaderTopBar] - sbalí VM kolekce
+ *  i callbacky, ať signatura čtečky neroste po jednom parametru. */
+data class SourceSwitchState(
+    val rows: List<ReaderViewModel.SourceSwitchRow>,
+    /** Full sweep zdrojů běží na pozadí (stará/chybějící cache) - "Hledám další…". */
+    val scanning: Boolean,
+    /** Probíhá samotné přepnutí (openPreview + skok na kapitolu). */
+    val switching: Boolean,
+    /** Sheet se otevřel - VM naplní řádky z cache / spustí rescan. */
+    val onOpen: () -> Unit,
+    val onSelect: (ReaderViewModel.SourceSwitchRow) -> Unit,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SourceSwitchSheet(
+    state: SourceSwitchState,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF111B35),
+    ) {
+        Text(
+            text = stringResource(R.string.reader_sources_sheet_title),
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.55f),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            items(state.rows, key = { "${it.sourceId}::${it.mangaUrl}" }) { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (row.isCurrent) Modifier.background(Color(0xFF8B5CF6).copy(alpha = 0.18f)) else Modifier)
+                        .clickable(enabled = !row.isCurrent && !state.switching) {
+                            state.onSelect(row)
+                        }
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = row.sourceName,
+                            color = if (row.isCurrent) Color(0xFFB39DFF) else Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = if (!row.hasCurrentChapter) {
+                                stringResource(R.string.reader_source_missing_chapter)
+                            } else if (row.minChapter != null && row.maxChapter != null) {
+                                stringResource(
+                                    R.string.reader_source_chapters_range,
+                                    trimChapterNumber(row.minChapter),
+                                    trimChapterNumber(row.maxChapter),
+                                    row.chapterCount,
+                                )
+                            } else {
+                                stringResource(R.string.reader_source_chapters_count, row.chapterCount)
+                            },
+                            color = if (row.hasCurrentChapter) Color.White.copy(alpha = 0.55f) else Color(0xFFE57373).copy(alpha = 0.9f),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (row.isCurrent) {
+                        Icon(
+                            TablerIcons.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF8B5CF6),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+            }
+            if (state.scanning) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                        Text(
+                            text = stringResource(R.string.reader_source_scanning),
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+            if (state.rows.isEmpty() && !state.scanning) {
+                item {
+                    Text(
+                        text = stringResource(R.string.reader_source_none),
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** "12.0" -> "12", "12.5" -> "12.5" - hezčí zápis rozsahu kapitol v sheetu. */
+private fun trimChapterNumber(n: Float): String =
+    if (n == n.toLong().toFloat()) n.toLong().toString() else n.toString()

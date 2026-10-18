@@ -770,6 +770,13 @@
     <string name="reader_panel_mode_desc">Panel by panel</string>
     <string name="reader_pick_chapter_desc">Pick chapter</string>
     <string name="reader_settings_desc">Reading settings</string>
+    <string name="reader_switch_source_desc">Switch source</string>
+    <string name="reader_sources_sheet_title">Title sources</string>
+    <string name="reader_source_chapters_range">ch. %1$s–%2$s · %3$d chapters</string>
+    <string name="reader_source_chapters_count">%1$d chapters</string>
+    <string name="reader_source_missing_chapter">this chapter missing</string>
+    <string name="reader_source_scanning">Searching more sources…</string>
+    <string name="reader_source_none">No other source has this title</string>
     <string name="reader_settings_this_manga">This title</string>
     <string name="reader_settings_defaults_section">Default for other titles</string>
     <string name="reader_chapters_sheet_title">Chapters (%1$d)</string>

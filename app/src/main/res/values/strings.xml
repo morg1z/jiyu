@@ -824,6 +824,13 @@
     <string name="reader_pick_chapter_desc">Vybrat kapitolu</string>
     <string name="reader_reset_chapter_desc">Znovu načíst kapitolu</string>
     <string name="reader_settings_desc">Nastavení čtení</string>
+    <string name="reader_switch_source_desc">Přepnout zdroj</string>
+    <string name="reader_sources_sheet_title">Zdroje titulu</string>
+    <string name="reader_source_chapters_range">kap. %1$s–%2$s · %3$d kapitol</string>
+    <string name="reader_source_chapters_count">%1$d kapitol</string>
+    <string name="reader_source_missing_chapter">tuto kapitolu nemá</string>
+    <string name="reader_source_scanning">Hledám další zdroje…</string>
+    <string name="reader_source_none">Žádný jiný zdroj titul nemá</string>
     <string name="reader_settings_this_manga">Tento titul</string>
     <string name="reader_settings_defaults_section">Výchozí pro ostatní tituly</string>
     <string name="webtoon_chapter_boundary_finished">Konec: %1$s</string>

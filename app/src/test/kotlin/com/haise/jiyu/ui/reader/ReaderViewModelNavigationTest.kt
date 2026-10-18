@@ -110,6 +110,7 @@ class ReaderViewModelNavigationTest {
         translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
+            comicKResolver = mockk(relaxed = true),
     )
 
     @Test

@@ -118,6 +118,7 @@ class ReaderViewModelDonorSpliceTest {
         translateQueue = mockk(relaxed = true),
         sourceManager = sourceManager,
         pageGapFiller = pageGapFiller,
+        comicKResolver = mockk(relaxed = true),
     )
 
     @Test

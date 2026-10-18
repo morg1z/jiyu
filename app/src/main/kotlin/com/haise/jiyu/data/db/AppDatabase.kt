@@ -16,6 +16,7 @@ import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
+import com.haise.jiyu.data.db.entity.SourceResolutionEntity
 import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
 import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.TranslatedPageEntity
@@ -43,8 +44,9 @@ class Converters {
         TranslatedNovelEntity::class,
         GlossaryEntity::class,
         ManualTranslationEntity::class,
+        SourceResolutionEntity::class,
     ],
-    version = 48,
+    version = 49,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -60,6 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mangaTagDao(): MangaTagDao
     abstract fun glossaryDao(): GlossaryDao
     abstract fun manualTranslationDao(): ManualTranslationDao
+    abstract fun sourceResolutionDao(): SourceResolutionDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -461,6 +464,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_48_49 = object : Migration(48, 49) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Cache resoluce ComicK titulu na realny zdroj vcetne seznamu vsech
+                // nalezenych kandidatu - viz SourceResolutionEntity. Drzi ji ctecka pro
+                // prepinac zdroju a resolver pro preskoceni refreshu, dokud nepribyla
+                // nova kapitola.
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `source_resolution` (
+                        `comickMangaId` TEXT NOT NULL PRIMARY KEY,
+                        `resolvedMangaId` TEXT NOT NULL,
+                        `candidatesJson` TEXT NOT NULL,
+                        `comicKLastChapter` REAL NOT NULL,
+                        `resolvedLastChapter` REAL NOT NULL,
+                        `resolvedAt` INTEGER NOT NULL)"""
+                )
+            }
+        }
+
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
          * AppModule i migrační test vypisovaly každý zvlášť, takže zapomenutá migrace v jednom místě prošla
@@ -512,6 +533,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_45_46,
             MIGRATION_46_47,
             MIGRATION_47_48,
+            MIGRATION_48_49,
         )
     }
 }
