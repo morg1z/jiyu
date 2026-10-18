@@ -4,6 +4,45 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.7
+
+### Čtečka: mrtvá stránka se doplní z jiného zdroje
+
+- **Per-page donor fallback** — stránka, co definitivně selže (404, poškozená,
+  zaseknutý plán řezů), se nahradí stejnoindexovou stránkou z alternativního
+  zdroje téže kapitoly; dřív kontrola chytala jen díry v číslování URL. Donor
+  nese vlastní lazy marker, takže se stáhne se správným refererem (jinak 403
+  na hotlink CDN). Funguje v pageru, curl i webtoonu včetně řezů.
+- **Viditelná stránka nikdy nečeká za prefetchem** — display requesty dostaly
+  vlastní OkHttp dispatcher (`PageDisplayImageLoader`), takže viditelná stránka
+  se už nezasekne ve frontě za 10 předstahovanými requesty na stejném hostiteli
+  (hlášené "stránka se nenačte, scroll tam a zpět pomůže"). Prefetch sousedních
+  kapitol jede po dávkách po 3 místo celého burstu najednou.
+
+### ComicK agregátor: přednost překladatelským skupinám
+
+- **Skupinový zdroj před comick.art** — resolver dřív auto-otevřel kompletní
+  mirror ještě před prohledáním Asura/Flame a podobných; teď má nainstalovaný
+  zdroj preferované skupiny (odvozené z posledních 2 + otevíracích kapitol)
+  přednost v řazení i v timing — mirror se drží 12 s jako pojistka, ne jako
+  výherce. Zapamatovaný mirror se při existenci skupinového zdroje
+  přehodnocuje, takže se volba sama přepne.
+- **Vyhledávání respektuje vypnuté 18+ zdroje** — search/top feed posílaly
+  request bez `content_rating`, takže vracely erotica/pornographic tituly,
+  co pak nešlo otevřít; teď se implicitně filtruje na safe+suggestive
+  (explicitní volba v filtru má přednost).
+
+### Překlad: konec falešného "omezené kvality"
+
+- **Degradovaný model se odmítne, když je zdravá alternativa** — proxy na
+  vyčerpaném Gemini free tieru sama sestupuje na `gemini-3.5-flash-lite` a
+  appka ho dřív mlčky přijala i když zdravý `gpt-oss-120b` čekal o krok níž;
+  jedna kapitola tak skončila celá "degraded". Teď se degradace zahodí,
+  provider se dočasně odstaví a řetězec pokračuje plnou kvalitou.
+- **Degradace zůstává poslední možností** — pojistný krok na konci řetězce
+  ji přijme, když všechny alternativy selžou (pořád lepší než žádný překlad),
+  takže banner ukazuje jen skutečnou degradaci.
+
 ## v2.0.6
 
 ### Knihovna: správný postup i po přeskočení kapitol
