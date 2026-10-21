@@ -197,6 +197,11 @@ class ComicKArtSource(
         // Cursor z minule stranky pouzijeme jen pro stejny dotaz - prokluz dvou
         // sekvenci (nebo zmena filtru) by jinak vratila stranku z ciziho kontextu.
         val cursor = nextCursor?.takeIf { it.first == params }?.second
+        // Pozadavek na stranku >1 BEZ cursoru = prokluz dvou paging flow (browse +
+        // resolver sdili nextCursor; mismatch na strane >=2). Fallback na `params`
+        // by znovu stahl STRANKU 1 -> stejne polozky v nekonecnem scrollu donekonecna
+        // (audit #9). Radne ukoncime sekvenci misto duplicit.
+        if (page > 1 && cursor == null) return emptyList()
         val url = if (page > 1 && cursor != null) "$params&cursor=${URLEncoder.encode(cursor, "UTF-8")}" else params
         val json = getObject(url)
         nextCursor = (json.optString("next_cursor").ifBlank { null }

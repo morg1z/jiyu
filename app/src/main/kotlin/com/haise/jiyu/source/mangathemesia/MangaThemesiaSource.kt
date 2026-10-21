@@ -14,6 +14,7 @@ import com.haise.jiyu.util.SourceParseException
 import com.haise.jiyu.util.lazySrc
 import com.haise.jiyu.util.normalizeContentType
 import com.haise.jiyu.util.parseChapterDate
+import com.haise.jiyu.util.parseChapterNumber
 import com.haise.jiyu.util.resolveSourceUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -300,7 +301,6 @@ class MangaThemesiaSource(
 
     // ─── Kapitoly ────────────────────────────────────────────────────────────
 
-    private val numberRegex = Regex("""(\d+(?:\.\d+)?)""")
 
     private fun chapterDate(text: String?): Long {
         if (text.isNullOrBlank()) return 0L
@@ -323,20 +323,25 @@ class MangaThemesiaSource(
         val container = doc.selectFirst(selectors.chapterContainer)
             ?: throw SourceParseException("Seznam kapitol nenalezen (změněné HTML?)", url)
         val items = container.select(selectors.chapterItem).filter { it.selectFirst("a[href]") != null }
-        items.mapIndexedNotNull { i, li ->
-            val link = li.selectFirst("a[href]") ?: return@mapIndexedNotNull null
+        items.mapNotNull { li ->
+            val link = li.selectFirst("a[href]") ?: return@mapNotNull null
             // Coin-lock/premium radky maji href="#" nebo "javascript:..." misto
             // URL - resolveSourceUrl by z "#" udelal zpet stranku titulu a
             // getPageList by pak na ni selhal (audit ext:elftoon/asialotuss).
             val rawHref = link.attr("href").trim()
             if (rawHref.startsWith("#") || rawHref.startsWith("javascript:", ignoreCase = true)) {
-                return@mapIndexedNotNull null
+                return@mapNotNull null
             }
-            val href = resolveSourceUrl(root, rawHref).ifBlank { return@mapIndexedNotNull null }
+            val href = resolveSourceUrl(root, rawHref).ifBlank { return@mapNotNull null }
             val rawName = (li.selectFirst(selectors.chapterNumber) ?: link).text().replace(Regex("""\s+"""), " ").trim()
+            // data-num atribut -> parseChapterNumber (klicove-slovo-aware: "Vol.2
+            // Chapter 45" -> 45, ne prvni cislo "2"). Pozicni fallback (items.size - i)
+            // FABRIKOVAL cisla, ktera pak krmila exact-match resolveru a vytvarela
+            // nove poison-linky na spatne kapitoly (audit #10). Neparsovatelne = 0f
+            // (konvence "zdroj necisloval", matching/dedup ji vynechava).
             val num = li.attr("data-num").toFloatOrNull()
-                ?: numberRegex.find(rawName)?.groupValues?.get(1)?.toFloatOrNull()
-                ?: (items.size - i).toFloat()
+                ?: parseChapterNumber(rawName)
+                ?: 0f
             SChapter(
                 sourceId = id,
                 mangaUrl = manga.url,

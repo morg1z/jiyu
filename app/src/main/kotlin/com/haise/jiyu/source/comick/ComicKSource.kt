@@ -649,7 +649,10 @@ class ComicKSource @Inject constructor(
             withTimeoutOrNull(CHAPTER_LIST_TIMEOUT_MS) {
                 // Paralelní dávky: u titulu se stovkami kapitol se sekvenční smyčka
                 // po 60 položkách protáhne na desítky sekund (každá stránka = 1 RTT).
-                chapters += fetchPagesBatched(maxPages = maxPages) { page ->
+                // onBatch plni `chapters` inkrementalne - bez nej by `chapters += ...`
+                // v tele withTimeoutOrNull pri timeoutu zahodilo VSECHNY doted stazene
+                // stranky a vratilo prazdny seznam (audit #5).
+                fetchPagesBatched(maxPages = maxPages, onBatch = { chapters += it }) { page ->
                     val url = "$apiBase/comic/$hid/chapters?page=$page&limit=$pageSize"
                     val arr = getObject(url).optJSONArray("chapters")
                     val items = arr?.let { a ->

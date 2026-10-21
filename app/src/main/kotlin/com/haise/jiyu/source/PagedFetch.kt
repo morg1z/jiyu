@@ -1,5 +1,6 @@
 package com.haise.jiyu.source
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
@@ -58,6 +59,7 @@ internal suspend fun <T> fetchPagesBatched(
     firstPage: Int = 1,
     maxPages: Int = 200,
     batchSize: Int = 4,
+    onBatch: (List<T>) -> Unit = {},
     fetch: suspend (Int) -> PageBatch<T>,
 ): List<T> = coroutineScope {
     val out = ArrayList<T>()
@@ -69,9 +71,17 @@ internal suspend fun <T> fetchPagesBatched(
         var stop = false
         for (deferred in pages) {
             val result = deferred.await()
-            if (stop) continue // spekulativní stránka za koncem - chybu zahodíme
+            if (stop) {
+                // Spekulativní stránka za koncem - chybu zahodíme, ale zrušení
+                // (timeout volajícího) musí propagovat, ne tiše zmizet.
+                result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+                continue
+            }
             val batch = result.getOrElse { throw it }
             out += batch.items
+            // Inkrementalni sink - volajici dostane castecne polozky i kdyz nasledne
+            // doběhne timeout (ComicKSource vraci castecny seznam kapitol, ne prazdny).
+            onBatch(batch.items)
             if (batch.isLast) stop = true
         }
         if (stop) break

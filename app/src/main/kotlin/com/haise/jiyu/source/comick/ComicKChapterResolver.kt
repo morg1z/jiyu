@@ -11,6 +11,7 @@ import com.haise.jiyu.source.isSameContentGroup
 import com.haise.jiyu.source.interceptor.InteractiveChallengePolicy
 import com.haise.jiyu.util.normalizeMangaTitle
 import com.haise.jiyu.util.report
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -123,7 +124,8 @@ class ComicKChapterResolver @Inject constructor(
         }
         if (cached != null) cache.remove(comicKMangaId)
         val found = java.util.Collections.synchronizedList(mutableListOf<CachedCandidate>())
-        searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens) { candidate ->
+        try {
+            searchAndFetchStreaming(comicKMangaUrl, comicKTitle, comicKContentType, priorityGroupTokens) { candidate ->
             // Dedupe podle source.id: comick.art muze prijit dvakrat - z probe faze 0
             // (slug, isDirectMirror) i z bezneho sweepu (title-search, kdyz mirror ma
             // titul pod jinym slugem). Prvni emise vyhrava a je to vzdy probe -
@@ -135,6 +137,15 @@ class ComicKChapterResolver @Inject constructor(
                 } else false
             }
             if (isNew) send(toResolvedCandidate(candidate, favorites, requestedChapterNumber))
+            }
+        } catch (e: CancellationException) {
+            // Early-exit zrusi sweep uprostred (searchJob?.cancel v resolveru) - bez
+            // tohohle catch se posbirani kandidati zahodi a dalsi otevreni plati
+            // ~8-16 s sweep znovu (audit #14). Cachujeme jen NEPRAZDNY dilci vysledek:
+            // overeni kandidati jsou realni; prazdny `found` pri cancelu neni dukazem
+            // negativniho vysledku (sweep nemusel dobehnout ani k prvnimu zdroji).
+            if (found.isNotEmpty()) cache.put(comicKMangaId, CacheEntry(found.toList(), nowMs()))
+            throw e
         }
         // I prazdny vysledek se cachuje (negativni cache) - bez tohohle drahe cross-source
         // hledani přes VŠECHNY zdroje probíhalo znovu při každém otevření titulu bez shody,

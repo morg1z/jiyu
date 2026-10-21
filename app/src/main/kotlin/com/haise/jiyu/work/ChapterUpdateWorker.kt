@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.haise.jiyu.MainActivity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
+import com.haise.jiyu.data.repository.isEnglishChapter
 import com.haise.jiyu.download.DownloadQueue
 import com.haise.jiyu.settings.SettingsRepository
 import com.haise.jiyu.source.SManga
@@ -74,7 +75,12 @@ class ChapterUpdateWorker @AssistedInject constructor(
                                 // prekladatelskymi skupinami zaraz - kazda je samostatny radek,
                                 // bez dedup by tak jedna nova kapitola znamenala 2-3 upozorneni
                                 // (nahlaseno uzivatelem).
-                                val uniqueNewChapters = newChapters.distinctBy { it.chapterNumber }
+                                // Per-cislo preferujeme EN radek, ne slepe prvni: comick.art
+                                // (agregator, multijazycny) muze vydat ne-EN variantu driv v
+                                // poradi a auto-download by ji stahl misto anglicke (audit #15).
+                                val uniqueNewChapters = newChapters
+                                    .groupBy { it.chapterNumber }
+                                    .map { (_, rows) -> rows.firstOrNull { it.isEnglishChapter() } ?: rows.first() }
                                 if (uniqueNewChapters.isNotEmpty()) {
                                     val latest = uniqueNewChapters.maxByOrNull { it.chapterNumber }
                                     updatedManga.add(UpdatedMangaInfo(manga.title, manga.id, uniqueNewChapters.size, latest?.id))
