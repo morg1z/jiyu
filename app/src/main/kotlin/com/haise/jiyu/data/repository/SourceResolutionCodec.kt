@@ -22,6 +22,14 @@ data class CachedSourceCandidate(
 
 object SourceResolutionCodec {
 
+    /**
+     * Sentinel pro "kandidatsky sweep probehl a nic nenasel". Cisty "[]" je
+     * dvojznacny - starsi verze ho psaly i pro resoluce, kde sweep kandidatu
+     * vubec nedobehl (fast-path), takze by se s nim nedalo poznat, jestli se ma
+     * pri otevreni sheetu jeste doskenovat. decode("none") -> emptyList stejne.
+     */
+    const val EMPTY_RESULT = "none"
+
     fun encode(candidates: List<CachedSourceCandidate>): String =
         JSONArray(candidates.map { c ->
             JSONObject().apply {

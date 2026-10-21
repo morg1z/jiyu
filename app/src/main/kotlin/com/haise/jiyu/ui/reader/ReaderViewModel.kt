@@ -2799,14 +2799,19 @@ class ReaderViewModel @Inject constructor(
                 .maxOfOrNull { it.chapterNumber }
             val comicKGrew = resolution != null &&
                 comicKMax != null && comicKMax > resolution.comicKLastChapter + 0.01f
-            // Blank candidatesJson = resoluce vznikla fast-pathem a kandidatsky
-            // sweep pro sheet jeste nikdy nedobehl -> jednou doskenovat. Prachsprosty
-            // "[]" = sweep uz probehl a nic nenasel - drzet vysledek, ne sweepovat
-            // dokola (uzivatelsky pozadavek "ne od znova").
-            val neverScanned = resolution != null && resolution.candidatesJson.isBlank()
+            // "" = resoluce vznikla fast-pathem a kandidatsky sweep jeste nikdy
+            // nedobehl -> jednou doskenovat. EMPTY_RESULT ("none") = sweep probehl
+            // a nic nenasel -> vysledek drzet. "[]"/jine prazdne = starsi
+            // dvojznacny zaznam z doby pred sentinelem -> jednou doskenovat a
+            // prepsat bud skutecnymi kandidaty, nebo EMPTY_RESULT (uzivatelsky
+            // pozadavek "ne od znova" - po doskenovani se uz sweep neopakuje).
+            val json = resolution?.candidatesJson.orEmpty()
+            val needsScan = resolution != null &&
+                (json.isBlank() ||
+                    (cached.isEmpty() && json != com.haise.jiyu.data.repository.SourceResolutionCodec.EMPTY_RESULT))
             val stale = resolution == null ||
                 System.currentTimeMillis() - resolution.resolvedAt >= RESOLUTION_FRESH_MS
-            if (stale || neverScanned || comicKGrew) rescanSourceCandidates(parent)
+            if (stale || needsScan || comicKGrew) rescanSourceCandidates(parent)
         }
     }
 
@@ -2858,9 +2863,13 @@ class ReaderViewModel @Inject constructor(
                             ?: found.firstOrNull()
                                 ?.let { repository.mangaId(it.source.id, it.manga.url) }
                                 ?: "",
-                        candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
-                            found.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
-                        ),
+                        candidatesJson = if (found.isEmpty()) {
+                            com.haise.jiyu.data.repository.SourceResolutionCodec.EMPTY_RESULT
+                        } else {
+                            com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                                found.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
+                            )
+                        },
                         comicKLastChapter = allComicKChapters.maxOfOrNull { it.chapterNumber } ?: 0f,
                         resolvedLastChapter = found.firstOrNull()?.maxChapterNumber
                             ?: existing?.resolvedLastChapter ?: 0f,
@@ -2932,7 +2941,11 @@ class ReaderViewModel @Inject constructor(
                 )
                 val mangaId = repository.openPreview(smanga)
                 val chapters = repository.getAllChapters(mangaId).englishOnlyChapters()
-                val best = chapters.minByOrNull { kotlin.math.abs(it.chapterNumber - targetNumber) }
+                // PRESNA shoda jako resolver (abs < 0.01), zadny minByOrNull -
+                // "nejblizsi" by skocila na jinou kapitolu a link/setFallback pod
+                // tim by ji navic natrvalo nalinkoval na ComicK radek cile
+                // (stejny bug jako "kap.62 -> kap.61" v resolveru).
+                val best = chapters.firstOrNull { kotlin.math.abs(it.chapterNumber - targetNumber) < 0.01f }
                 if (best == null) {
                     _fallbackNotice.value = context.getString(R.string.resolver_chapter_missing_after_select)
                     return@launch
@@ -2951,11 +2964,27 @@ class ReaderViewModel @Inject constructor(
                         )
                     )
                 } else {
+                    // Aktualni radky sheetu persistovat jako kandidaty - jsou to
+                    // realne vysledky sweepu, takze dalsi otevreni sheetu nemusi
+                    // hledat znovu ("[]" by se totiz cetlo jako dvojznacny zaznam
+                    // a spustilo zbytecny rescan).
                     repository.upsertSourceResolution(
                         com.haise.jiyu.data.db.entity.SourceResolutionEntity(
                             comickMangaId = parent.id,
                             resolvedMangaId = mangaId,
-                            candidatesJson = "[]",
+                            candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                                _sourceSwitchRows.value.map {
+                                    com.haise.jiyu.data.repository.CachedSourceCandidate(
+                                        sourceId = it.sourceId,
+                                        mangaUrl = it.mangaUrl,
+                                        mangaTitle = it.mangaTitle,
+                                        coverUrl = it.coverUrl,
+                                        minChapter = it.minChapter,
+                                        maxChapter = it.maxChapter,
+                                        chapterCount = it.chapterCount,
+                                    )
+                                }
+                            ),
                             comicKLastChapter = 0f,
                             resolvedLastChapter = chapters.maxOfOrNull { it.chapterNumber } ?: 0f,
                             resolvedAt = System.currentTimeMillis(),

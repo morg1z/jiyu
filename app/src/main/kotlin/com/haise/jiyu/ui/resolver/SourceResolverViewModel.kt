@@ -416,9 +416,13 @@ class SourceResolverViewModel @Inject constructor(
                                     ?.let { repository.mangaId(it.source.id, it.manga.url) }
                                     ?: "",
                                 resolvedLastChapter = sorted.firstOrNull()?.maxChapterNumber,
-                                candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
-                                    sorted.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
-                                ),
+                                candidatesJson = if (sorted.isEmpty()) {
+                                    com.haise.jiyu.data.repository.SourceResolutionCodec.EMPTY_RESULT
+                                } else {
+                                    com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                                        sorted.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
+                                    )
+                                },
                             )
                         }
                         // Uzivatelsky pozadavek: appka ma vzdycky sama vybrat a rovnou otevrit
@@ -622,9 +626,10 @@ class SourceResolverViewModel @Inject constructor(
                 comickMangaId = comickMangaId,
                 resolvedMangaId = resolvedMangaId,
                 // "" (blank) = kandidatsky sweep pro tenhle titul jeste nikdy
-                // nedobehl az do zapsani (resoluce vznikla fast-pathem); "[]" =
-                // sweep probehl a nic nenasel. Ctecka podle toho pozna, jestli ma
-                // pri otevreni sheetu jeste spustit sweep - "[]" drzi, "" sweepne.
+                // nedobehl az do zapsani (resoluce vznikla fast-pathem);
+                // EMPTY_RESULT ("none") = sweep probehl a nic nenasel. Ctecka
+                // podle toho pozna, jestli ma pri otevreni sheetu doskenovat -
+                // "none" drzi, "" (a dvojznacne "[]" ze starsich verzi) sweepne.
                 candidatesJson = candidatesJson ?: existing?.candidatesJson ?: "",
                 comicKLastChapter = comicKRange?.last ?: existing?.comicKLastChapter ?: 0f,
                 resolvedLastChapter = resolvedLastChapter
