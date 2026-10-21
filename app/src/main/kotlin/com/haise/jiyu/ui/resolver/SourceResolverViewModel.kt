@@ -536,15 +536,20 @@ class SourceResolverViewModel @Inject constructor(
         val source = sourceManager.getById(resolvedManga.sourceId) ?: return null
         val smanga = resolvedManga.toSManga()
 
-        // Cerstva resoluce (< RESOLUTION_FRESH_MS) a zdroj, co nezaostava za ComicKem
-        // (resolvedLastChapter >= aktualni max titulu - novou kapitolu by ComicK uz
-        // evidoval) = otevreni kapitoly bez JEDINEHO sitoveho requestu; kapitoly se
-        // ctou z DB. Driv se zapamatovany zdroj refreshoval pri kazdem otevreni.
+        // Cerstva resoluce (< RESOLUTION_FRESH_MS) a ComicK, co NEPRIBYL o kapitolu od
+        // resolvovani (comicKMax <= comicKLastChapter zaznamu, s malou toleranci -
+        // nahlaseny bug "hleda zdroje porad od znova"): puvodni podminka
+        // "resolvedLastChapter >= comicKMax" temer vzdy selhala, protoze resolved
+        // zdroj byva o 1-2 kapitoly ZA ComicKem (agreguje vsechny skupiny), i kdyz se
+        // nic nezmenilo -> refresh na siti pri kazdem otevreni. Spravna otazka neni
+        // "ma zdroj vsechno co ComicK", ale "zmenil se ComicK od posledni resoluce" -
+        // dokud nepribyla kapitola, zapamatovany zdroj plati a kapitoly se ctou z DB
+        // bez JEDINEHO sitoveho requestu.
         val resolution = repository.getSourceResolution(manga.id)
         val comicKMax = comicKRange?.last
         if (resolution != null &&
             System.currentTimeMillis() - resolution.resolvedAt < RESOLUTION_FRESH_MS &&
-            (comicKMax == null || resolution.resolvedLastChapter >= comicKMax - 0.01f)
+            (comicKMax == null || comicKMax <= resolution.comicKLastChapter + 0.01f)
         ) {
             val localNumbers = repository.getAllChapters(resolvedManga.id)
                 .englishOnlyChapters()
@@ -603,7 +608,11 @@ class SourceResolverViewModel @Inject constructor(
             com.haise.jiyu.data.db.entity.SourceResolutionEntity(
                 comickMangaId = comickMangaId,
                 resolvedMangaId = resolvedMangaId,
-                candidatesJson = candidatesJson ?: existing?.candidatesJson ?: "[]",
+                // "" (blank) = kandidatsky sweep pro tenhle titul jeste nikdy
+                // nedobehl az do zapsani (resoluce vznikla fast-pathem); "[]" =
+                // sweep probehl a nic nenasel. Ctecka podle toho pozna, jestli ma
+                // pri otevreni sheetu jeste spustit sweep - "[]" drzi, "" sweepne.
+                candidatesJson = candidatesJson ?: existing?.candidatesJson ?: "",
                 comicKLastChapter = comicKRange?.last ?: existing?.comicKLastChapter ?: 0f,
                 resolvedLastChapter = resolvedLastChapter
                     ?: existing?.resolvedLastChapter ?: 0f,
