@@ -850,9 +850,37 @@ async function handleGroq(payload: Record<string, unknown>, mode: "manga" | "nov
   return json({ translations, model }, 200);
 }
 
+/**
+ * Pustí jen JWT přihlášeného uživatele (role "authenticated" + reálné sub).
+ *
+ * Podpis a expiraci už ověřil gateway (verify_jwt=true), takže stačí dekódovat
+ * payload - anon klíč má role="anon" a žádné sub, service_role zase
+ * role="service_role". Bez tohohle mohl kdokoliv s anon klíčem vytáhnutým z APK
+ * volat proxy a vyčerpat globální denní kvótu překladu.
+ */
+function isAuthenticatedUserJwt(token: string): boolean {
+  try {
+    const payloadB64 = token.split(".")[1];
+    if (!payloadB64) return false;
+    const payload = JSON.parse(
+      atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    return payload.role === "authenticated" &&
+      typeof payload.sub === "string" && payload.sub.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const authHeader = req.headers.get("authorization") ?? "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!isAuthenticatedUserJwt(bearerToken)) {
+    return json({ translations: [], error: "auth_required" }, 401);
   }
 
   try {

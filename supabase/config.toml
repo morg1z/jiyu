@@ -30,7 +30,7 @@ enroll_enabled = false
 verify_enabled = false
 
 [auth.email]
-enable_signup = true
+enable_signup = false
 double_confirm_changes = true
 enable_confirmations = true
 secure_password_change = false

@@ -66,6 +66,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
+import io.github.jan.supabase.gotrue.auth
 
 /**
  * Klient jen pro stahování bajtů obrázků (Coil - covery i stránky kapitol), oddělený od
@@ -497,12 +498,30 @@ object AppModule {
         .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 10 })
         .build()
 
+    /**
+     * Proxy vyzaduje JWT PRIHLASENEHO uzivatele (viz translate-proxy
+     * `isAuthenticatedUserJwt` - anon klic odmitne 401). Prepsi "Bearer anon"
+     * z Requestu za access token aktivni session; bez session zustava anon a
+     * proxy odpovi auth_required (klient dopadne jako provider-down chyba).
+     */
+    private class TranslateAuthInterceptor(
+        private val supabase: io.github.jan.supabase.SupabaseClient,
+    ) : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val token = supabase.auth.currentSessionOrNull()?.accessToken ?: return chain.proceed(chain.request())
+            return chain.proceed(
+                chain.request().newBuilder().header("Authorization", "Bearer $token").build(),
+            )
+        }
+    }
+
     @Provides
     @Singleton
     @TranslateProxyHttpClient
     fun provideTranslateProxyHttpClient(
         networkMonitor: NetworkMonitor,
         dohConfig: DnsOverHttpsConfig,
+        supabase: io.github.jan.supabase.SupabaseClient,
     ): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -512,6 +531,7 @@ object AppModule {
         // Offline = selhat hned, ne až po 30s connect timeoutu - překlad bez sítě stejně
         // nemá šanci a čekání jen zdržuje fallback na další provider.
         .addInterceptor(NoNetworkInterceptor { networkMonitor.isOnline })
+        .addInterceptor(TranslateAuthInterceptor(supabase))
         .build()
 
     @Provides
