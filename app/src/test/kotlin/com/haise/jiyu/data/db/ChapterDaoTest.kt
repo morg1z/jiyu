@@ -199,7 +199,7 @@ class ChapterDaoTest {
 
     @Test
     fun `propagateProgressToFallbackParents copies reader progress to the linked comick chapter`() = runTest {
-        dao.insertNewOnly(listOf(chapter("comick-ch", chapterNumber = 12f)))
+        dao.insertNewOnly(listOf(chapter("comick-ch", chapterNumber = 12f).copy(sourceId = "comick")))
         dao.insertNewOnly(listOf(chapter("resolved-ch", chapterNumber = 12f)))
         dao.insertNewOnly(listOf(chapter("other-ch", chapterNumber = 7f)))
         dao.setFallbackTarget("comick-ch", "resolved-ch")
@@ -226,6 +226,21 @@ class ChapterDaoTest {
         val other = dao.getById("other-ch")!!
         assertEquals(false, other.read)
         assertEquals(0, other.lastPageRead)
+    }
+
+    @Test
+    fun `propagateProgressToFallbackParents ignores non-comick fallback links`() = runTest {
+        // Propagace je urcena metadatovym ComicK rodicum - ne-ComicK radek s
+        // fallback linkem (napr. obnoveny link z jineho toku) nesmi dostat
+        // ComicK postupove zapisy (audit #16).
+        dao.insertNewOnly(listOf(chapter("resolved-ch", chapterNumber = 12f)))
+        dao.insertNewOnly(listOf(chapter("noncomick-ch", chapterNumber = 12f)))
+        dao.setFallbackTarget("noncomick-ch", "resolved-ch")
+
+        dao.propagateProgressToFallbackParents("resolved-ch", read = true, lastPageRead = 29, lastReadAt = 200L, pageCount = 30)
+        val row = dao.getById("noncomick-ch")!!
+        assertEquals(false, row.read)
+        assertEquals(0, row.lastPageRead)
     }
 
     @Test

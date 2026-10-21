@@ -553,7 +553,10 @@ class ComicKSource @Inject constructor(
      */
     suspend fun getUpdates(order: String, page: Int): List<ChapterUpdate> =
         withContext(Dispatchers.IO) {
-            val langCode = LanguageMap.toMangaDexCode(settings.sourceLanguage.first())
+            // Updates feed je EN-only (ctecka EN kapitoly filtruje vsude jinde) - driv se
+            // lang= odvozoval ze settings.sourceLanguage, coz je OCR/prekladove nastaveni,
+            // takze uzivatel s cestinou mel feed trvale prazdny (audit #21).
+            val langCode = "en"
             val allowedCountries = settings.comickUpdatesCountries.first()
             val allowedDemographics = settings.comickUpdatesDemographics.first()
             val matureFlags = settings.comickUpdatesMatureFlags.first()

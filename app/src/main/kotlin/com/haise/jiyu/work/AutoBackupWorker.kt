@@ -25,17 +25,26 @@ class AutoBackupWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return try {
             val folderUri = settings.backupFolderUri.first()
-            if (folderUri != null) backupToSaf(folderUri) else backupToAppStorage()
+            val exported = if (folderUri != null) backupToSaf(folderUri) else backupToAppStorage()
+            // exportToUri/exportToFile vraci Result - drive se ignoroval, takze selhany
+            // export zanechal prazdny/oklesteny soubor, ktery se pocital jako validni
+            // zaloha a rotace smazala starsi funkcni (audit #38).
+            if (!exported) {
+                return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            }
             Result.success()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // Zruseni nesmi prejit do retry (audit #7).
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // Trvalá chyba (např. uživatel odebral oprávnění k SAF složce) by se jinak
             // opakovala navždy při každém periodickém běhu - stejný strop jako SyncWorker.
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 
-    /** Zálohuje do uživatelem vybrané SAF složky (může být lokálně synchronizovaná cloudová složka). */
-    private suspend fun backupToSaf(folderUriString: String) {
+    /** Zálohuje do uživatelem vybrané SAF složky (může být lokálně synchronizovaná cloudová složka).
+     *  @return true jen když export dobehl - jinak se rotace vůbec nespustí. */
+    private suspend fun backupToSaf(folderUriString: String): Boolean {
         val treeUri = Uri.parse(folderUriString)
         val dir = DocumentFile.fromTreeUri(context, treeUri) ?: return backupToAppStorage()
         val fileName = "jiyu_auto_${LocalDate.now()}.json"
@@ -46,7 +55,11 @@ class AutoBackupWorker @AssistedInject constructor(
         // neomezené množství záloh se stejným dnešním datem.
         dir.findFile(fileName)?.delete()
         val newFile = dir.createFile("application/json", fileName) ?: return backupToAppStorage()
-        backupManager.exportToUri(newFile.uri)
+        if (backupManager.exportToUri(newFile.uri).isFailure) {
+            // Oklesteny/prazdny soubor po selhanem exportu nesmi zustat jako "zaloha".
+            newFile.delete()
+            return false
+        }
 
         // Rotace AŽ PO úspěšném zápisu nové zálohy - dřív běžela před vytvořením nového
         // souboru, takže případná chyba exportu (zaplněná složka, ztracené oprávnění) mohla
@@ -56,17 +69,19 @@ class AutoBackupWorker @AssistedInject constructor(
             .sortedByDescending { it.lastModified() }
             .drop(3)
             .forEach { it.delete() }
+        return true
     }
 
-    private suspend fun backupToAppStorage() {
+    private suspend fun backupToAppStorage(): Boolean {
         val dir = File(context.getExternalFilesDir(null), "backups").also { it.mkdirs() }
         val file = File(dir, "jiyu_auto_${LocalDate.now()}.json")
-        backupManager.exportToFile(file)
+        if (backupManager.exportToFile(file).isFailure) return false
         // Keep only the 3 most recent auto-backups
         dir.listFiles()
             ?.filter { it.name.startsWith("jiyu_auto_") }
             ?.sortedByDescending { it.lastModified() }
             ?.drop(3)
             ?.forEach { it.delete() }
+        return true
     }
 }

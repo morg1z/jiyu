@@ -1026,7 +1026,11 @@ class MangaDetailViewModel @Inject constructor(
                 },
                 count = n,
             )
-            translateQueue.enqueue(ids)
+            translateQueue.enqueue(
+                ids,
+                settings.targetLanguage.first(),
+                settings.sourceLanguage.first(),
+            )
         }
     }
 

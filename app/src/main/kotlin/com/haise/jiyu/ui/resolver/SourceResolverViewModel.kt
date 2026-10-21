@@ -329,9 +329,15 @@ class SourceResolverViewModel @Inject constructor(
 
                 // Fast path A: tahle kapitola uz byla drive vyresolvovana na konkretni
                 // realnou kapitolu (fallbackChapterId) - otevrit ji rovnou, nula site.
-                val linked = chapter.fallbackChapterId
+                val linkedRaw = chapter.fallbackChapterId
                     ?.let { repository.getChapter(it) }
-                    ?.takeIf { it.sourceId != "comick" }
+                if (linkedRaw != null && linkedRaw.sourceId == "comick") {
+                    // Self-link comick->comick: takeIf nize ho vzdy jen preskocil, takze
+                    // fast path selhaval pri kazdem otevreni a sweep bezel zbytecne
+                    // dokola (audit #19). Link smazat a nechat normalni resoluci.
+                    repository.setChapterFallbackTarget(chapterId, null)
+                }
+                val linked = linkedRaw?.takeIf { it.sourceId != "comick" }
                 if (linked != null) {
                     if (abs(linked.chapterNumber - chapter.chapterNumber) < 0.01f) {
                         // Stejne ukotveni "Pokracovat" jako selectCandidate - otevrena
@@ -762,7 +768,13 @@ class SourceResolverViewModel @Inject constructor(
         if (bestMatch.verifiedPageCount != null) {
             val redirectId = bestMatch.fallbackChapterId
             if (redirectId != null) {
-                repository.getChapter(redirectId)?.let { return it }
+                // Revalidace presne shody - redirect drive zapsany na "nejblizsi"
+                // kapitolu jineho cisla by se vracel navzdy, i kdyz skutecna cilova
+                // kapitola existuje (audit #20). Spatny link smazat, dal bestMatch.
+                repository.getChapter(redirectId)
+                    ?.takeIf { abs(it.chapterNumber - target) < 0.01f }
+                    ?.let { return it }
+                repository.setChapterFallbackTarget(bestMatch.id, null)
             }
             return bestMatch
         }

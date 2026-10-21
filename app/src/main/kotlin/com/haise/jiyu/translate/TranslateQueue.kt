@@ -29,8 +29,11 @@ import javax.inject.Singleton
 class TranslateQueue @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
-    /** Zařadí kapitoly v zadaném pořadí. Prázdný seznam nic neudělá. */
-    fun enqueue(chapterIds: List<String>) {
+    /** Zařadí kapitoly v zadaném pořadí. Prázdný seznam nic neudělá.
+     *  Jazyky předává volající - zamrazí se při ENQUEUE, ne při exekuci (worker dřív
+     *  četl settings až při spuštění a změna nastavení mezitím přeložila dávku do
+     *  jiného jazyka, než uživatel tapnul - audit #35). */
+    fun enqueue(chapterIds: List<String>, targetLanguage: String, sourceLanguage: String) {
         if (chapterIds.isEmpty()) return
 
         val requests = chapterIds.map { chapterId ->
@@ -38,6 +41,8 @@ class TranslateQueue @Inject constructor(
                 .setInputData(
                     Data.Builder()
                         .putString(TranslateChapterWorker.KEY_CHAPTER_ID, chapterId)
+                        .putString(TranslateChapterWorker.KEY_TARGET_LANGUAGE, targetLanguage)
+                        .putString(TranslateChapterWorker.KEY_SOURCE_LANGUAGE, sourceLanguage)
                         .build(),
                 )
                 .setConstraints(

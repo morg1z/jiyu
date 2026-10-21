@@ -2726,7 +2726,7 @@ class ReaderViewModel @Inject constructor(
         handedOffPageJob = translationJob?.isActive == true
         handedOffBatchJob = batchJob?.isActive == true || pendingBatchChapterIds.isNotEmpty()
         handedOffChapterIds = ids
-        translateQueue.enqueue(ids)
+        translateQueue.enqueue(ids, _targetLanguage.value, _sourceLanguage.value)
         translationJob?.cancel()
         translationJob = null
         translationJobChapterId = null

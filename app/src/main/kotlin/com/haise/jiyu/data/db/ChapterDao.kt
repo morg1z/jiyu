@@ -83,7 +83,7 @@ interface ChapterDao {
     @Query(
         "UPDATE chapter SET read = MAX(read, :read), lastPageRead = :lastPageRead, lastReadAt = :lastReadAt, " +
             "verifiedPageCount = CASE WHEN :pageCount > 0 THEN :pageCount ELSE verifiedPageCount END " +
-            "WHERE fallbackChapterId = :resolvedChapterId"
+            "WHERE fallbackChapterId = :resolvedChapterId AND sourceId = 'comick'"
     )
     suspend fun propagateProgressToFallbackParents(
         resolvedChapterId: String,
@@ -320,7 +320,7 @@ interface ChapterDao {
           )
           AND c.id = (
               SELECT c2.id FROM chapter c2
-              WHERE c2.mangaId = c.mangaId AND c2.chapterNumber = c.chapterNumber
+              WHERE c2.mangaId = c.mangaId AND ABS(c2.chapterNumber - c.chapterNumber) < 0.001
               ORDER BY c2.discoveredAt ASC LIMIT 1
           )
           AND (SELECT COUNT(DISTINCT c3.chapterNumber) FROM chapter c3

@@ -54,6 +54,9 @@ class SyncWorker @AssistedInject constructor(
         syncRepository.sync()
         Result.success()
     } catch (e: Exception) {
+        // Zruseni (odhlaseni, system stop) NESMI prejit do retry - worker by se
+        // planoval znovu proti explicitnimu cancelu (audit #7).
+        if (e is kotlinx.coroutines.CancellationException) throw e
         if (runAttemptCount < 3) Result.retry() else Result.failure()
     }
 }

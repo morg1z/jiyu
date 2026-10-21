@@ -86,7 +86,9 @@ class MadaraSource(
     private val popularUrl: (root: String, page: Int, orderby: String) -> String =
         { root, page, orderby -> "$root/$listPath/page/$page/?m_orderby=$orderby" },
     private val searchUrl: (root: String, query: String, page: Int) -> String =
-        { root, query, page -> "$root/page/$page/?s=$query&post_type=wp-manga" },
+        // s= musi byt URL-encoded - '&'/'#' v hledanem nazvu by jinak rozbily
+        // query string a vysledky neodpovidaly dotazu (audit #23).
+        { root, query, page -> "$root/page/$page/?s=${java.net.URLEncoder.encode(query, "UTF-8")}&post_type=wp-manga" },
     // Standardni Madara "wp-manga-genre" taxonomie ma rewrite slug "genre" a stejnou
     // /page/N/ paginaci jako archiv - overeno zive na toonily.com (odlisne tituly na
     // strance 1 vs 2). Prepsatelne pro weby, kde je taxonomie jinak pojmenovana.

@@ -146,6 +146,13 @@ data class ChapterSyncDto(
     @SerialName("updated_at") val updatedAt: Long,
 )
 
+/** Lehký řádek pro LWW fetch před pushem - jen id + čas, ne celý ChapterSyncDto. */
+@Serializable
+internal data class ChapterSyncTimestamp(
+    val id: String,
+    @SerialName("updated_at") val updatedAt: Long,
+)
+
 @Singleton
 class SyncRepository @Inject constructor(
     private val supabase: SupabaseClient,
@@ -259,7 +266,27 @@ class SyncRepository @Inject constructor(
                 updatedAt = c.lastReadAt,
             )
         }
-        chapterDtos.chunked(SYNC_PUSH_CHUNK).forEach { chunk -> supabase.from("chapter_sync").upsert(chunk) }
+        // LWW ochrana pred slepym upsertem: remote radek NOVEJSI nez lokalni se nesmi
+        // prepsat starsi hodnotou. Offline zarizeni po reconnectu by jinak sve zastarale
+        // radky nasadilo nad cerstvejsi data z druheho zarizeni - a to uz je pak NIKDY
+        // nepushne zpet (chaptersToPush filtr lastReadAt >= lastPushAt), takze regrese
+        // by se jen sivila dal (audit #8).
+        if (chapterDtos.isNotEmpty()) {
+            val remoteUpdatedAt = buildMap {
+                chapterDtos.map { it.id }.chunked(SYNC_PUSH_CHUNK).forEach { ids ->
+                    supabase.from("chapter_sync")
+                        .select(columns = io.github.jan.supabase.postgrest.query.Columns.list("id", "updated_at")) {
+                            filter { eq("user_id", userId); isIn("id", ids) }
+                        }
+                        .decodeList<ChapterSyncTimestamp>()
+                        .forEach { put(it.id, it.updatedAt) }
+                }
+            }
+            chapterDtos
+                .filter { dto -> (remoteUpdatedAt[dto.id] ?: 0L) <= dto.updatedAt }
+                .chunked(SYNC_PUSH_CHUNK)
+                .forEach { chunk -> supabase.from("chapter_sync").upsert(chunk) }
+        }
         // Až po úspěšném odeslání všech dávek - při chybě se příště pošle znovu od původního času.
         settings.setSyncLastChapterPushAt(now)
     }

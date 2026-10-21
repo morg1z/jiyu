@@ -63,8 +63,10 @@ class TranslateChapterWorker @AssistedInject constructor(
         val chapter = repository.getChapter(chapterId) ?: return Result.success()
         val manga = repository.getManga(chapter.mangaId) ?: return Result.success()
 
-        val targetLanguage = settings.targetLanguage.first()
-        val sourceLanguage = settings.sourceLanguage.first()
+        // Jazyky zamrzle pri enqueue (inputData); settings jen fallback pro prace
+        // zarazene starsi verzi appky (audit #35).
+        val targetLanguage = inputData.getString(KEY_TARGET_LANGUAGE) ?: settings.targetLanguage.first()
+        val sourceLanguage = inputData.getString(KEY_SOURCE_LANGUAGE) ?: settings.sourceLanguage.first()
 
         val notificationId = chapterId.hashCode() xor TRANSLATE_NOTIFICATION_SALT
         val title = applicationContext.getString(R.string.translate_worker_notification_title, manga.title)
@@ -139,9 +141,13 @@ class TranslateChapterWorker @AssistedInject constructor(
 
     companion object {
         const val KEY_CHAPTER_ID = "chapter_id"
+        const val KEY_TARGET_LANGUAGE = "target_language"
+        const val KEY_SOURCE_LANGUAGE = "source_language"
 
-        /** Aby se ID notifikace nesrazilo se stahováním téže kapitoly (to používá 0x1000). */
-        private const val TRANSLATE_NOTIFICATION_SALT = 0x2000
+        /** Sdílený prostor ID s ChapterDownloadWorker (progress 0x1000, failure 0x2000) -
+         *  shoda 0x2000 znamenala, ze finally cancel() prekladu smazal i failure
+         *  notifikaci downloadu teze kapitoly (audit #30). */
+        private const val TRANSLATE_NOTIFICATION_SALT = 0x3000
         private const val NOTIFICATION_EVERY_N_PAGES = 10
 
         /** Značka, kterou zdroje novel označují "tohle není obrázek, ale text kapitoly". */

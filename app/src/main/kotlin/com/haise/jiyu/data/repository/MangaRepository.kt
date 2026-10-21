@@ -1000,10 +1000,13 @@ class MangaRepository @Inject constructor(
         lastPageRead: Int,
         lastReadAt: Long,
         pageCount: Int,
-    ): List<ComickProgressTarget> {
+    ): List<ComickProgressTarget> = db.withTransaction {
+        // Link + propagace + updateLastRead jsou jeden logicky zapis - bez transakce
+        // mohl kill uprostred otočky zanechat fallback linky zapsane, ale
+        // lastReadChapterId stare (audit #16).
         val targets = linkFallbackParentsForResolved(chapterEntityId, lastReadAt)
         chapterDao.propagateProgressToFallbackParents(chapterEntityId, read, lastPageRead, lastReadAt, pageCount)
-        return targets
+        targets
     }
 
     /**

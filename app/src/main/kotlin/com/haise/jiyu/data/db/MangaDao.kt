@@ -294,6 +294,10 @@ interface MangaDao {
           -- by se ztratila "fast path" SourceResolverViewModelu a pristi otevreni
           -- kapitoly by znovu spustilo sweep vsech zdroju.
           AND id NOT IN (SELECT resolvedMangaId FROM manga WHERE resolvedMangaId IS NOT NULL)
+          -- Totéž pro source_resolution tabulku (multikandidatska resoluce) - drive se
+          -- hlidal jen manga.resolvedMangaId, takze resolved cil z source_resolution
+          -- radek mohl byt smazan a pointer zustal viset (audit #11).
+          AND id NOT IN (SELECT resolvedMangaId FROM source_resolution)
         """
     )
     suspend fun browsedMangaIds(): List<String>
@@ -313,6 +317,13 @@ interface MangaDao {
         deleteChaptersOfManga(ids)
         deleteNotesOfManga(ids)
         deleteTagsOfManga(ids)
+        // source_resolution radky mazanych ComicK rodicu + ukazatele na mazane resolved
+        // cile - tabulka nema FK, takze bez tohohle po kazdem cisteni pribyvali sirotci
+        // (audit #11). Ukazatel jen vynulujeme (resolvedMangaId neni nullable v entite,
+        // ale "" = "nevyreseno" - resolver ho pak ignoruje a pri dalsim otevreni
+        // dosweepuje), radek s candidatesJson muzeme smazat jen kdyz zmizi i rodic.
+        deleteSourceResolutionsOfManga(ids)
+        clearSourceResolutionTargetsOfManga(ids)
     }
 
     @Query("""
@@ -363,4 +374,13 @@ interface MangaDao {
 
     @Query("DELETE FROM manga WHERE id IN (:ids)")
     suspend fun deleteMangaByIds(ids: List<String>)
+
+    @Query("DELETE FROM source_resolution WHERE comickMangaId IN (:ids)")
+    suspend fun deleteSourceResolutionsOfManga(ids: List<String>)
+
+    @Query("""
+        UPDATE source_resolution SET resolvedMangaId = '', resolvedAt = 0
+        WHERE resolvedMangaId IN (:ids)
+    """)
+    suspend fun clearSourceResolutionTargetsOfManga(ids: List<String>)
 }
