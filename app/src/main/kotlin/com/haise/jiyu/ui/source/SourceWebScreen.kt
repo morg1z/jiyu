@@ -73,11 +73,14 @@ fun SourceWebScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    com.haise.jiyu.util.WebViewHardening.applyDefaults(this)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     // Stejný User-Agent jako u řešení Cloudflare - cookies vydané webem patří konkrétní identitě.
                     settings.userAgentString = com.haise.jiyu.source.interceptor.CloudflareUserAgent.value(ctx)
                     CookieManager.getInstance().setAcceptCookie(true)
+                    // Zde third-party cookies NECHAVAME: Cloudflare Turnstile iframe je
+                    // cross-origin kontext a bez nich by challenge v prohlizeci zamrzla.
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, url: String) {

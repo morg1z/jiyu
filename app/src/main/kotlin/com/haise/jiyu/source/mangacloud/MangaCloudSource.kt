@@ -163,6 +163,8 @@ class WebViewMangaCloudSession(
         mainHandler.post {
             lateinit var webView: WebView
             webView = WebView(context).apply {
+                com.haise.jiyu.util.WebViewHardening.applyDefaults(this)
+                com.haise.jiyu.util.WebViewHardening.blockThirdPartyCookies(this)
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true

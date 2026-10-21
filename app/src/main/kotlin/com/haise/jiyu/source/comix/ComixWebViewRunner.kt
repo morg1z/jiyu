@@ -186,12 +186,13 @@ class ComixWebViewRunner @Inject constructor(
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setup(webView: WebView, bridge: ComixBridge) {
+        com.haise.jiyu.util.WebViewHardening.applyDefaults(webView)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.blockNetworkImage = true // obrazky stranky nepotrebujeme - setrime data
         // SEC-2: cookies tretich stran nesmi - sdileny CookieManager by jinak cpal
         // cookies jineho hosta do subrequestu cizi domeny.
-        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
+        com.haise.jiyu.util.WebViewHardening.blockThirdPartyCookies(webView)
         webView.addJavascriptInterface(bridge, "JiyuComixBridge")
     }
 

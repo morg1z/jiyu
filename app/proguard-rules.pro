@@ -63,6 +63,12 @@
 -keep class com.haise.jiyu.work.** { *; }
 -keepclassmembers class com.haise.jiyu.work.** { *; }
 
+# WebView JavascriptInterface (JiyuComixBridge) - stranka vola metody pres
+# natvrdo zapsana jmena; bez keep je R8 prejmenuje a bridge je v release mrtvy.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
 # Jsoup (HTML parsing pro generický Madara zdroj)
 -dontwarn org.jsoup.**
 -keep class org.jsoup.** { *; }

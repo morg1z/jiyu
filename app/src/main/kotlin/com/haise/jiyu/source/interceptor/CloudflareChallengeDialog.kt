@@ -129,6 +129,8 @@ private fun InvisibleAutoTapAttempt(
         modifier = Modifier.fillMaxSize().alpha(0f),
         factory = { ctx ->
             SilentWebView(ctx).apply {
+                com.haise.jiyu.util.WebViewHardening.applyDefaults(this)
+                com.haise.jiyu.util.WebViewHardening.blockThirdPartyCookies(this)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 // UA skutečného WebView (ne pevný řetězec) - viz CloudflareUserAgent.

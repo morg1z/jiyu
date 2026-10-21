@@ -550,6 +550,8 @@ private fun AniListLoginDialog(
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    com.haise.jiyu.util.WebViewHardening.applyDefaults(this)
+                    com.haise.jiyu.util.WebViewHardening.blockThirdPartyCookies(this)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {
