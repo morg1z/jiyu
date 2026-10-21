@@ -162,6 +162,19 @@ class TranslateRepository @Inject constructor(
     private val untransRetriedPages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /**
+     * Strop velikosti per-chapter/per-page singleton map ([untransRetriedPages],
+     * [chapterTranslationMutexes]) - dlouha session s desitkami kapitol by je jinak
+     * nafukovala bez omezeni (audit #33). Horni mez je "mekka": prekroceni jen uklizi,
+     * neblokuje funkcionalitu.
+     */
+    private fun untransRetriedAdd(cacheId: String): Boolean {
+        // Vycisteny set znamena jeden navic retry te stranky - neparatelna cena za
+        // ohraniceni pameti; o mene invazivni reseni nestoji.
+        if (untransRetriedPages.size > MAX_SINGLETON_CACHE_ENTRIES) untransRetriedPages.clear()
+        return untransRetriedPages.add(cacheId)
+    }
+
+    /**
      * Per-chapter mutex serializující překladové zápisy (audit TR-6). Před tím nic
      * nechránilo souběžné [translatePage]/[translateChapter]/[translateNovelChapter]
      * nad stejnou kapitolou - reálně se potkávají: auto-překlad při otevření,
@@ -187,6 +200,16 @@ class TranslateRepository @Inject constructor(
 
     private fun chapterMutex(chapterId: String): Mutex =
         chapterTranslationMutexes.getOrPut(chapterId) { Mutex() }
+            .also {
+                // Uklidet zamky mrtvych kapitol - zamceny Mutex vyhodit nesmime
+                // (porusila by se serializace jeho drzitelu), odemcene ano.
+                if (chapterTranslationMutexes.size > MAX_SINGLETON_CACHE_ENTRIES) {
+                    chapterTranslationMutexes.entries
+                        .filter { (_, m) -> !m.isLocked }
+                        .take(chapterTranslationMutexes.size - MAX_SINGLETON_CACHE_ENTRIES)
+                        .forEach { (k, m) -> chapterTranslationMutexes.remove(k, m) }
+                }
+            }
 
     /**
      * Má stránka blok označený `isUntranslated` (model vrátil echo/zkomoleninu), který
@@ -489,7 +512,7 @@ class TranslateRepository @Inject constructor(
             // EN přes všechna další otevření). Set.add -> true jen při prvním pokusu;
             // trvale nepřeložitelný text tak nevolá API při každém zobrazení stránky.
             val key = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage)
-            if (!hasRetryableUntrans(cached) || !untransRetriedPages.add(key)) return cached
+            if (!hasRetryableUntrans(cached) || !untransRetriedAdd(key)) return cached
         }
         // Když jsou odstavení všichni cloud provideři, nemá smysl volat jejich řetězec,
         // ale on-device překlad (ML Kit) se zkusí jako poslední možnost, když je k dispozici.
@@ -675,22 +698,28 @@ class TranslateRepository @Inject constructor(
         // Prohraje-li fragment NA PŘEDCHOZÍ stránce, přepíšeme její cache záznam.
         val dedup = dropSliceBoundaryDuplicates(blocks, previousBlocks)
         var dedupedBlocks = dedup.kept
-        if (dedup.coverOnPrevious.isNotEmpty() || dedup.spanOnPrevious.isNotEmpty()) {
-            // Zapisuje se do RAW záznamu (previousRaw), ne z previousBlocks - indexy sedí
-            // 1:1 (withManualEdits jen mapuje, neřadí), ale previousBlocks by do strojové
-            // cache zapekl ruční opravy.
-            val marked = previousRaw.mapIndexed { i, b ->
-                val span = dedup.spanOnPrevious[i]
-                when {
-                    // Poražený fragment: seamCover + span. Vítěz na předchozí stránce:
-                    // jen span - jeho krytí má taky pokrýt celý přeříznutý řádek.
-                    i in dedup.coverOnPrevious && span != null ->
-                        b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
-                    i in dedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
-                    span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
-                    else -> b
-                }
+        // Zapisuje se do RAW záznamu (previousRaw), ne z previousBlocks - indexy sedí
+        // 1:1 (withManualEdits jen mapuje, neřadí), ale previousBlocks by do strojové
+        // cache zapekl ruční opravy.
+        val marked = previousRaw.mapIndexed { i, b ->
+            val span = dedup.spanOnPrevious[i]
+            when {
+                // Poražený fragment: seamCover + span. Vítěz na předchozí stránce:
+                // jen span - jeho krytí má taky pokrýt celý přeříznutý řádek.
+                i in dedup.coverOnPrevious && span != null ->
+                    b.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
+                i in dedup.coverOnPrevious -> b.copy(seamCover = true, displayText = "")
+                span != null -> b.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                // Stary seamCover z drivejsiho dedupu: retranslate predchozi stranky
+                // uz dvojici nespdruje, flag by prekryl bublinu navzdy (audit #32).
+                b.seamCover -> b.copy(seamCover = false, displayText = b.translatedText)
+                else -> b
             }
+        }
+        // Zapis/re-emise jen kdyz se zaznam skutecne zmenil (kryti, span, NEBO uklizeni
+        // zastaraleho coveru) - drive se zapisovalo jen pri coverOnPrevious/spanOnPrevious,
+        // takze stale cover prezil i force-refresh (audit #32).
+        if (marked != previousRaw) {
             dao.upsert(
                 TranslatedPageEntity(
                     id = cacheId(chapterId, pageIndex - 1, targetLanguage, sourceLanguage),
@@ -902,7 +931,7 @@ class TranslateRepository @Inject constructor(
                 // Jednou za session - trvale nepřeložitelný text tak nežere volání
                 // při každém spuštění překladu kapitoly.
                 val key = cacheId(chapterId, pageIndex, targetLanguage, sourceLanguage)
-                if (hasRetryableUntrans(cached) && untransRetriedPages.add(key)) uncached += pageIndex
+                if (hasRetryableUntrans(cached) && untransRetriedAdd(key)) uncached += pageIndex
             } else uncached += pageIndex
         }
         if (uncached.isEmpty()) return
@@ -1840,7 +1869,8 @@ class TranslateRepository @Inject constructor(
         // výsledek se zapsal zpátky do strojové cache - uživatelova oprava se tak
         // trvale vpálila do strojového překladu a smazání editu ji neschovalo.
         // Manual edity se proto aplikují až na hodnotu, která se vrací čtečce.
-        val raw = dao.getById(id)?.deserialize() ?: return null
+        val rawEntity = dao.getById(id) ?: return null
+        val raw = rawEntity.deserialize() ?: return null
         if (pageUrl == null) return raw.withManualEdits(chapterId, pageIndex, targetLanguage)
 
         val needsShapeMigration = raw.any { !it.isSfx && it.shape == null }
@@ -1852,8 +1882,17 @@ class TranslateRepository @Inject constructor(
         val migrated = withTimeoutOrNull(PAGE_OCR_TIMEOUT_MILLIS) {
             val bitmap = pageBitmapLoader.load(pageUrl) ?: return@withTimeoutOrNull null
             val m = ocrEngine.detectShapesOnly(bitmap, raw)
-            dao.upsert(TranslatedPageEntity(id = id, blocksJson = m.serialize()))
-            m
+            // Read-check-write: mezi ctenim rawEntity a timto upsertem mohla dobehnout
+            // cerstva translatePage teze stranky (migrace lock NEBERE - viz komentar u
+            // chapterTranslationMutexes). Prepsat cerstvy preklad migrovanym starym
+            // tvarem by ho znicilo (audit #31) - upsert jen kdyz zaznam nezmenil.
+            val current = dao.getById(id)
+            if (current != null && current.blocksJson == rawEntity.blocksJson) {
+                dao.upsert(TranslatedPageEntity(id = id, blocksJson = m.serialize()))
+                m
+            } else {
+                current?.deserialize() ?: m
+            }
         }
         return (migrated ?: raw).withManualEdits(chapterId, pageIndex, targetLanguage)
     }
@@ -2275,6 +2314,12 @@ class TranslateRepository @Inject constructor(
          * appka vypadala zaseklá donekonečna.
          */
         private const val PAGE_OCR_TIMEOUT_MILLIS = 40_000L
+
+        /**
+         * Strop per-chapter/per-page singleton map (untransRetriedPages,
+         * chapterTranslationMutexes) - viz komentar u untransRetriedAdd (audit #33).
+         */
+        private const val MAX_SINGLETON_CACHE_ENTRIES = 1024
 
         /**
          * Watchdog strop na ŽÁDNÝ pokrok v OCR frontě (audit OCR-7 - nahradil

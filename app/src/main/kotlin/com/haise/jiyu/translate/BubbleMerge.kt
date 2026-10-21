@@ -609,6 +609,11 @@ internal fun dropSliceBoundaryDuplicates(
                     it.copy(seamCover = true, displayText = "", seamSpanLF = span.first, seamSpanRF = span.second)
                 it in coverSet -> it.copy(seamCover = true, displayText = "")
                 span != null -> it.copy(seamSpanLF = span.first, seamSpanRF = span.second)
+                // Stary seamCover z drivejsiho dedupu na cache zaznamu: tahle
+                // dvojice se uz nespdruje, ale flag + vyprazdneny displayText by
+                // bublinu prekryl navzdy (audit #32). Cistime - text se vraci
+                // z translatedText.
+                it.seamCover -> it.copy(seamCover = false, displayText = it.translatedText)
                 else -> it
             }
         },

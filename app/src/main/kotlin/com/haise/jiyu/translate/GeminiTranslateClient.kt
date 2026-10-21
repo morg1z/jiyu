@@ -189,8 +189,10 @@ class GeminiTranslateClient @Inject constructor(
         httpClient.newCall(request).executeCancellable { resp ->
             if (resp.code == 429) {
                 // Limit hlásí sama proxy, ne upstream - přes ni vedou všichni provideři stejně,
-                // takže zkoušet zbytek řetězce je jen ztráta času.
-                providerHealth.markAllUnavailable()
+                // takže zkoušet zbytek řetězce je jen ztráta času. Retry-After předat
+                // ProviderHealth, jinak by se eskalujici backoff nabíjel na
+                // per-minutovem limitu proxy (audit #34).
+                providerHealth.markAllUnavailable(resp.header("Retry-After")?.toDoubleOrNull())
                 throw RateLimitedException()
             }
             // Jen 5xx (prechodne selhani proxy) je hodne opakovat - trvala 4xx chyba (spatne

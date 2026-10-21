@@ -82,10 +82,14 @@ class ProviderHealth internal constructor(
      * Odstaví VŠECHNY providery najednou - pro případ, kdy limit hlásí sama proxy
      * (viz RateLimitedException), ne konkrétní upstream. Tam nemá smysl zkoušet zbytek
      * řetězce, protože přes tu samou proxy vede úplně stejně.
+     *
+     * [knownRetryAfterSeconds] předává Retry-After z 429 odpovědi proxy - bez něj každý
+     * další proxy-429 eskaloval per-provider žebříček (typicky per-minutový limit proxy
+     * tak po pár dávkách odstavil VŠECHNY providery na 15 min - audit #34).
      */
     @Synchronized
-    fun markAllUnavailable() {
-        ALL_PROVIDERS.forEach { markUnavailable(it) }
+    fun markAllUnavailable(knownRetryAfterSeconds: Double? = null) {
+        ALL_PROVIDERS.forEach { markUnavailable(it, knownRetryAfterSeconds) }
     }
 
     /**

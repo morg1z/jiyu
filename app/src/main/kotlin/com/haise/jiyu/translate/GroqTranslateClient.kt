@@ -195,7 +195,8 @@ class GroqTranslateClient @Inject constructor(
                 val result = httpClient.newCall(request).executeCancellable { resp ->
                     if (resp.code == 429) {
                         // Limit hlásí proxy, ne upstream - přes ni vedou všichni provideři stejně.
-                        providerHealth.markAllUnavailable()
+                        // Retry-After předat ProviderHealth (audit #34).
+                        providerHealth.markAllUnavailable(resp.header("Retry-After")?.toDoubleOrNull())
                         throw RateLimitedException()
                     }
                     if (!resp.isSuccessful) {
