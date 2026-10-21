@@ -137,7 +137,14 @@ class ChapterDownloadWorker @AssistedInject constructor(
                 } else {
                     chapterEntityId
                 }
-                val chapterDirPath = ChapterStorage.createChapterDir(applicationContext, downloadFolderUri, mangaTitle, chapterFolderName)
+                val chapterDirPath = ChapterStorage.createChapterDir(
+                    applicationContext,
+                    downloadFolderUri,
+                    sourceId = chapterEntity?.sourceId ?: chapterEntityId.substringBefore("::"),
+                    mangaFolderName = mangaTitle,
+                    chapterFolderName = chapterFolderName,
+                    uniqueKey = chapterEntityId,
+                )
 
                 // Kanárek PŘED stahováním - selhání se dozvíme hned, ne až po 3 marných
                 // pokusech shodně léčených jako obyčejný síťový výpadek (viz níže ENOSPC vetev).

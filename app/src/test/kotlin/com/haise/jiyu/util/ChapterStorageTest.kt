@@ -61,6 +61,31 @@ class ChapterStorageTest {
     }
 
     @Test
+    fun `chapter dir segment disambiguates identical folder names via unique key`() {
+        val folder = ChapterStorage.chapterFolderName(5f, "Chapter 5")
+        val a = ChapterStorage.chapterDirSegment(folder, "asurascans::https://x/manga/ch5")
+        val b = ChapterStorage.chapterDirSegment(folder, "comickart::https://y/manga/ch5")
+
+        assertTrue(a.startsWith(folder))
+        assertTrue(b.startsWith(folder))
+        assertTrue("identical chapter names from different chapters must NOT share a folder", a != b)
+        assertFalse(a.any { it in "\\/:*?\"<>|" })
+    }
+
+    @Test
+    fun `chapter dir segment is deterministic so an interrupted download resumes into the same folder`() {
+        assertEquals(
+            ChapterStorage.chapterDirSegment("0001 - A", "src::url"),
+            ChapterStorage.chapterDirSegment("0001 - A", "src::url"),
+        )
+    }
+
+    @Test
+    fun `chapter dir segment without unique key keeps the plain readable name`() {
+        assertEquals("0001 - A", ChapterStorage.chapterDirSegment("0001 - A", null))
+    }
+
+    @Test
     fun `pageExists is false when only a leftover temp file from an interrupted write remains`() {
         val dir = tempFolder.root
         File(dir, "001.jpg.tmp").writeBytes(byteArrayOf(1, 2, 3))

@@ -54,12 +54,32 @@ object ChapterStorage {
         return if (cleanName.isBlank() || cleanName == "bez_nazvu") num else "$num - $cleanName"
     }
 
-    /** Vytvoří (případně dohledá již existující) vnořenou složku manga/kapitola a vrátí její "localPath" (File path nebo content URI). */
-    fun createChapterDir(context: Context, downloadFolderUri: String?, mangaFolderName: String, chapterFolderName: String): String {
+    /** Krátký deterministický suffix pro disambiguaci složky kapitoly - viz [createChapterDir]. */
+    private fun shortHash(s: String): String {
+        val md = java.security.MessageDigest.getInstance("MD5")
+        return md.digest(s.toByteArray(Charsets.UTF_8)).take(3).joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Jméno segmentu složky kapitoly v [createChapterDir]: čitelné [chapterFolderName]
+     * + suffix `~hash` z [uniqueKey], pokud je k dispozici. Bez hashe dvě různé kapitoly
+     * se stejným číslem+JMÉNEM (stejnojmenné tituly z různých zdrojů, skupinové varianty
+     * stejného čísla na mirroru jako comick.art, re-uploady) sdílely jednu složku:
+     * pageExists pak přeskočil stránky cizí kapitoly jako "už stažené" (stažená kapitola
+     * ukazovala cizí obrázky) a smazání jedné smazalo soubory pod druhou (ghost download).
+     * Hash je deterministický - přerušené stahování resumuje do STEJNÉ složky.
+     */
+    internal fun chapterDirSegment(chapterFolderName: String, uniqueKey: String?): String =
+        if (uniqueKey != null) "$chapterFolderName ~${shortHash(uniqueKey)}" else chapterFolderName
+
+    /** Vytvoří (případně dohledá již existující) vnořenou složku zdroj/manga/kapitola a vrátí její "localPath" (File path nebo content URI). */
+    fun createChapterDir(context: Context, downloadFolderUri: String?, sourceId: String, mangaFolderName: String, chapterFolderName: String, uniqueKey: String? = null): String {
+        val safeSource = sanitizeFileName(sourceId)
         val safeMangaFolder = sanitizeFileName(mangaFolderName)
+        val chapterSegment = chapterDirSegment(chapterFolderName, uniqueKey)
         if (downloadFolderUri != null) {
             var current: DocumentFile? = DocumentFile.fromTreeUri(context, Uri.parse(downloadFolderUri))
-            for (segment in listOf(safeMangaFolder, chapterFolderName)) {
+            for (segment in listOf(safeSource, safeMangaFolder, chapterSegment)) {
                 // Složka pro mangu se mezi jednotlivými kapitolami opakuje (stahování víc
                 // kapitol téže mangy) - findFile/reuse, ne vytvořit duplicitní "One Piece (1)".
                 val existing = current?.findFile(segment)?.takeIf { it.isDirectory }
@@ -67,7 +87,7 @@ object ChapterStorage {
             }
             if (current != null) return current.uri.toString()
         }
-        val dir = File(context.filesDir, "downloads/$safeMangaFolder/$chapterFolderName")
+        val dir = File(context.filesDir, "downloads/$safeSource/$safeMangaFolder/$chapterSegment")
         dir.mkdirs()
         return dir.absolutePath
     }
