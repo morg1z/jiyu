@@ -101,6 +101,11 @@ private data class SegmentRange(val chapterId: String, val startFlat: Int, val p
 @Composable
 fun WebtoonReader(
     segments: List<WebtoonSegment>,
+    /** Kapitola, vuci ktere je [initialPage] lokalni index - typicky aktivni/aktualni
+     *  kapitola. Bez nej se initialPage chybně bral jako PLOCHY index LazyColumnu a po
+     *  config-change restore dopadl do prvniho segmentu (audit: rotace v nekonecnem
+     *  webtoonu skocila o kapitoly zpet a prepsala jim progress). */
+    initialChapterId: String? = null,
     initialPage: Int,
     initialScrollOffset: Int = 0,
     onNeedMoreSegments: () -> Unit = {},
@@ -216,8 +221,12 @@ fun WebtoonReader(
     // segmentu) - mezi kazdou dvojici segmentu je NAVIC jedna "hranice kapitoly" polozka
     // (viz stavba LazyColumn nize), ktera do zadneho segmentu nepatri (mapFlatIndex ji
     // preskoci - vraci null).
-    val segmentRanges = remember(segments) {
-        var offset = 0
+    // Zacatek offsetu: kdyz je aktivni isPrependingPrevChapter, na flat indexu 0 lezi
+    // loading radek "prepending_prev_chapter" (viz stavba LazyColumn nize), ktery do
+    // zadneho segmentu nepatri a VSECHNY stranky posouva o +1 - bez toho by mapFlatIndex
+    // behem prependu hlasil lokalni indexy o jednu vedle (off-by-one zapisy do progress).
+    val segmentRanges = remember(segments, isPrependingPrevChapter) {
+        var offset = if (isPrependingPrevChapter) 1 else 0
         segments.mapIndexed { idx, seg ->
             val range = SegmentRange(seg.chapterId, offset, seg.pages.size)
             offset += seg.pages.size
@@ -225,7 +234,7 @@ fun WebtoonReader(
             range
         }
     }
-    val lastPageFlatIndex = remember(segments) {
+    val lastPageFlatIndex = remember(segmentRanges) {
         segmentRanges.lastOrNull()?.let { it.startFlat + it.pageCount - 1 } ?: 0
     }
     fun mapFlatIndex(flatIdx: Int): Pair<String, Int>? {
@@ -262,16 +271,28 @@ fun WebtoonReader(
     // ale puvodni prvni v seznamu zustava. Pozici drzi LazyColumn sama pres klice polozek
     // a obnoveni z DB se NESMI spustit - skocilo by na `initialPage` uprostred cteni.
     // Poznani: predchozi prvni segment je v novem seznamu porad pritomen.
-    var isRestoringPosition by remember { mutableStateOf(true) }
-    var lastFirstSegmentId by remember { mutableStateOf<String?>(null) }
+    // rememberSaveable: po config-change (rotace) se bez ulozeni vynulovaly a restore
+    // se spustil znovu - se starym plochym pouzitim initialPage to hodilo do prvniho
+    // segmentu a snapshotFlow pak pres switchActiveSegment prepsal progress JINE
+    // kapitoly (audit). S ulozenym lastFirstSegmentId se restore na config-change
+    // preskoci (LazyListState obnovi pozici sam) a ridi se jen skutecna zmena
+    // otevrene kapitoly / process-death rebuild segmentu.
+    var isRestoringPosition by rememberSaveable { mutableStateOf(true) }
+    var lastFirstSegmentId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(segments.firstOrNull()?.chapterId) {
         val prepended = lastFirstSegmentId != null &&
             segments.any { it.chapterId == lastFirstSegmentId }
         if (!prepended) {
             isRestoringPosition = true
-            val firstPageCount = segments.firstOrNull()?.pages?.size ?: 0
-            if (firstPageCount > 0) {
-                val target = initialPage.coerceIn(0, firstPageCount - 1)
+            // initialPage je LOKALNI index v kapitole initialChapterId - prevest na
+            // plochy index pres jeji segment range (startFlat uz zahrnuje boundary
+            // itemy i prepend loading radek). Kdyz jeji segment v seznamu neni,
+            // fallback na prvni segment (jednosegmentove otevreni).
+            val targetRange = segmentRanges.firstOrNull { it.chapterId == initialChapterId }
+                ?: segmentRanges.firstOrNull()
+            if (targetRange != null && targetRange.pageCount > 0) {
+                val target = (targetRange.startFlat + initialPage)
+                    .coerceIn(targetRange.startFlat, targetRange.startFlat + targetRange.pageCount - 1)
                 // scrollToItem() hned po prvnim slozeni LazyColumn muze tise selhat a skoncit
                 // na indexu 0 - stranky jsou obrazky s neznamou vyskou predem, takze prvni
                 // layout pruchod jeste nemusi byt "usazeny" (overeno zive). Opakuje se tedy,
@@ -282,6 +303,11 @@ fun WebtoonReader(
                     if (attempt < 7) delay(150L)
                 }
             }
+            isRestoringPosition = false
+        } else {
+            // Skip-vetev (prepend/config-change): LazyListState pozici drzi sam, ale
+            // pokud se config-change stihl uprostred predchoziho restore, zustal by
+            // ulozeny flag true navzdy a report pozice by nikdy neobnovil zapis.
             isRestoringPosition = false
         }
         lastFirstSegmentId = segments.firstOrNull()?.chapterId
@@ -339,26 +365,17 @@ fun WebtoonReader(
         onScrubConsumed()
     }
 
-    // Skok na lokalni index stranky v ramci AKTUALNE viditelne kapitoly (slider
-    // v dolnim panelu - jede pres jumpToPage, ne scrubToFraction, protoze cisluje
-    // jen v ramci jedne kapitoly). Segment se pozna pres mapFlatIndex z prvni
-    // viditelne polozky; kdyz ta padne na "hranici kapitoly" mezi segmenty
-    // (vraci null), zkusi se sousedni stranky.
+    // Skok na PLOCHY index polozky v celem proudu (slider v dolnim panelu i horni
+    // lista cisli flat - stejny prostor jako webtoonFlatIndex/webtoonItemCount).
     LaunchedEffect(jumpToPage) {
         val page = jumpToPage ?: return@LaunchedEffect
         // RD-23 - viz scrubToFraction vyse (skok behem obnovy pozice by se prepsal).
         while (isRestoringPosition) delay(50L)
-        val first = listState.firstVisibleItemIndex
-        val range = mapFlatIndex(first)?.let { (chapterId, _) ->
-            segmentRanges.firstOrNull { it.chapterId == chapterId }
-        } ?: mapFlatIndex(first + 1)?.let { (chapterId, _) ->
-            segmentRanges.firstOrNull { it.chapterId == chapterId }
-        } ?: mapFlatIndex(first - 1)?.let { (chapterId, _) ->
-            segmentRanges.firstOrNull { it.chapterId == chapterId }
-        }
-        if (range != null && range.pageCount > 0) {
-            listState.scrollToItem(range.startFlat + page.coerceIn(0, range.pageCount - 1))
-        }
+        // PLOCHY index - stejny prostor jako webtoonItemCount/webtoonFlatIndex, ktere
+        // hlasi slider, horni lista i edge scrubber (drive se hodnota chapala jako
+        // LOKALNI index ve viditelnem segmentu: slider "5 / 237" pres cely proud, ale
+        // skok se jen clampnul na konec prave viditelne kapitoly - audit #17).
+        listState.scrollToItem(page.coerceIn(0, lastPageFlatIndex))
         onJumpConsumed()
     }
 

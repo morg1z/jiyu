@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -484,6 +485,10 @@ class ReaderViewModel @Inject constructor(
     fun saveWebtoonScrollOffset(offset: Int) {
         val chapterId = currentChapter?.id ?: return
         if (_incognitoMode.value) return
+        // In-memory hodnota hned (pro restore po config-change) - do DB se zapise az
+        // debounce-ovane nize; driv se _webtoonScrollOffset menil jen v loadChapter a
+        // po rotaci se obnovoval stale pixel offset z doby otevreni kapitoly (audit).
+        _webtoonScrollOffset.value = offset
         scrollPersistJob?.cancel()
         scrollPersistJob = viewModelScope.launch {
             delay(600L)
@@ -570,8 +575,13 @@ class ReaderViewModel @Inject constructor(
 
     /** Označí stránku kapitoly jako neúspěšně přeloženou - viz [_translateFailedPages]. */
     private fun markTranslatePageFailed(chapterId: String, pageIndex: Int) {
-        val current = _translateFailedPages.value[chapterId] ?: emptySet()
-        _translateFailedPages.value = _translateFailedPages.value + (chapterId to current + pageIndex)
+        // update{} = atomicky read-modify-write: tyto funkce volaji i korutiny na
+        // Dispatchers.IO (preloadCachedTranslations pri appendu webtoon segmentu),
+        // zatimco jine zapisy jedou na Main - `value = value + x` by se dva kroky
+        // mohl prolozit a jeden zapis prepsat druhy (audit #6).
+        _translateFailedPages.update { m ->
+            m + (chapterId to ((m[chapterId] ?: emptySet()) + pageIndex))
+        }
     }
 
     /**
@@ -595,41 +605,40 @@ class ReaderViewModel @Inject constructor(
         // držela starý záznam a kreslila duplicitu (audit RWS ch.215 - p231/p232).
         if (blocks.isEmpty()) {
             if (chapterId == _currentChapterId.value && pageIndex in _translatedPages.value) {
-                _translatedPages.value = _translatedPages.value - pageIndex
+                _translatedPages.update { it - pageIndex }
             }
-            _translatedPagesByChapter.value[chapterId]?.let { chMap ->
-                if (pageIndex in chMap) {
-                    val merged = LinkedHashMap(_translatedPagesByChapter.value)
-                    merged[chapterId] = chMap - pageIndex
-                    _translatedPagesByChapter.value = merged
-                }
+            _translatedPagesByChapter.update { byChapter ->
+                val chMap = byChapter[chapterId] ?: return@update byChapter
+                if (pageIndex !in chMap) byChapter
+                else LinkedHashMap(byChapter).apply { this[chapterId] = chMap - pageIndex }
             }
             return
         }
         if (chapterId == _currentChapterId.value) {
-            _translatedPages.value = _translatedPages.value + (pageIndex to blocks)
+            _translatedPages.update { it + (pageIndex to blocks) }
         }
         // Úspěšný (re)překlad stránky - případný dřívější fail flag zhasne, jinak by
         // retry chip visel i nad nově přeloženými bublinami.
-        _translateFailedPages.value[chapterId]?.let { failed ->
-            if (pageIndex in failed) {
-                _translateFailedPages.value = _translateFailedPages.value + (chapterId to failed - pageIndex)
+        _translateFailedPages.update { m ->
+            val failed = m[chapterId] ?: return@update m
+            if (pageIndex !in failed) m else m + (chapterId to failed - pageIndex)
+        }
+        _translatedPagesByChapter.update { byChapter ->
+            val forChapter = (byChapter[chapterId] ?: emptyMap()) + (pageIndex to blocks)
+            val merged = LinkedHashMap(byChapter)
+            merged.remove(chapterId) // presun na konec = LRU poradi
+            merged[chapterId] = forChapter
+            // LRU strop (nekonecne cteni by mapu nechalo rust na kazdou prelozenou kapitolu =
+            // desitky KB textu navrch a nikdy neumrely, audit). Kapitoly zive ve webtoon
+            // segmentech + aktualni se drzi vzdy - pres strop se vyhazuji nejstarsi zbytek,
+            // aby zpetna navigace do nedavno navstivene kapitoly stale nasla cache.
+            val liveIds = _webtoonSegments.value.mapTo(HashSet()) { it.chapterId } + _currentChapterId.value
+            while (merged.size > MAX_TRANSLATED_CHAPTERS_CACHED) {
+                val victim = merged.keys.firstOrNull { it !in liveIds } ?: break
+                merged.remove(victim)
             }
+            merged
         }
-        val forChapter = (_translatedPagesByChapter.value[chapterId] ?: emptyMap()) + (pageIndex to blocks)
-        val merged = LinkedHashMap(_translatedPagesByChapter.value)
-        merged.remove(chapterId) // presun na konec = LRU poradi
-        merged[chapterId] = forChapter
-        // LRU strop (nekonecne cteni by mapu nechalo rust na kazdou prelozenou kapitolu =
-        // desitky KB textu navrch a nikdy neumrely, audit). Kapitoly zive ve webtoon
-        // segmentech + aktualni se drzi vzdy - pres strop se vyhazuji nejstarsi zbytek,
-        // aby zpetna navigace do nedavno navstivene kapitoly stale nasla cache.
-        val liveIds = _webtoonSegments.value.mapTo(HashSet()) { it.chapterId } + _currentChapterId.value
-        while (merged.size > MAX_TRANSLATED_CHAPTERS_CACHED) {
-            val victim = merged.keys.firstOrNull { it !in liveIds } ?: break
-            merged.remove(victim)
-        }
-        _translatedPagesByChapter.value = merged
     }
 
     // Stejná výchozí hodnota jako v SettingsRepository - než se nastavení načte, nesmí tu
@@ -1086,9 +1095,11 @@ class ReaderViewModel @Inject constructor(
     // odchodu appky do pozadi (viz handoffTranslationToBackground).
     private var translationJobChapterId: String? = null
     private var batchJob: Job? = null
-    // Kapitola, ktera si pozadala o batch zatimco bezel jiny (nekonecne cteni) -
-    // spusti se, az predchozi doběhne (viz translateAllPages a jeho finally).
-    private var pendingBatchChapterId: String? = null
+    // Kapitoly, ktere si pozadaly o batch zatimco bezel jiny (nekonecne cteni -
+    // uzivatel tapne "Prelozit vse" na dvou segmentech za sebou) - spusti se, az
+    // predchozi doběhne. Set, ne jednoslot: druhy/dalsi pozadavek by se jinak tise
+    // prepsal a tap se ztratil bez jakekoli odezvy (audit #18).
+    private val pendingBatchChapterIds = LinkedHashSet<String>()
     // Kapitola, na kterou bezi prave aktivni batchJob - pro rozliseni "double-tap na
     // stejnou kapitolu" (ignorovat) od "zadost pro jinou" (zaradit jako pending).
     private var activeBatchChapterId: String? = null
@@ -1181,6 +1192,9 @@ class ReaderViewModel @Inject constructor(
         _commentsSupported.value = false
         commentsJob?.cancel()
         commentsJob = null
+        // Reset i flag - finally zruseneho jobu ho pod `commentsJob === self` uz
+        // nevycisti (pole je null), takze by v nove kapitole visel vlecny spinner.
+        _commentsLoading.value = false
         // Klíč je "$pageIndex:$bubbleIndex" bez chapterId - stránkování se v každé kapitole
         // čísluje znovu od 0, takže bez resetu by "otočená" bublina 3:2 z minulé kapitoly
         // zůstala otočená i na stránce 3 v nové kapitole, i když jde o úplně jinou bublinu.
@@ -1399,6 +1413,10 @@ class ReaderViewModel @Inject constructor(
         // segmenty pridavaji az prubezne za cteni (viz appendNextWebtoonSegment), ne predem.
         appendingSegmentJob?.cancel()
         prependingSegmentJob?.cancel()
+        // Oba flagy resetovat - zruseni jobu pred jeho startem na IO dispatcheru by
+        // nechalo _webtoonAppendingNext zasekle na true ("Nacitam dalsi kapitolu" chip
+        // na nove kapitole navzdy, audit #25).
+        _webtoonAppendingNext.value = false
         _webtoonPrependingPrev.value = false
         _webtoonSegments.value = listOf(WebtoonSegment(chapter.id, chapter.name, _pages.value))
         _webtoonEpoch.value = chapter.id
@@ -2561,7 +2579,7 @@ class ReaderViewModel @Inject constructor(
         // tlak na API/rate limity a hlavne by se vzajemne prebijely o ukazatele.
         if (_batchTranslating.value) {
             if (currentChapter?.id != activeBatchChapterId) {
-                pendingBatchChapterId = currentChapter?.id
+                currentChapter?.id?.let(pendingBatchChapterIds::add)
             }
             return
         }
@@ -2628,12 +2646,15 @@ class ReaderViewModel @Inject constructor(
                 if (chapterId == _currentChapterId.value) _batchProgress.value = null
                 activeBatchChapterId = null
                 _batchTranslating.value = false
-                // Zarazeny pozadavek z jine kapitoly (translateAllPages nad
-                // _batchTranslating guardem) - spustit jen kdyz je stale aktualni;
-                // do tehdy se _batchTranslating uz vypnul, takze rekurze projde.
-                pendingBatchChapterId?.let { pending ->
-                    pendingBatchChapterId = null
-                    if (pending == _currentChapterId.value) translateAllPages()
+                // Zarazene pozadavky z jinych kapitol (translateAllPages nad
+                // _batchTranslating guardem) - spustit jen pozadavek pro AKTUALNI
+                // kapitolu, ostatni jsou zastarale pozadavky z kapitol, na kterych
+                // uzivatel uz neni (stejna semantika jako driv, jen bez ztraty fronty).
+                if (pendingBatchChapterIds.remove(_currentChapterId.value)) {
+                    pendingBatchChapterIds.clear()
+                    translateAllPages()
+                } else {
+                    pendingBatchChapterIds.clear()
                 }
                 // translateMode=true prepina UI z tlacitka "Prelozit vse" na prepinac
                 // Original/Preklad (viz ReaderControls - tlacitko se renderuje jen
@@ -2678,11 +2699,11 @@ class ReaderViewModel @Inject constructor(
         // Kapitola zařazená do pozadí (handoff/detail) by se jinak znovu rozběhla
         // workerem, i když uživatel překlad právě explicitně zastavil.
         activeBatchChapterId?.let(translateQueue::cancel)
-        pendingBatchChapterId?.let(translateQueue::cancel)
+        pendingBatchChapterIds.forEach(translateQueue::cancel)
         handedOffChapterIds.forEach(translateQueue::cancel)
         handedOffChapterIds = emptyList()
         activeBatchChapterId = null
-        pendingBatchChapterId = null
+        pendingBatchChapterIds.clear()
         _batchTranslating.value = false
         _batchProgress.value = null
     }
@@ -2699,11 +2720,11 @@ class ReaderViewModel @Inject constructor(
         val ids = buildList {
             if (translationJob?.isActive == true) translationJobChapterId?.let(::add)
             if (batchJob?.isActive == true) activeBatchChapterId?.let { if (it !in this) add(it) }
-            pendingBatchChapterId?.let { if (it !in this) add(it) }
+            pendingBatchChapterIds.forEach { if (it !in this) add(it) }
         }
         if (ids.isEmpty()) return
         handedOffPageJob = translationJob?.isActive == true
-        handedOffBatchJob = batchJob?.isActive == true || pendingBatchChapterId != null
+        handedOffBatchJob = batchJob?.isActive == true || pendingBatchChapterIds.isNotEmpty()
         handedOffChapterIds = ids
         translateQueue.enqueue(ids)
         translationJob?.cancel()
@@ -2712,7 +2733,7 @@ class ReaderViewModel @Inject constructor(
         batchJob?.cancel()
         batchJob = null
         activeBatchChapterId = null
-        pendingBatchChapterId = null
+        pendingBatchChapterIds.clear()
         _translationProgress.value = null
         _batchProgress.value = null
         _batchTranslating.value = false
@@ -2985,7 +3006,13 @@ class ReaderViewModel @Inject constructor(
                                     )
                                 }
                             ),
-                            comicKLastChapter = 0f,
+                            // Skutecne max ComicK titulu, ne 0f - s nulou by
+                            // openSourceSwitcher vzdy vycislil "ComicK pribyla kapitola"
+                            // a freshness gate pro rucne prepnuty titul netiskla
+                            // (rescan pri kazdem otevreni sheetu, audit #4).
+                            comicKLastChapter = repository.getAllChapters(parent.id)
+                                .filter { it.isEnglishChapter() }
+                                .maxOfOrNull { it.chapterNumber } ?: 0f,
                             resolvedLastChapter = chapters.maxOfOrNull { it.chapterNumber } ?: 0f,
                             resolvedAt = System.currentTimeMillis(),
                         )

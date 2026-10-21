@@ -292,6 +292,7 @@ fun ReaderContent(
             }
             WebtoonReader(
                 segments = effectiveWebtoonSegments,
+                initialChapterId = currentChapterId,
                 initialPage = initialPage,
                 initialScrollOffset = webtoonScrollOffset,
                 onNeedMoreSegments = onNeedMoreWebtoonSegments,
@@ -453,7 +454,10 @@ fun ReaderContent(
                     modifier = Modifier.align(Alignment.TopCenter),
                     mangaTitle = mangaTitle,
                     chapterTitle = chapterTitle,
-                    currentPage = pagedCurrentPage,
+                    // Webtoon hlasi pozici v PLOCHEM indexu proudu (stejny prostor jako
+                    // webtoonItemCount/scrubber) - driv sem sel LOKALNI index kapitoly,
+                    // takze "5 / 237" mlelo nesmysl a slider skacel jen v kapitole.
+                    currentPage = if (isWebtoon) webtoonFlatIndex else pagedCurrentPage,
                     pageCount = if (isWebtoon) webtoonItemCount else pagedPageCount,
                     isOfflineChapter = isOfflineChapter,
                     sessionElapsed = sessionElapsed,
@@ -477,7 +481,7 @@ fun ReaderContent(
                     onShowComments = { showCommentsSheet = true; onShowComments() },
                     commentsSupported = commentsSupported,
                     pageCount = if (isWebtoon) webtoonItemCount else pagedPageCount,
-                    currentPage = pagedCurrentPage,
+                    currentPage = if (isWebtoon) webtoonFlatIndex else pagedCurrentPage,
                     onJumpToPage = onJumpToPage,
                     brightness = brightness,
                     onBrightnessChange = { brightness = it },
