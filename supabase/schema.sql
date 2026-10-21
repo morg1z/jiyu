@@ -158,7 +158,17 @@ GRANT EXECUTE ON FUNCTION public.refund_translate_usage(INTEGER) TO service_role
 -- ── Oprávnění tabulek (viz migrace 20260920134343) ───────────────────────────
 -- anon: jen SELECT na public_manga_lists (RLS pouští jen veřejné řádky). authenticated: SELECT/INSERT/UPDATE/DELETE
 -- (řádky omezuje RLS), bez TRUNCATE/TRIGGER/REFERENCES. translate_usage: jen service role.
+--
+-- POZOR (Supabase změna od 2026-10-30): nové tabulky v public NEDOSTÁVAJÍ Data API
+-- granty automaticky. Každá nová tabulka i rebuild projektu/preview/local reset
+-- MUSÍ dostat explicitní GRANT tady - bez něj vrací PostgREST "permission denied"
+-- i přihlášeným uživatelům (RLS pak nepomůže, grant chybí pod ním).
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 GRANT SELECT ON public.public_manga_lists TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.manga_sync TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.chapter_sync TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_settings_sync TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.library_backups TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.public_manga_lists TO authenticated;
 REVOKE TRUNCATE, TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM authenticated;
 REVOKE ALL ON public.translate_usage FROM anon, authenticated;
