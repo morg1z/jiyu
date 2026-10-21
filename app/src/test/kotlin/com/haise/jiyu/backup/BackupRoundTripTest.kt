@@ -46,6 +46,8 @@ class BackupRoundTripTest {
         genres = "Action,Drama", year = 2020, malId = 42, malScore = 8.5f, userRating = 9, isFavorite = true,
         translationCompleted = true, rating = 7.25, followCount = 100, rank = 3, alternateTitles = "Alt",
         mangaUpdatesId = 123456789012L, readingTimeMs = 5000L, addedAt = 111L, lastReadAt = 222L,
+        comickHid = "hid-abc", resolvedMangaId = "resolved::/m/1", statusUpdatedAt = 9999L,
+        contentTypeVerified = true, detailFetchedAt = 888L, lastChapterRefreshAt = 777L,
     )
     private val chapter = ChapterEntity(
         id = "src::/ch/1", mangaId = manga.id, sourceId = "src", url = "/ch/1", name = "Ch 1 – „test“",
@@ -68,7 +70,8 @@ class BackupRoundTripTest {
         manager = BackupManager(
             context = context, repository = repository,
             mangaNoteDao = db.mangaNoteDao(), mangaTagDao = db.mangaTagDao(), readHistoryDao = db.readHistoryDao(),
-            glossaryDao = db.glossaryDao(), manualTranslationDao = db.manualTranslationDao(), db = db,
+            glossaryDao = db.glossaryDao(), manualTranslationDao = db.manualTranslationDao(),
+            sourceResolutionDao = db.sourceResolutionDao(), db = db,
         )
         file = File.createTempFile("backup", ".json")
     }
@@ -103,6 +106,27 @@ class BackupRoundTripTest {
         assertEquals(true, parsed.glossary.single().protectExact)
         assertEquals(chapter.id, parsed.readHistory.single().chapterId)
         assertEquals(0, parsed.skippedCount)
+    }
+
+    @Test
+    fun `source resolutions of exported comick mangas round-trip, others stay home`() = runTest {
+        val resolution = com.haise.jiyu.data.db.entity.SourceResolutionEntity(
+            comickMangaId = manga.id,
+            resolvedMangaId = "resolved::/m/1",
+            candidatesJson = "[]",
+            comicKLastChapter = 62f,
+            resolvedLastChapter = 60f,
+            resolvedAt = 12345L,
+        )
+        val foreign = resolution.copy(comickMangaId = "comick::not-in-library")
+        db.sourceResolutionDao().upsertAll(listOf(resolution, foreign))
+
+        assertTrue(manager.exportToFile(file).isSuccess)
+        val parsed = parseBackupJson(file.readText())
+
+        assertEquals(listOf(resolution), parsed.sourceResolutions)
+        assertEquals("hid-abc", parsed.manga.single().comickHid)
+        assertEquals(9999L, parsed.manga.single().statusUpdatedAt)
     }
 
     @Test

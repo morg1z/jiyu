@@ -15,6 +15,7 @@ import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
+import com.haise.jiyu.data.db.SourceResolutionDao
 import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.util.SleepTimerManager
@@ -554,6 +555,7 @@ object AppModule {
     @Provides fun provideCategoryDao(db: AppDatabase): CategoryDao = db.categoryDao()
     @Provides fun provideCustomSourceDao(db: AppDatabase): CustomSourceDao = db.customSourceDao()
     @Provides fun provideReadHistoryDao(db: AppDatabase): ReadHistoryDao = db.readHistoryDao()
+    @Provides fun provideSourceResolutionDao(db: AppDatabase): SourceResolutionDao = db.sourceResolutionDao()
     @Provides fun provideMangaNoteDao(db: AppDatabase): MangaNoteDao = db.mangaNoteDao()
     @Provides fun provideMangaTagDao(db: AppDatabase): MangaTagDao = db.mangaTagDao()
 

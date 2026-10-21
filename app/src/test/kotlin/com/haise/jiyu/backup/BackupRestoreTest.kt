@@ -8,6 +8,7 @@ import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.test.runTest
@@ -55,6 +56,7 @@ class BackupRestoreTest {
             readHistoryDao = db.readHistoryDao(),
             glossaryDao = db.glossaryDao(),
             manualTranslationDao = db.manualTranslationDao(),
+            sourceResolutionDao = db.sourceResolutionDao(),
             db = db,
         )
     }
@@ -98,6 +100,28 @@ class BackupRestoreTest {
     }
 
     @Test
+    fun `a category assignment pointing at a missing category is skipped, not a rollback`() = runTest {
+        // manga_category ma skutecne FKs - bez filtru by assignment na kategorii, ktera
+        // v zaloze ani DB neni, hodil SQLiteConstraintException a transakce by
+        // rollbacknula cely import (audit #13).
+        val json = """
+            {
+              "version": 5,
+              "categories": [],
+              "customSources": [],
+              "manga": [ { "id": "src::m1", "sourceId": "src", "url": "/m/1", "title": "M",
+                           "categoryIds": ["missing-category-id"] } ],
+              "chapters": [], "notes": [], "tags": [], "readHistory": []
+            }
+        """.trimIndent()
+
+        val result = manager.importFromJson(json)
+
+        assertTrue("assignment na chybejici kategorii nesmi shodit restore", result.isSuccess)
+        coVerify { repository.upsertAllManga(match { it.single().id == "src::m1" }) }
+    }
+
+    @Test
     fun `a backup that breaks half way through leaves nothing behind`() = runTest {
         // JÁDRO NÁLEZU: poznámky se zapisovaly PŘED historií, takže bez transakce
         // zůstaly v databázi i poté, co obnova skončila chybou.
@@ -111,6 +135,7 @@ class BackupRestoreTest {
             readHistoryDao = failingHistoryDao,
             glossaryDao = db.glossaryDao(),
             manualTranslationDao = db.manualTranslationDao(),
+            sourceResolutionDao = db.sourceResolutionDao(),
             db = db,
         )
 
