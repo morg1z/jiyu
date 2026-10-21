@@ -114,7 +114,7 @@ private const val TAG = "ReaderPrefetch"
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     @param:ApplicationContext private val context: Context,
     private val repository: MangaRepository,
     private val translateRepository: TranslateRepository,
@@ -1200,6 +1200,13 @@ class ReaderViewModel @Inject constructor(
 
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
+        // Po proces-deathu (Android zabil appku na pozadi, typicky po delsim
+        // spanku telefonu) se VM vytvori znovu a init cte chapterId ze
+        // savedStateHandle - bez aktualizace by se otevřela PUVODNI kapitola z nav
+        // argumentu a ctenare to hodilo o kapitoly zpet (nahlaseno: "vrati me o
+        // 1-4 kapitoly zpatky"). Presnou stranku pak doplni lastPageRead/scroll
+        // offset z DB, ktery se zapisuje debounce-ovane pri listovani.
+        savedStateHandle["chapterId"] = chapter.id
         _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
         // ComicK rodic pro prepinac zdroju v horni liste (uzivatelsky pozadavek:
         // rucni prepnuti na jiny zdroj, kde kapitoly jsou). null u bezneho
@@ -2079,6 +2086,10 @@ class ReaderViewModel @Inject constructor(
         spreadDetectJob = null
         currentChapter = chapter
         _currentChapterId.value = chapter.id
+        // Stejny zapis jako v loadChapter - nekonecne rezimy meni aktivni kapitolu
+        // pres segmenty, ne pres loadChapter; bez tohohle by process-death obnova
+        // ve webtoonu skocila zpet na kapitolu, se kterou se ctecka otevirala.
+        savedStateHandle["chapterId"] = chapter.id
         _chapterTitle.value = chapter.name
         _chapterIndex.value = chapterIndexOrTrace(chapter.id, "switchActiveSegment").coerceAtLeast(0)
         updateNavState()
