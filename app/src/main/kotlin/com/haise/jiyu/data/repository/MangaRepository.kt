@@ -930,7 +930,10 @@ class MangaRepository @Inject constructor(
      * domenu) - bez tehle hlavicky appka dosud stahovala obrazky stranek uplne bez
      * Refereru, coz se u takovych zdroju projevovalo jako cerne/nenactene stranky.
      */
-    suspend fun sourceHomepage(sourceId: String): String? = sourceManager.getById(sourceId)?.homepageUrl
+    // Bez suspend - jen map lookup; ctecka ho potrebuje synchronne pred zapisem
+    // _pages, jinak prvni nacteni stranek nove kapitoly leti se STARYM refererem
+    // a hotlink CDN vrati 403 (audit #28).
+    fun sourceHomepage(sourceId: String): String? = sourceManager.getByIdSync(sourceId)?.homepageUrl
 
     suspend fun setDownloadStatus(chapterEntityId: String, status: DownloadStatus) =
         chapterDao.setDownloadStatus(chapterEntityId, status)

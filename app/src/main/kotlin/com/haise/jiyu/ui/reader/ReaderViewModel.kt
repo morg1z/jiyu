@@ -49,6 +49,7 @@ import com.haise.jiyu.translate.TranslatedBlock
 import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
 import kotlinx.coroutines.channels.Channel
@@ -475,6 +476,9 @@ class ReaderViewModel @Inject constructor(
     // zapise az kdyz se scrollovani na chvili zastavi (presne tam, kde uzivatel realne
     // skoncil cteni), ne prubezne behem pohybu.
     private var scrollPersistJob: Job? = null
+    // Posledni debounce-ovany offset cekajici na DB zapis - onCleared ho flushne,
+    // jinak se poslednich ~600 ms scroll pozice pri killu/obrazovce-zpet ztratilo.
+    private var pendingScrollPersist: Pair<String, Int>? = null
 
     /**
      * Joby běžících/čekajících [retranslatePage] per chapterId - viz komentář v
@@ -489,10 +493,12 @@ class ReaderViewModel @Inject constructor(
         // debounce-ovane nize; driv se _webtoonScrollOffset menil jen v loadChapter a
         // po rotaci se obnovoval stale pixel offset z doby otevreni kapitoly (audit).
         _webtoonScrollOffset.value = offset
+        pendingScrollPersist = chapterId to offset
         scrollPersistJob?.cancel()
         scrollPersistJob = viewModelScope.launch {
             delay(600L)
             repository.updateScrollOffset(chapterId, offset, System.currentTimeMillis())
+            pendingScrollPersist = null
         }
     }
 
@@ -2111,6 +2117,9 @@ class ReaderViewModel @Inject constructor(
         _chapterTitle.value = chapter.name
         _chapterIndex.value = chapterIndexOrTrace(chapter.id, "switchActiveSegment").coerceAtLeast(0)
         updateNavState()
+        // Fallback zdroj muze mit jinou domovku - referer MUSI prijit pred _pages,
+        // jinak prvni image requesty nove kapitoly leti se starym a CDN vrati 403.
+        _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
         _pages.value = segment.pages
         // Plochou mapu naplnit z per-chapter mapy, ne prázdnou - tahle kapitola už mohla
         // být přeložená (uživatel scrolluje zpět na dřívější segment) a její bloky by
@@ -2125,9 +2134,6 @@ class ReaderViewModel @Inject constructor(
         // suspend funkce - tahle metoda se volá z UI synchronně, takže přes launch.
         viewModelScope.launch {
             _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
-            // Fallback zdroj muze mit jinou domovku - bez refresh by stranky nove
-            // kapitoly jely se refererem predchozi kapitoly (audit - hotlink 403).
-            _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
             // Nova kapitola v nekonecnem scrollu = novy seznam stranek - bez restartu
             // by sekvencni prefetch dal stahoval stranky PREDCHOZI kapitoly a tyhle
             // by se nikdy nepredstahly (audit). Reset fronty + restart pro tenhle
@@ -3077,6 +3083,16 @@ class ReaderViewModel @Inject constructor(
         // s obrazovkou, ale práce má doběhnout na pozadí (notifikace + Room cache).
         handoffTranslationToBackground()
         flushPendingAutoDelete()
+        // Flush debounce-ovaneho scroll offsetu - viewModelScope uz je zruseny, proto
+        // primo (mimo viewModelScope). Bez toho se posledni ~600 ms scroll pozice
+        // ztratila pri zavreni ctecky/killu (audit #27).
+        pendingScrollPersist?.let { (chapterId, offset) ->
+            scrollPersistJob?.cancel()
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                runCatching { repository.updateScrollOffset(chapterId, offset, System.currentTimeMillis()) }
+            }
+            pendingScrollPersist = null
+        }
         pageProgressEvents.close()
         super.onCleared()
     }

@@ -188,18 +188,32 @@ class ChapterDownloadWorker @AssistedInject constructor(
                                 val fileName = "%03d.%s".format(index, extension)
 
                                 if (!ChapterStorage.pageExists(applicationContext, chapterDirPath, fileName)) {
-                                    var bytes = if (imageUrl.startsWith("file://") || imageUrl.startsWith("/")) {
-                                        // Výstřižek donor stránky z gap-fillu už je lokální
-                                        // soubor - jen zkopírovat bajty, žádné HTTP.
-                                        java.io.File(imageUrl.removePrefix("file://")).readBytes()
-                                    } else {
-                                        totalPageDownloadPermits.withPermit { downloadBytes(imageUrl, pageReferer) }
-                                    }
                                     if (scramble != null) {
+                                        // Scrambled tiles potrebuji bajty v pameti (rozskladani
+                                        // dlaždic pres Bitmap) - streamovaci cesta je neumi.
+                                        var bytes = totalPageDownloadPermits.withPermit { downloadBytes(imageUrl, pageReferer) }
                                         bytes = descrambleToJpeg(bytes, scramble.grid, scramble.seed)
+                                        val written = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName, bytes)
+                                        if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
+                                    } else if (imageUrl.startsWith("file://") || imageUrl.startsWith("/")) {
+                                        // Výstřižek donor stránky z gap-fillu už je lokální
+                                        // soubor - zkopírovat streamem, žádné HTTP.
+                                        val written = java.io.File(imageUrl.removePrefix("file://")).inputStream().use { src ->
+                                            ChapterStorage.writePage(applicationContext, chapterDirPath, fileName) { dst -> src.copyTo(dst) }
+                                        }
+                                        if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
+                                    } else {
+                                        // Streamovat primo do .tmp - cela stranka se nedrzi v
+                                        // ByteArray (velke webtoon stripy x6 paralelne = OOM
+                                        // riziko na ~6 GB zarizeni, audit #40).
+                                        var ok = false
+                                        totalPageDownloadPermits.withPermit {
+                                            downloadTo(imageUrl, pageReferer) { src ->
+                                                ok = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName) { dst -> src.copyTo(dst) }
+                                            }
+                                        }
+                                        if (!ok) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
                                     }
-                                    val written = ChapterStorage.writePage(applicationContext, chapterDirPath, fileName, bytes)
-                                    if (!written) throw java.io.IOException("Nepodařilo se zapsat stránku $fileName")
                                 }
                                 val completed = completedPages.incrementAndGet()
                                 val fraction = completed.toFloat() / pages.size
@@ -361,6 +375,43 @@ class ChapterDownloadWorker @AssistedInject constructor(
                         if (!cont.isCancelled) cont.resumeWithException(java.io.IOException("Prázdná odpověď: $url"))
                     } else {
                         if (!cont.isCancelled) cont.resume(bytes)
+                    }
+                }
+            } catch (e: java.io.IOException) {
+                if (!cont.isCancelled) cont.resumeWithException(e)
+            }
+        }
+    }
+
+    /**
+     * Streamovací varianta [downloadBytes] - [sink] dostane otevřený response stream a
+     * typicky ho zkopíruje přímo do souboru ([ChapterStorage.writePage]), takže celá
+     * stránka neleží v jednom ByteArray (audit #40). Response se zavře až po sink.
+     */
+    private suspend fun downloadTo(url: String, referer: String? = null, sink: (java.io.InputStream) -> Unit) {
+        // Stahování kapitol vždy v originální kvalitě, mimo úsporný režim obrázků (viz ImageProxyInterceptor).
+        val call = client.newCall(
+            Request.Builder().url(url)
+                .header(com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL, "1")
+                .apply { if (!referer.isNullOrBlank()) header("Referer", referer) }
+                .build(),
+        )
+        return suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        if (!cont.isCancelled) {
+                            cont.resumeWithException(java.io.IOException("Stažení selhalo (${response.code}): $url"))
+                        }
+                        return@use
+                    }
+                    val stream = response.body?.byteStream()
+                    if (stream == null) {
+                        if (!cont.isCancelled) cont.resumeWithException(java.io.IOException("Prázdná odpověď: $url"))
+                    } else {
+                        stream.use(sink)
+                        if (!cont.isCancelled) cont.resume(Unit)
                     }
                 }
             } catch (e: java.io.IOException) {

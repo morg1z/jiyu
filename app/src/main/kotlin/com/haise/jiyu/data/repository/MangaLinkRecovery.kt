@@ -37,7 +37,12 @@ fun planChapterMigration(oldChapters: List<ChapterEntity>, newChapters: List<SCh
     // vs. Double->Float konverze pri Tachiyomi/JSON zaloha importu), ktere se u binarne
     // nepresnych desetinnych cisel (napr. 1.005) mohou zaokrouhlit jinak - presna shoda by pak
     // "stejnou" kapitolu vyhodnotila jako novou (duplikat), viz audit nalez.
-    val oldByNumber = oldChapters.associateBy { chapterMatchKey(it.chapterNumber) }
+    // groupBy + vyber radku: associateBy by u duplicitniho cisla (viceskupinovy zdroj)
+    // tise vzal POSLEDNI radek a pripadne navazal relink na ne-EN sirotka (audit #39).
+    // Per-cislo preferujeme EN radek, jinak prvni - stejny pattern jako dedup jinde.
+    val oldByNumber = oldChapters
+        .groupBy { chapterMatchKey(it.chapterNumber) }
+        .mapValues { (_, rows) -> rows.firstOrNull { it.isEnglishChapter() } ?: rows.first() }
     val seenNumbers = mutableSetOf<Int>()
     val relink = mutableListOf<Pair<ChapterEntity, SChapter>>()
     val newOnly = mutableListOf<SChapter>()

@@ -86,6 +86,11 @@ object ChapterStorage {
                 current = existing ?: current?.createDirectory(segment)
             }
             if (current != null) return current.uri.toString()
+            // Uzivatelem zvolená SAF složka je nedostupná (odvolané oprávnění, odpojená
+            // SD karta, provider mrtvý) - NESMÍ se tiše přejít na interní storage
+            // (stránky by skončily jinde, než uživatel nastavil, a "staženo" by bylo
+            // falešné - audit #36). IOException = přechodná chyba s retry v download workeru.
+            throw java.io.IOException("Vybraná složka pro stahování není dostupná (odvolané oprávnění nebo odpojené úložiště)")
         }
         val dir = File(context.filesDir, "downloads/$safeSource/$safeMangaFolder/$chapterSegment")
         dir.mkdirs()
@@ -107,7 +112,15 @@ object ChapterStorage {
      * [pageExists] (jen `length() > 0`) tiše bral jako kompletně stažené a napořád
      * přeskočil (nahlášený bug).
      */
-    fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray): Boolean {
+    fun writePage(context: Context, dirPath: String, fileName: String, bytes: ByteArray): Boolean =
+        writePage(context, dirPath, fileName) { it.write(bytes) }
+
+    /**
+     * Streamovací varianta [writePage] - HTTP/download cesta ji používá, aby celá stránka
+     * neležela v jednom `ByteArray` (velké webtoon stripy × paralelní stahování = OOM
+     * riziko na ~6 GB zařízeních, audit #40).
+     */
+    fun writePage(context: Context, dirPath: String, fileName: String, write: (java.io.OutputStream) -> Unit): Boolean {
         val tempName = "$fileName.tmp"
         if (isSaf(dirPath)) {
             val dir = DocumentFile.fromTreeUri(context, Uri.parse(dirPath)) ?: return false
@@ -125,15 +138,22 @@ object ChapterStorage {
                 if (n == tempName || n.startsWith(tempName)) f.delete()
             }
             val tempFile = dir.createFile(mime, tempName) ?: return false
-            val written = context.contentResolver.openOutputStream(tempFile.uri)?.use { it.write(bytes) } != null
+            val written = context.contentResolver.openOutputStream(tempFile.uri)?.use(write) != null
             if (!written) {
                 tempFile.delete()
                 return false
             }
-            return tempFile.renameTo(fileName)
+            // renameTo muze na nekterych SAF providerich vratit true, ale jmeno zmanipulovat
+            // (napr. pridat "(1)" pri kolizi) - [pageExists] hleda presne `fileName`, takze
+            // overit vysledne jmeno, jinak by se stranka "ztratila" (audit #36).
+            if (!tempFile.renameTo(fileName)) return false
+            return dir.findFile(fileName) != null
         } else {
+            // Osirely .tmp z predchoziho crashnuteho zapisu uklidit - v plain-File vetvi
+            // se ho driv nic nemazalo a lezel ve slozce navzdy (audit #36).
             val tempFile = File(dirPath, tempName)
-            tempFile.writeBytes(bytes)
+            if (tempFile.exists()) tempFile.delete()
+            tempFile.outputStream().use(write)
             return tempFile.renameTo(File(dirPath, fileName))
         }
     }

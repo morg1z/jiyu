@@ -47,7 +47,7 @@ Hotovo (2026-07-06):
 - Download Manager, periodické aktualizace na pozadí + notifikace
 - Záloha/obnovení (JSON), nastavení čtečky
 - Unit testy (DAO, Room migrace, Madara parser), live test na emulátoru
-- Room DB v14, WorkManager + HiltWorkerFactory správně inicializovány
+- Room DB v49, app 2.0.7 (versionCode 137), WorkManager + HiltWorkerFactory správně inicializovány
 - Roadmapa #1-47, #49, #50 hotová (AI shrnutí/doporučení přes Groq, QR sdílení,
   sleep timer, reading goals, hodnocení, panel mode, community listy, DB
   indexy, Coil cache, ProGuard/R8, UI testy)

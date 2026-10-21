@@ -432,8 +432,12 @@ object AppModule {
         // Cloudflare PŘED Throttle/Retry: řešení výzvy (tiché až 18 s + dialog až 90 s) pak nedrží povolení hostitele
         // a RetryInterceptor ho neopakuje - opakují se jen skutečné síťové pokusy uvnitř.
         .addInterceptor(cloudflare)
-        .addInterceptor(ThrottleInterceptor(maxConcurrentPerHost = 5))
+        // Retry VNE Throttle (driv naopak): permit se drzel pres celou backoff prodlevu
+        // mezi pokusy, takze flapujici host vyplnil vsech 5 per-host slotu cekajicimi
+        // vlakny a skutecne requesty na nej se vezly (audit #22). Permit se ted drzi
+        // jen po dobu jednoho pokusu.
         .addInterceptor(RetryInterceptor())
+        .addInterceptor(ThrottleInterceptor(maxConcurrentPerHost = 5))
         .addInterceptor(RateLimitInterceptor(slowdown))
         .addInterceptor(HotlinkRefererInterceptor())
         .build()

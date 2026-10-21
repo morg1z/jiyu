@@ -123,9 +123,12 @@ class CloudflareTypedErrorTest {
         assertTrue(idx("DomainOverrideInterceptor") < idx("NoNetworkInterceptor"))
         assertTrue(idx("NoNetworkInterceptor") < idx("WebViewCookieInterceptor"))
         assertTrue(idx("WebViewCookieInterceptor") < idx("CloudflareInterceptor"))
-        assertTrue(idx("CloudflareInterceptor") < idx("ThrottleInterceptor"))
-        assertTrue(idx("ThrottleInterceptor") < idx("RetryInterceptor"))
-        assertTrue(idx("RetryInterceptor") < idx("RateLimitInterceptor"))
+        // Retry VNĚ Throttle (audit #22): permit se drží jen po dobu jednoho pokusu,
+        // ne přes backoff prodlevu - flapující host jinak vyplnil všech 5 slotů.
+        // RateLimit zůstává UVNITŘ Retry (429 = NonRetryable, opakovat se nesmí).
+        assertTrue(idx("CloudflareInterceptor") < idx("RetryInterceptor"))
+        assertTrue(idx("RetryInterceptor") < idx("ThrottleInterceptor"))
+        assertTrue(idx("ThrottleInterceptor") < idx("RateLimitInterceptor"))
         assertTrue(client.networkInterceptors.any { it is CacheLimitInterceptor })
         assertEquals(15_000, client.connectTimeoutMillis)
     }

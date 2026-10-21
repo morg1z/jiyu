@@ -239,16 +239,27 @@ fun MangaReader(
         // podle toho, ze nova listina obsahuje starou jako SUFFIX; append dela to same
         // na konci a indexy necha v klidu.
         var prevPagesList by remember { mutableStateOf(pages) }
+        // Podle `true` pozná snapshotFlow níže, že probíhá prepend korekce - do ní
+        // nesmí propadnout emise `currentPage`, protože stary GROUP index se po
+        // prepocitu `groups` mapuje na JINY obsah (falesny handlePageChanged ->
+        // momentání skok segmentu a zapis spatneho postupu, audit #29). `remember`,
+        // aby oba efekty sdílely stejnou instanci napříč rekompozicemi.
+        var prependCorrecting by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(pages) {
             val old = prevPagesList
             prevPagesList = pages
             val added = pages.size - old.size
             if (added > 0 && pages.subList(added, pages.size) == old) {
-                currentSingleIndex += added
-                // Viditelnou stranku dotahnout instantne (ne animovane) na stejny
-                // obsah - currentPage je index skupiny, ne stranky.
-                val gi = groups.indexOfFirst { currentSingleIndex in it }
-                if (gi >= 0) pagerState.scrollToPage(gi)
+                prependCorrecting = true
+                try {
+                    currentSingleIndex += added
+                    // Viditelnou stranku dotahnout instantne (ne animovane) na stejny
+                    // obsah - currentPage je index skupiny, ne stranky.
+                    val gi = groups.indexOfFirst { currentSingleIndex in it }
+                    if (gi >= 0) pagerState.scrollToPage(gi)
+                } finally {
+                    prependCorrecting = false
+                }
             }
         }
 
@@ -282,6 +293,7 @@ fun MangaReader(
         }
         androidx.compose.runtime.LaunchedEffect(pagerState, groups) {
             snapshotFlow { pagerState.currentPage }.collect { groupIdx ->
+                if (prependCorrecting) return@collect
                 groups.getOrNull(groupIdx)?.firstOrNull()?.let {
                     // Restart efektu (append v nekonecnem cteni meni `groups`) reemituje
                     // aktualni index - bez guardu by se zbytecne resetoval zoom.
