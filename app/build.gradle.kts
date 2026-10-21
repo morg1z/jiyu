@@ -38,8 +38,8 @@ android {
         // ktery na nizsich verzich neexistuje.
         minSdk = 33
         targetSdk = 36
-        versionCode = 137
-        versionName = "2.0.7"
+        versionCode = 138
+        versionName = "2.0.8"
         buildConfigField("String", "SUPABASE_URL", "\"${localProps["SUPABASE_URL"] ?: "https://placeholder.supabase.co"}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps["SUPABASE_ANON_KEY"] ?: "placeholder-anon-key"}\"")
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${localProps["GOOGLE_CLIENT_ID"] ?: "placeholder.apps.googleusercontent.com"}\"")
@@ -93,6 +93,11 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // Debug bezi jako separatni balicek "com.haise.jiyu.debug" vedle release
+            // buildu na telefonu - testovaci instalace nemaze knihovnu/progress
+            // produkcni appky (INSTALL_FAILED_UPDATE_INCOMPATIBLE kvuli jinemu klici).
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
             // Pozn.: debug buildy schvalne ZUSTAVAJI na debug klici - vyvojarsky telefon
             // ma appku nainstalovanou s nim a Android odmicha jakykoliv cross-signature
             // update (i "pm uninstall -k" si podpis pamatuje). Dusledek: in-app update

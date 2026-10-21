@@ -4,6 +4,36 @@
 > vidět v historii commitů a v popisech jednotlivých vydání na GitHubu; zpětně to sem
 > nedopisuju, abych si nevymýšlel.
 
+## v2.0.8
+
+### Bezpečnost
+
+- **Překladová proxy vyžaduje přihlášení** — `translate-proxy` nově odmítá anon
+  klíč (401), takže ji nemůže vyčerpat nikdo s holým klíčem z APK; klient posílá
+  access token přihlášené session. Veřejná registrace účtů vypnutá.
+- **WebView hardening** — všechny WebView (Cloudflare solver, OAuth dialogy,
+  prohlížeč zdrojů) mají zakázaný `file://`/`content://` přístup, geolokaci a
+  third-party cookies (kromě prohlížeče, kde je Turnstile iframe potřebuje).
+- **Opravena záměrně ukrývající se chyba release buildu** — `JiyuComixBridge`
+  bez ProGuard keepu by R8 přejmenoval a Comix capture by v release nefungoval.
+
+### Opravené chyby
+
+- **Kolize stažených složek** — stejnojmenné tituly, skupinové varianty kapitol
+  a zdroje už se nebuchají do jednoho adresáře; cesta nese `zdroj/titul/kapitola ~hash`.
+- **Webtoon rotace** — po otočení/obnovení čtečka držela špatnou kapitolu a
+  přepisovala progress; pozice se obnovuje přes flat index včetně boundary itemů.
+- **Zálohy** — export nese `comickHid`, `resolvedMangaId`, `statusUpdatedAt` i
+  `source_resolution`; restore přežije odkazy na cizí kategorie/mangy.
+- **Streamování downloadů** — stránky se nestahují celé do RAM (OOM na 6GB),
+  `.tmp`+rename zabraňuje nekompletním souborům; SAF chyby hlásí ERROR místo
+  tichého přesměrování do interní paměti.
+- **Sync last-write-wins** — push už nepřepíše novější vzdálený stav starším lokálním.
+- **Resolver** — ComicK timeout nezahazuje částečné kapitoly, cursor race na
+  comick.art, sémantické číslování MangaThemesia, preferovaný EN řádek u deduplikací.
+- **Síť** — Retry mimo Throttle (permit se nedrží přes backoff), správný referer
+  při fallbacku zdroje, opakovatelné/notifikace se nesrazí na ID.
+
 ## v2.0.7
 
 ### Čtečka: mrtvá stránka se doplní z jiného zdroje
