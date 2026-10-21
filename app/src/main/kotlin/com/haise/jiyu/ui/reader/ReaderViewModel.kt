@@ -847,7 +847,7 @@ class ReaderViewModel @Inject constructor(
 
     private fun scheduleControlsAutoHide() {
         controlsHideJob?.cancel()
-        if (_controlsVisible.value && !advancedSheetOpen && !edgeScrubActive) {
+        if (_controlsVisible.value && !advancedSheetOpen && !edgeScrubActive && !sourceSheetOpen) {
             controlsHideJob = viewModelScope.launch {
                 delay(5_000L)
                 _controlsVisible.value = false
@@ -857,6 +857,17 @@ class ReaderViewModel @Inject constructor(
 
     private var advancedSheetOpen = false
     private var edgeScrubActive = false
+    private var sourceSheetOpen = false
+
+    /**
+     * Hold na auto-hide pro prepinac zdroju - stejny duvod jako
+     * [onAdvancedSheetVisibilityChanged]: sheet se vsemi zdroji by se jinak zavrel
+     * spolu s hornim/spodnim panelem po 5 s (nahlaseny bug).
+     */
+    fun onSourceSheetVisibilityChanged(visible: Boolean) {
+        sourceSheetOpen = visible
+        if (visible) controlsHideJob?.cancel() else scheduleControlsAutoHide()
+    }
 
     /**
      * Stejny hold na auto-hide jako [onAdvancedSheetVisibilityChanged], jen pro edge
@@ -2767,9 +2778,24 @@ class ReaderViewModel @Inject constructor(
             val cached = com.haise.jiyu.data.repository.SourceResolutionCodec
                 .decode(resolution?.candidatesJson ?: "[]")
             _sourceSwitchRows.value = cached.map { it.toRow(currentNumber) }
+            // Sweep jen kdyz: zadny zaznam, cache vyprsela (RESOLUTION_FRESH_MS),
+            // zadni zapamatovani kandidati, NEBO ComicK pribyl o kapitolu oproti
+            // dobe resolvovani (comicKLastChapter) - nove kapitoly = nove sance, ze
+            // se titul objevil i na jinych zdrojich. Jiny pripad = radky z cache
+            // staci a sit se necha v klidu (uzivatelsky pozadavek "ne od znova").
+            val comicKMax = repository.getAllChapters(parent.id)
+                .englishOnlyChapters()
+                .maxOfOrNull { it.chapterNumber }
+            val comicKGrew = resolution != null &&
+                comicKMax != null && comicKMax > resolution.comicKLastChapter + 0.01f
+            // Blank candidatesJson = resoluce vznikla fast-pathem a kandidatsky
+            // sweep pro sheet jeste nikdy nedobehl -> jednou doskenovat. Prachsprosty
+            // "[]" = sweep uz probehl a nic nenasel - drzet vysledek, ne sweepovat
+            // dokola (uzivatelsky pozadavek "ne od znova").
+            val neverScanned = resolution != null && resolution.candidatesJson.isBlank()
             val stale = resolution == null ||
                 System.currentTimeMillis() - resolution.resolvedAt >= RESOLUTION_FRESH_MS
-            if (stale || cached.isEmpty()) rescanSourceCandidates(parent)
+            if (stale || neverScanned || comicKGrew) rescanSourceCandidates(parent)
         }
     }
 
@@ -2809,22 +2835,27 @@ class ReaderViewModel @Inject constructor(
                 }
                 // Vysledky sweepu zapsat do source_resolution - dalsi otevreni
                 // sheetu i otevirani kapitol zase jedou z cache bez site.
-                if (found.isNotEmpty()) {
-                    val sorted = _sourceSwitchRows.value
-                    repository.upsertSourceResolution(
-                        com.haise.jiyu.data.db.entity.SourceResolutionEntity(
-                            comickMangaId = parent.id,
-                            resolvedMangaId = repository.getSourceResolution(parent.id)?.resolvedMangaId
-                                ?: repository.mangaId(found.first().source.id, found.first().manga.url),
-                            candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
-                                found.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
-                            ),
-                            comicKLastChapter = allComicKChapters.maxOfOrNull { it.chapterNumber } ?: 0f,
-                            resolvedLastChapter = found.firstOrNull()?.maxChapterNumber ?: 0f,
-                            resolvedAt = System.currentTimeMillis(),
-                        )
+                // Zapisuje se VZDY - i prazdny vysledek ("[]") a marker bez
+                // resolved zdroje. Bez toho by titul bez nalezenych zdroju pri
+                // kazdem otevreni sheetu spoustel cely sweep dokola, protoze
+                // "sken doběhl, nic nenasel" by slo poznat jen ze zaznamu.
+                val existing = repository.getSourceResolution(parent.id)
+                repository.upsertSourceResolution(
+                    com.haise.jiyu.data.db.entity.SourceResolutionEntity(
+                        comickMangaId = parent.id,
+                        resolvedMangaId = existing?.resolvedMangaId
+                            ?: found.firstOrNull()
+                                ?.let { repository.mangaId(it.source.id, it.manga.url) }
+                                ?: "",
+                        candidatesJson = com.haise.jiyu.data.repository.SourceResolutionCodec.encode(
+                            found.map { with(com.haise.jiyu.data.repository.SourceResolutionCodec) { it.toCached() } }
+                        ),
+                        comicKLastChapter = allComicKChapters.maxOfOrNull { it.chapterNumber } ?: 0f,
+                        resolvedLastChapter = found.firstOrNull()?.maxChapterNumber
+                            ?: existing?.resolvedLastChapter ?: 0f,
+                        resolvedAt = System.currentTimeMillis(),
                     )
-                }
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

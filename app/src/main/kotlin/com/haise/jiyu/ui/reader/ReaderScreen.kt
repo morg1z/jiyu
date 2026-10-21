@@ -424,6 +424,7 @@ fun ReaderScreen(
                         switching = sourceSwitching,
                         onOpen = { viewModel.openSourceSwitcher() },
                         onSelect = { row -> viewModel.switchSource(row) },
+                        onSheetVisibilityChange = { viewModel.onSourceSheetVisibilityChanged(it) },
                     )
                 },
                 webtoonSegments = webtoonSegments,

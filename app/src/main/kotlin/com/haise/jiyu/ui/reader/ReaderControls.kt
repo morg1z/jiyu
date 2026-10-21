@@ -40,6 +40,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -271,6 +272,12 @@ fun ReaderTopBar(
             // zdroj). Vedle nastaveni, jen kdyz kapitola ComicK rodice ma.
             if (sourceSwitch != null) {
                 var showSourceSheet by remember { mutableStateOf(false) }
+                // Sheet bez holdu na auto-hide by se po 5 s zavrel SPOLU s hornim/spodnim
+                // panelem (nahlaseny bug) - hlastej viditelnost do VM jako advanced sheet.
+                DisposableEffect(showSourceSheet) {
+                    sourceSwitch.onSheetVisibilityChange(showSourceSheet)
+                    onDispose { sourceSwitch.onSheetVisibilityChange(false) }
+                }
                 IconButton(onClick = { sourceSwitch.onOpen(); showSourceSheet = true }) {
                     Icon(
                         TablerIcons.SwitchHorizontal,
@@ -866,6 +873,8 @@ data class SourceSwitchState(
     /** Sheet se otevřel - VM naplní řádky z cache / spustí rescan. */
     val onOpen: () -> Unit,
     val onSelect: (ReaderViewModel.SourceSwitchRow) -> Unit,
+    /** Otevřený sheet drzi horni/spodni panel (jinak auto-hide zavre i sheet). */
+    val onSheetVisibilityChange: (Boolean) -> Unit,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
