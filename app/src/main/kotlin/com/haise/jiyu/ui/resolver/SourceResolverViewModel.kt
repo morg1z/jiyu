@@ -16,6 +16,7 @@ import com.haise.jiyu.source.SourceManager
 import com.haise.jiyu.source.comick.ComicKChapterResolver
 import com.haise.jiyu.source.comick.ResolvedCandidate
 import com.haise.jiyu.source.comickart.ComicKArtSource
+import com.haise.jiyu.util.ErrorReporter
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -328,17 +329,29 @@ class SourceResolverViewModel @Inject constructor(
 
                 // Fast path A: tahle kapitola uz byla drive vyresolvovana na konkretni
                 // realnou kapitolu (fallbackChapterId) - otevrit ji rovnou, nula site.
-                chapter.fallbackChapterId
+                val linked = chapter.fallbackChapterId
                     ?.let { repository.getChapter(it) }
                     ?.takeIf { it.sourceId != "comick" }
-                    ?.let { resolved ->
+                if (linked != null) {
+                    if (abs(linked.chapterNumber - chapter.chapterNumber) < 0.01f) {
                         // Stejne ukotveni "Pokracovat" jako selectCandidate - otevrena
                         // ComicK kapitola se stane lastRead titulu.
                         repository.updateLastReadChapter(manga.id, chapterId)
                         _loading.value = false
-                        _openedChapterId.value = resolved.id
+                        _openedChapterId.value = linked.id
                         return@launch
                     }
+                    // Otraveny link: starsi resolver linkoval i "nejblizsi" kapitolu,
+                    // kdyz cilova na zdroji chybela (kap.62 -> kap.61) - a ten link
+                    // pak selhal navzdy i po tom, co zdroj skutecnou kapitolu pridal
+                    // (nahlaseny bug "nedostanu se za kap.61"). Link smazat a
+                    // resolvovat znovu - samolecba bez nutnosti cistit DB rucne.
+                    ErrorReporter.breadcrumb(
+                        "resolver:staleFallback",
+                        "comickCh=${chapter.chapterNumber} linked=${linked.chapterNumber} (${linked.sourceId}) - relinking",
+                    )
+                    repository.setChapterFallbackTarget(chapterId, null)
+                }
 
                 // Fast path B: titul ma zapamatovany realny zdroj z minuleho resolvovani
                 // (resolvedMangaId) - refreshnout jen jeho seznam kapitol, overit cil i
@@ -649,15 +662,37 @@ class SourceResolverViewModel @Inject constructor(
         _resolving.value = true
         viewModelScope.launch {
             try {
-                val mangaId = repository.openPreview(candidate.manga)
-                val resolvedChapters = repository.getAllChapters(mangaId)
+                // Otevrit PRESNE cilovou kapitolu na zvolenem kandidatovi; kdyz ji
+                // nema, zkusit dalsi kandidaty, co hasRequestedChapter hlasi (muze
+                // se stat pri auto-vyberu sorted.first(), kdyz nejlepe hodnoceny
+                // zdroj pozadovanou kapitolu zatim nema).
+                var active = candidate
+                var mangaId = repository.openPreview(active.manga)
+                var resolvedChapters = repository.getAllChapters(mangaId)
+                var bestMatch = resolvedChapters.englishOnlyChapters()
+                    .firstOrNull { abs(it.chapterNumber - target) < 0.01f }
+                if (bestMatch == null) {
+                    val alt = rankedCandidates().firstOrNull {
+                        it.hasRequestedChapter && it.source.id != active.source.id
+                    }
+                    if (alt != null) {
+                        active = alt
+                        mangaId = repository.openPreview(alt.manga)
+                        resolvedChapters = repository.getAllChapters(mangaId)
+                        bestMatch = resolvedChapters.englishOnlyChapters()
+                            .firstOrNull { abs(it.chapterNumber - target) < 0.01f }
+                    }
+                }
                 // Cilova kapitola se vybira JEN z EN radku - comick.art mirror
                 // nese vsechny jazyky a cisty minByOrNull podle cisla mohl otevrit
                 // vietnamskou/cizojazycnou verzi tehoz cisla (nahlaseny bug u
                 // "Coffee wo Shizuka ni"). Null jazyk projde - zdroj jazyk
                 // nerozlisuje (EN zdroje uz jsou filtrovane ve sweepu).
-                val bestMatch = resolvedChapters.englishOnlyChapters()
-                    .minByOrNull { abs(it.chapterNumber - target) }
+                // PRESNA shoda (abs < 0.01), ne "nejblizsi" - minByOrNull driv
+                // otevrel kap.61 pri pozadavku na 62, kdyz ji zdroj jeste nemel,
+                // a setChapterFallbackTarget pak natrvalo nalinkoval Comick radek
+                // kap.62 na kap.61 - odkud se uzivatel nemohl dostat ani rucne
+                // (nahlaseny bug "nedostanu se za kap.61").
                 if (bestMatch == null) {
                     val existsInAnotherLanguage = resolvedChapters.any { abs(it.chapterNumber - target) < 0.01f }
                     _error.value = appContext.getString(
@@ -665,7 +700,7 @@ class SourceResolverViewModel @Inject constructor(
                         else R.string.resolver_chapter_missing_after_select
                     )
                 } else {
-                    val finalChapter = resolveCompleteChapter(candidate, bestMatch, target)
+                    val finalChapter = resolveCompleteChapter(active, bestMatch, target)
                     // Realny zdroj (ktery appka jen tise pouziva na pozadi) se do knihovny
                     // NEPRIDAVA (viz MangaRepository.openPreview) - proto se postup cteni musi
                     // dostat zpet na SKUTECNY ComicK titul (ten uzivatel ma v knihovne), jinak by
