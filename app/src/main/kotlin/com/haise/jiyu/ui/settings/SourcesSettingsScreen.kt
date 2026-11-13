@@ -105,8 +105,7 @@ fun SourcesSettingsScreen(
                     ) {
                         Text(stringResource(R.string.settings_sources_custom_css_button))
                     }
-                    // SET-5: katalogový jazyk MangaDexu je zvláštní nastavení - nesouvisí
-                    // s OCR zdrojovým jazykem z čtečky.
+                    // MangaDex chapter language is a source-specific catalog preference.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -395,7 +394,7 @@ fun SourcesSettingsScreen(
             title = { Text(stringResource(R.string.settings_sources_mangadex_lang_title), color = Color.White, fontWeight = FontWeight.Bold) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    // "Auto" tu nedává smysl - jde o jazyk katalogu, ne OCR detekce.
+                    // "Auto" is not applicable to a catalog language filter.
                     com.haise.jiyu.source.LanguageMap.displayNames.filter { it != "Auto" }.forEach { lang ->
                         GlassRadioRow(
                             label = lang,

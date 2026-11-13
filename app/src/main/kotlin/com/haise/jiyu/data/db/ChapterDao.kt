@@ -158,8 +158,8 @@ interface ChapterDao {
     """)
     suspend fun setVerifiedPageCount(id: String, count: Int, isFallback: Boolean, fallbackChapterId: String? = null)
 
-    /** Protějšek [com.haise.jiyu.data.db.ManualTranslationDao.relinkChapter] pro jiné kapitoly,
-     * které na relinkovanou kapitolu ukazují jako na svůj fallback (viz [setVerifiedPageCount]) -
+    /** Aktualizuje jiné kapitoly, které na relinkovanou kapitolu ukazují jako na svůj fallback
+     * (viz [setVerifiedPageCount]) -
      * bez tohohle by po relinku ukazovaly na neexistující staré id a fallback přestal fungovat. */
     @Query("UPDATE chapter SET fallbackChapterId = :newChapterId WHERE fallbackChapterId = :oldChapterId")
     suspend fun relinkFallbackChapterId(oldChapterId: String, newChapterId: String)

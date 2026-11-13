@@ -32,15 +32,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
 import com.haise.jiyu.data.db.entity.ChapterEntity
-import com.haise.jiyu.data.db.entity.GlossaryEntity
-import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.launch
 
 /**
  * Sestaví jednu "obrazovku" čtečky (kapitolu) - horní/spodní panel ([ReaderControls]),
  * pager ([MangaReader]/[WebtoonReader], viz [ReaderPager]/[WebtoonReader.kt]) a téma overlay.
- * Sám o sobě drží jen lokální UI stav, který nikam jinam nepatří (jas, viditelnost
- * glosáře) - viditelnost ovládacích prvků ([controlsVisible]) žije v [ReaderViewModel]
+ * Sám o sobě drží jen lokální UI stav, který nikam jinam nepatří (jas) -
+ * viditelnost ovládacích prvků ([controlsVisible]) žije v [ReaderViewModel]
  * (auto-hide časovač), pinch-to-zoom žije v [MangaReader] (viz [ReaderPager]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,14 +47,6 @@ fun ReaderContent(
     pages: List<String>,
     initialPage: Int,
     currentPage: Int,
-    translateMode: Boolean,
-    translationProgress: TranslationProgress?,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
-    // Jen pro WebtoonReader - viz ReaderViewModel._translatedPagesByChapter.
-    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>> = emptyMap(),
-    batchTranslating: Boolean,
-    batchProgress: TranslationProgress?,
-    showOriginal: Boolean,
     reverseLayout: Boolean,
     // Efektivni webtoon mod VCETNE per-manga override z detailu titulu
     // (ReaderViewModel.isWebtoonMode) - ne surove settings.readingMode, jinak je
@@ -70,20 +60,11 @@ fun ReaderContent(
     hasNextChapter: Boolean,
     controlsVisible: Boolean,
     onToggleControlsVisible: () -> Unit,
-    onToggleTranslate: () -> Unit,
-    onTranslateAll: () -> Unit,
-    onCancelBatch: () -> Unit,
-    onToggleShowOriginal: () -> Unit,
     onPageChanged: (Int) -> Unit,
     onNavigatePrev: () -> Unit,
     onNavigateNext: () -> Unit,
-    sourceLanguage: String,
-    targetLanguage: String,
-    onSourceLanguageChange: (String) -> Unit,
-    onTargetLanguageChange: (String) -> Unit,
     tapZonesEnabled: Boolean,
     tapZoneGrid: TapZoneGrid = TapZoneGrid(),
-    textScale: Float,
     doublePageSpread: Boolean,
     readerTheme: String = "dark",
     isOfflineChapter: Boolean = false,
@@ -137,29 +118,13 @@ fun ReaderContent(
     volumeKeysNav: Boolean = true,
     readerOrientation: String = "free",
     onSetReaderOrientation: (String) -> Unit = {},
-    glossary: List<GlossaryEntity> = emptyList(),
-    onAddGlossaryEntry: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
-    onToggleGlossaryProtectExact: (GlossaryEntity) -> Unit = {},
     chapterComments: List<com.haise.jiyu.source.comments.ChapterComment> = emptyList(),
     commentsLoading: Boolean = false,
     commentsSupported: Boolean = false,
     onShowComments: () -> Unit = {},
-    flippedBubbles: Set<String> = emptySet(),
-    // chapterId v callbacku - v nekonecnem webtoon scrollu muze bublina patrit
-    // odscrollanemu segmentu jine kapitoly, nez je aktualni (audit RD-4/RD-10).
-    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
-    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
-    /** Per-chapter stránky s NEÚSPĚŠNÝM překladem - retry chip (viz
-     *  ReaderViewModel.translateFailedPages). Paged proud se projektuje flattenem
-     *  jako translatedPages; webtoon si chapterId řeší per segment. */
-    translateFailedPages: Map<String, Set<Int>> = emptyMap(),
-    /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
-    onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     /** (chapterId, lokální index) -> stránka definitivně selhala; VM zkusí donor splice
      *  z jiného zdroje (viz ReaderViewModel.onPagePermanentlyFailed). */
     onPagePermanentlyFailed: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
-    onDeviceWarningText: String? = null,
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
     // Viz RetryableAsyncImage.referer.
@@ -171,7 +136,6 @@ fun ReaderContent(
     infiniteScrollEnabled: Boolean = false,
     onPagedFlatPageChanged: (Int) -> Unit = {},
 ) {
-    var showGlossarySheet by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
 
     // Stav pro edge scrubber ve webtoon modu - LazyColumn je interni v WebtoonReaderu,
@@ -211,12 +175,6 @@ fun ReaderContent(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val effectiveTranslateMode = translateMode && !showOriginal
-        // Paged/curl ctecky ukazuji vzdy jen AKTUALNI kapitolu - bubble callbacky se
-        // tu obali jejim currentChapterId a flip set se projektuje na
-        // "pageIndex:bubbleIndex" klice te kapitoly (viz ReaderViewModel.flipKeyFor
-        // / flippedKeysForChapter). Webtoon si chapterId resi per segment sam.
-        val pagedChapterId = currentChapterId ?: ""
         // ── Nekonečné čtení ve stránkovaném režimu ─────────────────────────
         // Se zapnutym infiniteScroll paged ctecky nedostanou jen `pages` aktualni
         // kapitoly, ale seskladanou listu pres vsechny napojene segmenty (hlasi
@@ -240,28 +198,6 @@ fun ReaderContent(
         val pagedInitialPage = if (useInfinitePaged) {
             (curSegStart + initialPage).coerceIn(0, (pagedPages.size - 1).coerceAtLeast(0))
         } else initialPage
-        // Prekladove bloky klicovane plochym indexem - per-chapter mapa se
-        // promitne pres offsety segmentu (stejny princip jako WebtoonReader,
-        // jen bez "hranicnich" polozek - paged proud je plne bezskvy).
-        val pagedTranslated = if (useInfinitePaged) {
-            remember(translatedPagesByChapter, webtoonSegments) {
-                flattenTranslatedPages(translatedPagesByChapter, webtoonSegments)
-            }
-        } else translatedPages
-        // Stejný flatten jako pagedTranslated - neúspěšné stránky překladu na
-        // ploché indexy (retry chip v MangaGroupContent).
-        val pagedFailed = if (useInfinitePaged) {
-            remember(translateFailedPages, webtoonSegments) {
-                flattenFailedPages(translateFailedPages, webtoonSegments)
-            }
-        } else translateFailedPages[pagedChapterId] ?: emptySet()
-        // Flip klice "$page:$bubble" premapovane na plochy index - jinak by se
-        // lokalni indexy opakujici se v kazde kapitole krizily mezi segmenty.
-        val pagedFlipped = if (useInfinitePaged) {
-            remember(flippedBubbles, webtoonSegments) {
-                flattenFlippedKeys(flippedBubbles, webtoonSegments)
-            }
-        } else flippedKeysForChapter(flippedBubbles, pagedChapterId)
         // spreadPageIndices patri AKTUALNI kapitole (lokalni indexy) - promizi
         // na jeji segment; ostatni kapitoly detekci nemaji (bezi jen u stazenych).
         val pagedSpread = if (useInfinitePaged) {
@@ -271,11 +207,10 @@ fun ReaderContent(
         } else spreadPageIndices
         val pagedOnPageChanged: (Int) -> Unit =
             if (useInfinitePaged) onPagedFlatPageChanged else onPageChanged
-        // Plochy index stranky -> (chapterId, lokalni index) pro bubble callbacky.
         val pagedLocateChapter = { flatIdx: Int ->
             if (useInfinitePaged) {
-                locatePagedLocal(webtoonSegments, flatIdx) ?: (pagedChapterId to flatIdx)
-            } else pagedChapterId to flatIdx
+                locatePagedLocal(webtoonSegments, flatIdx) ?: ((currentChapterId ?: "") to flatIdx)
+            } else (currentChapterId ?: "") to flatIdx
         }
         // Horni lista / slider / scrubber ukazuji pozici v cele nekonecne knize,
         // ne jen v aktualni kapitole.
@@ -299,9 +234,6 @@ fun ReaderContent(
                 onNeedPrevSegments = onNeedPrevWebtoonSegments,
                 isPrependingPrevChapter = webtoonPrependingPrevChapter,
                 onVisibleChapterChanged = onWebtoonVisibleChapterChanged,
-                translateMode = effectiveTranslateMode,
-                translatedPagesByChapter = translatedPagesByChapter,
-                textScale = textScale,
                 tapZoneGrid = tapZoneGrid,
                 tapZonesEnabled = tapZonesEnabled,
                 onShowPanel = onToggleControlsVisible,
@@ -310,11 +242,6 @@ fun ReaderContent(
                 scrollSpeedMultiplier = webtoonScrollSpeed,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
-                flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = onToggleBubbleFlip,
-                onEditBubble = onEditBubble,
-                translateFailedPagesByChapter = translateFailedPages,
-                onRetranslatePage = onRetranslatePage,
                 onPagePermanentlyFailed = onPagePermanentlyFailed,
                 isAppendingNextChapter = webtoonAppendingNextChapter,
                 onScrollPositionChanged = { flatIdx, total ->
@@ -331,12 +258,9 @@ fun ReaderContent(
             MangaPageCurlReader(
                 pages = pagedPages,
                 initialPage = pagedInitialPage,
-                translateMode = effectiveTranslateMode,
-                translatedPages = pagedTranslated,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
                 spreadPageIndices = pagedSpread,
-                textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
                 tapZoneGrid = tapZoneGrid,
                 onPageChanged = pagedOnPageChanged,
@@ -355,11 +279,6 @@ fun ReaderContent(
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
                 curlStyle = curlStyle,
-                flippedBubbles = pagedFlipped,
-                onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
-                onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
-                translateFailedPages = pagedFailed,
-                onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
                 onPagePermanentlyFailed = { pi -> val (cid, li) = pagedLocateChapter(pi); onPagePermanentlyFailed(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
@@ -373,12 +292,9 @@ fun ReaderContent(
             MangaReader(
                 pages = pagedPages,
                 initialPage = pagedInitialPage,
-                translateMode = effectiveTranslateMode,
-                translatedPages = pagedTranslated,
                 reverseLayout = reverseLayout,
                 doublePageSpread = doublePageSpread,
                 spreadPageIndices = pagedSpread,
-                textScale = textScale,
                 tapZonesEnabled = tapZonesEnabled,
                 tapZoneGrid = tapZoneGrid,
                 onPageChanged = pagedOnPageChanged,
@@ -393,11 +309,6 @@ fun ReaderContent(
                 onAutoNextChapter = if (useInfinitePaged) ({ onNeedMoreWebtoonSegments() }) else onAutoNextChapter,
                 cropBorders = cropBorders,
                 volumeKeysNav = volumeKeysNav,
-                flippedBubbles = pagedFlipped,
-                onToggleBubbleFlip = { pi, bi -> val (cid, li) = pagedLocateChapter(pi); onToggleBubbleFlip(cid, li, bi) },
-                onEditBubble = { pi, ot, ct, x, y -> val (cid, li) = pagedLocateChapter(pi); onEditBubble(cid, li, ot, ct, x, y) },
-                translateFailedPages = pagedFailed,
-                onRetranslatePage = { pi -> val (cid, li) = pagedLocateChapter(pi); onRetranslatePage(cid, li) },
                 onPagePermanentlyFailed = { pi -> val (cid, li) = pagedLocateChapter(pi); onPagePermanentlyFailed(cid, li) },
                 referer = referer,
                 contentEpoch = pagedEpoch,
@@ -473,11 +384,6 @@ fun ReaderContent(
 
                 ReaderBottomPanel(
                     modifier = Modifier.align(Alignment.BottomCenter),
-                    sourceLanguage = sourceLanguage,
-                    targetLanguage = targetLanguage,
-                    onSourceLanguageChange = onSourceLanguageChange,
-                    onTargetLanguageChange = onTargetLanguageChange,
-                    onShowGlossary = { showGlossarySheet = true },
                     onShowComments = { showCommentsSheet = true; onShowComments() },
                     commentsSupported = commentsSupported,
                     pageCount = if (isWebtoon) webtoonItemCount else pagedPageCount,
@@ -487,16 +393,6 @@ fun ReaderContent(
                     onBrightnessChange = { brightness = it },
                     readerOrientation = readerOrientation,
                     onSetReaderOrientation = onSetReaderOrientation,
-                    translateMode = translateMode,
-                    isTranslating = translationProgress != null,
-                    onToggleTranslate = onToggleTranslate,
-                    batchTranslating = batchTranslating,
-                    batchProgress = batchProgress,
-                    showOriginal = showOriginal,
-                    onToggleShowOriginal = onToggleShowOriginal,
-                    onTranslateAll = onTranslateAll,
-                    onCancelBatch = onCancelBatch,
-                    translationProgress = translationProgress,
                     hasPrevChapter = hasPrevChapter,
                     onNavigatePrev = onNavigatePrev,
                     hasNextChapter = hasNextChapter,
@@ -554,36 +450,6 @@ fun ReaderContent(
             }
         }
 
-        if (onDeviceWarningText != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF6D28D9).copy(alpha = 0.9f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = onDeviceWarningText,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
-
-    if (showGlossarySheet) {
-        GlossaryBottomSheet(
-            glossary = glossary,
-            targetLanguage = targetLanguage,
-            onAdd = onAddGlossaryEntry,
-            onRemove = onRemoveGlossaryEntry,
-            onToggleProtectExact = onToggleGlossaryProtectExact,
-            onDismiss = { showGlossarySheet = false },
-        )
     }
 
     if (showCommentsSheet) {

@@ -6,11 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
-import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
-import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 import com.haise.jiyu.source.SChapter
 import com.haise.jiyu.source.SManga
 import com.haise.jiyu.source.SourceManager
@@ -77,10 +74,7 @@ class MangaRepositoryRelinkTest {
             customSourceDao = db.customSourceDao(),
             mangaDexSource = mockk(relaxed = true),
             mangaUpdatesRepository = mockk(relaxed = true),
-            manualTranslationDao = db.manualTranslationDao(),
             readHistoryDao = db.readHistoryDao(),
-            translatedPageDao = db.translatedPageDao(),
-            translatedNovelDao = db.translatedNovelDao(),
             settings = mockk(relaxed = true),
             db = db,
             context = context,
@@ -89,7 +83,6 @@ class MangaRepositoryRelinkTest {
                 crossSourceSearch = mockk(relaxed = true),
                 mangaDao = db.mangaDao(),
                 chapterDao = db.chapterDao(),
-                translatedPageDao = db.translatedPageDao(),
                 context = context,
                 httpClient = okhttp3.OkHttpClient(),
             ),
@@ -128,11 +121,6 @@ class MangaRepositoryRelinkTest {
             ),
         )
         db.readHistoryDao().record(ReadHistoryEntity("src::/ch1", "src::/dead", "Solo Leveling", null, "Ch 1", 5L))
-        db.manualTranslationDao().upsert(
-            ManualTranslationEntity("src::/ch1::0::Czech::orig", "src::/ch1", 0, "Czech", "orig", "fix", 7L)
-        )
-        db.translatedPageDao().upsert(TranslatedPageEntity("src::/ch1::0::en::cs::v1", "[]", 9L))
-        db.translatedNovelDao().upsert(TranslatedNovelEntity("src::/ch1::en::cs", "text", 9L))
 
         assertTrue(repository.relinkMangaToSource("src::/dead", target, listOf(newChapter(1f), newChapter(2f))))
 
@@ -142,11 +130,8 @@ class MangaRepositoryRelinkTest {
         val ch1 = db.chapterDao().getById("dst::/ch1")!!
         assertEquals(DownloadStatus.DOWNLOADED, ch1.downloadStatus)
         assertEquals("/x/c1", ch1.localPath)
-        // Vsechny chapter-keyed tabulky se premapuji na nove id (zadne sirotci).
+        // Historie cteni se premapuje na nove id bez sirotcich zaznamu.
         assertEquals(listOf("dst::/ch1"), db.readHistoryDao().getAll().map { it.chapterId })
-        assertNotNull(db.manualTranslationDao().getById("dst::/ch1::0::Czech::orig"))
-        assertNotNull(db.translatedPageDao().getById("dst::/ch1::0::en::cs::v1"))
-        assertNotNull(db.translatedNovelDao().getById("dst::/ch1::en::cs"))
     }
 
     @Test

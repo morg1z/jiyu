@@ -47,8 +47,6 @@ fun StorageSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val cacheCount by viewModel.cacheCount.collectAsStateWithLifecycle()
-
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
             modifier = Modifier
@@ -64,25 +62,6 @@ fun StorageSettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
             ) {
-                SettingsSection(title = stringResource(R.string.settings_storage_translation_cache_title)) {
-                    Text(
-                        text = pluralStringResource(R.plurals.settings_storage_translation_cache_count, cacheCount, cacheCount),
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                    OutlinedButton(
-                        onClick = { viewModel.clearTranslationCache() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        Icon(TablerIcons.Trash, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text(stringResource(R.string.settings_storage_clear_cache_button))
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
                 SettingsSection(title = stringResource(R.string.settings_storage_image_cache_title)) {
                     val imgContext = LocalContext.current
                     var diskCacheSize by remember { mutableStateOf(0L) }

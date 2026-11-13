@@ -19,20 +19,6 @@ class SettingsRepositoryRoundTripTest {
 
     private fun repository() = SettingsRepository(FakeDataStore())
 
-    // ── Překlad ──────────────────────────────────────────────────────────────
-
-    @Test
-    fun `target and source language round-trip`() = runTest {
-        val s = repository()
-        assertEquals("Czech", s.targetLanguage.first())
-        assertEquals("Auto", s.sourceLanguage.first())
-
-        s.setTargetLanguage("English"); s.setSourceLanguage("Japanese")
-
-        assertEquals("English", s.targetLanguage.first())
-        assertEquals("Japanese", s.sourceLanguage.first())
-    }
-
     // ── Vzhled ───────────────────────────────────────────────────────────────
 
     @Test
@@ -119,18 +105,12 @@ class SettingsRepositoryRoundTripTest {
     }
 
     @Test
-    fun `mangadex chapter language defaults to English and round-trips independently of OCR source language`() = runTest {
-        // Audit SET-5: katalogovy jazyk MangaDexu je zvlastni nastaveni - zmena OCR
-        // sourceLanguage na nej nesmi sahnout.
+    fun `mangadex chapter language defaults to English and round-trips`() = runTest {
         val s = repository()
-        assertEquals("English", s.mangadexChapterLanguage.first())
-
-        s.setSourceLanguage("Japanese")
         assertEquals("English", s.mangadexChapterLanguage.first())
 
         s.setMangadexChapterLanguage("Spanish")
         assertEquals("Spanish", s.mangadexChapterLanguage.first())
-        assertEquals("Japanese", s.sourceLanguage.first())
     }
 
     @Test

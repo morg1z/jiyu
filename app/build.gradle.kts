@@ -122,14 +122,6 @@ android {
         }
     }
 
-    // Bez tohohle se .onnx assety v APK deflate-komprimuji - AssetManager by je pak musel
-    // před čtením plně dekomprimovat, což je zbytečné navíc u velkých binárních modelů a
-    // dělá ensureModelFileFromAsset (viz MangaOcrPipeline) o to pomalejší/pamětově dražší
-    // (audit finding Critical #1b). AGP 8+ DSL - `aaptOptions` je starší ekvivalent.
-    androidResources {
-        noCompress += "onnx"
-    }
-
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -203,16 +195,6 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    // OCR – ML Kit Text Recognition (funguje offline, bundled model)
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
-    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
-
-    // ONNX Runtime — spouští natrénované YOLOv8 modely (detekce/segmentace bublin, viz
-    // BubbleBoxDetector/BubbleMaskSegmenter) přímo na zařízení, žádné API/server.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
-
     // Supabase — cloud sync + auth. POZOR: komentář "2.0.3 je poslední verze s Kotlin 1.9.x"
     // byl zastaralý - projekt je dávno na Kotlinu 2.2.21 (viz root build.gradle.kts), takže
     // původní důvod přišpendlení už neplatí. I tak zůstává upgrade na 3.x (přejmenování
@@ -235,10 +217,6 @@ dependencies {
 
     // AppCompat — potřebné pro AppCompatDelegate.setApplicationLocales()
     implementation("androidx.appcompat:appcompat:1.7.0")
-
-    // ML Kit on-device language identification + translation (záloha bez API klíče)
-    implementation("com.google.mlkit:language-id:17.0.6")
-    implementation("com.google.mlkit:translate:17.0.3")
 
     // Jetpack Security — šifrované úložiště pro tracker tokeny/hesla (MAL/Kitsu/MangaUpdates).
     // Dlouho existovala jen jako alpha (a byl tu komentář, že to tak nejspíš zůstane), ale

@@ -20,9 +20,7 @@ import coil.memory.MemoryCache
 import com.google.firebase.Firebase
 import com.google.firebase.analytics.analytics
 import com.google.firebase.crashlytics.crashlytics
-import com.haise.jiyu.data.db.TranslatedNovelDao
 import com.haise.jiyu.data.db.deleteBrowsedManga
-import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.di.ImageHttpClient
 import com.haise.jiyu.download.CHANNEL_DOWNLOADS
 import com.haise.jiyu.source.mangaplus.MangaPlusImageFetcher
@@ -45,13 +43,11 @@ class JiyuApp : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var httpClient: OkHttpClient
     @Inject @ImageHttpClient lateinit var imageHttpClient: OkHttpClient
-    @Inject lateinit var translatedPageDao: TranslatedPageDao
-    @Inject lateinit var translatedNovelDao: TranslatedNovelDao
 
     /** Souhlas s hlášením pádů - viz [initFirebase]. */
     @Inject lateinit var settings: com.haise.jiyu.settings.SettingsRepository
 
-    /** Úklid jen prohlédnuté mangy při startu - viz [evictOldTranslationCache]. */
+    /** Úklid jen prohlédnuté mangy při startu. */
     @Inject lateinit var database: com.haise.jiyu.data.db.AppDatabase
 
     /** Odblokování zaseknutých stahování při startu - viz [resetStuckDownloads]. */
@@ -178,7 +174,7 @@ class JiyuApp : Application(), Configuration.Provider {
         createNotificationChannel()
         scheduleChapterUpdates()
         initFirebase()
-        evictOldTranslationCache()
+        cleanupBrowsedManga()
         resetStuckDownloads()
         resumeBackgroundSyncIfSignedIn()
         // Cloudflare warm-up: na pozadi si pred-resi vyzvy znamych CF webu (detached WebView;
@@ -264,12 +260,9 @@ class JiyuApp : Application(), Configuration.Provider {
         )
     }
 
-    private fun evictOldTranslationCache() {
+    private fun cleanupBrowsedManga() {
         appScope.launch {
-            val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
-            translatedPageDao.deleteOlderThan(cutoff)
             // Novely se dřív neuklízely vůbec - byly jediná část cache, která rostla donekonečna.
-            translatedNovelDao.deleteOlderThan(cutoff)
             // Stejný důvod, jiná tabulka: procházení vkládá mangu do databáze a nic ji nikdy
             // nemazalo, takže rostla z každého otevřeného detailu. Viz [deleteBrowsedManga] -
             // maže jen to, co uživatel prokazatelně nechtěl (není v knihovně, nečetl ji,

@@ -11,10 +11,7 @@ import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaDownloadedCount
 import com.haise.jiyu.data.db.MangaTotalCount
 import com.haise.jiyu.data.db.MangaUnreadCount
-import com.haise.jiyu.data.db.ManualTranslationDao
 import com.haise.jiyu.data.db.ReadHistoryDao
-import com.haise.jiyu.data.db.TranslatedNovelDao
-import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
@@ -83,10 +80,7 @@ class MangaRepository @Inject constructor(
     private val customSourceDao: CustomSourceDao,
     private val mangaDexSource: MangaDexSource,
     private val mangaUpdatesRepository: MangaUpdatesRepository,
-    private val manualTranslationDao: ManualTranslationDao,
     private val readHistoryDao: ReadHistoryDao,
-    private val translatedPageDao: TranslatedPageDao,
-    private val translatedNovelDao: TranslatedNovelDao,
     private val settings: SettingsRepository,
     private val db: AppDatabase,
     @param:ApplicationContext private val context: Context,
@@ -155,7 +149,6 @@ class MangaRepository @Inject constructor(
     suspend fun resetDownloadForChapter(chapterId: String) = chapterDao.resetDownloadForChapter(chapterId)
     suspend fun upsertAllManga(manga: List<com.haise.jiyu.data.db.entity.MangaEntity>) = mangaDao.upsertAll(manga)
     suspend fun setFavorite(mangaId: String, favorite: Boolean) = mangaDao.setFavorite(mangaId, favorite)
-    suspend fun setTranslationContextNote(mangaId: String, note: String?) = mangaDao.setTranslationContextNote(mangaId, note?.trim()?.ifBlank { null })
     fun observeFavoriteCount(): Flow<Int> = mangaDao.observeFavoriteCount()
     fun observeLibraryCount(): Flow<Int> = mangaDao.observeLibraryCount()
     suspend fun upsertAllChapters(chapters: List<ChapterEntity>) = chapterDao.upsertAll(chapters)
@@ -852,15 +845,10 @@ class MangaRepository @Inject constructor(
             )
             // relink() meni ChapterEntity.id - vsechny dalsi tabulky, ktere na kapitolu
             // ukazuji jen obycejnym string sloupcem/predponou (zadny FK/cascade), by na
-            // stare id ukazovaly do prazdna (viz jednotlive relinkChapter/relinkXxx doc
-            // komentare - audit nalez "relink sirotí lastReadChapterId/fallbackChapterId/
-            // read_history/translated_*").
-            manualTranslationDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
+            // stare id ukazovaly do prazdna (lastReadChapterId/fallbackChapterId/read_history).
             mangaDao.relinkLastReadChapter(oldChapterId = old.id, newChapterId = newId)
             chapterDao.relinkFallbackChapterId(oldChapterId = old.id, newChapterId = newId)
             readHistoryDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
-            translatedPageDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
-            translatedNovelDao.relinkChapter(oldChapterId = old.id, newChapterId = newId)
         }
     }
 

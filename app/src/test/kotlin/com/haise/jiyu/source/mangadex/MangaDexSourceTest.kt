@@ -130,10 +130,7 @@ class MangaDexSourceTest {
     }
 
     @Test
-    fun `chapter feed language comes from mangadexChapterLanguage, not OCR sourceLanguage`() = runTest {
-        // Audit SET-5: feedURL drive brala settings.sourceLanguage - zmena OCR jazyka tak
-        // potichu menila, jake kapitoly MangaDex nabizi. Ted musi jit pres vlastni klíč.
-        settings.setSourceLanguage("Japanese")
+    fun `chapter feed language comes from mangadexChapterLanguage`() = runTest {
         settings.setMangadexChapterLanguage("Spanish")
 
         source.getChapterList(source.getPopular(1).first())
@@ -141,7 +138,6 @@ class MangaDexSourceTest {
         val path = lastFeedPath.orEmpty()
         // OkHttp necha [] v query literalne - path v MockWebServer je raw.
         assertTrue("feed must filter by the dedicated MangaDex language", path.contains("translatedLanguage[]=es"))
-        assertTrue("OCR sourceLanguage must not leak into the feed URL", !path.contains("=ja"))
     }
 
     @Test

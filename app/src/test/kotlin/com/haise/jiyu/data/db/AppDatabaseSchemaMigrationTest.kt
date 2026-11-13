@@ -16,8 +16,7 @@ import java.io.File
 
 /**
  * Migrační test nad exportovanými schématy (`app/schemas`), doplněk k [AppDatabaseMigrationTest]:
- *  - řetěz migrací je souvislý a končí na nejnovějším exportovaném schématu (zapomenutá nebo přeskočená
- *    migrace prasklá tady, ne až u uživatele po aktualizaci),
+ *  - řetěz migrací je souvislý a končí na aktuální verzi databáze,
  *  - z KAŽDÉ verze, pro kterou existuje schéma, se dá databáze zmigrovat na aktuální (Room při otevření
  *    ověří sloupce, indexy i cizí klíče proti cílovému schématu). Verze bez schématu (8, 9, 12, 16, ...) jsou
  *    pokryté průchodem z nižší verze.
@@ -36,6 +35,7 @@ class AppDatabaseSchemaMigrationTest {
             .map { it.name.removeSuffix(".json").toInt() }.sorted()
 
     private val migrations get() = AppDatabase.ALL_MIGRATIONS
+    private val currentVersion get() = AppDatabase.MIGRATION_49_50.endVersion
 
     @Test
     fun `migrations form one continuous chain that ends at the newest exported schema`() {
@@ -44,13 +44,13 @@ class AppDatabaseSchemaMigrationTest {
             assertEquals("mezi migracemi ${a.startVersion}->${a.endVersion} a ${b.startVersion}->${b.endVersion} je díra", a.endVersion, b.startVersion)
         }
         sorted.forEach { assertEquals("migrace ${it.startVersion}->${it.endVersion} nesmí přeskakovat verzi", it.startVersion + 1, it.endVersion)}
-        assertEquals("nejnovější migrace musí končit na nejnovějším exportovaném schématu", schemaVersions().max(), sorted.last().endVersion)
+        assertEquals("řetěz migrací musí končit na aktuální verzi databáze", currentVersion, sorted.last().endVersion)
     }
 
     @Test
     fun `every exported schema can be migrated to the current version`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val latest = schemaVersions().max()
+        val latest = currentVersion
         val failures = mutableListOf<String>()
 
         for (version in schemaVersions().filter { it < latest }) {

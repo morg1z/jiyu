@@ -129,7 +129,7 @@
     <string name="settings_sources_catalog_button">Catalogue de sources (%1$d)</string>
     <string name="settings_sources_custom_css_button">CSS personnalisé pour les sources web</string>
     <string name="settings_sources_mangadex_lang_title">MangaDex – langue des chapitres</string>
-    <string name="settings_sources_mangadex_lang_desc">Langue dans laquelle MangaDex liste les chapitres traduits. Indépendante de la langue source de l\'OCR.</string>
+    <string name="settings_sources_mangadex_lang_desc">Langue utilisée pour les résultats de chapitres MangaDex.</string>
     <string name="settings_sources_madara_section_title">Sources personnalisées (Madara)</string>
     <string name="settings_sources_madara_description">Source générique pour les sites basés sur le thème Madara. Entrez un nom et l\'adresse du site - l\'appli essaiera d\'y analyser le balisage Madara standard.</string>
     <string name="settings_sources_add_button">Ajouter une source</string>
@@ -196,16 +196,6 @@
     <string name="settings_reader_theme_dark_default">Sombre (par défaut)</string>
     <string name="settings_reader_theme_sepia">Sépia</string>
     <string name="settings_reader_theme_paper">Papier</string>
-    <string name="settings_reader_translate_section_title">Traduction</string>
-    <string name="settings_reader_custom_font_title">Police personnalisée</string>
-    <string name="settings_reader_custom_font_desc">Importez votre propre .ttf/.otf via un lien direct (https) - remplace la police de bande dessinée intégrée dans toutes les bulles.</string>
-    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
-    <string name="settings_reader_custom_font_apply">Télécharger et appliquer</string>
-    <string name="settings_reader_custom_font_clear">Supprimer la police personnalisée</string>
-    <string name="settings_reader_custom_font_loading">Téléchargement et vérification…</string>
-    <string name="settings_reader_custom_font_success">Police appliquée avec succès.</string>
-    <string name="settings_reader_custom_font_error">Échec du téléchargement de la police : %1$s</string>
-    <string name="settings_reader_custom_font_active">Police active : %1$s</string>
     <string name="settings_reader_byok_title">Votre propre clé (BYOK)</string>
     <string name="settings_reader_byok_desc">Solution de repli optionnelle AVANT la traduction hors ligne, au cas où l\'appli épuiserait le quota gratuit partagé. Votre propre endpoint payant/auto-hébergé, compatible avec l\'API chat-completions d\'OpenAI. Jamais activé par défaut, jamais obligatoire.</string>
     <string name="settings_reader_byok_enable">Utiliser un endpoint personnalisé</string>
@@ -219,7 +209,6 @@
     <string name="settings_reader_byok_clear_key">Supprimer la clé</string>
 
     <!-- Paramètres : Stockage -->
-    <string name="settings_storage_translation_cache_title">Cache de traduction</string>
     <string name="settings_storage_clear_cache_button">Vider le cache</string>
     <string name="settings_storage_image_cache_title">Cache d\'images</string>
     <string name="settings_storage_disk_cache_size">Cache disque : %1$s</string>
@@ -654,16 +643,6 @@
     <string name="detail_info_add_tag">Ajouter un tag</string>
     <string name="detail_info_new_tag_placeholder">Nouveau tag…</string>
     <string name="detail_info_no_tags">Aucun tag</string>
-    <string name="detail_info_section_glossary">GLOSSAIRE DE TRADUCTION</string>
-    <string name="detail_info_add_glossary_entry">Ajouter un terme</string>
-    <string name="detail_info_glossary_hint">Les noms, techniques et surnoms seront toujours traduits ainsi, dans tous les chapitres.</string>
-    <string name="detail_info_glossary_source_placeholder">Original (Sung Jin-woo)</string>
-    <string name="detail_info_glossary_target_placeholder">Traduction (Sung Jin-woo)</string>
-    <string name="detail_info_add_to_glossary">Ajouter au glossaire (%1$s)</string>
-    <string name="detail_info_no_glossary">Aucun terme dans le glossaire</string>
-    <string name="detail_info_section_translation_context">CONTEXTE POUR LE TRADUCTEUR</string>
-    <string name="detail_info_translation_context_hint">Ce texte est envoyé à l\'IA à chaque traduction - des choses qu\'elle ne peut pas deviner seule.</string>
-    <string name="detail_info_translation_context_placeholder">Ex. "le personnage principal est en réalité une femme déguisée"…</string>
     <string name="detail_info_section_notes">NOTES</string>
     <string name="detail_info_note_placeholder">Ajouter une note pour ce manga…</string>
     <string name="detail_info_section_downloads">TÉLÉCHARGEMENTS</string>
@@ -746,13 +725,9 @@
     <string name="reader_share_page_chooser">Partager la page</string>
     <string name="reader_incognito_badge">INCOGNITO</string>
     <string name="reader_chapter_load_failed">Impossible de charger le chapitre.</string>
-    <string name="reader_translate_chapter_desc">Traduction du chapitre</string>
-    <string name="reader_glossary_button">Glossaire</string>
     <string name="reader_comments_button">Commentaires</string>
     <string name="reader_comments_empty">Ce chapitre n\'a pas encore de commentaires</string>
     <string name="reader_original_toggle">Original</string>
-    <string name="reader_translate_toggle">Traduire</string>
-    <string name="reader_translation_word">Traduction</string>
     <string name="reader_line_spacing_label">Interligne : %1$sx</string>
     <string name="reader_font_size_label">Taille : %1$dsp</string>
     <string name="reader_font_decrease">A-</string>
@@ -772,31 +747,13 @@
     <string name="reader_chapters_sheet_title">Chapitres (%1$d)</string>
     <string name="reader_incognito_off_desc">Désactiver l\'incognito</string>
     <string name="reader_incognito_on_desc">Incognito</string>
-    <string name="reader_stop_translation_desc">Arrêter la traduction</string>
-    <string name="reader_hide_translation_desc">Masquer la traduction</string>
-    <string name="reader_translate_chapter_action_desc">Traduire le chapitre</string>
     <string name="reader_prev_chapter_desc">Chapitre précédent</string>
     <string name="reader_next_chapter_desc">Chapitre suivant</string>
     <string name="reader_brightness_desc">Luminosité</string>
-    <string name="reader_translate_settings_desc">Paramètres de traduction</string>
-    <string name="reader_translation_label">Traduction :</string>
     <string name="reader_orientation_label">Orientation :</string>
     <string name="reader_orientation_auto">Auto</string>
     <string name="reader_orientation_portrait">↕ Portrait</string>
     <string name="reader_orientation_landscape">↔ Paysage</string>
-    <string name="reader_translate_all_progress">Traduction en cours… %1$d/%2$d</string>
-    <string name="reader_translate_ocr_progress">Reconnaissance du texte… %1$d/%2$d</string>
-    <string name="reader_translate_all_button">Tout traduire</string>
-    <string name="reader_translating_progress">Traduction… %1$d/%2$d</string>
-    <string name="reader_translate_page_failed_retry">La traduction a échoué – appuyer pour réessayer</string>
-    <string name="reader_glossary_title">Glossaire de traduction</string>
-    <string name="reader_glossary_desc">Les noms, techniques et surnoms seront toujours traduits de la même façon dans tous les chapitres.</string>
-    <string name="reader_glossary_translation_placeholder">Traduction</string>
-    <string name="reader_glossary_add_button">Ajouter (%1$s)</string>
-    <string name="reader_glossary_empty">Pas encore de termes dans le glossaire.</string>
-    <string name="reader_glossary_protect_label">Ne pas fléchir (exact)</string>
-    <string name="reader_glossary_protect_on_description">Terme protégé contre la flexion - appuyer pour désactiver</string>
-    <string name="reader_glossary_protect_off_description">Le terme peut être fléchi - appuyer pour protéger son orthographe exacte</string>
     <string name="reader_share_link">Partager le lien</string>
     <string name="reader_save_to_gallery">Enregistrer dans la galerie</string>
     <string name="reader_save_success">Page enregistrée dans la galerie</string>
@@ -804,13 +761,7 @@
     <string name="reader_page_content_desc">Page %1$d</string>
     <string name="reader_page_curl_progress">Page %1$d sur %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Échec du chargement de la page</string>
-    <string name="reader_error_missing_supabase_url">SUPABASE_URL manquant dans local.properties - la traduction n\'a nulle part où appeler</string>
-    <string name="reader_error_translation_failed">Échec de la traduction du chapitre, réessayez</string>
     <string name="reader_fallback_source_notice">Ce chapitre a été récupéré depuis une autre source car la version originale était incomplète.</string>
-    <string name="reader_error_rate_limited">Limite quotidienne de traduction IA atteinte, réessayez plus tard</string>
-    <string name="reader_translation_degraded">Qualité de traduction réduite (quota du modèle principal épuisé)</string>
-    <string name="reader_error_language_unsupported_offline">Le mode hors ligne (sans clé API) ne prend pas en charge cette langue cible - essayez une autre langue ou configurez une clé dans les Paramètres</string>
-    <string name="reader_on_device_warning">Aucune clé API cloud configurée — aperçu local approximatif affiché.</string>
 
     <!-- Parcourir -->
     <string name="browse_title">Parcourir</string>
@@ -1064,9 +1015,9 @@
     <string name="settings_reader_page_curl_title">Effet 3D lors du changement de page</string>
     <string name="settings_reader_page_curl_desc">La page se tourne avec une animation de courbure comme un livre, au lieu d\'un défilement/balayage plat. S\'applique au lecteur de light novels et à la lecture paginée manga/manhwa (pas au défilement continu webtoon)</string>
     <string name="settings_reader_preload_novel_title">Précharger la traduction du chapitre suivant (light novel)</string>
-    <string name="settings_reader_preload_novel_desc">Une fois le chapitre actuel traduit, le suivant est traduit en arrière-plan pour être prêt immédiatement</string>
+    <string name="settings_reader_preload_novel_desc">Pendant la lecture d’un roman, les pages du chapitre suivant sont téléchargées en arrière-plan pour accélérer son ouverture.</string>
     <string name="settings_reader_preload_manga_title">Précharger la traduction du chapitre suivant (manga/manhwa/manhua)</string>
-    <string name="settings_reader_preload_manga_desc">Une fois le chapitre actuel traduit, le suivant est téléchargé et traduit en arrière-plan — cela consomme plus de données et de batterie qu\'avec les light novels</string>
+    <string name="settings_reader_preload_manga_desc">Pendant la lecture d’un manga, les pages du chapitre suivant sont téléchargées en arrière-plan. Cela consomme plus de données et de batterie que pour les romans.</string>
     <string name="settings_reader_preload_manga_wifi_title">Wi-Fi uniquement</string>
     <string name="settings_reader_preload_manga_wifi_desc">Désactive cette option si tu veux aussi le préchargement en données mobiles</string>
     <string name="settings_reader_prefetch_pages_wifi_title">Précharger les pages en Wi-Fi uniquement</string>
@@ -1118,7 +1069,6 @@
     <string name="settings_report_button">Signaler un problème</string>
     <string name="settings_report_title">Signaler un problème</string>
     <string name="settings_report_problem_crash">L\'application plante ou se fige</string>
-    <string name="settings_report_problem_translation">La traduction ne fonctionne pas</string>
     <string name="settings_report_problem_download">Le téléchargement ne fonctionne pas</string>
     <string name="settings_report_problem_other">Autre problème</string>
     <string name="settings_backup_import_success">Restaurés : %1$s, %2$s</string>
@@ -1263,7 +1213,6 @@
     <string name="onb_privacy_birthdate">Date de naissance</string>
     <string name="onb_privacy_birthdate_hint">Touchez pour choisir — débloque les sources adultes</string>
     <string name="onb_privacy_data_title">Ce qui quitte votre téléphone</string>
-    <string name="onb_privacy_data_translation">Le texte des bulles part vers le serveur de traduction, puis vers Gemini, Groq ou OpenRouter.</string>
     <string name="onb_privacy_data_account">Votre e-mail, uniquement si vous vous connectez.</string>
     <string name="onb_privacy_data_sync">Bibliothèque et historique de lecture, uniquement si la synchronisation est activée.</string>
     <string name="onb_privacy_crash_title">Envoyer les rapports de plantage</string>
@@ -1276,17 +1225,6 @@
     <string name="settings_privacy_crash_desc">Rapports anonymes sur les plantages de l\'application.</string>
 
     <!-- Rucni oprava prekladu bubliny -->
-    <string name="reader_edit_bubble_title">Modifier la traduction</string>
-    <string name="reader_edit_bubble_label">Texte traduit</string>
-    <string name="reader_edit_bubble_hint">Laissez vide pour rétablir la traduction automatique.</string>
-    <string name="reader_retranslate_page">Retraduire toute la page</string>
-    <string name="reader_retranslate_novel_chapter">Retraduire le chapitre</string>
-    <string name="reader_bubble_position_label">Position de la bulle (glisser le point)</string>
-    <string name="reader_bubble_position_reset">Réinitialiser la position</string>
-    <string name="detail_translate_next_n">Traduire à l’avance…</string>
-    <string name="detail_translate_next_n_title">Combien de chapitres ?</string>
-    <string name="translate_worker_notification_title">Traduction – %1$s</string>
-    <string name="translate_worker_notification_chapter">%1$s</string>
 
     <string name="widget_shelf_title">Jiyu – Étagère</string>
     <string name="widget_shelf_description">Bibliothèque ou catégorie choisie sous forme de grille de couvertures</string>

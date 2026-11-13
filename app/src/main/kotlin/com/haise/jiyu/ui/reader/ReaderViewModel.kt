@@ -1,6 +1,5 @@
 package com.haise.jiyu.ui.reader
 
-import com.haise.jiyu.translate.GlossaryRepository
 import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
 import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
@@ -16,9 +15,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
-import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.ReadHistoryDao
-import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
@@ -43,9 +40,6 @@ import com.haise.jiyu.source.Page
 import com.haise.jiyu.settings.ReadingDirection
 import com.haise.jiyu.settings.ReadingMode
 import com.haise.jiyu.settings.SettingsRepository
-import com.haise.jiyu.translate.TranslateRepository
-import com.haise.jiyu.translate.normalizeOriginal
-import com.haise.jiyu.translate.TranslatedBlock
 import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -76,14 +70,6 @@ import com.haise.jiyu.util.ErrorReporter
 import com.haise.jiyu.util.LazyPageUrl
 import com.haise.jiyu.util.report
 import com.haise.jiyu.util.toErrorAction
-
-/**
- * Progress překladu kapitoly. [ocrStage] = úvodní OCR fáze před vlastním překladem
- * (counter done/total pak počítá rozpoznané stránky, ne přeložené) - bez odlišení
- * fáze progress UI "zamrzalo" na poslední emitované stránce po celou dobu OCR
- * (hlášené "zmrzlé 14/24" u Vagabond ch7).
- */
-data class TranslationProgress(val done: Int, val total: Int, val ocrStage: Boolean = false)
 
 /** Jak dlouho po poslednim cteni jeste ma smysl obnovovat presnou stranku/scroll - viz [ReaderViewModel.loadChapter]. */
 private const val POSITION_FRESHNESS_MS = 10L * 24 * 60 * 60 * 1000
@@ -119,21 +105,20 @@ class ReaderViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     @param:ApplicationContext private val context: Context,
     private val repository: MangaRepository,
-    private val translateRepository: TranslateRepository,
     private val settings: SettingsRepository,
     private val historyRepository: HistoryRepository,
     private val trackerSyncCoordinator: TrackerSyncCoordinator,
-    private val glossaryRepository: GlossaryRepository,
     private val sleepTimerManager: SleepTimerManager,
     private val networkMonitor: com.haise.jiyu.util.NetworkMonitor,
     private val errorActionHandler: com.haise.jiyu.source.ErrorActionHandler,
-    private val translateQueue: com.haise.jiyu.translate.TranslateQueue,
     private val sourceManager: com.haise.jiyu.source.SourceManager,
     private val pageGapFiller: com.haise.jiyu.source.PageGapFiller,
     private val comicKResolver: com.haise.jiyu.source.comick.ComicKChapterResolver,
 ) : ViewModel() {
 
     private val chapterEntityId: String = checkNotNull(savedStateHandle["chapterId"])
+    private val _currentMangaId = MutableStateFlow<String?>(null)
+    val mangaId: StateFlow<String?> = _currentMangaId.asStateFlow()
 
     /** Akce k selhání načtení kapitoly (Vyřešit ověření, nová adresa) - viz [com.haise.jiyu.util.ErrorAction]. */
     private val _chapterErrorAction = MutableStateFlow<com.haise.jiyu.util.ErrorAction?>(null)
@@ -212,7 +197,6 @@ class ReaderViewModel @Inject constructor(
     fun clearFallbackNotice() { _fallbackNotice.value = null }
 
     /** true pokud je nastavený Supabase/Groq/Gemini klíč - jinak překlad jede jen přes on-device ML Kit. */
-    val isApiKeyConfigured = translateRepository.isApiKeyConfigured
 
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -291,8 +275,6 @@ class ReaderViewModel @Inject constructor(
     val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
 
-    val readerTextScale: StateFlow<Float> = settings.readerTextScale
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
 
     val doublePageSpread: StateFlow<Boolean> = settings.doublePageSpread
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -376,7 +358,6 @@ class ReaderViewModel @Inject constructor(
     fun setPageCurlEnabled(enabled: Boolean) { viewModelScope.launch { settings.setPageCurlEnabled(enabled) } }
     fun setCurlStyle(style: String) { viewModelScope.launch { settings.setCurlStyle(style) } }
     fun setReaderTheme(theme: String) { viewModelScope.launch { settings.setReaderTheme(theme) } }
-    fun setReaderTextScale(scale: Float) { viewModelScope.launch { settings.setReaderTextScale(scale) } }
 
     // ── Přednačítání další kapitoly ──────────────────────────────────────────
     // ConcurrentHashMap - pise se z IO (preloadNextChapter, appendNextWebtoonSegment) a cte/maze z Main
@@ -426,7 +407,6 @@ class ReaderViewModel @Inject constructor(
         loadJob = viewModelScope.launch { loadChapter(id) }
     }
     private var novelPreloadJob: Job? = null
-    private var mangaTranslatePreloadJob: Job? = null
 
     /** Indexy stránek AKTUÁLNÍ kapitoly, pro které už proběhl prefetch - viz reset v [loadChapter].
      *  ConcurrentHashMap-backed set - paralelni prefetch workery (PREFETCH_PARALLELISM) ho
@@ -480,12 +460,6 @@ class ReaderViewModel @Inject constructor(
     // jinak se poslednich ~600 ms scroll pozice pri killu/obrazovce-zpet ztratilo.
     private var pendingScrollPersist: Pair<String, Int>? = null
 
-    /**
-     * Joby běžících/čekajících [retranslatePage] per chapterId - viz komentář v
-     * [retranslatePage].
-     */
-    private val retranslatePageJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
-
     fun saveWebtoonScrollOffset(offset: Int) {
         val chapterId = currentChapter?.id ?: return
         if (_incognitoMode.value) return
@@ -530,304 +504,6 @@ class ReaderViewModel @Inject constructor(
     private val _spreadPageIndices = MutableStateFlow<Set<Int>>(emptySet())
     val spreadPageIndices: StateFlow<Set<Int>> = _spreadPageIndices.asStateFlow()
 
-    // ── Překlad ──────────────────────────────────────────────────────────────
-    private val _translateMode = MutableStateFlow(false)
-    val translateMode: StateFlow<Boolean> = _translateMode.asStateFlow()
-
-    private val _translationProgress = MutableStateFlow<TranslationProgress?>(null)
-    val translationProgress: StateFlow<TranslationProgress?> = _translationProgress.asStateFlow()
-
-    private val _translatedPages = MutableStateFlow<Map<Int, List<TranslatedBlock>>>(emptyMap())
-    val translatedPages: StateFlow<Map<Int, List<TranslatedBlock>>> = _translatedPages.asStateFlow()
-
-    /**
-     * True, když AKTUÁLNÍ stránka obsahuje blok přeložený degradovaným záložním modelem
-     * proxy (vyčerpaná denní kvóta primárního - viz TranslatedBlock.degraded). UI díky
-     * tomu pozná, že kvalita překladu je dočasně omezená - flag přežívá i v cache,
-     * takže varování se ukáže i po znovuotevření kapitoly.
-     */
-    val currentPageDegraded: StateFlow<Boolean> = kotlinx.coroutines.flow.combine(
-        _translatedPages, _currentPage,
-    ) { pages, page -> pages[page]?.any { it.degraded } == true }
-        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
-
-    /**
-     * PERZISTENTNÍ obdoba [_translatedPages] klíčovaná i podle kapitoly - jen pro
-     * [WebtoonReader]. `_translatedPages` je plochá mapa jen podle indexu stránky V RÁMCI
-     * AKTUÁLNÍ kapitoly - v běžném (stránkovaném) čtení je vždy jen jedna "aktuální"
-     * kapitola, takže to stačí. Ve "Nekonečném čtení" ale LazyColumn drží (a prefetchuje)
-     * stránky VÍCE kapitol současně, a lokální index se v každé kapitole čísluje znovu od 0 -
-     * sdílená plochá mapa tak mohla ukázat bubliny JEDNÉ kapitoly na stránkách JINÉ (nahlášeno
-     * v auditu, "cizí bubliny na cizích stránkách"). Tahle mapa se navíc (na rozdíl od
-     * [_translatedPages]) NIKDY neresetuje při přechodu mezi segmenty - jako vedlejší efekt to
-     * řeší i dřívější nález "scroll přes hranici kapitoly zahodí už hotový překlad".
-     */
-    // Max pocet kapitol drzenych v prekladove cache - viz putTranslatedPage (LRU evikce).
-    private val MAX_TRANSLATED_CHAPTERS_CACHED = 12
-
-    private val _translatedPagesByChapter = MutableStateFlow<Map<String, Map<Int, List<TranslatedBlock>>>>(emptyMap())
-    val translatedPagesByChapter: StateFlow<Map<String, Map<Int, List<TranslatedBlock>>>> = _translatedPagesByChapter.asStateFlow()
-
-    /**
-     * Stránky, kde překlad SELHAL (OCR error/timeout, žádný provider v dávce
-     * neodpověděl, přerušení dávky rate limitem) - klíčované stejně jako
-     * [_translatedPagesByChapter] (chapterId -> lokální indexy stránek). Bez
-     * odlišení od "stránky bez textu" čtenář nepoznal, že stránka 13 s reálným
-     * dialogem zkrátka spadla a jde zkusit znovu - ukáže se retry chip.
-     * Úspěšný překlad/emit stránku ze setu odebírá (viz putTranslatedPage).
-     */
-    private val _translateFailedPages = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
-    val translateFailedPages: StateFlow<Map<String, Set<Int>>> = _translateFailedPages.asStateFlow()
-
-    /** Označí stránku kapitoly jako neúspěšně přeloženou - viz [_translateFailedPages]. */
-    private fun markTranslatePageFailed(chapterId: String, pageIndex: Int) {
-        // update{} = atomicky read-modify-write: tyto funkce volaji i korutiny na
-        // Dispatchers.IO (preloadCachedTranslations pri appendu webtoon segmentu),
-        // zatimco jine zapisy jedou na Main - `value = value + x` by se dva kroky
-        // mohl prolozit a jeden zapis prepsat druhy (audit #6).
-        _translateFailedPages.update { m ->
-            m + (chapterId to ((m[chapterId] ?: emptySet()) + pageIndex))
-        }
-    }
-
-    /**
-     * Zapíše do OBOU map najednou - viz komentář u [_translatedPagesByChapter]. Do ploché
-     * mapy jen když [chapterId] odpovídá AKTUÁLNÍ kapitole: opožděný callback z jobu, který
-     * mezitím zrušilo přepnutí kapitoly (loadChapter / segment v nekonečném čtení / změna
-     * jazyka), se po cancel() ještě může vykonat (už byl naplánovaný na Main) a bez
-     * kontroly by vykreslil bubliny staré kapitoly na stránku nové se stejným indexem.
-     * Per-chapter mapa se plní vždy - je klíčovaná správně a WebtoonReader ji čte i pro
-     * odscrollané segmenty.
-     */
-    private fun putTranslatedPage(chapterId: String, pageIndex: Int, blocks: List<TranslatedBlock>) {
-        // Prázdný list pro dosud NEZÁZNAMENANOU stránku neukládat - znamená "stránka
-        // bez bublin/keše s nulovým obsahem" a vepsaný záznam {index: []} by jen naplnil
-        // mapu o nicneříkající položku (UI ji čte jako "stránka má překladová data").
-        // Např. per-chapter swap při přepnutí segmentu by pak tvrdil, že kapitola
-        // přeložená je.
-        // ALE: prázdný list pro UŽ emitovanou stránku znamená odebrání - dedup přešité
-        // webtoon bubliny (dropSliceBoundaryDuplicates) může přepisem zprázdnit
-        // předchozí stránku, jejíž JEDINÝ blok byl fragment. Bez smazání by čtečka
-        // držela starý záznam a kreslila duplicitu (audit RWS ch.215 - p231/p232).
-        if (blocks.isEmpty()) {
-            if (chapterId == _currentChapterId.value && pageIndex in _translatedPages.value) {
-                _translatedPages.update { it - pageIndex }
-            }
-            _translatedPagesByChapter.update { byChapter ->
-                val chMap = byChapter[chapterId] ?: return@update byChapter
-                if (pageIndex !in chMap) byChapter
-                else LinkedHashMap(byChapter).apply { this[chapterId] = chMap - pageIndex }
-            }
-            return
-        }
-        if (chapterId == _currentChapterId.value) {
-            _translatedPages.update { it + (pageIndex to blocks) }
-        }
-        // Úspěšný (re)překlad stránky - případný dřívější fail flag zhasne, jinak by
-        // retry chip visel i nad nově přeloženými bublinami.
-        _translateFailedPages.update { m ->
-            val failed = m[chapterId] ?: return@update m
-            if (pageIndex !in failed) m else m + (chapterId to failed - pageIndex)
-        }
-        _translatedPagesByChapter.update { byChapter ->
-            val forChapter = (byChapter[chapterId] ?: emptyMap()) + (pageIndex to blocks)
-            val merged = LinkedHashMap(byChapter)
-            merged.remove(chapterId) // presun na konec = LRU poradi
-            merged[chapterId] = forChapter
-            // LRU strop (nekonecne cteni by mapu nechalo rust na kazdou prelozenou kapitolu =
-            // desitky KB textu navrch a nikdy neumrely, audit). Kapitoly zive ve webtoon
-            // segmentech + aktualni se drzi vzdy - pres strop se vyhazuji nejstarsi zbytek,
-            // aby zpetna navigace do nedavno navstivene kapitoly stale nasla cache.
-            val liveIds = _webtoonSegments.value.mapTo(HashSet()) { it.chapterId } + _currentChapterId.value
-            while (merged.size > MAX_TRANSLATED_CHAPTERS_CACHED) {
-                val victim = merged.keys.firstOrNull { it !in liveIds } ?: break
-                merged.remove(victim)
-            }
-            merged
-        }
-    }
-
-    // Stejná výchozí hodnota jako v SettingsRepository - než se nastavení načte, nesmí tu
-    // chvíli platit jiný jazyk, než jaký uživatel uvidí ve čtečce.
-    private val _sourceLanguage = MutableStateFlow("Auto")
-    val sourceLanguage: StateFlow<String> = _sourceLanguage.asStateFlow()
-
-    private val _targetLanguage = MutableStateFlow("Czech")
-    val targetLanguage: StateFlow<String> = _targetLanguage.asStateFlow()
-
-    private val _translationError = MutableStateFlow<String?>(null)
-    val translationError: StateFlow<String?> = _translationError.asStateFlow()
-
-    private val _batchTranslating = MutableStateFlow(false)
-    val batchTranslating: StateFlow<Boolean> = _batchTranslating.asStateFlow()
-
-    // ── Překlad light novel (prostý text) ────────────────────────────────────
-    private val _novelTranslateMode = MutableStateFlow(false)
-    val novelTranslateMode: StateFlow<Boolean> = _novelTranslateMode.asStateFlow()
-
-    private val _novelTranslatedText = MutableStateFlow<String?>(null)
-    val novelTranslatedText: StateFlow<String?> = _novelTranslatedText.asStateFlow()
-
-    private val _novelTranslating = MutableStateFlow(false)
-    val novelTranslating: StateFlow<Boolean> = _novelTranslating.asStateFlow()
-
-    private var novelTranslationJob: Job? = null
-
-    // ── Slovník AI překladu (rychlý přístup z čtečky) ────────────────────────
-    private val _currentMangaId = MutableStateFlow<String?>(null)
-    val mangaId: StateFlow<String?> = _currentMangaId.asStateFlow()
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val glossary: StateFlow<List<GlossaryEntity>> = kotlinx.coroutines.flow.combine(
-        _currentMangaId,
-        _targetLanguage,
-    ) { mangaId, lang -> mangaId to lang }
-        .flatMapLatest { (mangaId, lang) ->
-            if (mangaId == null) flowOf(emptyList())
-            else glossaryRepository.observeForManga(mangaId).map { list -> list.filter { it.targetLanguage == lang } }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, protectExact: Boolean = false) {
-        val source = sourceTerm.trim()
-        val target = targetTerm.trim()
-        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
-        if (source.isBlank() || target.isBlank()) return
-        val lang = _targetLanguage.value
-        viewModelScope.launch { glossaryRepository.addManual(mangaId, source, target, lang, protectExact) }
-    }
-
-    /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
-    fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
-        viewModelScope.launch { glossaryRepository.setProtectExact(entry, !entry.protectExact) }
-    }
-
-    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryRepository.delete(entry) }
-
-    fun toggleNovelTranslate() {
-        if (_novelTranslateMode.value) {
-            _novelTranslateMode.value = false
-            novelTranslationJob?.cancel()
-            _novelTranslating.value = false
-            return
-        }
-        if (!translateRepository.isApiKeyConfigured) {
-            _translationError.value = context.getString(R.string.reader_error_missing_supabase_url)
-            return
-        }
-        _novelTranslateMode.value = true
-        val chapterId = currentChapter?.id ?: return
-        val text = _novelText.value
-        if (text.isBlank()) return
-
-        novelTranslationJob = viewModelScope.launch {
-            val cached = translateRepository.getCachedNovel(chapterId, _targetLanguage.value, _sourceLanguage.value)
-            if (cached != null) {
-                _novelTranslatedText.value = cached
-                preloadNextNovelChapter()
-                return@launch
-            }
-            _novelTranslating.value = true
-            try {
-                val result = translateRepository.translateNovelChapter(
-                    chapterId = chapterId,
-                    mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return@launch,
-                    text = text,
-                    targetLanguage = _targetLanguage.value,
-                    sourceLanguage = _sourceLanguage.value,
-                )
-                if (result != null) {
-                    _novelTranslatedText.value = result
-                    preloadNextNovelChapter()
-                } else {
-                    _translationError.value = if (!translateRepository.isApiKeyConfigured &&
-                        !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
-                    ) {
-                        context.getString(R.string.reader_error_language_unsupported_offline)
-                    } else {
-                        context.getString(R.string.reader_error_translation_failed)
-                    }
-                    _novelTranslateMode.value = false
-                }
-            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
-                _translationError.value = context.getString(R.string.reader_error_rate_limited)
-                _novelTranslateMode.value = false
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _translationError.value = context.getString(R.string.reader_error_translation_failed)
-                _novelTranslateMode.value = false
-            } finally {
-                _novelTranslating.value = false
-            }
-        }
-    }
-
-    /**
-     * Zahodí cache a přeloží CELOU kapitolu novely znovu (viz [TranslateRepository.translateNovelChapter]'s
-     * `forceRefresh`) - stejný důvod jako [retranslatePage] u manga stránek, jen novely tuhle
-     * možnost dřív vůbec neměly (jediná cesta ven z jednou vadného překladu byla smazat data
-     * appky). Spouští se jen v [novelTranslateMode] - přeložit znovu něco, co se ještě
-     * nepřekládá, nedává smysl.
-     */
-    fun retranslateNovelChapter() {
-        if (!_novelTranslateMode.value) return
-        val chapterId = currentChapter?.id ?: return
-        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
-        val text = _novelText.value
-        if (text.isBlank()) return
-        novelTranslationJob?.cancel()
-        novelTranslationJob = viewModelScope.launch {
-            _novelTranslating.value = true
-            try {
-                val result = translateRepository.translateNovelChapter(
-                    chapterId = chapterId,
-                    mangaId = mangaId,
-                    text = text,
-                    targetLanguage = _targetLanguage.value,
-                    sourceLanguage = _sourceLanguage.value,
-                    forceRefresh = true,
-                )
-                if (result != null) {
-                    _novelTranslatedText.value = result
-                } else {
-                    _translationError.value = context.getString(R.string.reader_error_translation_failed)
-                }
-            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
-                _translationError.value = context.getString(R.string.reader_error_rate_limited)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _translationError.value = context.getString(R.string.reader_error_translation_failed)
-            } finally {
-                _novelTranslating.value = false
-            }
-        }
-    }
-
-    /**
-     * Ruční oprava JEDNOHO přeloženého odstavce novely - stejný důvod jako [saveBubbleEdit] u
-     * manga bublin, jen novely tuhle možnost dřív vůbec neměly (jediná cesta ven ze špatného
-     * odstavce byla přeložit celou kapitolu znovu, viz [retranslateNovelChapter]). Identita
-     * (uložený originalText) se dohledá pozičně z NEPŘELOŽENÉHO textu kapitoly - UI zná jen
-     * index zobrazeného (přeloženého) odstavce, ne jeho originál.
-     */
-    fun saveNovelParagraphEdit(paragraphIndex: Int, newText: String) {
-        val chapterId = currentChapter?.id ?: return
-        val originalParagraphs = _novelText.value.split("\n").filter { it.isNotBlank() }
-        val originalText = originalParagraphs.getOrNull(paragraphIndex) ?: return
-        viewModelScope.launch {
-            translateRepository.saveNovelParagraphEdit(chapterId, originalText, newText, _targetLanguage.value)
-            val trimmed = newText.trim()
-            if (trimmed.isBlank()) return@launch
-            val current = _novelTranslatedText.value ?: return@launch
-            val translatedParagraphs = current.split("\n").toMutableList()
-            if (paragraphIndex !in translatedParagraphs.indices) return@launch
-            translatedParagraphs[paragraphIndex] = trimmed
-            _novelTranslatedText.value = translatedParagraphs.joinToString("\n")
-        }
-    }
-
     // ── Sleep timer (#42) ────────────────────────────────────────────────────
     val sleepTimerRemaining: StateFlow<Int?> = sleepTimerManager.remainingSeconds
 
@@ -840,12 +516,6 @@ class ReaderViewModel @Inject constructor(
 
     private val _currentPanel = MutableStateFlow(0)
     val currentPanel: StateFlow<Int> = _currentPanel.asStateFlow()
-
-    private val _batchProgress = MutableStateFlow<TranslationProgress?>(null)
-    val batchProgress: StateFlow<TranslationProgress?> = _batchProgress.asStateFlow()
-
-    private val _showOriginal = MutableStateFlow(false)
-    val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
 
     // ── Viditelnost ovládacích prvků (auto-hide po 3s) ───────────────────────
     // Dřív žila jako rememberSaveable přímo v ReaderContent (Composable) - přesunuto sem,
@@ -909,114 +579,6 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    // ── Tap-to-flip (bublina <-> originál) ───────────────────────────────────
-    // Klíč "$chapterId:$pageIndex:$bubbleIndex" - chapterId je nutny od auditu RD-10:
-    // v nekonecnem webtoon scrollu se pageIndex/bubbleIndex opakuje v KAZDEM segmentu,
-    // takze plochy klic "3:1" flipoval bublinu zaroven na strance 3 aktualni kapitoly
-    // i strance 3 predchozi/nasledujici. bubbleIndex je pozice bubliny v
-    // cachovaném/deserializovaném seznamu TranslatedBlock pro danou stránku, což je
-    // deterministické, dokud se stránka znovu nepřeloží (jiný počet/pořadí bublin by
-    // pak ukazovalo špatnou bublinu jako "otočenou" - přijatelné riziko, protože
-    // retranslate stejné stránky je vzácný).
-    private val _flippedBubbles = MutableStateFlow<Set<String>>(emptySet())
-    val flippedBubbles: StateFlow<Set<String>> = _flippedBubbles.asStateFlow()
-
-    fun toggleBubbleFlip(chapterId: String, pageIndex: Int, bubbleIndex: Int) {
-        val key = "$chapterId:$pageIndex:$bubbleIndex"
-        _flippedBubbles.value = _flippedBubbles.value.let { current ->
-            if (key in current) current - key else current + key
-        }
-    }
-
-    /**
-     * Uloží ruční opravu textu jedné bubliny a rovnou ji promitne do zobrazených bloků.
-     *
-     * Do stavu se zápis nepromitá znovu-načtením z databáze - stránka je už v paměti a opětovný
-     * dotaz by jen zablikal. Mění se přesně ten jeden blok, podle stejné identity, jakou používá
-     * napařování po přepočtu (původní text, viz [manualEditId]).
-     *
-     * Prázdný text opravu zruší, ale strojový překlad se vrátí až po znovunačtení stránky -
-     * původní strojový text už v paměti není a tahat ho z cache kvůli tomu zvlášť nestojí za to.
-     */
-    fun saveBubbleEdit(chapterId: String, pageIndex: Int, originalText: String, text: String, offsetXDp: Float? = null, offsetYDp: Float? = null) {
-        viewModelScope.launch {
-            // TR-5: oprava se vaze na cilovy jazyk, ve kterem uzivatel prave cetl -
-            // jinak by cesky edit prekryl i anglicky prepocet stejne bubliny.
-            translateRepository.saveManualEdit(chapterId, pageIndex, originalText, text, _targetLanguage.value, offsetXDp, offsetYDp)
-            // Bloky cteme z per-chapter mapy, ne z _translatedPages - v nekonecnem
-            // webtoon scrollu muze editovana bublina patrit odscrollanemu segmentu
-            // JINE kapitoly, nez je aktualni (audit RD-4); _translatedPages je vzdy
-            // jen aktualni kapitola.
-            val blocks = _translatedPagesByChapter.value[chapterId]?.get(pageIndex) ?: return@launch
-            val trimmed = text.trim()
-            if (trimmed.isBlank()) return@launch
-            val updated = blocks.map { block ->
-                if (normalizeOriginal(block.originalText) == normalizeOriginal(originalText)) {
-                    block.copy(
-                        translatedText = trimmed,
-                        displayText = trimmed,
-                        isUntranslated = false,
-                        offsetXDp = offsetXDp ?: block.offsetXDp,
-                        offsetYDp = offsetYDp ?: block.offsetYDp,
-                    )
-                } else {
-                    block
-                }
-            }
-            putTranslatedPage(chapterId, pageIndex, updated)
-        }
-    }
-
-    /**
-     * Zahodí cache a přeloží CELOU stránku znovu (viz [TranslateRepository.translatePage]'s
-     * `forceRefresh`) - spouští se z [BubbleEditDialog] tlačítkem "Přeložit stránku znovu",
-     * pro případ, kdy jde o víc bublin naráz (zacyklení, špatný jazyk...), ne jen jednu, kterou
-     * by šlo opravit ručně přes [saveBubbleEdit]. Ruční opravy na téhle stránce se aplikují
-     * zpátky automaticky (viz [TranslateRepository.translatePage]'s `withManualEdits` na konci) -
-     * podle originálního OCR textu bubliny, takže PŘEŽIJÍ jen pokud OCR znovu rozpozná stejný
-     * text; pokud se OCR výstup mezitím liší, oprava zůstane uložená, ale na tenhle nový
-     * strojový překlad se nenapaří (identita se neshoduje) - stejné omezení, jaké
-     * [manualEditId] má odjakživa.
-     */
-    fun retranslatePage(chapterId: String, pageIndex: Int) {
-        // Joby běžících/čekajících retranslatePage per chapterId (audit TR-6):
-        // překlady se v TranslateRepository serializují per-chapter mutexem, takže
-        // opakované klepnutí by se bez storna zařadilo do fronty a každý pokus by
-        // znovu spálil OCR+API volání. Nový požadavek na stejnou kapitolu starý
-        // zruší - čekající i běžící (OCR/API cesty jsou cancellable).
-        val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: return
-        // Stranky cilove kapitoly: pro aktualni z _pages, pro odscrollany webtoon
-        // segment z jeho ulozeneho seznamu (audit RD-4 - _pages drzi jen aktualni
-        // kapitolu, takze index z jineho segmentu by sil na cizi URL).
-        val pageUrl = if (chapterId == _currentChapterId.value) {
-            _pages.value.getOrNull(pageIndex)
-        } else {
-            _webtoonSegments.value.firstOrNull { it.chapterId == chapterId }?.pages?.getOrNull(pageIndex)
-        } ?: return
-        retranslatePageJobs[chapterId]?.cancel()
-        val job = viewModelScope.launch {
-            val blocks = translateRepository.translatePage(
-                pageUrl = pageUrl,
-                chapterId = chapterId,
-                mangaId = mangaId,
-                pageIndex = pageIndex,
-                targetLanguage = _targetLanguage.value,
-                sourceLanguage = _sourceLanguage.value,
-                forceRefresh = true,
-                // Dedup přešité bubliny může přepsat i PŘEDCHOZÍ stránku (poražený
-                // fragment -> seamCover) - bez re-emise by čtečka držela starý overlay
-                // a vykreslila duplicitní text (viz TranslateRepository.translatePage).
-                onAdjacentPageRewritten = { idx, b -> putTranslatedPage(chapterId, idx, b) },
-            )
-            if (blocks.isNotEmpty()) putTranslatedPage(chapterId, pageIndex, blocks)
-        }
-        retranslatePageJobs[chapterId] = job
-        // Odstanit jen SVOJÍ položku - po cancel a okamžitém novém tapu by jinak
-        // starý job smazal záznam nového jobu a další cancel by ho už netrefil.
-        job.invokeOnCompletion { retranslatePageJobs.remove(chapterId, job) }
-    }
-
-    fun clearTranslationError() { _translationError.value = null }
 
     /**
      * Konec odpočtu se ohlašuje tudy, ne callbackem - předávaná lambda `{ activity.finish() }`
@@ -1096,34 +658,6 @@ class ReaderViewModel @Inject constructor(
         }.filter { it.height() > minPanelHeight }
     }
 
-    private var translationJob: Job? = null
-    // Kapitola, pro kterou bezi translationJob - pro handoff do TranslateQueue pri
-    // odchodu appky do pozadi (viz handoffTranslationToBackground).
-    private var translationJobChapterId: String? = null
-    private var batchJob: Job? = null
-    // Kapitoly, ktere si pozadaly o batch zatimco bezel jiny (nekonecne cteni -
-    // uzivatel tapne "Prelozit vse" na dvou segmentech za sebou) - spusti se, az
-    // predchozi doběhne. Set, ne jednoslot: druhy/dalsi pozadavek by se jinak tise
-    // prepsal a tap se ztratil bez jakekoli odezvy (audit #18).
-    private val pendingBatchChapterIds = LinkedHashSet<String>()
-    // Kapitola, na kterou bezi prave aktivni batchJob - pro rozliseni "double-tap na
-    // stejnou kapitolu" (ignorovat) od "zadost pro jinou" (zaradit jako pending).
-    private var activeBatchChapterId: String? = null
-
-    // ── Handoff překladu do pozadí ─────────────────────────────────────────
-    // Kapitoly, jejichž rozjetý překlad jsme při ON_STOP (appka v pozadí) předali do
-    // TranslateQueue - TranslateChapterWorker běží jako foreground service s notifikací,
-    // takže překlad doběhne i po zavření čtečky / minimalizaci / kill procesu. Dokončené
-    // stránky píše do translated_page, odkud si je čtečka po návratu znovu načte z cache.
-    // handedOffPageJob/handedOffBatchJob si pamatují, JAKÝ druh jobu se má při návratu
-    // do popředí znovu spustit interaktivně (kvůli přesnému progress UI).
-    private var handedOffChapterIds: List<String> = emptyList()
-    private var handedOffPageJob = false
-    private var handedOffBatchJob = false
-    private val processLifecycleObserver = object : DefaultLifecycleObserver {
-        override fun onStop(owner: LifecycleOwner) = handoffTranslationToBackground()
-        override fun onStart(owner: LifecycleOwner) = resumeTranslationInForeground()
-    }
     private var lastPageChangeMs = 0L
 
     // Deklarace MUSI byt pred `init` (viz nize) - jinak by je init blok videl jako null.
@@ -1141,14 +675,6 @@ class ReaderViewModel @Inject constructor(
     private val chaptersPendingAutoDelete = mutableSetOf<String>()
 
     init {
-        // Překlad přežije minimalizaci: ON_STOP předá rozjeté joby TranslateQueue,
-        // ON_START je pro aktuální kapitolu vrátí do interaktivního režimu.
-        // Na JVM unit testech LifecycleRegistry.addObserver hází NPE - mainLooper
-        // neexistuje - a ProcessLifecycleOwner muze chybet uplne. Observer se jen
-        // neregistruje a handoff se netestuje, zbytek ViewModelu zustane funkcni.
-        runCatching {
-            ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
-        }
         scheduleControlsAutoHide()
         // Jediny konzument udalosti o postupu cteni - viz onPageChanged. Chyba jedne udalosti
         // nesmi zastavit zpracovani dalsich (ani shodit appku).
@@ -1164,10 +690,6 @@ class ReaderViewModel @Inject constructor(
             }
         }
         launchLoadChapter(chapterEntityId)
-        viewModelScope.launch {
-            _sourceLanguage.value = settings.sourceLanguage.first()
-            _targetLanguage.value = settings.targetLanguage.first()
-        }
         // Série čtení je taky zapsaná stopa, takže ji anonymní čtení nezvedá. Rozhoduje stav
         // při otevření kapitoly - přepnutí přepínače uprostřed už zpětně nic neubírá.
         if (!startIncognito) viewModelScope.launch { settings.updateReadingStreak() }
@@ -1193,7 +715,6 @@ class ReaderViewModel @Inject constructor(
         prefetchedPageIndices.clear()
         chapterPrefetchJob?.cancel()
         chapterPrefetchJob = null
-        _translatedPages.value = emptyMap()
         _chapterComments.value = emptyList()
         _commentsSupported.value = false
         commentsJob?.cancel()
@@ -1201,23 +722,6 @@ class ReaderViewModel @Inject constructor(
         // Reset i flag - finally zruseneho jobu ho pod `commentsJob === self` uz
         // nevycisti (pole je null), takze by v nove kapitole visel vlecny spinner.
         _commentsLoading.value = false
-        // Klíč je "$pageIndex:$bubbleIndex" bez chapterId - stránkování se v každé kapitole
-        // čísluje znovu od 0, takže bez resetu by "otočená" bublina 3:2 z minulé kapitoly
-        // zůstala otočená i na stránce 3 v nové kapitole, i když jde o úplně jinou bublinu.
-        _flippedBubbles.value = emptySet()
-        _translateMode.value = false
-        // Bez tohohle by rozjeté "Přeložit vše" z PŘEDCHOZÍ kapitoly dál běželo ve stejném
-        // viewModelScope a jeho onPageReady zapisoval bloky staré kapitoly do
-        // _translatedPages, které si teď čte UI nové kapitoly - špatný překlad na špatné
-        // stránce. _batchTranslating navíc zůstávalo true a blokovalo nové "Přeložit vše"
-        // na nové kapitole, dokud starý job nedoběhl sám.
-        cancelActiveTranslation()
-        _novelTranslateMode.value = false
-        _novelTranslatedText.value = null
-        novelTranslationJob?.cancel()
-        novelTranslationJob = null
-        _novelTranslating.value = false
-
         val chapter = repository.getChapter(id) ?: run { _loading.value = false; return }
         currentChapter = chapter
         // Po proces-deathu (Android zabil appku na pozadi, typicky po delsim
@@ -1892,13 +1396,6 @@ class ReaderViewModel @Inject constructor(
                 // LazyColumn komponuje jen ~1-2 stranky predem - rychly scroll by drive
                 // dojel na nepreddstazene stranky a kazda dalsi cekala na sit.
                 prefetchChapterStart(pages, nextChapter.sourceId)
-                // Prelozene stranky z Room cache naplnit rovnou do per-chapter mapy -
-                // bez toho by se do napojene kapitoly s drivejssim prekladem doscrollovalo
-                // a overlay se objevil az po znovuspusteni prekladu, i kdyz bloky v DB
-                // davno jsou (jen kdyz je preklad rezim aktivni, jinak je to zbytecna prace).
-                if (_translateMode.value) {
-                    preloadCachedTranslations(nextChapter.id, pages)
-                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1958,9 +1455,6 @@ class ReaderViewModel @Inject constructor(
                 val newSegment = WebtoonSegment(prevChapter.id, prevChapter.name, pages)
                 _webtoonSegments.value = listOf(newSegment) + _webtoonSegments.value
                 prefetchChapterStart(pages, prevChapter.sourceId)
-                if (_translateMode.value) {
-                    preloadCachedTranslations(prevChapter.id, pages)
-                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1971,29 +1465,6 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Naplni [_translatedPagesByChapter] z Room cache pro napojeny segment - viz
-     * [appendNextWebtoonSegment]. Stranky bez zaznamu preskoci; putTranslatedPage
-     * se postara o flat mapu jen pro aktualni kapitolu.
-     */
-    private suspend fun preloadCachedTranslations(chapterId: String, pages: List<String>) {
-        val target = _targetLanguage.value
-        val source = _sourceLanguage.value
-        for ((index, url) in pages.withIndex()) {
-            if (_webtoonSegments.value.none { it.chapterId == chapterId }) return
-            translateRepository.getCachedPage(chapterId, index, target, source, pageUrl = url)
-                ?.let { putTranslatedPage(chapterId, index, it) }
-        }
-    }
-
-    /**
-     * Page → URL pro Coil. Když zdroj vrátil jen virtuální `Page.url` (lazy
-     * resolver přes `getImageUrl` - MangaHome chapterfun, FanFox, EHentai...),
-     * zabalí se do `jiyu_lazy` markeru, který v místě fetchu rozbalí
-     * [com.haise.jiyu.source.LazyPageFetcher] - jinak by Coil stáhl HTML/JS místo
-     * obrázku a stránka zůstala černá (ověřeno na zařízení u MangaHome).
-     * U zdrojů bez lazy resolveru je marker no-op (`getImageUrl` vrátí `page.url`).
-     */
     private fun pageDisplayUrl(page: Page, sourceId: String): String {
         page.imageUrl?.takeIf { it.isNotBlank() }?.let { return it }
         val url = page.url.takeIf { it.isNotBlank() } ?: return ""
@@ -2089,15 +1560,6 @@ class ReaderViewModel @Inject constructor(
         if (chapterId == _currentChapterId.value) return false
         val chapter = allChapters.firstOrNull { it.id == chapterId } ?: return false
         val segment = _webtoonSegments.value.firstOrNull { it.chapterId == chapterId } ?: return false
-        // Rozjeté překladové joby (translationJob i batchJob) sevědomě NEZRUŠUJEME -
-        // jejich zápisy jdou přes putTranslatedPage, která je klíčovaná chapterId,
-        // takže bezpečně doběhnou "na pozadí" pro původní kapitolu; zrušení by zabilo
-        // "Přeložit vše" předchozí kapitoly jen proto, že uživatel doscrolloval do
-        // napojené (audit překladu Vagabond ch2: batch umřel při překročení do ch3).
-        // Nová kapitola si překlad spustí sama (translateAllPages se zařadí za
-        // běžící batch, viz pendingBatchChapterId). Progress ukazatele se navíc
-        // píšou jen pro AKTIVNÍ kapitolu (guard v startChapterTranslation/
-        // translateAllPages), takže cizí průběh pod novým titulkem nesvítí.
         // Jiné joby patří PŘEDCHOZÍ kapitole a ruší se: detekce dvoustran by jinak
         // přepsala _spreadPageIndices nové a načtené komentáře by zůstaly viset -
         // jejich guard `isNotEmpty()` v loadChapterComments by pak u nové kapitoly
@@ -2121,16 +1583,6 @@ class ReaderViewModel @Inject constructor(
         // jinak prvni image requesty nove kapitoly leti se starym a CDN vrati 403.
         _pageReferer.value = repository.sourceHomepage(chapter.sourceId)
         _pages.value = segment.pages
-        // Plochou mapu naplnit z per-chapter mapy, ne prázdnou - tahle kapitola už mohla
-        // být přeložená (uživatel scrolluje zpět na dřívější segment) a její bloky by
-        // jinak pro ne-webtoon čtečky po přepnutí režimu zmizely.
-        _translatedPages.value = _translatedPagesByChapter.value[chapter.id] ?: emptyMap()
-        _flippedBubbles.value = emptySet()
-        // _translateMode sevědomě ponecháváme - "číst s překladem" je kontinuální
-        // záměr uživatele, ne per-kapitola stav: overlay nové kapitoly se ukáže, jakmile
-        // pro ni bloky existují (Room cache přes preloadCachedTranslations při appendu,
-        // nebo běžící/zařazený batch). Reset na false by po překročení hranice tichě
-        // vypnul překlad uprostřed čtení (audit překladu Vagabond ch2→ch3).
         // suspend funkce - tahle metoda se volá z UI synchronně, takže přes launch.
         viewModelScope.launch {
             _commentsSupported.value = repository.sourceSupportsChapterComments(chapter.sourceId)
@@ -2220,99 +1672,6 @@ class ReaderViewModel @Inject constructor(
                 prependPreviousWebtoonSegment()
             }
             return
-        }
-    }
-
-    /**
-     * Warmuje Room cache (TranslatedNovelEntity, viz TranslateRepository.getCachedNovel)
-     * překladem DALŠÍ kapitoly light novel na pozadí, jakmile se dokončí překlad AKTUÁLNÍ
-     * kapitoly (viz volání v toggleNovelTranslate) - když uživatel přejde na další kapitolu
-     * a zapne překlad, najde ho hotový okamžitě. Nezasahuje do _novelTranslatedText/
-     * _novelTranslating (ty patří AKTUÁLNÍ kapitole) - jde jen o zápis do cache, žádný
-     * viditelný UI stav pro tuhle kapitolu. Řízeno nastavením (SettingsRepository.
-     * preloadNextNovelChapter), výchozí zapnuto. Zrušeno (viz loadChapter), jakmile
-     * uživatel odejde jinam, než přednačítání stihne doběhnout.
-     */
-    private fun preloadNextNovelChapter() {
-        val chapter = currentChapter ?: return
-        val idx = chapterIndexOrTrace(chapter.id, "preloadNextNovelChapter")
-        if (idx < 0) return
-        val nextIdx = adjacentChapterIndex(idx, -1, unreadOnly = false)
-        if (nextIdx < 0) return
-        val nextChapter = allChapters[nextIdx]
-        val targetLanguage = _targetLanguage.value
-        val sourceLanguage = _sourceLanguage.value
-
-        novelPreloadJob?.cancel()
-        novelPreloadJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (!settings.preloadNextNovelChapter.first()) return@launch
-            if (translateRepository.getCachedNovel(nextChapter.id, targetLanguage, sourceLanguage) != null) return@launch
-            try {
-                val manga = repository.getManga(nextChapter.mangaId) ?: return@launch
-                val rawPages = repository.getChapterPages(nextChapter.sourceId, nextChapter.url, manga.url)
-                if (rawPages.none { it.imageUrl == "novel://text" }) return@launch
-                val text = rawPages.firstOrNull()?.url?.takeIf { it.isNotBlank() } ?: return@launch
-                translateRepository.translateNovelChapter(
-                    chapterId = nextChapter.id,
-                    mangaId = nextChapter.mangaId,
-                    text = text,
-                    targetLanguage = targetLanguage,
-                    sourceLanguage = sourceLanguage,
-                )
-            } catch (e: Exception) {
-                e.report("reader:preloadNextChapterNovelTranslation")
-            }
-        }
-    }
-
-    /**
-     * Stejná myšlenka jako [preloadNextNovelChapter], ale pro manga/manhwa/manhua - warmuje
-     * Room cache ([TranslatedPageDao] přes [TranslateRepository.translateChapter]) překladem
-     * DALŠÍ kapitoly na pozadí, jakmile dokončí překlad AKTUÁLNÍ kapitoly.
-     *
-     * Na rozdíl od novely (jen text) tohle stáhne CELOU další kapitolu obrázků + spustí OCR
-     * na zařízení pro každou stránku - výrazně dražší na data i baterii, proto:
-     * - samostatný přepínač (SettingsRepository.preloadNextChapterManga), ne sdílený s novelou
-     * - respektuje [SettingsRepository.preloadNextChapterWifiOnly] (výchozí zapnuto) - na
-     *   mobilních datech se nespustí, dokud si to uživatel vědomě nezapne v nastavení.
-     */
-    private fun preloadNextChapterMangaTranslation() {
-        val chapter = currentChapter ?: return
-        val idx = chapterIndexOrTrace(chapter.id, "preloadNextChapterMangaTranslation")
-        if (idx < 0) return
-        val nextIdx = adjacentChapterIndex(idx, -1, unreadOnly = false)
-        if (nextIdx < 0) return
-        val nextChapter = allChapters[nextIdx]
-        val targetLanguage = _targetLanguage.value
-        val sourceLanguage = _sourceLanguage.value
-
-        mangaTranslatePreloadJob?.cancel()
-        mangaTranslatePreloadJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            if (!settings.preloadNextChapterManga.first()) return@launch
-            if (settings.preloadNextChapterWifiOnly.first() && !networkMonitor.isUnmetered) return@launch
-            // Kvóta: když primární provider cooluje, prefetch by přeložil celou další
-            // kapitolu přes levné záložní modely a výsledek trvale cachoval degradovaný
-            // - vzácný záložní rozpočet je pro AKTUÁLNÍ čtení důležitější (viz
-            // TranslateRepository.hasPrimaryProviderCapacity).
-            if (!translateRepository.hasPrimaryProviderCapacity(targetLanguage)) return@launch
-            try {
-                val manga = repository.getManga(nextChapter.mangaId) ?: return@launch
-                val rawPages = repository.getChapterPages(nextChapter.sourceId, nextChapter.url, manga.url)
-                if (rawPages.any { it.imageUrl == "novel://text" }) return@launch // novela - viz preloadNextNovelChapter
-                val urls = rawPages.map { pageDisplayUrl(it, nextChapter.sourceId) }.filter { it.isNotBlank() }
-                if (urls.isEmpty()) return@launch
-                translateRepository.translateChapter(
-                    pages = urls,
-                    chapterId = nextChapter.id,
-                    mangaId = nextChapter.mangaId,
-                    targetLanguage = targetLanguage,
-                    sourceLanguage = sourceLanguage,
-                ) { _, _ -> } // jen zápis do cache, žádný viditelný UI stav pro tuhle kapitolu
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                e.report("reader:preloadNextChapterTranslation")
-            }
         }
     }
 
@@ -2456,331 +1815,6 @@ class ReaderViewModel @Inject constructor(
                 viewModelScope.launch { trackerSyncCoordinator.syncComickParentProgress(comickTargets) }
             }
         }
-    }
-
-    // ── Překlad ──────────────────────────────────────────────────────────────
-
-    fun setSourceLanguage(lang: String) {
-        _sourceLanguage.value = lang
-        viewModelScope.launch { settings.setSourceLanguage(lang) }
-        // Rozjetý překlad drží jazykový pár zachycený při startu - bez zrušení by po
-        // vymazání map dál zapisoval výsledky ve STARÉM jazyce (a jeho `finally` by mohl
-        // znovu zapnout translateMode podle nich).
-        cancelActiveTranslation()
-        _translatedPages.value = emptyMap()
-        // I perzistentní by-chapter mapa - jinak by kapitola navštívená PŘED změnou jazyka
-        // (a tedy ve WebtoonReaderu dál "živá" v paměti) ukazovala překlad ve starém jazyce.
-        _translatedPagesByChapter.value = emptyMap()
-        _translateMode.value = false
-    }
-
-    fun setTargetLanguage(lang: String) {
-        _targetLanguage.value = lang
-        viewModelScope.launch { settings.setTargetLanguage(lang) }
-        cancelActiveTranslation()
-        _translatedPages.value = emptyMap()
-        _translatedPagesByChapter.value = emptyMap()
-        _translateMode.value = false
-    }
-
-    fun toggleTranslate() {
-        when {
-            translationJob?.isActive == true -> {
-                translationJob?.cancel()
-                translationJob = null
-                translationJobChapterId?.let(translateQueue::cancel)
-                translationJobChapterId = null
-                _translationProgress.value = null
-            }
-            !_translateMode.value -> {
-                _translateMode.value = true
-                _translationError.value = null
-                startChapterTranslation()
-            }
-            else -> {
-                _translateMode.value = false
-                // Job už nemusí běžet (handoff do pozadí / dokončená kapitola) - stop
-                // přepínače má zastavit i zařazenou práci pro tuto kapitolu.
-                currentChapter?.id?.let(translateQueue::cancel)
-            }
-        }
-    }
-
-    private fun startChapterTranslation() {
-        // Stejná kapitola může být zařazená v TranslateQueue (handoff po ON_STOP, nebo
-        // "přeložit dalších N" z detailu) - přebíráme ji do interaktivního režimu,
-        // jinak by worker i tento job překládali zbylé stránky dvakrát.
-        currentChapter?.id?.let(translateQueue::cancel)
-        // Nastavit synchronně PŘED launch - coroutine by to vyzvedla až později a
-        // handoff při okamžitém ON_STOP by kapitolu přehlédl.
-        translationJobChapterId = currentChapter?.id
-        translationJob = viewModelScope.launch {
-            val pages = _pages.value
-            val lang = _targetLanguage.value
-            val chapterId = currentChapter?.id ?: return@launch
-            val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: ""
-
-            var done = 0
-            // onPageReady se může zavolat pro tu samou stránku podruhé - webtoon dedup
-            // přešité bubliny přepíše už emitovaného souseda (viz dropSliceBoundaryDuplicates
-            // v translateChapter). Progress ale počítá jen první emit na stránku.
-            val emittedPages = mutableSetOf<Int>()
-            _translationProgress.value = TranslationProgress(done, pages.size)
-            try {
-                // translateChapter dávkuje víc stránek do jednoho API volání (viz
-                // TranslateRepository.translateChapter) - onPageReady se ale volá pro
-                // KAŽDOU stránku zvlášť, takže postupné zobrazování zůstává stejné jako
-                // dřív, jen s méně požadavky a bez umělé prodlevy mezi každou stránkou.
-                translateRepository.translateChapter(
-                    pages = pages,
-                    chapterId = chapterId,
-                    mangaId = mangaId,
-                    targetLanguage = lang,
-                    sourceLanguage = _sourceLanguage.value,
-                    onOcrProgress = { ocrDone, ocrTotal ->
-                        // Úvodní OCR fáze - counter teď počítá rozpoznané stránky,
-                        // ne přeložené (jinak progress "zmrzl" celou dobu OCR).
-                        if (chapterId == _currentChapterId.value) {
-                            _translationProgress.value = TranslationProgress(ocrDone, ocrTotal, ocrStage = true)
-                        }
-                    },
-                    onPageFailed = { pageIndex -> markTranslatePageFailed(chapterId, pageIndex) },
-                ) { pageIndex, blocks ->
-                    putTranslatedPage(chapterId, pageIndex, blocks)
-                    if (emittedPages.add(pageIndex)) done++
-                    // Job muze dobihat pod jinou kapitolou (nekonecne cteni neprekopava
-                    // translationJob - viz onWebtoonVisibleChapterChanged) - progress
-                    // ukazovat jen pro tu, kterou UI prave zobrazuje.
-                    if (chapterId == _currentChapterId.value) {
-                        _translationProgress.value = TranslationProgress(done, pages.size)
-                    }
-                }
-                preloadNextChapterMangaTranslation()
-            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
-                // Dávka se přerušila uprostřed - stránky, co se nestihly emitovat,
-                // označ jako selhané (jsou uncached, další běh je zkusí znovu) - bez
-                // toho by po obnovení kvóty byly k nerozeznání od "bez textu".
-                pages.indices.forEach { if (it !in emittedPages) markTranslatePageFailed(chapterId, it) }
-                _translationError.value = context.getString(R.string.reader_error_rate_limited)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Bez tohohle výjimka utekla z viewModelScope.launch a shodila appku.
-                e.report("reader:translateChapter")
-                pages.indices.forEach { if (it !in emittedPages) markTranslatePageFailed(chapterId, it) }
-                _translationError.value = context.getString(R.string.reader_error_translation_failed)
-            } finally {
-                if (translationJobChapterId == chapterId) translationJobChapterId = null
-                if (chapterId == _currentChapterId.value) _translationProgress.value = null
-            }
-        }
-    }
-
-    // ── Hromadný překlad všech stránek + přepínač originál/překlad ──────────
-
-    fun translateAllPages() {
-        // Bezi-li batch JINE kapitoly (nekonecne cteni ho nechava dobehnout na pozadi -
-        // viz onWebtoonVisibleChapterChanged), pozadavek teto kapitoly se zaradi a
-        // spusti se, az ten predchozi doběhne - paralelni dva batchy by zdvojnasobily
-        // tlak na API/rate limity a hlavne by se vzajemne prebijely o ukazatele.
-        if (_batchTranslating.value) {
-            if (currentChapter?.id != activeBatchChapterId) {
-                currentChapter?.id?.let(pendingBatchChapterIds::add)
-            }
-            return
-        }
-        _batchTranslating.value = true
-        _showOriginal.value = false
-        // Vycistit predchozi hlasku - jinak by ji nize v `finally` mohla omylem "prezit" i
-        // stara/nesouvisejici chyba a potlacit spravnou hlasku pro TENHLE pokus.
-        _translationError.value = null
-        batchJob = viewModelScope.launch {
-            val pages = _pages.value
-            val lang = _targetLanguage.value
-            val chapterId = currentChapter?.id ?: run { _batchTranslating.value = false; return@launch }
-            // Stejný důvod jako ve startChapterTranslation - přebíráme kapitolu z fronty
-            // do interaktivního režimu, ne dvojběh s workerem.
-            translateQueue.cancel(chapterId)
-            activeBatchChapterId = chapterId
-            val mangaId = currentManga?.id ?: currentChapter?.mangaId ?: ""
-
-            var done = 0
-            // Dedup přešité webtoon bubliny reemituje předchozí stránku (seamCover
-            // přepis) - bez téhle množiny by progress počítal takovou re-emisi jako
-            // novou stránku a přetekl přes total (viz stejný fix o kus výš).
-            val emittedPages = mutableSetOf<Int>()
-            _batchProgress.value = TranslationProgress(done, pages.size)
-            try {
-                // translateChapter si samo ověří Room cache per stránku (viz
-                // TranslateRepository.translateChapter) - stránka s dřívějším neúspěšným
-                // pokusem (prázdný seznam v paměti, ale nic v cache) se tak automaticky
-                // zkusí znovu, stejně jako dřívější isNullOrEmpty() kontrola zajišťovala.
-                translateRepository.translateChapter(
-                    pages = pages,
-                    chapterId = chapterId,
-                    mangaId = mangaId,
-                    targetLanguage = lang,
-                    sourceLanguage = _sourceLanguage.value,
-                    onOcrProgress = { ocrDone, ocrTotal ->
-                        if (chapterId == _currentChapterId.value) {
-                            _batchProgress.value = TranslationProgress(ocrDone, ocrTotal, ocrStage = true)
-                        }
-                    },
-                    onPageFailed = { pageIndex -> markTranslatePageFailed(chapterId, pageIndex) },
-                ) { pageIndex, blocks ->
-                    putTranslatedPage(chapterId, pageIndex, blocks)
-                    if (emittedPages.add(pageIndex)) done++
-                    // Stejny guard jako u translationProgress - batch muze dobihat pod
-                    // jinou kapitolou, prubeh se pak nesmi kreslit pod cizim titulkem.
-                    if (chapterId == _currentChapterId.value) {
-                        _batchProgress.value = TranslationProgress(done, pages.size)
-                    }
-                }
-                preloadNextChapterMangaTranslation()
-            } catch (_: com.haise.jiyu.translate.RateLimitedException) {
-                // Dalsi pokusy by stejne selhaly na stejnem limitu - nema smysl
-                // prohanet zbytek davky, jen ukazat srozumitelnou hlasku. Neemitované
-                // stránky označ jako selhané - po obnovení kvóty jdou zkusit znovu.
-                pages.indices.forEach { if (it !in emittedPages) markTranslatePageFailed(chapterId, it) }
-                _translationError.value = context.getString(R.string.reader_error_rate_limited)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                e.report("reader:translateAllPages")
-                pages.indices.forEach { if (it !in emittedPages) markTranslatePageFailed(chapterId, it) }
-            } finally {
-                if (chapterId == _currentChapterId.value) _batchProgress.value = null
-                activeBatchChapterId = null
-                _batchTranslating.value = false
-                // Zarazene pozadavky z jinych kapitol (translateAllPages nad
-                // _batchTranslating guardem) - spustit jen pozadavek pro AKTUALNI
-                // kapitolu, ostatni jsou zastarale pozadavky z kapitol, na kterych
-                // uzivatel uz neni (stejna semantika jako driv, jen bez ztraty fronty).
-                if (pendingBatchChapterIds.remove(_currentChapterId.value)) {
-                    pendingBatchChapterIds.clear()
-                    translateAllPages()
-                } else {
-                    pendingBatchChapterIds.clear()
-                }
-                // translateMode=true prepina UI z tlacitka "Prelozit vse" na prepinac
-                // Original/Preklad (viz ReaderControls - tlacitko se renderuje jen
-                // "else if (!translateMode)") - jakmile jednou zustane true bez skutecneho
-                // prekladu, uzivatel nema ZADNOU cestu zpet ke spusteni prekladu znovu.
-                //
-                // Drivejsi kod ho tady nastavoval BEZPODMINECNE, i po RateLimitedException
-                // nebo po davce, kde vsechny stranky skoncily s prazdnym vysledkem (napr.
-                // vypadek/omezeni site na pozadi, kdyz appka byla minimalizovana - viz
-                // uzivatelska zpetna vazba "vybehnu na Instagram, dole to ukaze uz
-                // prelozene, ale nikde nic neni prelozeno a nemuzu dat prelozit znovu").
-                // Kontrola podle skutecneho obsahu _translatedPages misto slepe duvery
-                // v to, ze smycka dobehla - true jen kdyz aspon JEDNA stranka opravdu ma
-                // neprazdny (ne-SFX) preklad, jinak zustane tlacitko k dispozici a uzivatel
-                // dostane konkretni hlasku misto tiseho "hotovo" bez obsahu.
-                //
-                // Hodnotit jen kdyz job stale patri AKTIVNI kapitole - po prepnuti
-                // segmentu/kapitoly (nebo zruseni) by opozdeny finally stareho jobu
-                // mohl preklopit _translateMode/_translationError pro kontext, ktereho
-                // se uz netyka (obsah plochy mapy se hodi k jeho chapterId, ne k novemu).
-                if (chapterId == _currentChapterId.value) {
-                    val hasAnyTranslation = _translatedPages.value.values.any { blocks -> blocks.any { !it.isSfx } }
-                    if (hasAnyTranslation) {
-                        _translateMode.value = true
-                    } else if (_translationError.value == null) {
-                        _translationError.value = if (!translateRepository.isApiKeyConfigured &&
-                            !translateRepository.onDeviceSupportsLanguage(_targetLanguage.value)
-                        ) {
-                            context.getString(R.string.reader_error_language_unsupported_offline)
-                        } else {
-                            context.getString(R.string.reader_error_translation_failed)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fun cancelBatchTranslation() {
-        batchJob?.cancel()
-        batchJob = null
-        // Kapitola zařazená do pozadí (handoff/detail) by se jinak znovu rozběhla
-        // workerem, i když uživatel překlad právě explicitně zastavil.
-        activeBatchChapterId?.let(translateQueue::cancel)
-        pendingBatchChapterIds.forEach(translateQueue::cancel)
-        handedOffChapterIds.forEach(translateQueue::cancel)
-        handedOffChapterIds = emptyList()
-        activeBatchChapterId = null
-        pendingBatchChapterIds.clear()
-        _batchTranslating.value = false
-        _batchProgress.value = null
-    }
-
-    /**
-     * Appka odchází do pozadí (ProcessLifecycle ON_STOP): rozjeté překladové joby ve
-     * `viewModelScope` by v backgrounded procesu mohly vymrznout na síťové restrikci nebo
-     * umřít s procesem. Předáme je `TranslateQueue` -> `TranslateChapterWorker` běží jako
-     * foreground service, píše výsledky průběžně do `translated_page` (cache-skip už
-     * hotových stránek) a přežije i kill procesu. Pamatujeme si, co se má při návratu
-     * do popředí interaktivně obnovit ([resumeTranslationInForeground]).
-     */
-    private fun handoffTranslationToBackground() {
-        val ids = buildList {
-            if (translationJob?.isActive == true) translationJobChapterId?.let(::add)
-            if (batchJob?.isActive == true) activeBatchChapterId?.let { if (it !in this) add(it) }
-            pendingBatchChapterIds.forEach { if (it !in this) add(it) }
-        }
-        if (ids.isEmpty()) return
-        handedOffPageJob = translationJob?.isActive == true
-        handedOffBatchJob = batchJob?.isActive == true || pendingBatchChapterIds.isNotEmpty()
-        handedOffChapterIds = ids
-        translateQueue.enqueue(ids, _targetLanguage.value, _sourceLanguage.value)
-        translationJob?.cancel()
-        translationJob = null
-        translationJobChapterId = null
-        batchJob?.cancel()
-        batchJob = null
-        activeBatchChapterId = null
-        pendingBatchChapterIds.clear()
-        _translationProgress.value = null
-        _batchProgress.value = null
-        _batchTranslating.value = false
-    }
-
-    /**
-     * Návrat do popředí (ProcessLifecycle ON_START): pro AKTUÁLNÍ kapitolu zrušíme
-     * zařazený worker a interaktivní job naváže tam, kde cache skončila - dostaneme zpět
-     * živé progress UI a okamžité overlaye. Ostatní předané kapitoly (např. z nekonečného
-     * čtení) necháváme doběhnout workerem - uživatel je právě nečte.
-     */
-    private fun resumeTranslationInForeground() {
-        val ids = handedOffChapterIds
-        if (ids.isEmpty()) return
-        handedOffChapterIds = emptyList()
-        val resumePage = handedOffPageJob
-        val resumeBatch = handedOffBatchJob
-        handedOffPageJob = false
-        handedOffBatchJob = false
-        val current = _currentChapterId.value
-        ids.forEach { id ->
-            if (id != current) return@forEach
-            translateQueue.cancel(id)
-            if (resumeBatch) translateAllPages()
-            else if (resumePage && _translateMode.value) startChapterTranslation()
-        }
-    }
-
-    /**
-     * Zruší OBA rozjeté překlady aktuální kapitoly (jednotlivý i "Přeložit vše") a uklidí
-     * jejich ukazatele průběhu - volá se při každém odchodu z kapitoly (loadChapter,
-     * přepnutí segmentu v nekonečném čtení) i při změně jazykového páru, protože joby si
-     * při startu zachytily kapitolu i jazyk a pozdní zápisy by jinak dopadly do stavu,
-     * který už patří novému kontextu (viz [putTranslatedPage]).
-     */
-    private fun cancelActiveTranslation() {
-        translationJob?.cancel()
-        translationJob = null
-        translationJobChapterId = null
-        _translationProgress.value = null
-        cancelBatchTranslation()
     }
 
     // ── Přepínač zdrojů (agregovaný ComicK režim) ─────────────────────────
@@ -3076,12 +2110,6 @@ class ReaderViewModel @Inject constructor(
     override fun onCleared() {
         // Čtečka skončila (ne rotace - ta ViewModel nečistí): odpočet už nemá koho ukončit.
         sleepTimerManager.cancel()
-        runCatching {
-            ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
-        }
-        // Rozjeté překlady předat do TranslateQueue, ne zahodit - viewModelScope umírá
-        // s obrazovkou, ale práce má doběhnout na pozadí (notifikace + Room cache).
-        handoffTranslationToBackground()
         flushPendingAutoDelete()
         // Flush debounce-ovaneho scroll offsetu - viewModelScope uz je zruseny, proto
         // primo (mimo viewModelScope). Bez toho se posledni ~600 ms scroll pozice

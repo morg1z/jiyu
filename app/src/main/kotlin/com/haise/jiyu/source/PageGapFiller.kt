@@ -8,7 +8,6 @@ import android.net.Uri
 import com.haise.jiyu.BuildConfig
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.MangaDao
-import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.di.ImageHttpClient
 import com.haise.jiyu.util.LazyPageUrl
 import com.haise.jiyu.util.RowProfileMatcher
@@ -56,20 +55,16 @@ import okhttp3.Request
  *    s mezerou než s cizí stránkou.
  *
  * Vložené stránky:
- * - lokální výstřižky jako `file://` (OCR/offline-safe),
+ * - lokální výstřižky jako `file://` (offline-safe),
  * - celé donor stránky jako `LazyPageUrl` marker s donor sourceId - fetcher je pak
  *   resolvuje a stahuje se SPRÁVNÝM refererem donorova zdroje (viz LazyPageFetcher).
  *
- * Pozn. ke cache překladů: klíč je `chapterId::pageIndex` - vsunuté stránky indexy
- * posunou, takže při prvním úspěšném doplnění se staré překlady kapitoly mažou
- * (marker v SharedPreferences, při opakovaném doplnění už se nemaže).
  */
 @Singleton
 class PageGapFiller @Inject constructor(
     private val crossSourceSearch: CrossSourceSearch,
     private val mangaDao: MangaDao,
     private val chapterDao: ChapterDao,
-    private val translatedPageDao: TranslatedPageDao,
     @param:ApplicationContext private val context: Context,
     @param:ImageHttpClient private val httpClient: OkHttpClient,
 ) {
@@ -307,11 +302,7 @@ class PageGapFiller @Inject constructor(
                 idxs.map { donorLazyPage(donorSource.id, donorPages[it]) }
             }
             if (insertions.values.any { list -> list.any { p -> p == null } }) return@let null
-            return spliceAndInvalidate(
-                pages,
-                insertions.mapValues { (_, l) -> l.filterNotNull() },
-                chapterId,
-            )
+            return spliceAndInvalidate(pages, insertions.mapValues { (_, l) -> l.filterNotNull() })
         }
         // 2) Kontentové zarovnání (řádkové profily + ořez do lokálního souboru).
         // Donor s většinou "ozdobených" URL (scramble/lazy fragmenty, descramble query
@@ -322,7 +313,7 @@ class PageGapFiller @Inject constructor(
         }
         if (decorated * 2 <= donorUrls.size) {
             alignByContent(source, gaps, pages, donorSource, donorPages, dirKey)?.let { byContent ->
-                return spliceAndInvalidate(pages, byContent, chapterId)
+                return spliceAndInvalidate(pages, byContent)
             }
         } else if (BuildConfig.DEBUG) {
             android.util.Log.i(TAG, "donor ${donorSource.id}: skipped content scan, $decorated/${donorUrls.size} decorated urls")
@@ -738,34 +729,17 @@ class PageGapFiller @Inject constructor(
     private fun md5(s: String): String =
         MessageDigest.getInstance("MD5").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    // ── Složení výsledku + invalidace překladové cache ───────────────────────
+    // ── Složení výsledku ────────────────────────────────────────────────────
 
     private suspend fun spliceAndInvalidate(
         pages: List<Page>,
         insertions: Map<Int, List<Page>>,
-        chapterId: String?,
     ): List<Page> {
         if (insertions.isEmpty()) return pages
         val reindexed = PageGapAligner.splice(pages, insertions)
         if (BuildConfig.DEBUG) android.util.Log.i(TAG,
             "filled ${insertions.size} gaps, ${pages.size} -> ${reindexed.size} pages")
-        if (chapterId != null) invalidateChapterTranslationsOnce(chapterId)
         return reindexed
-    }
-
-    /**
-     * Klíč překladové cache je chapterId::pageIndex - vložené stránky indexy posunuly,
-     * takže staré strojové překlady by se aplikovaly na špatné stránky. Smažou se,
-     * ale JEN při prvním doplnění téhle kapitoly (flag v prefs) - při dalších
-     * doplněních (TTL refresh page listu) už indexy sedí a mazání by zahodilo
-     * čerstvé překlady počítané na doplněném seznamu.
-     */
-    private suspend fun invalidateChapterTranslationsOnce(chapterId: String) {
-        val prefs = context.getSharedPreferences(GAPFILL_PREFS, Context.MODE_PRIVATE)
-        val key = md5(chapterId)
-        if (prefs.getBoolean(key, false)) return
-        translatedPageDao.deleteForChapter(chapterId)
-        prefs.edit().putBoolean(key, true).apply()
     }
 
     private companion object {
@@ -795,6 +769,5 @@ class PageGapFiller @Inject constructor(
          *  Live data: správná stránka měla score 0.9999 / margin 0.0065. */
         const val RELAXED_MATCH_SCORE = 0.60f
         const val RELAXED_MATCH_MARGIN = 0.002f
-        const val GAPFILL_PREFS = "jiyu_gapfill"
     }
 }

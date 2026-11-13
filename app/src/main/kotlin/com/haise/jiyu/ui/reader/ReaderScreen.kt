@@ -77,15 +77,6 @@ fun ReaderScreen(
     val pageReferer         by viewModel.pageReferer.collectAsStateWithLifecycle()
     val comickUnavailable   by viewModel.comickUnavailable.collectAsStateWithLifecycle()
     val loading             by viewModel.loading.collectAsStateWithLifecycle()
-    val translateMode       by viewModel.translateMode.collectAsStateWithLifecycle()
-    val translationProgress by viewModel.translationProgress.collectAsStateWithLifecycle()
-    val translationDegraded by viewModel.currentPageDegraded.collectAsStateWithLifecycle()
-    val translatedPages     by viewModel.translatedPages.collectAsStateWithLifecycle()
-    val translatedPagesByChapter by viewModel.translatedPagesByChapter.collectAsStateWithLifecycle()
-    val translateFailedPages by viewModel.translateFailedPages.collectAsStateWithLifecycle()
-    val batchTranslating    by viewModel.batchTranslating.collectAsStateWithLifecycle()
-    val batchProgress       by viewModel.batchProgress.collectAsStateWithLifecycle()
-    val showOriginal        by viewModel.showOriginal.collectAsStateWithLifecycle()
     val reverseLayout       by viewModel.reverseLayout.collectAsStateWithLifecycle()
     // Per-manga "Webtoon" override z detailu titulu - ReaderContent musi cist tuhle
     // kombinovanou hodnotu, ne surove settings.readingMode, jinak je override mrtvy
@@ -98,12 +89,8 @@ fun ReaderScreen(
     val mangaTitle           by viewModel.mangaTitle.collectAsStateWithLifecycle()
     val mangaId              by viewModel.mangaId.collectAsStateWithLifecycle()
     val currentChapterId     by viewModel.currentChapterId.collectAsStateWithLifecycle()
-    val sourceLanguage      by viewModel.sourceLanguage.collectAsStateWithLifecycle()
-    val targetLanguage      by viewModel.targetLanguage.collectAsStateWithLifecycle()
     val tapZonesEnabled     by viewModel.tapZonesEnabled.collectAsStateWithLifecycle()
-    val readerTextScale     by viewModel.readerTextScale.collectAsStateWithLifecycle()
     val doublePageSpread    by viewModel.doublePageSpread.collectAsStateWithLifecycle()
-    val translationError    by viewModel.translationError.collectAsStateWithLifecycle()
     val comickParent        by viewModel.comickParent.collectAsStateWithLifecycle()
     val sourceSwitchRows    by viewModel.sourceSwitchRows.collectAsStateWithLifecycle()
     val sourceScanning      by viewModel.sourceScanning.collectAsStateWithLifecycle()
@@ -124,12 +111,7 @@ fun ReaderScreen(
     val tapZoneGrid          by viewModel.tapZoneGrid.collectAsStateWithLifecycle()
     val webtoonScrollSpeed   by viewModel.webtoonScrollSpeed.collectAsStateWithLifecycle()
     val isNovelSource        by viewModel.isNovelSource.collectAsStateWithLifecycle()
-    val isApiKeyConfigured = viewModel.isApiKeyConfigured
     val novelText            by viewModel.novelText.collectAsStateWithLifecycle()
-    val novelTranslateMode   by viewModel.novelTranslateMode.collectAsStateWithLifecycle()
-    val novelTranslatedText  by viewModel.novelTranslatedText.collectAsStateWithLifecycle()
-    val novelTranslating     by viewModel.novelTranslating.collectAsStateWithLifecycle()
-    val glossary             by viewModel.glossary.collectAsStateWithLifecycle()
     val chapterComments       by viewModel.chapterComments.collectAsStateWithLifecycle()
     val commentsLoading       by viewModel.commentsLoading.collectAsStateWithLifecycle()
     val commentsSupported     by viewModel.commentsSupported.collectAsStateWithLifecycle()
@@ -143,7 +125,6 @@ fun ReaderScreen(
     val keepScreenOn         by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val readerOrientation    by viewModel.readerOrientation.collectAsStateWithLifecycle()
     val controlsVisible      by viewModel.controlsVisible.collectAsStateWithLifecycle()
-    val flippedBubbles       by viewModel.flippedBubbles.collectAsStateWithLifecycle()
     val webtoonSegments      by viewModel.webtoonSegments.collectAsStateWithLifecycle()
     val webtoonAppending     by viewModel.webtoonAppendingNext.collectAsStateWithLifecycle()
     val webtoonPrepending    by viewModel.webtoonPrependingPrev.collectAsStateWithLifecycle()
@@ -168,7 +149,6 @@ fun ReaderScreen(
     }
     // Ručně opravovaná bublina: (index stránky, původní text, aktuální překlad). Původní text
     // je identita bubliny napříč přepočty - viz manualEditId.
-    var bubbleEdit by rememberSaveable(stateSaver = BubbleEditState.Saver) { mutableStateOf<BubbleEditState?>(null) }
     val activity = LocalView.current.context.findActivity()
 
     // Čtečku zavírá až tenhle sběratel, ne lambda předaná do časovače. Ta totiž putovala do
@@ -243,13 +223,6 @@ fun ReaderScreen(
         onDispose { act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 
-    LaunchedEffect(translationError) {
-        if (translationError != null) {
-            delay(4_000L)
-            viewModel.clearTranslationError()
-        }
-    }
-
     LaunchedEffect(fallbackNotice) {
         if (fallbackNotice != null) {
             delay(4_000L)
@@ -279,20 +252,6 @@ fun ReaderScreen(
                 hasNext = hasNextChapter,
                 onPrev = { viewModel.navigatePrev() },
                 onNext = { viewModel.navigateNext() },
-                translateMode = novelTranslateMode,
-                translatedText = novelTranslatedText,
-                translating = novelTranslating,
-                onToggleTranslate = { viewModel.toggleNovelTranslate() },
-                onRetranslate = { viewModel.retranslateNovelChapter() },
-                onEditParagraph = { index, newText -> viewModel.saveNovelParagraphEdit(index, newText) },
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
-                onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
-                glossary = glossary,
-                onAddGlossaryEntry = { source, target, protectExact -> viewModel.addGlossaryEntry(source, target, protectExact) },
-                onToggleGlossaryProtectExact = { viewModel.toggleGlossaryProtectExact(it) },
-                onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
                 autoNextChapter = autoNextChapter,
@@ -354,13 +313,6 @@ fun ReaderScreen(
                 // nastavuje stejne), takze se tim nic nemeni.
                 initialPage = currentPage,
                 currentPage = currentPage,
-                translateMode = translateMode,
-                translationProgress = translationProgress,
-                translatedPages = translatedPages,
-                translatedPagesByChapter = translatedPagesByChapter,
-                batchTranslating = batchTranslating,
-                batchProgress = batchProgress,
-                showOriginal = showOriginal,
                 reverseLayout = reverseLayout,
                 webtoonMode = isWebtoonMode,
                 chapterTitle = chapterTitle,
@@ -371,20 +323,11 @@ fun ReaderScreen(
                 hasNextChapter = hasNextChapter,
                 controlsVisible = controlsVisible,
                 onToggleControlsVisible = { viewModel.toggleControlsVisible() },
-                onToggleTranslate = { viewModel.toggleTranslate() },
-                onTranslateAll = { viewModel.translateAllPages() },
-                onCancelBatch = { viewModel.cancelBatchTranslation() },
-                onToggleShowOriginal = { viewModel.toggleShowOriginal() },
                 onPageChanged = { viewModel.onPageChanged(it) },
                 onNavigatePrev = { viewModel.navigatePrev() },
                 onNavigateNext = { viewModel.navigateNext() },
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                onSourceLanguageChange = { viewModel.setSourceLanguage(it) },
-                onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
                 tapZonesEnabled = tapZonesEnabled,
                 tapZoneGrid = tapZoneGrid,
-                textScale = readerTextScale,
                 doublePageSpread = doublePageSpread,
                 readerTheme = readerTheme,
                 isOfflineChapter = isOfflineChapter,
@@ -449,23 +392,11 @@ fun ReaderScreen(
                 volumeKeysNav = volumeKeysNav,
                 readerOrientation = readerOrientation,
                 onSetReaderOrientation = { viewModel.setReaderOrientation(it) },
-                glossary = glossary,
-                onAddGlossaryEntry = { source, target, protectExact -> viewModel.addGlossaryEntry(source, target, protectExact) },
-                onToggleGlossaryProtectExact = { viewModel.toggleGlossaryProtectExact(it) },
-                onRemoveGlossaryEntry = { viewModel.removeGlossaryEntry(it) },
                 chapterComments = chapterComments,
                 commentsLoading = commentsLoading,
                 commentsSupported = commentsSupported,
                 onShowComments = { viewModel.loadChapterComments() },
-                flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = { chId, pageIndex, bubbleIndex -> viewModel.toggleBubbleFlip(chId, pageIndex, bubbleIndex) },
-                onEditBubble = { chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp ->
-                    bubbleEdit = BubbleEditState(chId, pageIndex, originalText, currentText, offsetXDp, offsetYDp)
-                },
-                translateFailedPages = translateFailedPages,
-                onRetranslatePage = { chId, pageIndex -> viewModel.retranslatePage(chId, pageIndex) },
                 onPagePermanentlyFailed = { chId, pageIndex -> viewModel.onPagePermanentlyFailed(chId, pageIndex) },
-                onDeviceWarningText = if (!isApiKeyConfigured && translateMode) stringResource(R.string.reader_on_device_warning) else null,
                 pageCurlEnabled = pageCurlEnabled,
                 curlStyle = curlStyle,
                 referer = pageReferer,
@@ -514,27 +445,7 @@ fun ReaderScreen(
                 onCurlStyleChange = { viewModel.setCurlStyle(it) },
                 readerTheme = readerTheme,
                 onReaderThemeChange = { viewModel.setReaderTheme(it) },
-                textScale = readerTextScale,
-                onTextScaleChange = { viewModel.setReaderTextScale(it) },
                 onDismiss = { showReaderSettingsSheet = false },
-            )
-        }
-
-        bubbleEdit?.let { edit ->
-            BubbleEditDialog(
-                originalText = edit.originalText,
-                currentText = edit.currentText,
-                initialOffsetXDp = edit.offsetXDp,
-                initialOffsetYDp = edit.offsetYDp,
-                onDismiss = { bubbleEdit = null },
-                onSave = { newText, offsetXDp, offsetYDp ->
-                    viewModel.saveBubbleEdit(edit.chapterId, edit.pageIndex, edit.originalText, newText, offsetXDp, offsetYDp)
-                    bubbleEdit = null
-                },
-                onRetranslatePage = {
-                    viewModel.retranslatePage(edit.chapterId, edit.pageIndex)
-                    bubbleEdit = null
-                },
             )
         }
 
@@ -581,23 +492,6 @@ fun ReaderScreen(
         }
 
         AnimatedVisibility(
-            visible = translationError != null,
-            enter = fadeIn() + slideInVertically(),
-            exit = fadeOut() + slideOutVertically(),
-            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 8.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFFB71C1C).copy(alpha = 0.92f))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(translationError.orEmpty(), color = Color.White, fontSize = 13.sp)
-            }
-        }
-
-        AnimatedVisibility(
             visible = fallbackNotice != null,
             enter = fadeIn() + slideInVertically(),
             exit = fadeOut() + slideOutVertically(),
@@ -614,173 +508,5 @@ fun ReaderScreen(
             }
         }
 
-        // Stránka přeložená degradovaným záložním modelem proxy (vyčerpaná kvóta
-        // primárního - viz TranslatedBlock.degraded). NENÍ to error banner - jen
-        // decentní indikátor, že kvalita je dočasně omezená. Drží, dokud je
-        // aktuální stránka degradovaná (flag přežívá i v cache).
-        AnimatedVisibility(
-            visible = translateMode && !showOriginal && translationDegraded,
-            enter = fadeIn() + slideInVertically(),
-            exit = fadeOut() + slideOutVertically(),
-            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 48.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF6D4C00).copy(alpha = 0.92f))
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    stringResource(R.string.reader_translation_degraded),
-                    color = Color.White,
-                    fontSize = 12.sp,
-                )
-            }
-        }
     }
 }
-
-/**
- * Rucni oprava prekladu jedne bubliny.
- *
- * Puvodni text je vidiet jen pro orientaci a neda se menit - je to identita bubliny napric
- * prepocty (viz manualEditId), takze zmena by opravu odpojila od bubliny, ke ktere patri.
- *
- * Prazdne pole opravu ZRUSI a vrati strojovy preklad - proto tu neni tlacitko "smazat" navic.
- */
-/** Stav otevřeného [BubbleEditDialog] - viz [BubbleOverlayLayer.onEditBubble]. */
-private data class BubbleEditState(
-    // chapterId je nutne - v nekonecnem webtoon scrollu muze long-press na bublinu
-    // patrit odscrollanemu segmentu JINE kapitoly, nez je aktualni; bez nej by se
-    // oprava zapsala pod currentChapterId (audit RD-4).
-    val chapterId: String,
-    val pageIndex: Int,
-    val originalText: String,
-    val currentText: String,
-    val offsetXDp: Float,
-    val offsetYDp: Float,
-) {
-    companion object {
-        val Saver: Saver<BubbleEditState?, Any> = listSaver(
-            save = { state -> if (state == null) emptyList() else listOf(state.chapterId, state.pageIndex, state.originalText, state.currentText, state.offsetXDp, state.offsetYDp) },
-            restore = { list ->
-                if (list.isEmpty()) null
-                else BubbleEditState(list[0] as String, list[1] as Int, list[2] as String, list[3] as String, list[4] as Float, list[5] as Float)
-            },
-        )
-    }
-}
-
-@Composable
-private fun BubbleEditDialog(
-    originalText: String,
-    currentText: String,
-    initialOffsetXDp: Float = 0f,
-    initialOffsetYDp: Float = 0f,
-    onDismiss: () -> Unit,
-    onSave: (text: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
-    onRetranslatePage: () -> Unit = {},
-) {
-    var text by remember(originalText) { mutableStateOf(currentText) }
-    var offsetX by remember(originalText) { mutableFloatStateOf(initialOffsetXDp) }
-    var offsetY by remember(originalText) { mutableFloatStateOf(initialOffsetYDp) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.reader_edit_bubble_title)) },
-        text = {
-            Column {
-                Text(
-                    text = originalText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.reader_edit_bubble_label)) },
-                    supportingText = { Text(stringResource(R.string.reader_edit_bubble_hint)) },
-                )
-                // Rucni oprava vys resi JEDNU bublinu - tohle je pro pripad, kdy je spatne
-                // vic bublin naraz (zacykleny/spatnojazycny model vystup, viz
-                // TranslationMerge) a rucni oprava kazde zvlast by byla otravna. Stejny
-                // long-press gesto, ktere uz otevrelo tenhle dialog (viz ReaderScreen.kt) -
-                // zadny novy gesto navic.
-                TextButton(onClick = onRetranslatePage, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(stringResource(R.string.reader_retranslate_page))
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Text(stringResource(R.string.reader_bubble_position_label), style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    BubblePositionPad(
-                        offsetXDp = offsetX,
-                        offsetYDp = offsetY,
-                        onOffsetChange = { newX, newY -> offsetX = newX; offsetY = newY },
-                    )
-                    TextButton(onClick = { offsetX = 0f; offsetY = 0f }) {
-                        Text(stringResource(R.string.reader_bubble_position_reset))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(text, offsetX, offsetY) }) { Text(stringResource(R.string.common_save)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        },
-    )
-}
-
-/**
- * Malý čtvercový "touchpad" pro ruční doladění pozice bubliny (viz
- * [com.haise.jiyu.translate.TranslatedBlock.offsetXDp]/`offsetYDp`) - tečka uprostřed = beze
- * změny, tažením se posune a hodnota se čte přímo jako Dp posun (1:1 s tažením, ořízlé na
- * [PAD_RADIUS_DP] na obě strany). Schválně UVNITŘ modálního dialogu, ne přímo tažením po
- * stránce - `AlertDialog` blokuje interakci s podkladem pod sebou, takže tažení "za bublinou"
- * na skutečné stránce by muselo řešit souběh s pinch-zoom/tap gesty
- * WebtoonReaderu/MangaReaderu (viz plán, položka 11 - přesně tenhle střet plán sám čeká).
- * Tenhle návrh se mu úplně vyhne za cenu, že chybí živý náhled bubliny při tažení - jen
- * relativní posun tečky v padu.
- */
-@Composable
-private fun BubblePositionPad(
-    offsetXDp: Float,
-    offsetYDp: Float,
-    onOffsetChange: (offsetXDp: Float, offsetYDp: Float) -> Unit,
-) {
-    val density = LocalDensity.current
-    val currentOffsetX = rememberUpdatedState(offsetXDp)
-    val currentOffsetY = rememberUpdatedState(offsetYDp)
-    Box(
-        modifier = Modifier
-            .size(PAD_SIZE_DP)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    val dxDp = with(density) { dragAmount.x.toDp().value }
-                    val dyDp = with(density) { dragAmount.y.toDp().value }
-                    val newX = (currentOffsetX.value + dxDp).coerceIn(-PAD_RADIUS_DP, PAD_RADIUS_DP)
-                    val newY = (currentOffsetY.value + dyDp).coerceIn(-PAD_RADIUS_DP, PAD_RADIUS_DP)
-                    onOffsetChange(newX, newY)
-                }
-            },
-    ) {
-        Box(
-            modifier = Modifier
-                .size(16.dp)
-                .align(Alignment.Center)
-                .offset(x = offsetXDp.dp, y = offsetYDp.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.primary),
-        )
-    }
-}
-
-private val PAD_SIZE_DP = 96.dp
-private const val PAD_RADIUS_DP = 48f

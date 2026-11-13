@@ -11,14 +11,7 @@ import kotlin.math.abs
  * strany. Viz [CropBordersTransformation.cropFractionsFor]. */
 data class CropFractions(val leftF: Float, val topF: Float, val rightF: Float, val bottomF: Float)
 
-/**
- * `pageUrl` - identita stránky, pod kterou se po dokončení ořezu uloží [CropFractions] (viz
- * companion object) - OCR souřadnice se počítají vůči PŮVODNÍMU obrázku (viz
- * [com.haise.jiyu.translate.PageBitmapLoader], který tuhle transformaci nepoužívá), ale Coil
- * intrinsicSize po transformaci je už OŘÍZNUTÁ - bez znalosti ořezu by překladový overlay
- * počítal pozice bublin vůči jinému obrázku, než ve kterém OCR skutečně měřilo (nahlášeno
- * v auditu jako systematický posun bublin při zapnutém "Oříznout okraje").
- */
+/** Caches crop fractions by page URL so the reader can consistently map the original image bounds. */
 class CropBordersTransformation(private val pageUrl: String) : Transformation {
 
     override val cacheKey: String = "crop_borders"

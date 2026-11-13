@@ -21,8 +21,8 @@ import okhttp3.Request
 
 /**
  * Zdrojové BAJTY stránky jako soubor - sdílený stroj pro všechny cesty, které potřebují
- * číst pixely přímo ze souboru mimo Coil dekódování (PageSlicer řezy, PageRegionSource
- * záplaty). Vytaženo z PageSlicer, aby se neduplikovala resoluce:
+ * číst pixely přímo ze souboru mimo Coil dekódování (například pro dělení vysokých stránek).
+ * Vytaženo z PageSlicer, aby se neduplikovala resoluce:
  *
  * - `file://` / absolutní cesta → přímo `File` (offline kapitoly),
  * - http(s) → Coil disk cache snapshot (stejné bajty jako display cesta, prefetch je
@@ -34,7 +34,7 @@ import okhttp3.Request
  * S úsporným režimem obrázků se používá separátní `#original` klíč - pod holým pageUrl
  * leží degradovaná WebP kopie od wsrv.nl, originál se žádá hlavičkou
  * [com.haise.jiyu.source.interceptor.ImageProxyInterceptor.HEADER_ORIGINAL] (stejná
- * konvence jako `PageBitmapLoader`, viz [diskKeyFor]).
+ * konvence jako [diskKeyFor]).
  */
 @Singleton
 @OptIn(ExperimentalCoilApi::class) // openSnapshot/openEditor - stabilní v praxi, Coil 2.x je takto označuje
@@ -190,7 +190,7 @@ class PageImageSource @Inject constructor(
          * Klíč do Coil disk cache pro zdrojové bajty stránky. Bez proxy je to holá URL
          * (sdílí entry s normálním zobrazením); se zapnutým úsporným režimem leží pod
          * `pageUrl` degradovaná WebP kopie, proto separátní `#original` klíč - stejná
-         * konvence jako `PageBitmapLoader` (čistá funkce kvůli JVM testům).
+         * konvence jako `PageImageSource` (čistá funkce kvůli JVM testům).
          */
         internal fun diskKeyFor(pageUrl: String, proxyEnabled: Boolean): String =
             if (proxyEnabled) pageUrl.substringBeforeLast("#") + "#original" else pageUrl

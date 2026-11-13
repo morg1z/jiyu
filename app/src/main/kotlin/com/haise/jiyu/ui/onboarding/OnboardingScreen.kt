@@ -639,7 +639,6 @@ private fun PrivacyStep(
             )
             Spacer(Modifier.height(8.dp))
             listOf(
-                R.string.onb_privacy_data_translation,
                 R.string.onb_privacy_data_account,
                 R.string.onb_privacy_data_sync,
             ).forEach { res ->

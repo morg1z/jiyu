@@ -553,9 +553,7 @@ class ComicKSource @Inject constructor(
      */
     suspend fun getUpdates(order: String, page: Int): List<ChapterUpdate> =
         withContext(Dispatchers.IO) {
-            // Updates feed je EN-only (ctecka EN kapitoly filtruje vsude jinde) - driv se
-            // lang= odvozoval ze settings.sourceLanguage, coz je OCR/prekladove nastaveni,
-            // takze uzivatel s cestinou mel feed trvale prazdny (audit #21).
+            // ComicK's updates feed is EN-only to match its reader flow.
             val langCode = "en"
             val allowedCountries = settings.comickUpdatesCountries.first()
             val allowedDemographics = settings.comickUpdatesDemographics.first()
@@ -614,16 +612,12 @@ class ComicKSource @Inject constructor(
      * proto nejdřív načteme detail mangy abychom hid získali.
      * Prochází stránky po 60 dokud API nevrátí méně výsledků.
      *
-     * Dřív se filtrovalo přes `lang=` podle SettingsRepository.sourceLanguage - to je ale
-     * nastavení PŘEKLADOVÉ funkce (z jakého jazyka OCR čte text), s katalogem kapitol ComicK
-     * nemá nic společného. Efekt: titul, jehož překlad do zvoleného jazyka (výchozí "en")
-     * zaostává za originálem, měl v appce synchronizovaný jen zlomek svých kapitol - "celkem
-     * kapitol" (viz LibraryScreen.progressPercentFor - počítá UNIKÁTNÍ čísla kapitol napříč
+     * Chapters are fetched without a language filter so titles whose translated chapters
+     * lag behind the original retain their full chapter list. "Total chapters" (see
+     * LibraryScreen.progressPercentFor - counts UNIQUE chapter numbers across
      * všemi jazyky, duplicity už řeší SQL GROUP BY) tak vycházelo směšně nízké/špatné (např.
-     * "100 % přečteno" u kapitoly 1 z titulu, který má ve skutečnosti 150+ kapitol - nahlásil
-     * uživatel). Bez filtru appka vidí VŠECHNA existující čísla kapitol bez ohledu na jazyk
-     * překladu (skutečné čtení stejně vždy jde přes zvlášť vyhledaný reálný zdroj, ne přímo
-     * přes ComicK - viz ReaderViewModel.loadChapter, blokuje sourceId=="comick").
+     * the app therefore sees every available chapter number regardless of language
+     * (reading still resolves through a real source, never ComicK itself).
      */
     override suspend fun getChapterList(manga: SManga): List<SChapter> =
         withContext(Dispatchers.IO) {

@@ -49,7 +49,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -75,7 +74,6 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.haise.jiyu.R
-import com.haise.jiyu.translate.TranslatedBlock
 import com.haise.jiyu.util.PageSlicePlan
 import com.haise.jiyu.util.PageSliceRequest
 import compose.icons.TablerIcons
@@ -113,11 +111,6 @@ fun WebtoonReader(
      *  pozada o prepend predchozi kapitoly (ReaderViewModel.prependPreviousWebtoonSegment). */
     onNeedPrevSegments: () -> Unit = {},
     onVisibleChapterChanged: (chapterId: String, localIndex: Int, localOffset: Int) -> Unit = { _, _, _ -> },
-    translateMode: Boolean,
-    // Klíčovaná chapterId, ne plochá jako u ReaderPageru/MangaPageCurlReaderu - viz komentář
-    // u ReaderViewModel._translatedPagesByChapter (kolize indexů mezi segmenty, nahlášeno v auditu).
-    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>>,
-    textScale: Float,
     tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     tapZonesEnabled: Boolean = true,
     onShowPanel: () -> Unit,
@@ -126,17 +119,6 @@ fun WebtoonReader(
     scrollSpeedMultiplier: Float = 1.0f,
     cropBorders: Boolean = false,
     volumeKeysNav: Boolean = true,
-    flippedBubbles: Set<String> = emptySet(),
-    // chapterId v callbacku - kazdy segment ma vlastni pageIndex/bubbleIndex
-    // prostor, takze bez nej by tap na bublinu v odscrollanem segmentu psal do
-    // aktualni kapitoly (audit RD-4/RD-10).
-    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _, _ -> },
-    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _, _ -> },
-    /** Per-chapter stránky s NEÚSPĚŠNÝM překladem (viz ReaderViewModel.translateFailedPages) -
-     *  klíčované chapterId stejně jako translatedPagesByChapter (lokální indexy per segment). */
-    translateFailedPagesByChapter: Map<String, Set<Int>> = emptyMap(),
-    /** (chapterId, lokální index) -> retry překladu stránky (ReaderViewModel.retranslatePage). */
-    onRetranslatePage: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
     /** Stránka definitivně selhala (retry vyčerpány) - cross-source donor splice
      *  (viz ReaderViewModel.onPagePermanentlyFailed). */
     onPagePermanentlyFailed: (chapterId: String, pageIndex: Int) -> Unit = { _, _ -> },
@@ -514,15 +496,7 @@ fun WebtoonReader(
             webtoonSegmentItems(
                 segment = seg,
                 zoomActive = scale > 1f,
-                translateMode = translateMode,
-                translatedPagesByChapter = translatedPagesByChapter,
-                textScale = textScale,
                 cropBorders = cropBorders,
-                flippedBubbles = flippedBubbles,
-                onToggleBubbleFlip = onToggleBubbleFlip,
-                onEditBubble = onEditBubble,
-                translateFailedPages = translateFailedPagesByChapter[seg.chapterId] ?: emptySet(),
-                onRetranslatePage = { index -> onRetranslatePage(seg.chapterId, index) },
                 onPagePermanentlyFailed = { index -> onPagePermanentlyFailed(seg.chapterId, index) },
                 referer = referer,
                 placeholderAspectRatio = placeholderAspectRatio,
@@ -556,39 +530,18 @@ fun WebtoonReader(
 private fun LazyListScope.webtoonSegmentItems(
     segment: WebtoonSegment,
     zoomActive: Boolean,
-    translateMode: Boolean,
-    translatedPagesByChapter: Map<String, Map<Int, List<TranslatedBlock>>>,
-    textScale: Float,
     cropBorders: Boolean,
-    flippedBubbles: Set<String>,
-    onToggleBubbleFlip: (chapterId: String, pageIndex: Int, bubbleIndex: Int) -> Unit,
-    onEditBubble: (chapterId: String, pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
-    translateFailedPages: Set<Int>,
-    onRetranslatePage: (pageIndex: Int) -> Unit,
     onPagePermanentlyFailed: (pageIndex: Int) -> Unit,
     referer: String?,
     placeholderAspectRatio: Float,
     onPageAspectMeasured: (Float) -> Unit,
 ) {
-    val chapterTranslations = translatedPagesByChapter[segment.chapterId] ?: emptyMap()
-    // Flip set je globalni s klicem "$chapterId:..." - pro tenhle segment se
-    // projektuje na plochy "pageIndex:bubbleIndex" a callbacky se obali o
-    // chapterId segmentu (audit RD-4/RD-10).
-    val segmentFlipped = flippedKeysForChapter(flippedBubbles, segment.chapterId)
     itemsIndexed(segment.pages, key = { i, _ -> "${segment.chapterId}:$i" }) { index, pageUrl ->
         WebtoonPage(
             pageUrl = pageUrl,
             pageIndex = index,
             zoomActive = zoomActive,
-            translateMode = translateMode,
-            translatedBlocks = chapterTranslations[index] ?: emptyList(),
-            textScale = textScale,
             cropBorders = cropBorders,
-            flippedBubbles = segmentFlipped,
-            onToggleBubbleFlip = { pi, bi -> onToggleBubbleFlip(segment.chapterId, pi, bi) },
-            onEditBubble = { pi, ot, ct, x, y -> onEditBubble(segment.chapterId, pi, ot, ct, x, y) },
-            translationFailed = index in translateFailedPages,
-            onRetranslate = { onRetranslatePage(index) },
             onPermanentFailure = { onPagePermanentlyFailed(index) },
             referer = referer,
             placeholderAspectRatio = placeholderAspectRatio,
@@ -702,18 +655,7 @@ private fun WebtoonPage(
     pageUrl: String,
     pageIndex: Int,
     zoomActive: Boolean,
-    translateMode: Boolean,
-    translatedBlocks: List<TranslatedBlock>,
-    textScale: Float,
     cropBorders: Boolean = false,
-    flippedBubbles: Set<String> = emptySet(),
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
-    /** true = překlad stránky SELHAL (OCR error / provider nedal výsledek) - retry chip
-     *  (viz ReaderViewModel.translateFailedPages); bez něj byla chyba k nerozeznání od
-     *  legitimní "stránky bez textu" (hlášená str. 13 Vagabond ch7). */
-    translationFailed: Boolean = false,
-    onRetranslate: () -> Unit = {},
     /** Stránka definitivně selhala (image retry vyčerpány / plan timeout / mrtvý řez) -
      *  volající zkusí donor splice z jiného zdroje. */
     onPermanentFailure: () -> Unit = {},
@@ -722,11 +664,7 @@ private fun WebtoonPage(
     onPageAspectMeasured: (Float) -> Unit = {},
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
-    // `size` z onSizeChanged se nastaví, jakmile Compose obrázek ZALOŽÍ (i během
-    // Loading/Error stavu Coilu) - samo o sobě tedy neříká nic o tom, jestli je stránka
-    // vůbec vidět. imageLoaded sleduje AsyncImagePainter.State.Success (viz ReaderImage.kt),
-    // bez něj bublina plavala nad bílým/rozbitým místem, když se stránka nestihla/nešla
-    // načíst (viz shouldShowTranslationOverlay).
+    // `size` z onSizeChanged se nastaví, jakmile Compose obrázek ZALOŽÍ.
     var imageLoaded by remember(pageUrl) { mutableStateOf(false) }
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -880,38 +818,6 @@ private fun WebtoonPage(
             Box(modifier = Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
                 ReaderPageLoadingIndicator()
             }
-        }
-        // ContentScale.FillWidth nemá letterbox - vykreslený obrázek VŽDY přesně
-        // odpovídá naměřenému `size` (žádné mezery po stranách/nahoře/dole na rozdíl
-        // od MangaReaderu, kde se imageRect počítá přes imageDisplayRect), takže stačí
-        // holý obdélník (0,0)..(šířka,výška) a stejný sdílený BubbleOverlayLayer jako
-        // v MangaReaderu (ReaderPager.kt) - viz TranslationLayer.kt. Pro řezanou stránku
-        // je `size` rozměr celého sloupce řezů = rozměr původní stránky.
-        if (translateMode && size != IntSize.Zero &&
-            shouldShowTranslationOverlay(hasBlocks = translatedBlocks.isNotEmpty(), imageLoaded = imageLoaded)
-        ) {
-            val imageRect = remember(size) {
-                with(density) { Rect(0f, 0f, size.width.toDp().value, size.height.toDp().value) }
-            }
-            BubbleOverlayLayer(
-                blocks = translatedBlocks,
-                imageRect = imageRect,
-                textScale = textScale,
-                pageIndex = pageIndex,
-                pageUrl = pageUrl,
-                cropBorders = cropBorders,
-                flippedBubbles = flippedBubbles,
-                onToggleFlip = onToggleBubbleFlip,
-                onEditBubble = onEditBubble,
-            )
-        }
-        if (translateMode && translationFailed) {
-            TranslationFailedChip(
-                onRetry = onRetranslate,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp),
-            )
         }
     }
 }

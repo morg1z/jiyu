@@ -139,7 +139,7 @@
     <string name="settings_sources_catalog_button">Katalog zdrojů (%1$d)</string>
     <string name="settings_sources_custom_css_button">Vlastní CSS pro web zdroje</string>
     <string name="settings_sources_mangadex_lang_title">MangaDex – jazyk kapitol</string>
-    <string name="settings_sources_mangadex_lang_desc">Ve kterém jazyce MangaDex vypisuje přeložené kapitoly. Nesouvisí se zdrojovým jazykem OCR překladu.</string>
+    <string name="settings_sources_mangadex_lang_desc">Jazyk kapitol zobrazovaných v MangaDexu.</string>
     <string name="settings_sources_adult_section_title">Zdroje 18+</string>
     <string name="settings_sources_adult_toggle_title">Zobrazovat adult zdroje</string>
     <string name="settings_sources_adult_toggle_desc">Vypnutím zmizí zdroje s 18+ obsahem z Procházet a hledání (už přidaná manga z nich zůstane čitelná)</string>
@@ -206,9 +206,9 @@
     <string name="settings_reader_page_curl_title">Použití 3D efektu při otáčení stránek</string>
     <string name="settings_reader_page_curl_desc">Stránka se otočí ohybovou animací jako u knihy místo plynulého scrollu/swipu. Platí pro light novel čtečku i pro manga/manhwa čtení po stránkách (ne pro webtoon plynulý scroll)</string>
     <string name="settings_reader_preload_novel_title">Přednačítat překlad další kapitoly (light novel)</string>
-    <string name="settings_reader_preload_novel_desc">Po přeložení aktuální kapitoly se na pozadí přeloží i další, aby byla hned připravená</string>
+    <string name="settings_reader_preload_novel_desc">Při čtení novely se stránky další kapitoly stahují na pozadí, aby se otevřela rychleji.</string>
     <string name="settings_reader_preload_manga_title">Přednačítat překlad další kapitoly (manga/manhwa/manhua)</string>
-    <string name="settings_reader_preload_manga_desc">Po přeložení aktuální kapitoly se na pozadí stáhne a přeloží i další — stojí to víc dat a baterie než u light novel</string>
+    <string name="settings_reader_preload_manga_desc">Při čtení mangy se stránky další kapitoly stahují na pozadí. Spotřebuje to víc dat a baterie než přednačítání novel.</string>
     <string name="settings_reader_preload_manga_wifi_title">Jen na WiFi</string>
     <string name="settings_reader_preload_manga_wifi_desc">Vypni, pokud chceš přednačítání i na mobilních datech</string>
     <string name="settings_reader_prefetch_pages_wifi_title">Předstahovat stránky jen na WiFi</string>
@@ -230,16 +230,6 @@
     <string name="settings_reader_theme_dark_default">Tmavé (výchozí)</string>
     <string name="settings_reader_theme_sepia">Sépia</string>
     <string name="settings_reader_theme_paper">Papír</string>
-    <string name="settings_reader_translate_section_title">Překlad</string>
-    <string name="settings_reader_custom_font_title">Vlastní font</string>
-    <string name="settings_reader_custom_font_desc">Nahraj vlastní .ttf/.otf soubor přes přímý odkaz (https) - nahradí vestavěný komiksový font ve všech bublinách.</string>
-    <string name="settings_reader_custom_font_placeholder">https://…/font.ttf</string>
-    <string name="settings_reader_custom_font_apply">Stáhnout a použít</string>
-    <string name="settings_reader_custom_font_clear">Zrušit vlastní font</string>
-    <string name="settings_reader_custom_font_loading">Stahuji a ověřuji…</string>
-    <string name="settings_reader_custom_font_success">Font úspěšně nastaven.</string>
-    <string name="settings_reader_custom_font_error">Nepodařilo se stáhnout font: %1$s</string>
-    <string name="settings_reader_custom_font_active">Aktivní font: %1$s</string>
     <string name="settings_reader_byok_title">Vlastní AI klíč (BYOK)</string>
     <string name="settings_reader_byok_desc">Volitelná záloha PŘED offline překladem, pro případ, že appce dojde sdílená bezplatná kvóta. Vlastní placený/self-hosted endpoint, kompatibilní s OpenAI chat-completions API. Nikdy není výchozí ani povinné.</string>
     <string name="settings_reader_byok_enable">Použít vlastní endpoint</string>
@@ -253,7 +243,6 @@
     <string name="settings_reader_byok_clear_key">Smazat klíč</string>
 
     <!-- Settings: Uložiště -->
-    <string name="settings_storage_translation_cache_title">Cache překladů</string>
     <string name="settings_storage_clear_cache_button">Vymazat cache</string>
     <string name="settings_storage_image_cache_title">Cache obrázků</string>
     <string name="settings_storage_disk_cache_size">Disk cache: %1$s</string>
@@ -695,16 +684,6 @@
     <string name="detail_info_add_tag">Přidat tag</string>
     <string name="detail_info_new_tag_placeholder">Nový tag…</string>
     <string name="detail_info_no_tags">Žádné tagy</string>
-    <string name="detail_info_section_glossary">SLOVNÍK PŘEKLADU</string>
-    <string name="detail_info_add_glossary_entry">Přidat pojem</string>
-    <string name="detail_info_glossary_hint">Jména, techniky a přezdívky se budou vždy překládat takhle, napříč všemi kapitolami.</string>
-    <string name="detail_info_glossary_source_placeholder">Originál (Sung Jin-woo)</string>
-    <string name="detail_info_glossary_target_placeholder">Překlad (Sung Jin-woo)</string>
-    <string name="detail_info_add_to_glossary">Přidat do slovníku (%1$s)</string>
-    <string name="detail_info_no_glossary">Žádné pojmy ve slovníku</string>
-    <string name="detail_info_section_translation_context">KONTEXT PRO PŘEKLADAČ</string>
-    <string name="detail_info_translation_context_hint">Tenhle text appka posílá AI při každém překladu - věci, které si sama domyslet nemůže.</string>
-    <string name="detail_info_translation_context_placeholder">Např. "hlavní hrdina je ve skutečnosti žena v přestrojení"…</string>
     <string name="detail_info_section_notes">POZNÁMKY</string>
     <string name="detail_info_note_placeholder">Přidej poznámku k tomuto mangu…</string>
     <string name="detail_info_section_downloads">STAHOVÁNÍ</string>
@@ -802,13 +781,9 @@
     <string name="reader_share_page_chooser">Sdílet stránku</string>
     <string name="reader_incognito_badge">INKOGNITO</string>
     <string name="reader_chapter_load_failed">Kapitolu se nepodařilo načíst.</string>
-    <string name="reader_translate_chapter_desc">Překlad kapitoly</string>
-    <string name="reader_glossary_button">Slovník</string>
     <string name="reader_comments_button">Komentáře</string>
     <string name="reader_comments_empty">Tahle kapitola zatím nemá komentáře</string>
     <string name="reader_original_toggle">Originál</string>
-    <string name="reader_translate_toggle">Přeložit</string>
-    <string name="reader_translation_word">Překlad</string>
     <string name="reader_line_spacing_label">Řádkování: %1$sx</string>
     <string name="reader_font_size_label">Velikost: %1$dsp</string>
     <string name="reader_font_decrease">A-</string>
@@ -840,32 +815,14 @@
     <string name="reader_chapters_sheet_title">Kapitoly (%1$d)</string>
     <string name="reader_incognito_off_desc">Vypnout inkognito</string>
     <string name="reader_incognito_on_desc">Inkognito</string>
-    <string name="reader_stop_translation_desc">Zastavit překlad</string>
-    <string name="reader_hide_translation_desc">Skrýt překlad</string>
-    <string name="reader_translate_chapter_action_desc">Přeložit kapitolu</string>
     <string name="reader_prev_chapter_desc">Předchozí kapitola</string>
     <string name="reader_next_chapter_desc">Další kapitola</string>
     <string name="reader_brightness_desc">Jas</string>
     <string name="reader_home_desc">Domů (Knihovna)</string>
-    <string name="reader_translate_settings_desc">Nastavení překladu</string>
-    <string name="reader_translation_label">Překlad:</string>
     <string name="reader_orientation_label">Orientace:</string>
     <string name="reader_orientation_auto">Auto</string>
     <string name="reader_orientation_portrait">↕ Portrét</string>
     <string name="reader_orientation_landscape">↔ Krajina</string>
-    <string name="reader_translate_all_progress">Překlad všech… %1$d/%2$d</string>
-    <string name="reader_translate_ocr_progress">Rozpoznávám text… %1$d/%2$d</string>
-    <string name="reader_translate_all_button">Přeložit vše</string>
-    <string name="reader_translating_progress">Překládám… %1$d/%2$d</string>
-    <string name="reader_translate_page_failed_retry">Překlad selhal – zkusit znovu</string>
-    <string name="reader_glossary_title">Slovník překladu</string>
-    <string name="reader_glossary_desc">Jména, techniky a přezdívky se přeloží vždy stejně napříč všemi kapitolami.</string>
-    <string name="reader_glossary_translation_placeholder">Překlad</string>
-    <string name="reader_glossary_add_button">Přidat (%1$s)</string>
-    <string name="reader_glossary_empty">Zatím žádné pojmy ve slovníku.</string>
-    <string name="reader_glossary_protect_label">Nesklonovat (přesně)</string>
-    <string name="reader_glossary_protect_on_description">Pojem je chráněný před ohýbáním - klepnutím zruší</string>
-    <string name="reader_glossary_protect_off_description">Pojem se může skloňovat - klepnutím ochrání přesné znění</string>
     <string name="reader_share_link">Sdílet odkaz</string>
     <string name="reader_save_to_gallery">Uložit do galerie</string>
     <string name="reader_save_success">Stránka uložena do galerie</string>
@@ -873,13 +830,7 @@
     <string name="reader_page_content_desc">Stránka %1$d</string>
     <string name="reader_page_curl_progress">Stránka %1$d z %2$d · %3$d%%</string>
     <string name="reader_page_load_failed">Stránka se nenačetla</string>
-    <string name="reader_error_missing_supabase_url">Chybí SUPABASE_URL v local.properties - překlad nemá kam volat</string>
-    <string name="reader_error_translation_failed">Překlad kapitoly selhal, zkus to znovu</string>
-    <string name="reader_error_rate_limited">Denní limit AI překladů vyčerpán, zkus to prosím později</string>
-    <string name="reader_translation_degraded">Omezená kvalita překladu (vyčerpaná kvóta hlavního modelu)</string>
-    <string name="reader_error_language_unsupported_offline">Tento cílový jazyk offline režim (bez nastaveného API klíče) nepodporuje - zkus jiný jazyk nebo nastav klíč v Nastavení</string>
     <string name="reader_fallback_source_notice">Tato kapitola byla dotažena z jiného zdroje, protože původní verze byla neúplná.</string>
-    <string name="reader_on_device_warning">Není nastaven žádný cloudový klíč — zobrazená verze je hrubý místní náhled.</string>
 
     <!-- Procházet -->
     <string name="browse_title">Procházet</string>
@@ -909,7 +860,6 @@
     <string name="settings_report_button">Nahlásit problém</string>
     <string name="settings_report_title">Nahlásit problém</string>
     <string name="settings_report_problem_crash">Appka padá / zamrzá</string>
-    <string name="settings_report_problem_translation">Překlad nefunguje</string>
     <string name="settings_report_problem_download">Stahování nefunguje</string>
     <string name="settings_report_problem_other">Jiný problém</string>
     <string name="browse_source_type_manga">Manga</string>
@@ -1278,7 +1228,6 @@
     <string name="onb_privacy_birthdate">Datum narození</string>
     <string name="onb_privacy_birthdate_hint">Ťukni a vyber — odemyká zdroje pro dospělé</string>
     <string name="onb_privacy_data_title">Co odchází z telefonu</string>
-    <string name="onb_privacy_data_translation">Text z bublin jde na překladový server a odtud na Gemini, Groq nebo OpenRouter.</string>
     <string name="onb_privacy_data_account">E-mail, jen když se přihlásíš.</string>
     <string name="onb_privacy_data_sync">Knihovna a historie čtení, jen když je zapnutá synchronizace.</string>
     <string name="onb_privacy_crash_title">Posílat hlášení pádů</string>
@@ -1291,17 +1240,6 @@
     <string name="settings_privacy_crash_desc">Anonymní hlášení o pádech appky.</string>
 
     <!-- Rucni oprava prekladu bubliny -->
-    <string name="reader_edit_bubble_title">Upravit překlad</string>
-    <string name="reader_edit_bubble_label">Český text</string>
-    <string name="reader_edit_bubble_hint">Prázdné pole vrátí strojový překlad.</string>
-    <string name="reader_retranslate_page">Přeložit celou stránku znovu</string>
-    <string name="reader_retranslate_novel_chapter">Přeložit kapitolu znovu</string>
-    <string name="reader_bubble_position_label">Pozice bubliny (přetáhni tečku)</string>
-    <string name="reader_bubble_position_reset">Zpět na výchozí</string>
-    <string name="detail_translate_next_n">Přeložit dopředu…</string>
-    <string name="detail_translate_next_n_title">Kolik kapitol přeložit?</string>
-    <string name="translate_worker_notification_title">Překlad – %1$s</string>
-    <string name="translate_worker_notification_chapter">%1$s</string>
     <string name="notification_channel_chapters_name">Nové kapitoly</string>
     <string name="notification_channel_chapters_desc">Upozornění na nové kapitoly v knihovně</string>
     <string name="notification_channel_downloads_name">Stahování kapitol</string>

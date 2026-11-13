@@ -45,29 +45,17 @@ import com.haise.jiyu.ui.theme.TextPrimary
 import com.haise.jiyu.ui.theme.TextSecondary
 import com.haise.jiyu.ui.theme.screenGradient
 
-private val TRANSLATE_LANGUAGES = listOf(
-    "Czech"   to "Čeština",
-    "Slovak"  to "Slovenčina",
-    "English" to "English",
-    "Polish"  to "Polski",
-    "German"  to "Deutsch",
-    "Spanish" to "Español",
-    "French"  to "Français",
-)
-
 @Composable
 fun ReaderSettingsScreen(
     onBack: () -> Unit,
     onOpenTapZones: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val language           by viewModel.targetLanguage.collectAsStateWithLifecycle()
     val direction          by viewModel.readingDirection.collectAsStateWithLifecycle()
     val readingMode        by viewModel.readingMode.collectAsStateWithLifecycle()
     val tapZonesEnabled    by viewModel.tapZonesEnabled.collectAsStateWithLifecycle()
     val tapZoneGrid        by viewModel.tapZoneGrid.collectAsStateWithLifecycle()
     val webtoonScrollSpeed by viewModel.webtoonScrollSpeed.collectAsStateWithLifecycle()
-    val readerTextScale    by viewModel.readerTextScale.collectAsStateWithLifecycle()
     val doublePageSpread   by viewModel.doublePageSpread.collectAsStateWithLifecycle()
     val fullscreenEnabled  by viewModel.fullscreenEnabled.collectAsStateWithLifecycle()
     val readerTheme        by viewModel.readerTheme.collectAsStateWithLifecycle()
@@ -76,25 +64,12 @@ fun ReaderSettingsScreen(
     val infiniteScrollEnabled by viewModel.infiniteScrollEnabled.collectAsStateWithLifecycle()
     val pageCurlEnabled    by viewModel.pageCurlEnabled.collectAsStateWithLifecycle()
     val curlStyle          by viewModel.curlStyle.collectAsStateWithLifecycle()
-    val preloadNextNovelChapter by viewModel.preloadNextNovelChapter.collectAsStateWithLifecycle()
-    val preloadNextChapterManga by viewModel.preloadNextChapterManga.collectAsStateWithLifecycle()
-    val preloadNextChapterWifiOnly by viewModel.preloadNextChapterWifiOnly.collectAsStateWithLifecycle()
     val prefetchPagesWifiOnly by viewModel.prefetchPagesWifiOnly.collectAsStateWithLifecycle()
     val cropBorders        by viewModel.cropBorders.collectAsStateWithLifecycle()
     val pageScale          by viewModel.pageScale.collectAsStateWithLifecycle()
     val keepScreenOn       by viewModel.keepScreenOn.collectAsStateWithLifecycle()
     val volumeKeysNav      by viewModel.volumeKeysNav.collectAsStateWithLifecycle()
     val skipReadChapters   by viewModel.skipReadChapters.collectAsStateWithLifecycle()
-    val customFontUrl      by viewModel.customFontUrl.collectAsStateWithLifecycle()
-    val customFontStatus   by viewModel.customFontStatus.collectAsStateWithLifecycle()
-    var customFontDraft by androidx.compose.runtime.saveable.rememberSaveable(customFontUrl) { androidx.compose.runtime.mutableStateOf(customFontUrl) }
-    val byokEnabled        by viewModel.byokEnabled.collectAsStateWithLifecycle()
-    val byokBaseUrl        by viewModel.byokBaseUrl.collectAsStateWithLifecycle()
-    val byokModel          by viewModel.byokModel.collectAsStateWithLifecycle()
-    val byokHasApiKey      by viewModel.byokHasApiKey.collectAsStateWithLifecycle()
-    var byokBaseUrlDraft by androidx.compose.runtime.saveable.rememberSaveable(byokBaseUrl) { androidx.compose.runtime.mutableStateOf(byokBaseUrl) }
-    var byokModelDraft by androidx.compose.runtime.saveable.rememberSaveable(byokModel) { androidx.compose.runtime.mutableStateOf(byokModel) }
-    var byokApiKeyDraft by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Column(
@@ -289,29 +264,6 @@ fun ReaderSettingsScreen(
                 // ── Přednačítání překladu ───────────────────────────────────
                 SettingsSection(title = stringResource(R.string.settings_reader_preload_section_title)) {
                     SettingsToggleRow(
-                        title = stringResource(R.string.settings_reader_preload_novel_title),
-                        description = stringResource(R.string.settings_reader_preload_novel_desc),
-                        checked = preloadNextNovelChapter,
-                        onCheckedChange = { viewModel.setPreloadNextNovelChapter(it) },
-                    )
-
-                    SettingsToggleRow(
-                        title = stringResource(R.string.settings_reader_preload_manga_title),
-                        description = stringResource(R.string.settings_reader_preload_manga_desc),
-                        checked = preloadNextChapterManga,
-                        onCheckedChange = { viewModel.setPreloadNextChapterManga(it) },
-                    )
-
-                    if (preloadNextChapterManga) {
-                        SettingsToggleRow(
-                            title = stringResource(R.string.settings_reader_preload_manga_wifi_title),
-                            description = stringResource(R.string.settings_reader_preload_manga_wifi_desc),
-                            checked = preloadNextChapterWifiOnly,
-                            onCheckedChange = { viewModel.setPreloadNextChapterWifiOnly(it) },
-                        )
-                    }
-
-                    SettingsToggleRow(
                         title = stringResource(R.string.settings_reader_prefetch_pages_wifi_title),
                         description = stringResource(R.string.settings_reader_prefetch_pages_wifi_desc),
                         checked = prefetchPagesWifiOnly,
@@ -332,135 +284,6 @@ fun ReaderSettingsScreen(
                 }
 
                 Spacer(Modifier.height(12.dp))
-
-                SettingsSection(title = stringResource(R.string.settings_reader_translate_section_title)) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        val textScaleDesc = stringResource(R.string.settings_reader_text_scale_desc)
-                        // SET-3: draft behem tahu, persist az pri pusteni - viz scroll speed nahore.
-                        var scaleDraft by remember { mutableStateOf<Float?>(null) }
-                        LaunchedEffect(readerTextScale) { scaleDraft = null }
-                        val shownScale = scaleDraft ?: readerTextScale
-                        Text(stringResource(R.string.settings_reader_text_scale, String.format("%.1f", shownScale)), color = TextPrimary, fontSize = 14.sp)
-                        Slider(
-                            value = shownScale,
-                            onValueChange = { scaleDraft = it },
-                            onValueChangeFinished = { scaleDraft?.let(viewModel::setReaderTextScale) },
-                            valueRange = 0.7f..1.6f,
-                            modifier = Modifier.semantics { contentDescription = textScaleDesc },
-                            colors = SliderDefaults.colors(thumbColor = GlowViolet, activeTrackColor = GlowViolet, inactiveTrackColor = GlowViolet.copy(alpha = 0.2f)),
-                        )
-                    }
-                    TRANSLATE_LANGUAGES.forEach { (value, label) ->
-                        GlassRadioRow(label = label, selected = language == value, onClick = { viewModel.setTargetLanguage(value) })
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingsSection(title = stringResource(R.string.settings_reader_custom_font_title)) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(stringResource(R.string.settings_reader_custom_font_desc), color = TextSecondary, fontSize = 12.sp)
-                        Spacer(Modifier.height(8.dp))
-                        androidx.compose.material3.OutlinedTextField(
-                            value = customFontDraft,
-                            onValueChange = { customFontDraft = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            placeholder = { Text(stringResource(R.string.settings_reader_custom_font_placeholder), color = TextSecondary.copy(alpha = 0.5f)) },
-                            enabled = customFontStatus != com.haise.jiyu.ui.settings.CustomFontStatus.Loading,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Row {
-                            androidx.compose.material3.Button(
-                                onClick = { viewModel.applyCustomFont(customFontDraft) },
-                                enabled = customFontDraft.isNotBlank() && customFontStatus != com.haise.jiyu.ui.settings.CustomFontStatus.Loading,
-                                modifier = Modifier.weight(1f),
-                            ) { Text(stringResource(R.string.settings_reader_custom_font_apply)) }
-                            Spacer(Modifier.width(8.dp))
-                            androidx.compose.material3.OutlinedButton(
-                                onClick = { customFontDraft = ""; viewModel.clearCustomFont() },
-                                enabled = customFontUrl.isNotBlank() && customFontStatus != com.haise.jiyu.ui.settings.CustomFontStatus.Loading,
-                                modifier = Modifier.weight(1f),
-                            ) { Text(stringResource(R.string.settings_reader_custom_font_clear)) }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        when (val status = customFontStatus) {
-                            com.haise.jiyu.ui.settings.CustomFontStatus.Loading -> Text(stringResource(R.string.settings_reader_custom_font_loading), color = TextSecondary, fontSize = 12.sp)
-                            com.haise.jiyu.ui.settings.CustomFontStatus.Success -> Text(stringResource(R.string.settings_reader_custom_font_success), color = GlowViolet, fontSize = 12.sp)
-                            is com.haise.jiyu.ui.settings.CustomFontStatus.Error -> Text(stringResource(R.string.settings_reader_custom_font_error, status.message), color = Color(0xFFEF5350), fontSize = 12.sp)
-                            com.haise.jiyu.ui.settings.CustomFontStatus.Idle -> if (customFontUrl.isNotBlank()) {
-                                Text(stringResource(R.string.settings_reader_custom_font_active, customFontUrl), color = TextSecondary, fontSize = 12.sp, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingsSection(title = stringResource(R.string.settings_reader_byok_title)) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(stringResource(R.string.settings_reader_byok_desc), color = TextSecondary, fontSize = 12.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { viewModel.setByokEnabled(!byokEnabled) },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(stringResource(R.string.settings_reader_byok_enable), color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            androidx.compose.material3.Switch(checked = byokEnabled, onCheckedChange = { viewModel.setByokEnabled(it) })
-                        }
-                        if (byokEnabled) {
-                            Spacer(Modifier.height(8.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = byokBaseUrlDraft,
-                                onValueChange = { byokBaseUrlDraft = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                label = { Text(stringResource(R.string.settings_reader_byok_base_url_label)) },
-                                placeholder = { Text(stringResource(R.string.settings_reader_byok_base_url_placeholder), color = TextSecondary.copy(alpha = 0.5f)) },
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = byokModelDraft,
-                                onValueChange = { byokModelDraft = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                label = { Text(stringResource(R.string.settings_reader_byok_model_label)) },
-                                placeholder = { Text(stringResource(R.string.settings_reader_byok_model_placeholder), color = TextSecondary.copy(alpha = 0.5f)) },
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = byokApiKeyDraft,
-                                onValueChange = { byokApiKeyDraft = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                label = { Text(stringResource(R.string.settings_reader_byok_api_key_label)) },
-                                placeholder = {
-                                    Text(
-                                        stringResource(if (byokHasApiKey) R.string.settings_reader_byok_api_key_saved_placeholder else R.string.settings_reader_byok_api_key_placeholder),
-                                        color = TextSecondary.copy(alpha = 0.5f),
-                                    )
-                                },
-                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row {
-                                androidx.compose.material3.Button(
-                                    onClick = {
-                                        viewModel.saveByokConfig(byokBaseUrlDraft, byokModelDraft, byokApiKeyDraft)
-                                        byokApiKeyDraft = ""
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(stringResource(R.string.common_save)) }
-                                Spacer(Modifier.width(8.dp))
-                                androidx.compose.material3.OutlinedButton(
-                                    onClick = { viewModel.clearByokApiKey() },
-                                    enabled = byokHasApiKey,
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(stringResource(R.string.settings_reader_byok_clear_key)) }
-                            }
-                        }
-                    }
-                }
 
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 Spacer(Modifier.height(40.dp + navBottom))

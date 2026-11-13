@@ -227,14 +227,12 @@ fun AboutSettingsScreen(
     if (showReportDialog) {
         val chooserTitle = stringResource(R.string.browse_report_chooser_title)
         val problemCrashLabel = stringResource(R.string.settings_report_problem_crash)
-        val problemTranslationLabel = stringResource(R.string.settings_report_problem_translation)
         val problemDownloadLabel = stringResource(R.string.settings_report_problem_download)
         val problemOtherLabel = stringResource(R.string.settings_report_problem_other)
         com.haise.jiyu.ui.components.ReportDialog(
             title = stringResource(R.string.settings_report_title),
             problems = listOf(
                 "crash" to problemCrashLabel,
-                "translation" to problemTranslationLabel,
                 "download" to problemDownloadLabel,
                 com.haise.jiyu.ui.components.REPORT_PROBLEM_OTHER_KEY to problemOtherLabel,
             ),
@@ -242,7 +240,6 @@ fun AboutSettingsScreen(
             onSend = { problemKey, details ->
                 val problemLabel = when (problemKey) {
                     "crash" -> problemCrashLabel
-                    "translation" -> problemTranslationLabel
                     "download" -> problemDownloadLabel
                     else -> problemOtherLabel
                 }

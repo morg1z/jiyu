@@ -10,14 +10,11 @@ import com.haise.jiyu.data.db.AppDatabase
 import com.haise.jiyu.data.db.CategoryDao
 import com.haise.jiyu.data.db.ChapterDao
 import com.haise.jiyu.data.db.CustomSourceDao
-import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.SourceResolutionDao
-import com.haise.jiyu.data.db.TranslatedNovelDao
-import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.util.SleepTimerManager
 import dagger.Module
 import dagger.Provides
@@ -66,7 +63,6 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
-import io.github.jan.supabase.gotrue.auth
 
 /**
  * Klient jen pro stahování bajtů obrázků (Coil - covery i stránky kapitol), oddělený od
@@ -81,33 +77,6 @@ import io.github.jan.supabase.gotrue.auth
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class ImageHttpClient
-
-/**
- * Klient pro volitelný "bring your own key" vlastní LLM endpoint (viz [com.haise.jiyu.translate.ByokTranslateClient],
- * item 14 v plánu) - uživatelem zadaná URL, klidně lokální síť/self-hosted server (Ollama,
- * LM Studio...), ne veřejné CDN za Cloudflare. Proto BEZ [CloudflareInterceptor]/vlastního
- * DNS (mohly by rozbít resolving lokální/privátní adresy) a BEZ [RetryInterceptor] (opakování
- * requestu na PLACENÉ uživatelovo API při network chybě by ho mohlo zbytečně vyúčtovat
- * dvakrát) - jen delší read timeout, protože lokální/pomalejší modely můžou generovat desítky
- * sekund.
- */
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class LlmHttpClient
-
-/**
- * Klient pro překladový proxy (Supabase edge function translate-proxy - viz GroqTranslateClient a
- * GeminiTranslateClient). Sdílený výchozí klient se pro něj nehodil hned ve třech věcech (audit nálezy
- * JIYU-NET-2/NET-3): (1) jeho [RateLimitInterceptor] házel při 429 SourceRateLimitedException dřív, než
- * odpověď došla ke kódu klientů, takže jejich větev "kvóta vyčerpána" (markAllUnavailable +
- * RateLimitedException) byla mrtvá; (2) [RetryInterceptor] opakoval každý IOException 3× bez prodlevy
- * uvnitř klientských MAX_ATTEMPTS = 2, takže z jednoho překladu bylo až 6 POSTů a proxy dál generovala
- * pro každý opuštěný pokus a pálila sdílenou kvótu; (3) 30s read timeout je na odpověď LLM krátký.
- * Proto tady BEZ Retry/RateLimit/Throttle a s delším timeoutem; opakování řeší jen klient, jednou a s prodlevou.
- */
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class TranslateProxyHttpClient
 
 /**
  * Zapnutí DNS-over-HTTPS (výchozí zapnuto) - čtou ho klienti na vlákně OkHttp, proto
@@ -498,55 +467,6 @@ object AppModule {
         .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 10 })
         .build()
 
-    /**
-     * Proxy vyzaduje JWT PRIHLASENEHO uzivatele (viz translate-proxy
-     * `isAuthenticatedUserJwt` - anon klic odmitne 401). Prepsi "Bearer anon"
-     * z Requestu za access token aktivni session; bez session zustava anon a
-     * proxy odpovi auth_required (klient dopadne jako provider-down chyba).
-     */
-    private class TranslateAuthInterceptor(
-        private val supabase: io.github.jan.supabase.SupabaseClient,
-    ) : Interceptor {
-        override fun intercept(chain: Interceptor.Chain): Response {
-            val token = supabase.auth.currentSessionOrNull()?.accessToken ?: return chain.proceed(chain.request())
-            return chain.proceed(
-                chain.request().newBuilder().header("Authorization", "Bearer $token").build(),
-            )
-        }
-    }
-
-    @Provides
-    @Singleton
-    @TranslateProxyHttpClient
-    fun provideTranslateProxyHttpClient(
-        networkMonitor: NetworkMonitor,
-        dohConfig: DnsOverHttpsConfig,
-        supabase: io.github.jan.supabase.SupabaseClient,
-    ): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .callTimeout(150, TimeUnit.SECONDS)
-        .dns(ToggleableDns(dohConfig))
-        .connectionSpecs(listOf(chromeLikeConnectionSpec, ConnectionSpec.COMPATIBLE_TLS))
-        // Offline = selhat hned, ne až po 30s connect timeoutu - překlad bez sítě stejně
-        // nemá šanci a čekání jen zdržuje fallback na další provider.
-        .addInterceptor(NoNetworkInterceptor { networkMonitor.isOnline })
-        .addInterceptor(TranslateAuthInterceptor(supabase))
-        .build()
-
-    @Provides
-    @Singleton
-    @LlmHttpClient
-    fun provideLlmHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        // Celkový strop jednoho volání: readTimeout hlídá jen ticho MEZI bajty - lokální
-        // model streamující "po kapkách" by bez něj visel neomezeně. NoNetworkInterceptor
-        // sem záměrně nepatří - BYOK endpoint bývá na LAN, kde "bez internetu" neznamená
-        // nedostupný server.
-        .callTimeout(180, TimeUnit.SECONDS)
-        .build()
-
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
@@ -572,10 +492,6 @@ object AppModule {
 
     @Provides fun provideMangaDao(db: AppDatabase): MangaDao = db.mangaDao()
     @Provides fun provideChapterDao(db: AppDatabase): ChapterDao = db.chapterDao()
-    @Provides fun provideTranslatedPageDao(db: AppDatabase): TranslatedPageDao = db.translatedPageDao()
-    @Provides fun provideTranslatedNovelDao(db: AppDatabase): TranslatedNovelDao = db.translatedNovelDao()
-    @Provides fun provideGlossaryDao(db: AppDatabase): GlossaryDao = db.glossaryDao()
-    @Provides fun provideManualTranslationDao(db: AppDatabase): com.haise.jiyu.data.db.ManualTranslationDao = db.manualTranslationDao()
     @Provides fun provideCategoryDao(db: AppDatabase): CategoryDao = db.categoryDao()
     @Provides fun provideCustomSourceDao(db: AppDatabase): CustomSourceDao = db.customSourceDao()
     @Provides fun provideReadHistoryDao(db: AppDatabase): ReadHistoryDao = db.readHistoryDao()

@@ -14,8 +14,6 @@ import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
 import com.haise.jiyu.settings.SettingsRepository
-import com.haise.jiyu.translate.GlossaryRepository
-import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.util.NetworkMonitor
 import com.haise.jiyu.util.SleepTimerManager
 import io.mockk.coEvery
@@ -53,7 +51,6 @@ class ReaderViewModelPrependTest {
     private val dispatcher = UnconfinedTestDispatcher()
 
     private lateinit var repository: MangaRepository
-    private lateinit var translateRepository: TranslateRepository
     private lateinit var settings: SettingsRepository
     private lateinit var context: Context
 
@@ -79,7 +76,6 @@ class ReaderViewModelPrependTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         repository = mockk(relaxed = true)
-        translateRepository = mockk(relaxed = true)
         settings = mockk(relaxed = true)
         context = mockk(relaxed = true)
 
@@ -97,11 +93,8 @@ class ReaderViewModelPrependTest {
         coEvery { repository.getChapterPages("src", "/chCur", any()) } returns (0 until 8).map {
             com.haise.jiyu.source.Page(it, "cur$it.jpg", "cur$it.jpg")
         }
-        every { settings.sourceLanguage } returns flowOf("Auto")
-        every { settings.targetLanguage } returns flowOf("Czech")
         every { settings.infiniteScrollEnabled } returns flowOf(true)
         every { context.getString(any()) } returns "chybova-hlaska"
-        coEvery { translateRepository.getCachedPage(any(), any(), any(), any(), any()) } returns null
     }
 
     @After
@@ -111,7 +104,6 @@ class ReaderViewModelPrependTest {
         savedStateHandle = SavedStateHandle(mapOf("chapterId" to "chCur")),
         context = context,
         repository = repository,
-        translateRepository = translateRepository,
         settings = settings,
         historyRepository = mockk<HistoryRepository>(relaxed = true),
         trackerSyncCoordinator = TrackerSyncCoordinator(
@@ -123,11 +115,9 @@ class ReaderViewModelPrependTest {
             comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
             settings = mockk<SettingsRepository>(relaxed = true),
         ),
-        glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
-        translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
             comicKResolver = mockk(relaxed = true),
