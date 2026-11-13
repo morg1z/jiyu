@@ -6,9 +6,7 @@ import android.net.Uri
 import android.util.JsonWriter
 import androidx.room.withTransaction
 import com.haise.jiyu.data.db.AppDatabase
-import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaNoteDao
-import com.haise.jiyu.data.db.ManualTranslationDao
 import com.haise.jiyu.data.db.MangaTagDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.SourceResolutionDao
@@ -16,15 +14,12 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.data.db.entity.GlossaryEntity
-import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.db.entity.SourceResolutionEntity
 import com.haise.jiyu.data.repository.MangaRepository
-import com.haise.jiyu.translate.manualEditId
 import com.haise.jiyu.util.ChapterStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +36,6 @@ class BackupManager @Inject constructor(
     private val mangaNoteDao: MangaNoteDao,
     private val mangaTagDao: MangaTagDao,
     private val readHistoryDao: ReadHistoryDao,
-    private val glossaryDao: GlossaryDao,
-    private val manualTranslationDao: ManualTranslationDao,
     private val sourceResolutionDao: SourceResolutionDao,
     private val db: AppDatabase,
 ) {
@@ -102,8 +95,6 @@ class BackupManager @Inject constructor(
         val notes: List<MangaNoteEntity>,
         val tags: List<MangaTagEntity>,
         val history: List<ReadHistoryEntity>,
-        val glossary: List<GlossaryEntity>,
-        val manualTranslations: List<ManualTranslationEntity>,
         val sourceResolutions: List<SourceResolutionEntity>,
         val categoryIdsByManga: Map<String, List<String>>,
     )
@@ -117,9 +108,6 @@ class BackupManager @Inject constructor(
         val notes         = mangaNoteDao.getAll().filter { it.mangaId in exportedMangaIds }
         val tags          = mangaTagDao.getAll().filter { it.mangaId in exportedMangaIds }
         val history       = readHistoryDao.getAll().filter { it.mangaId in exportedMangaIds }
-        val glossary      = glossaryDao.getAll().filter { it.mangaId in exportedMangaIds }
-        val exportedChapterIds = allChapters.mapTo(HashSet()) { it.id }
-        val manualTranslations = manualTranslationDao.getAll().filter { it.chapterId in exportedChapterIds }
         // Resoluce ComicK titulu patri exportovanym ComicK mangam - resolvedMangaId
         // muze po restore viset na mangy, ktera v knihovne neni (resolved zdroje se do
         // zalohy nedavaji). Resolver na ni bezpecne spadne (getManga -> null -> sweep),
@@ -132,8 +120,8 @@ class BackupManager @Inject constructor(
 
         return BackupData(
             manga = mangaList, categories = categories, chapters = allChapters, customSources = customSources,
-            notes = notes, tags = tags, history = history, glossary = glossary,
-            manualTranslations = manualTranslations, sourceResolutions = sourceResolutions,
+            notes = notes, tags = tags, history = history,
+            sourceResolutions = sourceResolutions,
             categoryIdsByManga = catMappings,
         )
     }
@@ -202,7 +190,6 @@ class BackupManager @Inject constructor(
                 f("followCount",         m.followCount ?: -1)
                 f("rank",                m.rank ?: -1)
                 f("alternateTitles",     m.alternateTitles)
-                f("translationContextNote", m.translationContextNote ?: "")
                 // ComicK vazby - bez nich po restore na jinem zarizeni: comickHid ztrati
                 // tracker sync (jedina trvala vazba na ComicK Library), resolvedMangaId
                 // fast-path zdroje (rescan vsech zdroju pri kazdem otevreni) a
@@ -255,15 +242,6 @@ class BackupManager @Inject constructor(
                 f("tag",     t.tag)
             }
 
-            w.array("glossary", d.glossary) { g ->
-                f("id",             g.id)
-                f("mangaId",        g.mangaId)
-                f("sourceTerm",     g.sourceTerm)
-                f("targetTerm",     g.targetTerm)
-                f("targetLanguage", g.targetLanguage)
-                f("protectExact",   g.protectExact)
-            }
-
             w.array("sourceResolutions", d.sourceResolutions) { r ->
                 f("comickMangaId",       r.comickMangaId)
                 f("resolvedMangaId",     r.resolvedMangaId)
@@ -271,18 +249,6 @@ class BackupManager @Inject constructor(
                 f("comicKLastChapter",   r.comicKLastChapter.toDouble())
                 f("resolvedLastChapter", r.resolvedLastChapter.toDouble())
                 f("resolvedAt",          r.resolvedAt)
-            }
-
-            w.array("manualTranslations", d.manualTranslations) { t ->
-                f("id",           t.id)
-                f("chapterId",    t.chapterId)
-                f("pageIndex",    t.pageIndex)
-                f("targetLanguage", t.targetLanguage)
-                f("originalText", t.originalText)
-                f("text",         t.text)
-                f("updatedAt",    t.updatedAt)
-                t.offsetXDp?.let { f("offsetXDp", it.toDouble()) }
-                t.offsetYDp?.let { f("offsetYDp", it.toDouble()) }
             }
 
             w.array("readHistory", d.history) { h ->
@@ -367,8 +333,6 @@ class BackupManager @Inject constructor(
             if (parsed.notes.isNotEmpty()) mangaNoteDao.upsertAll(parsed.notes)
             if (parsed.tags.isNotEmpty()) mangaTagDao.insertAll(parsed.tags)
             if (parsed.readHistory.isNotEmpty()) readHistoryDao.upsertAll(parsed.readHistory)
-            if (parsed.glossary.isNotEmpty()) glossaryDao.upsertAll(parsed.glossary)
-            if (parsed.manualTranslations.isNotEmpty()) manualTranslationDao.upsertAll(parsed.manualTranslations)
             // Resoluce jen pro mangy, ktere v zaloze/DB skutecne jsou - cizi klic na
             // manga.id sice v source_resolution neni, ale visici resolvedMangaId na
             // nikdy-neexportovanou resolved mangu by matl fast-path (graceful pad na
@@ -464,8 +428,6 @@ internal data class ParsedBackup(
     val tags: List<MangaTagEntity>,
     val readHistory: List<ReadHistoryEntity>,
     val skippedCount: Int = 0,
-    val glossary: List<GlossaryEntity> = emptyList(),
-    val manualTranslations: List<ManualTranslationEntity> = emptyList(),
     val sourceResolutions: List<SourceResolutionEntity> = emptyList(),
 )
 
@@ -568,7 +530,6 @@ internal fun parseBackupJson(json: String): ParsedBackup {
                 followCount             = followCount,
                 rank                    = rank,
                 alternateTitles         = m.optString("alternateTitles", ""),
-                translationContextNote  = m.optString("translationContextNote").ifBlank { null },
                 comickHid               = m.optString("comickHid").ifBlank { null },
                 resolvedMangaId         = m.optString("resolvedMangaId").ifBlank { null },
                 statusUpdatedAt         = m.optLong("statusUpdatedAt", 0L),
@@ -639,18 +600,6 @@ internal fun parseBackupJson(json: String): ParsedBackup {
         )
     }
 
-    val glossaryArr = root.optJSONArray("glossary") ?: JSONArray()
-    val glossary = glossaryArr.mapObjectsOrSkip(skip) { g ->
-        GlossaryEntity(
-            id             = g.getString("id"),
-            mangaId        = g.getString("mangaId"),
-            sourceTerm     = g.getString("sourceTerm"),
-            targetTerm     = g.getString("targetTerm"),
-            targetLanguage = g.getString("targetLanguage"),
-            protectExact   = g.optBoolean("protectExact", false),
-        )
-    }
-
     val resolutionArr = root.optJSONArray("sourceResolutions") ?: JSONArray()
     val sourceResolutions = resolutionArr.mapObjectsOrSkip(skip) { r ->
         SourceResolutionEntity(
@@ -663,33 +612,9 @@ internal fun parseBackupJson(json: String): ParsedBackup {
         )
     }
 
-    val manualArr = root.optJSONArray("manualTranslations") ?: JSONArray()
-    val manualTranslations = manualArr.mapObjectsOrSkip(skip) { t ->
-        // TR-5: zalohy z verze <44 sloupec nemaji - opravy se osvoji vychozim
-        // cilem appky, stejne jako dela MIGRATION_43_44 pro existujici DB radky.
-        val lang = t.optString("targetLanguage", "").ifEmpty { "Czech" }
-        val orig = t.getString("originalText")
-        ManualTranslationEntity(
-            // id se NEcte ze zalohy, ale prepocita z poli - stary zaznam ma id bez
-            // jazyka, takze by ho delete podle manualEditId v novem formatu minul
-            // a oprava by sla aplikovat, ale ne odstranit.
-            id           = manualEditId(t.getString("chapterId"), t.getInt("pageIndex"), lang, orig),
-            chapterId    = t.getString("chapterId"),
-            pageIndex    = t.getInt("pageIndex"),
-            targetLanguage = lang,
-            originalText = orig,
-            text         = t.getString("text"),
-            updatedAt    = t.optLong("updatedAt", 0L),
-            offsetXDp    = if (t.has("offsetXDp")) t.getDouble("offsetXDp").toFloat() else null,
-            offsetYDp    = if (t.has("offsetYDp")) t.getDouble("offsetYDp").toFloat() else null,
-        )
-    }
-
     return ParsedBackup(
         categories, customSources, mangaList, catAssignments, chapters, notes, tags, history,
         skippedCount = skipped,
-        glossary = glossary,
-        manualTranslations = manualTranslations,
         sourceResolutions = sourceResolutions,
     )
 }

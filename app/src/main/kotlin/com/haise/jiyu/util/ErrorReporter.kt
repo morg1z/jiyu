@@ -87,6 +87,6 @@ object ErrorReporter {
 
 /**
  * Zkratka pro [ErrorReporter.report] použitelná přímo v `catch` bloku:
- * `catch (e: Exception) { e.report("translate:chapter") ; null }`
+ * `catch (e: Exception) { e.report("download:chapter") ; null }`
  */
 fun Throwable.report(context: String) = ErrorReporter.report(context, this)

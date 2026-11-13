@@ -1,13 +1,11 @@
 package com.haise.jiyu.ui.reader
 
-import com.haise.jiyu.translate.GlossaryRepository
 import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
 import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.haise.jiyu.anilist.AniListRepository
-import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.ReadHistoryDao
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
@@ -18,7 +16,6 @@ import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import com.haise.jiyu.settings.SettingsRepository
-import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.util.NetworkMonitor
 import com.haise.jiyu.util.SleepTimerManager
 import io.mockk.coEvery
@@ -86,8 +83,6 @@ class ReaderViewModelIncognitoTest {
             com.haise.jiyu.source.Page(0, "p1.jpg", "p1.jpg"),
             com.haise.jiyu.source.Page(1, "p2.jpg", "p2.jpg"),
         )
-        every { settings.sourceLanguage } returns flowOf("Auto")
-        every { settings.targetLanguage } returns flowOf("Czech")
         // Musí se nastavit: `maybeAutoDelete` na tenhle flow volá `.first()` a relaxed mock
         // vrací PRÁZDNÝ flow, takže by to vyhodilo NoSuchElementException uvnitř korutiny,
         // kterou nikdo nečte. Taková výjimka test neshodí - vyplave až o pár tříd dál jako
@@ -122,7 +117,6 @@ class ReaderViewModelIncognitoTest {
         ),
         context = context,
         repository = repository,
-        translateRepository = mockk<TranslateRepository>(relaxed = true),
         settings = settings,
         historyRepository = historyRepository,
         trackerSyncCoordinator = TrackerSyncCoordinator(
@@ -134,11 +128,9 @@ class ReaderViewModelIncognitoTest {
             comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
             settings = mockk<SettingsRepository>(relaxed = true),
         ),
-        glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
-        translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
             comicKResolver = mockk(relaxed = true),

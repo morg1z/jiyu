@@ -10,16 +10,12 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.db.entity.MangaCategoryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
 import com.haise.jiyu.data.db.entity.MangaTagEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.db.entity.SourceResolutionEntity
-import com.haise.jiyu.data.db.entity.TranslatedNovelEntity
-import com.haise.jiyu.data.db.entity.ManualTranslationEntity
-import com.haise.jiyu.data.db.entity.TranslatedPageEntity
 
 class Converters {
     @TypeConverter
@@ -34,34 +30,26 @@ class Converters {
     entities = [
         MangaEntity::class,
         ChapterEntity::class,
-        TranslatedPageEntity::class,
         CategoryEntity::class,
         MangaCategoryEntity::class,
         CustomSourceEntity::class,
         ReadHistoryEntity::class,
         MangaNoteEntity::class,
         MangaTagEntity::class,
-        TranslatedNovelEntity::class,
-        GlossaryEntity::class,
-        ManualTranslationEntity::class,
         SourceResolutionEntity::class,
     ],
-    version = 49,
+    version = 50,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mangaDao(): MangaDao
     abstract fun chapterDao(): ChapterDao
-    abstract fun translatedPageDao(): TranslatedPageDao
-    abstract fun translatedNovelDao(): TranslatedNovelDao
     abstract fun categoryDao(): CategoryDao
     abstract fun customSourceDao(): CustomSourceDao
     abstract fun readHistoryDao(): ReadHistoryDao
     abstract fun mangaNoteDao(): MangaNoteDao
     abstract fun mangaTagDao(): MangaTagDao
-    abstract fun glossaryDao(): GlossaryDao
-    abstract fun manualTranslationDao(): ManualTranslationDao
     abstract fun sourceResolutionDao(): SourceResolutionDao
 
     companion object {
@@ -482,6 +470,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_49_50 = object : Migration(49, 50) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `translated_page`")
+                db.execSQL("DROP TABLE IF EXISTS `translated_novel`")
+                db.execSQL("DROP TABLE IF EXISTS `glossary_entry`")
+                db.execSQL("DROP TABLE IF EXISTS `manual_translation`")
+                db.execSQL("ALTER TABLE `manga` DROP COLUMN `translationContextNote`")
+            }
+        }
+
         /**
          * VŠECHNY migrace v pořadí - jediný zdroj pravdy pro [com.haise.jiyu.di.AppModule] i testy. Dřív je
          * AppModule i migrační test vypisovaly každý zvlášť, takže zapomenutá migrace v jednom místě prošla
@@ -534,6 +532,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_46_47,
             MIGRATION_47_48,
             MIGRATION_48_49,
+            MIGRATION_49_50,
         )
     }
 }

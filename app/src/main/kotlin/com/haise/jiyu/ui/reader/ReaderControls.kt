@@ -329,11 +329,6 @@ fun ReaderTopBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderBottomPanel(
-    sourceLanguage: String,
-    targetLanguage: String,
-    onSourceLanguageChange: (String) -> Unit,
-    onTargetLanguageChange: (String) -> Unit,
-    onShowGlossary: () -> Unit,
     onShowComments: () -> Unit = {},
     commentsSupported: Boolean = false,
     pageCount: Int,
@@ -343,16 +338,6 @@ fun ReaderBottomPanel(
     onBrightnessChange: (Float) -> Unit,
     readerOrientation: String,
     onSetReaderOrientation: (String) -> Unit,
-    translateMode: Boolean,
-    isTranslating: Boolean,
-    onToggleTranslate: () -> Unit,
-    batchTranslating: Boolean,
-    batchProgress: TranslationProgress?,
-    showOriginal: Boolean,
-    onToggleShowOriginal: () -> Unit,
-    onTranslateAll: () -> Unit,
-    onCancelBatch: () -> Unit,
-    translationProgress: TranslationProgress?,
     hasPrevChapter: Boolean,
     onNavigatePrev: () -> Unit,
     hasNextChapter: Boolean,
@@ -435,18 +420,11 @@ fun ReaderBottomPanel(
                     modifier = Modifier.size(21.dp),
                 )
             }
-            // Preklad: klik neprepina rovnou, ale otevre sheet s nastavenim jazyku a
-            // vsim souvisejicim (uzivatelsky pozadavek) - "Dalsi moznosti" tlacitko tim
-            // padem odpadlo, tohle je ted jediny vstup do stejneho obsahu.
             IconButton(onClick = { showMore = true }) {
                 Icon(
-                    TablerIcons.Language,
-                    contentDescription = stringResource(R.string.reader_translate_settings_desc),
-                    tint = when {
-                        isTranslating -> Color(0xFFFFB74D)
-                        translateMode -> Color(0xFF4FC3F7)
-                        else          -> liveTint
-                    },
+                    TablerIcons.Settings,
+                    contentDescription = stringResource(R.string.reader_settings_desc),
+                    tint = liveTint,
                     modifier = Modifier.size(21.dp),
                 )
             }
@@ -489,11 +467,6 @@ fun ReaderBottomPanel(
             containerColor = Color(0xFF111B35),
         ) {
             ReaderAdvancedSheetContent(
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                onSourceLanguageChange = onSourceLanguageChange,
-                onTargetLanguageChange = onTargetLanguageChange,
-                onShowGlossary = onShowGlossary,
                 onShowComments = onShowComments,
                 commentsSupported = commentsSupported,
                 pageCount = pageCount,
@@ -501,16 +474,6 @@ fun ReaderBottomPanel(
                 onJumpToPage = onJumpToPage,
                 readerOrientation = readerOrientation,
                 onSetReaderOrientation = onSetReaderOrientation,
-                translateMode = translateMode,
-                isTranslating = isTranslating,
-                onToggleTranslate = onToggleTranslate,
-                batchTranslating = batchTranslating,
-                batchProgress = batchProgress,
-                showOriginal = showOriginal,
-                onToggleShowOriginal = onToggleShowOriginal,
-                onTranslateAll = onTranslateAll,
-                onCancelBatch = onCancelBatch,
-                translationProgress = translationProgress,
                 panelMode = panelMode,
                 onTogglePanelMode = onTogglePanelMode,
                 onSleepTimerClick = onSleepTimerClick,
@@ -528,11 +491,6 @@ fun ReaderBottomPanel(
 
 @Composable
 private fun ReaderAdvancedSheetContent(
-    sourceLanguage: String,
-    targetLanguage: String,
-    onSourceLanguageChange: (String) -> Unit,
-    onTargetLanguageChange: (String) -> Unit,
-    onShowGlossary: () -> Unit,
     onShowComments: () -> Unit = {},
     commentsSupported: Boolean = false,
     pageCount: Int,
@@ -540,16 +498,6 @@ private fun ReaderAdvancedSheetContent(
     onJumpToPage: (Int) -> Unit,
     readerOrientation: String,
     onSetReaderOrientation: (String) -> Unit,
-    translateMode: Boolean,
-    isTranslating: Boolean,
-    onToggleTranslate: () -> Unit,
-    batchTranslating: Boolean,
-    batchProgress: TranslationProgress?,
-    showOriginal: Boolean,
-    onToggleShowOriginal: () -> Unit,
-    onTranslateAll: () -> Unit,
-    onCancelBatch: () -> Unit,
-    translationProgress: TranslationProgress?,
     panelMode: Boolean,
     onTogglePanelMode: () -> Unit,
     onSleepTimerClick: () -> Unit,
@@ -593,118 +541,11 @@ private fun ReaderAdvancedSheetContent(
         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
         Spacer(Modifier.height(8.dp))
 
-        // Preklad zapnuto/vypnuto pro TUTO kapitolu (nezavisle na "Prelozit vse" nize).
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                TablerIcons.Language,
-                contentDescription = null,
-                tint = when {
-                    isTranslating -> Color(0xFFFFB74D)
-                    translateMode -> Color(0xFF4FC3F7)
-                    else          -> Color.White.copy(alpha = 0.7f)
-                },
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = stringResource(
-                    when {
-                        isTranslating -> R.string.reader_stop_translation_desc
-                        translateMode -> R.string.reader_hide_translation_desc
-                        else          -> R.string.reader_translate_chapter_action_desc
-                    },
-                ),
-                color = Color.White,
-                fontSize = 13.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(
-                checked = translateMode,
-                onCheckedChange = { onToggleTranslate() },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFF4FC3F7),
-                    checkedTrackColor = Color(0xFF4FC3F7).copy(alpha = 0.4f),
-                    uncheckedThumbColor = Color.White,
-                    uncheckedTrackColor = Color.White.copy(alpha = 0.2f),
-                ),
-            )
-        }
-
-        // Výběr zdrojového a cílového jazyka překladu
-        var showSourceMenu by remember { mutableStateOf(false) }
-        var showTargetMenu by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Text(stringResource(R.string.reader_translation_label), color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
-            Spacer(Modifier.width(6.dp))
-            Box {
-                Text(
-                    text = sourceLanguage,
-                    color = Color(0xFF4FC3F7),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.White.copy(alpha = 0.1f))
-                        .clickable { showSourceMenu = true }
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-                DropdownMenu(
-                    expanded = showSourceMenu,
-                    onDismissRequest = { showSourceMenu = false },
-                    modifier = Modifier.background(Color(0xFF1A2340)),
-                ) {
-                    LanguageMap.displayNames.forEach { lang ->
-                        DropdownMenuItem(
-                            text = { Text(lang, color = if (lang == sourceLanguage) Color(0xFF4FC3F7) else Color.White, fontSize = 13.sp) },
-                            onClick = { onSourceLanguageChange(lang); showSourceMenu = false },
-                        )
-                    }
-                }
-            }
-            Text(" → ", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
-            Box {
-                Text(
-                    text = targetLanguage,
-                    color = Color(0xFF81C784),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.White.copy(alpha = 0.1f))
-                        .clickable { showTargetMenu = true }
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-                DropdownMenu(
-                    expanded = showTargetMenu,
-                    onDismissRequest = { showTargetMenu = false },
-                    modifier = Modifier.background(Color(0xFF1A2340)),
-                ) {
-                    LanguageMap.displayNames.filter { it != "Auto" }.forEach { lang ->
-                        DropdownMenuItem(
-                            text = { Text(lang, color = if (lang == targetLanguage) Color(0xFF81C784) else Color.White, fontSize = 13.sp) },
-                            onClick = { onTargetLanguageChange(lang); showTargetMenu = false },
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.width(6.dp))
-            Text(
-                stringResource(R.string.reader_glossary_button),
-                color = Color(0xFF8B5CF6),
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
-                    .clickable(onClick = onShowGlossary)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            )
             if (commentsSupported) {
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -781,82 +622,6 @@ private fun ReaderAdvancedSheetContent(
             }
         }
 
-        // Hromadný překlad — tlačítko + progress + přepínač originál/překlad
-        if (translateMode && !batchTranslating) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.reader_translation_word), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Switch(
-                        checked = !showOriginal,
-                        onCheckedChange = { onToggleShowOriginal() },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF4FC3F7),
-                            checkedTrackColor = Color(0xFF4FC3F7).copy(alpha = 0.4f),
-                            uncheckedThumbColor = Color.White,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.2f),
-                        ),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.reader_original_toggle), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                }
-            }
-        }
-
-        if (batchTranslating) {
-            batchProgress?.let { progress ->
-                // OCR fáze má vlastní label - jinak čítač "zamrzl" na X/Y dokud běželo
-                // rozpoznávání zbývajících stránek (live test: ~10 min na 14/24).
-                val labelRes = if (progress.ocrStage) R.string.reader_translate_ocr_progress
-                               else R.string.reader_translate_all_progress
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(labelRes, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    IconButton(onClick = onCancelBatch) {
-                        Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_cancel), tint = Color(0xFFFFB74D), modifier = Modifier.size(18.dp))
-                    }
-                }
-                LinearProgressIndicator(
-                    progress = { if (progress.total > 0) progress.done.toFloat() / progress.total else 0f },
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                    color = Color(0xFFFFB74D),
-                    trackColor = Color.White.copy(alpha = 0.2f),
-                )
-            }
-        } else if (!translateMode) {
-            OutlinedButton(
-                onClick = onTranslateAll,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4FC3F7).copy(alpha = 0.6f)),
-            ) {
-                Icon(TablerIcons.Language, contentDescription = null, tint = Color(0xFF4FC3F7), modifier = Modifier.size(16.dp).padding(end = 4.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.reader_translate_all_button), color = Color(0xFF4FC3F7), fontSize = 13.sp)
-            }
-        }
-
-        // Progress překladu aktuální stránky (pokud aktivní)
-        if (translationProgress != null) {
-            translationProgress.let { progress ->
-                val labelRes = if (progress.ocrStage) R.string.reader_translate_ocr_progress
-                               else R.string.reader_translating_progress
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(labelRes, progress.done, progress.total), color = Color.White, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    if (progress.total > 0) {
-                        Text("${(progress.done * 100f / progress.total).toInt()} %", color = Color(0xFF4FC3F7), style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-                LinearProgressIndicator(
-                    progress = { if (progress.total > 0) progress.done.toFloat() / progress.total else 0f },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    color = Color(0xFF4FC3F7),
-                    trackColor = Color.White.copy(alpha = 0.2f),
-                )
-            }
-        }
     }
 }
 

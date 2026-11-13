@@ -1,6 +1,5 @@
 package com.haise.jiyu.ui.reader
 
-import com.haise.jiyu.translate.GlossaryRepository
 import com.haise.jiyu.data.tracking.TrackerSyncCoordinator
 import com.haise.jiyu.data.repository.HistoryRepository
 import android.content.Context
@@ -15,7 +14,6 @@ import com.haise.jiyu.data.tracking.KitsuRepository
 import com.haise.jiyu.data.tracking.MalRepository
 import com.haise.jiyu.data.tracking.MangaUpdatesRepository
 import com.haise.jiyu.settings.SettingsRepository
-import com.haise.jiyu.translate.TranslateRepository
 import com.haise.jiyu.util.NetworkMonitor
 import com.haise.jiyu.util.SleepTimerManager
 import io.mockk.coEvery
@@ -88,10 +86,7 @@ class ReaderViewModelNavigationTest {
         savedStateHandle = SavedStateHandle(mapOf("chapterId" to chapterId)),
         context = context,
         repository = repository,
-        translateRepository = mockk<TranslateRepository>(relaxed = true),
         settings = mockk<SettingsRepository>(relaxed = true) {
-            every { sourceLanguage } returns flowOf("Auto")
-            every { targetLanguage } returns flowOf("Czech")
         },
         historyRepository = mockk<HistoryRepository>(relaxed = true),
         trackerSyncCoordinator = TrackerSyncCoordinator(
@@ -103,11 +98,9 @@ class ReaderViewModelNavigationTest {
             comickAuthManager = mockk<ComickAuthManager>(relaxed = true),
             settings = mockk<SettingsRepository>(relaxed = true),
         ),
-        glossaryRepository = mockk<GlossaryRepository>(relaxed = true),
         sleepTimerManager = mockk<SleepTimerManager>(relaxed = true),
         networkMonitor = mockk<NetworkMonitor>(relaxed = true),
         errorActionHandler = mockk(relaxed = true),
-        translateQueue = mockk(relaxed = true),
         sourceManager = mockk(relaxed = true),
         pageGapFiller = mockk(relaxed = true),
             comicKResolver = mockk(relaxed = true),

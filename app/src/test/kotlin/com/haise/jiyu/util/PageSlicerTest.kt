@@ -121,7 +121,7 @@ class PageSlicerTest {
 
     @Test
     fun `disk key replaces existing fragment with original suffix`() {
-        // Fragment (#mplus_key apod.) nesmí přežít do disk klíče - konvence PageBitmapLoader.
+        // Fragment (#mplus_key apod.) nesmí přežít do disk klíče - konvence PageImageSource.
         assertEquals("http://h.cz/p.jpg#original", PageSlicer.diskKeyFor("http://h.cz/p.jpg#x=1", proxyEnabled = true))
     }
 

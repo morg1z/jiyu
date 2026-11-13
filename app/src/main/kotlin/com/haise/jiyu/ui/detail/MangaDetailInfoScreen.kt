@@ -124,8 +124,6 @@ fun MangaDetailInfoScreen(
     val autoDownload     by viewModel.autoDownload.collectAsStateWithLifecycle()
     val mangaNote        by viewModel.mangaNote.collectAsStateWithLifecycle()
     val mangaTags        by viewModel.mangaTags.collectAsStateWithLifecycle()
-    val glossary         by viewModel.glossary.collectAsStateWithLifecycle()
-    val defaultTargetLanguage by viewModel.defaultTargetLanguage.collectAsStateWithLifecycle()
     val userRating       by viewModel.userRating.collectAsStateWithLifecycle()
     val excludeFromUpdates  by viewModel.excludeFromUpdates.collectAsStateWithLifecycle()
     val malId               by viewModel.malId.collectAsStateWithLifecycle()
@@ -154,13 +152,8 @@ fun MangaDetailInfoScreen(
     val context             = androidx.compose.ui.platform.LocalContext.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var noteText by remember(mangaNote) { mutableStateOf(mangaNote?.content ?: "") }
-    var contextNoteText by remember(manga) { mutableStateOf(manga?.translationContextNote ?: "") }
     var addTagText by remember { mutableStateOf("") }
     var showAddTagField by remember { mutableStateOf(false) }
-    var showAddGlossaryField by remember { mutableStateOf(false) }
-    var glossarySourceText by remember { mutableStateOf("") }
-    var glossaryTargetText by remember { mutableStateOf("") }
-    var glossaryProtectExact by remember { mutableStateOf(false) }
 
     Scaffold(containerColor = Color.Transparent, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { innerPadding ->
         Box(
@@ -762,170 +755,6 @@ fun MangaDetailInfoScreen(
                                 }
                             } else {
                                 Text(stringResource(R.string.detail_info_no_tags), color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-                            }
-                        }
-                    }
-
-                    // ── Slovník AI překladu ───────────────────────────────────
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = stringResource(R.string.detail_info_section_glossary), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { showAddGlossaryField = !showAddGlossaryField }) {
-                                    Icon(TablerIcons.Plus, contentDescription = stringResource(R.string.detail_info_add_glossary_entry), tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                            Text(
-                                stringResource(R.string.detail_info_glossary_hint),
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(bottom = 6.dp),
-                            )
-                            if (showAddGlossaryField) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        BasicTextField(
-                                            value = glossarySourceText,
-                                            onValueChange = { glossarySourceText = it },
-                                            singleLine = true,
-                                            textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                            decorationBox = { inner ->
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(Color.White.copy(alpha = 0.06f))
-                                                        .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                ) {
-                                                    if (glossarySourceText.isEmpty()) Text(stringResource(R.string.detail_info_glossary_source_placeholder), color = TextSecondary, fontSize = 12.sp)
-                                                    inner()
-                                                }
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text("→", color = TextSecondary, fontSize = 13.sp)
-                                        BasicTextField(
-                                            value = glossaryTargetText,
-                                            onValueChange = { glossaryTargetText = it },
-                                            singleLine = true,
-                                            textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                            decorationBox = { inner ->
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(Color.White.copy(alpha = 0.06f))
-                                                        .border(1.dp, GlowCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                ) {
-                                                    if (glossaryTargetText.isEmpty()) Text(stringResource(R.string.detail_info_glossary_target_placeholder), color = TextSecondary, fontSize = 12.sp)
-                                                    inner()
-                                                }
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                        Checkbox(
-                                            checked = glossaryProtectExact,
-                                            onCheckedChange = { glossaryProtectExact = it },
-                                            modifier = Modifier.size(28.dp),
-                                            colors = CheckboxDefaults.colors(checkedColor = GlowCyan, uncheckedColor = TextSecondary),
-                                        )
-                                        Text(
-                                            stringResource(R.string.reader_glossary_protect_label),
-                                            color = TextSecondary,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.padding(start = 2.dp, end = 8.dp),
-                                        )
-                                        TextButton(onClick = {
-                                            viewModel.addGlossaryEntry(glossarySourceText, glossaryTargetText, defaultTargetLanguage, glossaryProtectExact)
-                                            glossarySourceText = ""
-                                            glossaryTargetText = ""
-                                            glossaryProtectExact = false
-                                            showAddGlossaryField = false
-                                        }) { Text(stringResource(R.string.detail_info_add_to_glossary, defaultTargetLanguage), color = GlowCyan, fontSize = 12.sp) }
-                                    }
-                                }
-                            }
-                            if (glossary.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    glossary.forEach { entry ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color.White.copy(alpha = 0.04f))
-                                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Text(
-                                                "${entry.sourceTerm} → ${entry.targetTerm}",
-                                                color = TextPrimary,
-                                                fontSize = 12.sp,
-                                                modifier = Modifier.weight(1f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(entry.targetLanguage, color = TextSecondary.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(end = 6.dp))
-                                            IconButton(onClick = { viewModel.toggleGlossaryProtectExact(entry) }) {
-                                                Icon(
-                                                    if (entry.protectExact) TablerIcons.Lock else TablerIcons.LockOpen,
-                                                    contentDescription = stringResource(
-                                                        if (entry.protectExact) R.string.reader_glossary_protect_on_description else R.string.reader_glossary_protect_off_description,
-                                                    ),
-                                                    tint = if (entry.protectExact) GlowCyan else TextSecondary,
-                                                    modifier = Modifier.size(13.dp),
-                                                )
-                                            }
-                                            IconButton(onClick = { viewModel.removeGlossaryEntry(entry) }) {
-                                                Icon(TablerIcons.X, contentDescription = stringResource(R.string.common_remove), tint = TextSecondary, modifier = Modifier.size(13.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            } else if (!showAddGlossaryField) {
-                                Text(stringResource(R.string.detail_info_no_glossary), color = TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp)
-                            }
-                        }
-                    }
-
-                    // ── Kontext pro AI překladač ─────────────────────────────────
-                    // Na rozdíl od Poznámek níže (čistě soukromé, nikam se neposílají) tenhle
-                    // text jde modelu při KAŽDÉM překladu (viz GeminiUltraPrompt.buildMangaContext)
-                    // - proto samostatná sekce s jasným popiskem, ne recyklace soukromé poznámky.
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text(text = stringResource(R.string.detail_info_section_translation_context), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp), color = Violet, modifier = Modifier.padding(bottom = 6.dp))
-                            Text(
-                                stringResource(R.string.detail_info_translation_context_hint),
-                                color = TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(bottom = 6.dp),
-                            )
-                            BasicTextField(
-                                value = contextNoteText,
-                                onValueChange = { contextNoteText = it },
-                                textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 13.sp),
-                                decorationBox = { inner ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(Color.White.copy(alpha = 0.04f))
-                                            .border(1.dp, GlowCyan.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                                            .padding(12.dp),
-                                    ) {
-                                        if (contextNoteText.isEmpty()) Text(stringResource(R.string.detail_info_translation_context_placeholder), color = TextSecondary.copy(alpha = 0.5f), fontSize = 13.sp)
-                                        inner()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            if (contextNoteText != (manga?.translationContextNote ?: "")) {
-                                TextButton(
-                                    onClick = { viewModel.setTranslationContextNote(contextNoteText) },
-                                    modifier = Modifier.align(Alignment.End),
-                                ) { Text(stringResource(R.string.common_save), color = GlowCyan) }
                             }
                         }
                     }

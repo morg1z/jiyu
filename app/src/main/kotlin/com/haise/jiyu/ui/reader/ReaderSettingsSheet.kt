@@ -95,8 +95,6 @@ fun ReaderSettingsSheet(
     onCurlStyleChange: (String) -> Unit,
     readerTheme: String,
     onReaderThemeChange: (String) -> Unit,
-    textScale: Float,
-    onTextScaleChange: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -231,29 +229,6 @@ fun ReaderSettingsSheet(
                 SheetRadioRow(label = label, selected = readerTheme == value, onClick = { onReaderThemeChange(value) })
             }
 
-            SheetDivider()
-            SheetSectionTitle(stringResource(R.string.settings_reader_translate_section_title))
-            var scaleDraft by remember { mutableStateOf<Float?>(null) }
-            LaunchedEffect(textScale) { scaleDraft = null }
-            val shownScale = scaleDraft ?: textScale
-            Text(
-                text = stringResource(R.string.settings_reader_text_scale, String.format("%.1f", shownScale)),
-                color = Color.White,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(start = 8.dp, top = 2.dp),
-            )
-            Slider(
-                value = shownScale,
-                onValueChange = { scaleDraft = it },
-                onValueChangeFinished = { scaleDraft?.let(onTextScaleChange) },
-                valueRange = 0.7f..1.6f,
-                modifier = Modifier.padding(horizontal = 8.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFF8B5CF6),
-                    activeTrackColor = Color(0xFF8B5CF6),
-                    inactiveTrackColor = Color.White.copy(alpha = 0.2f),
-                ),
-            )
         }
     }
 }

@@ -82,8 +82,7 @@ data class PageSliceRequest(
  *
  * Resoluce zdrojového souboru (cache snapshot/download/vlastní soubor) je sdílená s
  * ostatními file-level čteními stránky přes [PageImageSource] - přesunuto sem z původních
- * privátních metod, aby stejnou mašinérii mohla používat i region-decode záplata
- * (`PageRegionSource`) a nerozjely se klíče/cache chování.
+ * privátních metod, aby se neduplikovalo načítání a cache klíče.
  */
 @Singleton
 @OptIn(ExperimentalCoilApi::class) // openSnapshot/openEditor - stabilní v praxi, Coil 2.x je takto označuje
@@ -249,8 +248,7 @@ class PageSlicer @Inject constructor(
                 Rect(contentLeft, contentTop + range.first, contentRight + 1, contentTop + range.last + 1)
             }
 
-            // Stejný kontrakt jako CropBordersTransformation: overlay mapuje OCR souřadnice
-            // přes uložené frakce (null = nebyl ořez / overlay použije celý obrázek).
+            // Preserve the crop fractions so the reader uses the same page bounds as this slice.
             CropBordersTransformation.recordCropFractions(pageUrl, fractions)
             return PageSlicePlan.Tiled(contentW, contentH, slices)
         } finally {

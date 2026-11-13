@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 /**
  * DataStore<Preferences> v pameti pro testy - zadny Context/Robolectric potreba.
  * Pouziva se jen tam, kde produkcni trida potrebuje SettingsRepository, ale test
- * zajima jen jeho vychozi hodnoty (napr. sourceLanguage = "English").
+ * zajima jen jeho vychozi hodnoty.
  */
 class FakeDataStore : DataStore<Preferences> {
     private val state = MutableStateFlow(emptyPreferences())

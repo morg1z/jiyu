@@ -88,10 +88,7 @@ class MangaRepositoryRefreshDetailsTest {
         repository = MangaRepository(
             sourceManager, mangaDao, chapterDao, categoryDao, customSourceDao, mangaDexSource,
             mangaUpdatesRepository = mockk(relaxed = true),
-            manualTranslationDao = mockk(relaxed = true),
             readHistoryDao = mockk(relaxed = true),
-            translatedPageDao = mockk(relaxed = true),
-            translatedNovelDao = mockk(relaxed = true),
             settings = mockk(relaxed = true),
             db = db,
             context = context,
@@ -100,7 +97,6 @@ class MangaRepositoryRefreshDetailsTest {
                 crossSourceSearch = mockk(relaxed = true),
                 mangaDao = db.mangaDao(),
                 chapterDao = db.chapterDao(),
-                translatedPageDao = db.translatedPageDao(),
                 context = context,
                 httpClient = okhttp3.OkHttpClient(),
             ),

@@ -1,0 +1,158 @@
+name: Build APK
+
+on:
+  # กด Run workflow เองได้ที่แท็บ Actions แล้วเลือก debug / release
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "ชนิดของ APK"
+        type: choice
+        options: [debug, release]
+        default: debug
+  # push tag เช่น v2.0.8 -> build release + สร้าง GitHub Release แนบ APK ให้อัตโนมัติ
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # ต้องใช้ตอนสร้าง GitHub Release (gh release create)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # push tag = release เสมอ, รันมือ = ตามที่เลือก
+      BUILD_TYPE: ${{ github.event_name == 'push' && 'release' || inputs.build_type }}
+    steps:
+      # SHA ของ action ใช้ชุดเดียวกับ android-tests.yml (pin ไว้กัน tag ถูกเขียนทับ)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # Java 21 ให้ตรงกับ CI เดิม (jvmTarget ของโปรเจกต์ยังเป็น 17 ตามปกติ)
+      - name: Set up JDK 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Read app version
+        id: ver
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "versionName = $VERSION"
+
+      # tag ต้องตรงกับ versionName ไม่งั้น in-app update จะเทียบเวอร์ชันผิด
+      - name: Check tag matches versionName
+        if: github.ref_type == 'tag'
+        run: |
+          if [ "${GITHUB_REF_NAME#v}" != "${{ steps.ver.outputs.name }}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} ไม่ตรงกับ versionName ${{ steps.ver.outputs.name }} ใน app/build.gradle.kts"
+            exit 1
+          fi
+
+      # local.properties ไม่อยู่ใน repo -> สร้างจาก Secrets
+      # ถ้าไม่ได้ตั้ง secret ไว้ จะใช้ค่า placeholder (debug build ยังรันได้ แต่ login/sync ใช้ไม่ได้)
+      - name: Create local.properties
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+          ANILIST_CLIENT_ID: ${{ secrets.ANILIST_CLIENT_ID }}
+          COMICK_CLIENT_ID: ${{ secrets.COMICK_CLIENT_ID }}
+        run: |
+          : > local.properties
+          for k in SUPABASE_URL SUPABASE_ANON_KEY GOOGLE_CLIENT_ID MAL_CLIENT_ID ANILIST_CLIENT_ID COMICK_CLIENT_ID; do
+            v="${!k}"
+            [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> local.properties
+          done
+          true
+
+      # (ไม่บังคับ) Firebase Crashlytics: ถ้าตั้ง GOOGLE_SERVICES_JSON ไว้ gradle จะเปิดใช้เอง
+      - name: Add google-services.json (optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+
+      # ถ้าไม่มี keystore build.gradle.kts จะ fallback ไปเซ็นด้วย debug key แบบเงียบ ๆ
+      # จึงบังคับให้ fail ตรงนี้ เพื่อไม่ให้ APK ที่เซ็นผิดคีย์หลุดไปเป็น release
+      - name: Set up release signing
+        if: env.BUILD_TYPE == 'release'
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
+            echo "::error::ยังไม่ได้ตั้ง secrets: RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > release.keystore.jks
+          {
+            echo "RELEASE_KEYSTORE_PATH=release.keystore.jks"
+            printf 'RELEASE_KEYSTORE_PASSWORD=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'RELEASE_KEY_ALIAS=%s\n' "$KEY_ALIAS"
+          } >> local.properties
+
+      - name: Build APK
+        run: |
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            ./gradlew assembleDebug --stacktrace
+          fi
+
+      - name: Rename APK
+        id: apk
+        run: |
+          SRC=$(ls app/build/outputs/apk/${BUILD_TYPE}/*.apk | head -1)
+          DEST="jiyu-v${{ steps.ver.outputs.name }}-${BUILD_TYPE}.apk"
+          cp "$SRC" "$DEST"
+          echo "file=$DEST" >> "$GITHUB_OUTPUT"
+          ls -lh "$DEST"
+
+      # แสดงลายเซ็นของ APK ไว้ใน log ให้ตรวจว่าเป็นคีย์ที่ถูกต้อง
+      - name: Verify signature
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "${{ steps.apk.outputs.file }}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.apk.outputs.file }}
+          path: ${{ steps.apk.outputs.file }}
+          retention-days: 30
+
+      # เฉพาะ push tag: สร้าง GitHub Release แล้วแนบ APK (ใช้ gh CLI ที่มากับ runner ไม่ต้องพึ่ง action ภายนอก)
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.file }}" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

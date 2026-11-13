@@ -23,7 +23,7 @@ class ImageProxyConfig @Inject constructor() {
  * Bezpečnostní síť: když proxy selže (chyba, blokace, nedostupnost), požadavek se hned zopakuje přímo na původní
  * adresu, takže se nic nezhorší; a když přímé stažení projde, host se pro zbytek běhu proxy zbaví (asi ji blokuje).
  *
- * Požadavky s hlavičkou [HEADER_ORIGINAL] (OCR a překlad, stahování kapitol, MangaPlus se šifrovanými daty) jdou
+ * Požadavky s hlavičkou [HEADER_ORIGINAL] (stahování kapitol, MangaPlus se šifrovanými daty) jdou
  * VŽDY přímo a v původní kvalitě - hlavička se před odesláním odstraní.
  */
 class ImageProxyInterceptor(

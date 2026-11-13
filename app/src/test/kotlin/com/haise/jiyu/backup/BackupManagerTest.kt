@@ -146,7 +146,6 @@ class BackupManagerTest {
                 put("followCount", 42)
                 put("rank", 7)
                 put("alternateTitles", "[\"Alt Title\"]")
-                put("translationContextNote", "hrdina je ve skutecnosti zena")
             }))
         }
 
@@ -167,7 +166,6 @@ class BackupManagerTest {
         assertEquals(42, m.followCount)
         assertEquals(7, m.rank)
         assertEquals("[\"Alt Title\"]", m.alternateTitles)
-        assertEquals("hrdina je ve skutecnosti zena", m.translationContextNote)
     }
 
     @Test

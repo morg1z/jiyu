@@ -41,7 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import com.haise.jiyu.translate.TranslatedBlock
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -83,12 +82,9 @@ private enum class CurlQueuedTurn { NEXT, PREV, SETTLE_BACK }
 fun MangaPageCurlReader(
     pages: List<String>,
     initialPage: Int,
-    translateMode: Boolean,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
     reverseLayout: Boolean,
     doublePageSpread: Boolean,
     spreadPageIndices: Set<Int> = emptySet(),
-    textScale: Float,
     tapZonesEnabled: Boolean,
     tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     onPageChanged: (Int) -> Unit,
@@ -104,12 +100,6 @@ fun MangaPageCurlReader(
     cropBorders: Boolean = false,
     volumeKeysNav: Boolean = true,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
-    flippedBubbles: Set<String> = emptySet(),
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
-    /** Stejný význam jako v MangaReader - retry chip nad stránkou se selhaným překladem. */
-    translateFailedPages: Set<Int> = emptySet(),
-    onRetranslatePage: (pageIndex: Int) -> Unit = {},
     /** Stejný význam jako v MangaReader - donor splice pro mrtvou stránku. */
     onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
@@ -513,13 +503,8 @@ fun MangaPageCurlReader(
                     ),
             ) {
                 MangaGroupContent(
-                    indices = currentIndices, pages = pages, translateMode = translateMode,
-                    translatedPages = translatedPages, reverseLayout = reverseLayout,
+                    indices = currentIndices, pages = pages, reverseLayout = reverseLayout,
                     resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
-                    textScale = textScale, flippedBubbles = flippedBubbles,
-                    onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
-                    translateFailedPages = translateFailedPages,
-                    onRetranslatePage = onRetranslatePage,
                     onPagePermanentlyFailed = onPagePermanentlyFailed,
                     onAllImagesLoaded = { currentLoaded = it },
                     disableCrossfade = true,
@@ -529,7 +514,7 @@ fun MangaPageCurlReader(
             // Klic `epoch` (ne `pages`) - append v nekonecnem cteni obsah vykreslene
             // skupiny nemeni (stranky se prilepi za konec), takze re-rasterizovat je
             // zbytecne; zmena kapitoly se chytne pres epoch+currentIndices.
-            LaunchedEffect(currentIndices, epoch, translateMode, translatedPages, widthPx, heightPx, currentLoaded) {
+            LaunchedEffect(currentIndices, epoch, widthPx, heightPx, currentLoaded) {
                 currentBitmap = currentLayer.toImageBitmap()
             }
 
@@ -560,13 +545,8 @@ fun MangaPageCurlReader(
             ) {
                 if (nextIndices != null) {
                     MangaGroupContent(
-                        indices = nextIndices, pages = pages, translateMode = translateMode,
-                        translatedPages = translatedPages, reverseLayout = reverseLayout,
+                        indices = nextIndices, pages = pages, reverseLayout = reverseLayout,
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
-                        textScale = textScale, flippedBubbles = flippedBubbles,
-                        onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
-                        translateFailedPages = translateFailedPages,
-                        onRetranslatePage = onRetranslatePage,
                         onPagePermanentlyFailed = onPagePermanentlyFailed,
                         onAllImagesLoaded = { nextLoaded = it },
                         disableCrossfade = true,
@@ -574,7 +554,7 @@ fun MangaPageCurlReader(
                     )
                 }
             }
-            LaunchedEffect(nextIndices, epoch, translateMode, translatedPages, widthPx, heightPx, nextLoaded) {
+            LaunchedEffect(nextIndices, epoch, widthPx, heightPx, nextLoaded) {
                 nextBitmap = if (nextIndices != null) nextLayer.toImageBitmap() else null
             }
 
@@ -592,13 +572,8 @@ fun MangaPageCurlReader(
             ) {
                 if (prevIndices != null) {
                     MangaGroupContent(
-                        indices = prevIndices, pages = pages, translateMode = translateMode,
-                        translatedPages = translatedPages, reverseLayout = reverseLayout,
+                        indices = prevIndices, pages = pages, reverseLayout = reverseLayout,
                         resolvedContentScale = resolvedContentScale, cropBorders = cropBorders,
-                        textScale = textScale, flippedBubbles = flippedBubbles,
-                        onToggleBubbleFlip = onToggleBubbleFlip, onEditBubble = onEditBubble,
-                        translateFailedPages = translateFailedPages,
-                        onRetranslatePage = onRetranslatePage,
                         onPagePermanentlyFailed = onPagePermanentlyFailed,
                         onAllImagesLoaded = { prevLoaded = it },
                         disableCrossfade = true,
@@ -606,7 +581,7 @@ fun MangaPageCurlReader(
                     )
                 }
             }
-            LaunchedEffect(prevIndices, epoch, translateMode, translatedPages, widthPx, heightPx, prevLoaded) {
+            LaunchedEffect(prevIndices, epoch, widthPx, heightPx, prevLoaded) {
                 prevBitmap = if (prevIndices != null) prevLayer.toImageBitmap() else null
             }
 

@@ -126,8 +126,7 @@ class MangaDexSource @Inject constructor(
     override suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val mangaId = manga.url.substringAfterLast("/")
         val limit = 100
-        // Katalogový jazyk je zvláštní nastavení (mangadex_chapter_language) -
-        // OCR sourceLanguage sem nesahá (audit SET-5, vzor viz ComicKSource.getChapterList).
+        // MangaDex's chapter language is an independent catalog setting.
         val langCode = LanguageMap.toMangaDexCode(settings.mangadexChapterLanguage.first())
         fun feedUrl(offset: Int) = "$apiBase/manga/$mangaId/feed" +
             "?translatedLanguage[]=$langCode&order[chapter]=desc&limit=$limit&offset=$offset" +

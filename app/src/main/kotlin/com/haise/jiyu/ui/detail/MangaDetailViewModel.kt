@@ -1,6 +1,5 @@
 package com.haise.jiyu.ui.detail
 
-import com.haise.jiyu.translate.GlossaryRepository
 import com.haise.jiyu.data.repository.MangaNotesRepository
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
@@ -10,10 +9,8 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.haise.jiyu.R
 import com.haise.jiyu.anilist.AniListRepository
-import com.haise.jiyu.data.db.GlossaryDao
 import com.haise.jiyu.data.db.MangaNoteDao
 import com.haise.jiyu.data.db.MangaTagDao
-import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.tracking.ComickAuthManager
 import com.haise.jiyu.data.tracking.ComickImportManager
 import com.haise.jiyu.data.tracking.ComickRepository
@@ -76,10 +73,8 @@ class MangaDetailViewModel @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context,
     private val repository: MangaRepository,
     private val downloadQueue: DownloadQueue,
-    private val translateQueue: com.haise.jiyu.translate.TranslateQueue,
     private val networkMonitor: NetworkMonitor,
     private val notesRepository: MangaNotesRepository,
-    private val glossaryRepository: GlossaryRepository,
     private val settings: com.haise.jiyu.settings.SettingsRepository,
     private val aniListRepository: AniListRepository,
     private val malRepository: MalRepository,
@@ -387,41 +382,6 @@ class MangaDetailViewModel @Inject constructor(
     // ── Tagy (#26) ────────────────────────────────────────────────────────────
     val mangaTags: StateFlow<List<MangaTagEntity>> = notesRepository.observeTags(mangaId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // ── Slovník AI překladu (konzistentní jména/techniky napříč kapitolami) ────
-    val glossary: StateFlow<List<GlossaryEntity>> = glossaryRepository.observeForManga(mangaId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val defaultTargetLanguage: StateFlow<String> = settings.targetLanguage
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
-
-    fun addGlossaryEntry(sourceTerm: String, targetTerm: String, targetLanguage: String, protectExact: Boolean = false) {
-        val source = sourceTerm.trim()
-        val target = targetTerm.trim()
-        if (source.isBlank() || target.isBlank()) return
-        // Limit delky/poctu slov - bez nej tenhle primy DAO zapis obchazel jediny filtr v
-        // appce (isPlausibleGlossaryTerm se aplikuje jen na modelem navrzene terminy), takze
-        // sem slo rucne vlozit cokoli libovolne dlouheho, co pak jde do promptu (nahlaseno v auditu).
-        viewModelScope.launch { glossaryRepository.addManual(mangaId, source, target, targetLanguage, protectExact) }
-    }
-
-    fun removeGlossaryEntry(entry: GlossaryEntity) = viewModelScope.launch { glossaryRepository.delete(entry) }
-
-    /** Přepne [GlossaryEntity.protectExact] na existujícím záznamu - viz [GlossaryBottomSheet]. */
-    fun toggleGlossaryProtectExact(entry: GlossaryEntity) {
-        viewModelScope.launch { glossaryRepository.setProtectExact(entry, !entry.protectExact) }
-    }
-
-    /**
-     * Uloží/zruší volitelný kontext pro AI překladač (viz
-     * [com.haise.jiyu.data.db.entity.MangaEntity.translationContextNote]) - NA ROZDÍL od
-     * [mangaNote] výše se posílá modelu při každém překladu. Prázdný/jen-mezerový text = žádný
-     * kontext (ukládá se null, ne prázdný řetězec). Nemění existující cache - projeví se až u
-     * příštího/ručně vyžádaného překladu (viz [com.haise.jiyu.ui.reader.ReaderViewModel.retranslatePage]).
-     */
-    fun setTranslationContextNote(note: String) {
-        viewModelScope.launch { repository.setTranslationContextNote(mangaId, note) }
-    }
 
     // ── Čtecí status ──────────────────────────────────────────────────────────
     val readingStatus: StateFlow<String?> = manga.map { it?.readingStatus }
@@ -1005,32 +965,6 @@ class MangaDetailViewModel @Inject constructor(
                 .forEach { chapter ->
                     queueDownload(chapter, mangaUrl)
                 }
-        }
-    }
-
-    /**
-     * Zaradi dalsich [n] neprectenych kapitol k prekladu na pozadi (viz TranslateChapterWorker).
-     *
-     * Bere se od nejnizsiho cisla kapitoly z NEPRECTENYCH - to je "kam se ctenar dostal".
-     * Prelozit dopredu uz precetene kapitoly nedava smysl a jen by to sezralo znakovou kvotu.
-     */
-    fun translateNextN(n: Int) {
-        viewModelScope.launch {
-            val ids = com.haise.jiyu.translate.chaptersToTranslateAhead(
-                chapters.value.map {
-                    com.haise.jiyu.translate.TranslatableChapter(
-                        id = it.id,
-                        number = it.chapterNumber,
-                        read = it.read,
-                    )
-                },
-                count = n,
-            )
-            translateQueue.enqueue(
-                ids,
-                settings.targetLanguage.first(),
-                settings.sourceLanguage.first(),
-            )
         }
     }
 

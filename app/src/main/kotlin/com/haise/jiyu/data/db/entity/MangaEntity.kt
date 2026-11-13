@@ -91,13 +91,4 @@ data class MangaEntity(
     val rank: Int? = null,
     /** JSON pole řetězců - viz [com.haise.jiyu.data.repository.serializeAltTitles]. */
     val alternateTitles: String = "",
-    /**
-     * Volitelný volný text posílaný AI překladači jako doplňkový kontext díla (viz
-     * [com.haise.jiyu.translate.GeminiUltraPrompt.buildMangaContext]) - třeba "hlavní hrdina
-     * je ve skutečnosti žena v přestrojení" nebo "děj je celý retrospektiva". Na rozdíl od
-     * [MangaNoteEntity] (čistě soukromá poznámka čtenáře, NIKDY se neposílá žádnému API) je
-     * tohle POLE VÝSLOVNĚ určené k odeslání ven - proto samostatné pole, ne recyklace
-     * poznámky, aby si uživatel omylem neposlal soukromý text tam, kam nechtěl.
-     */
-    val translationContextNote: String? = null,
 )

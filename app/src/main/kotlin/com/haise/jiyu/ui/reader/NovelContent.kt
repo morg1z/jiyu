@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,16 +21,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -53,11 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
-import com.haise.jiyu.data.db.entity.GlossaryEntity
-import com.haise.jiyu.source.LanguageMap
-import com.haise.jiyu.ui.components.JiyuLoadingIndicator
 import compose.icons.TablerIcons
-import compose.icons.tablericons.Language
 import compose.icons.tablericons.Sun
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,20 +60,6 @@ fun NovelContent(
     hasNext: Boolean,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    translateMode: Boolean = false,
-    translatedText: String? = null,
-    translating: Boolean = false,
-    onToggleTranslate: () -> Unit = {},
-    onRetranslate: () -> Unit = {},
-    onEditParagraph: (paragraphIndex: Int, newText: String) -> Unit = { _, _ -> },
-    sourceLanguage: String = "Auto",
-    targetLanguage: String = "Czech",
-    onSourceLanguageChange: (String) -> Unit = {},
-    onTargetLanguageChange: (String) -> Unit = {},
-    glossary: List<GlossaryEntity> = emptyList(),
-    onAddGlossaryEntry: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    onRemoveGlossaryEntry: (GlossaryEntity) -> Unit = {},
-    onToggleGlossaryProtectExact: (GlossaryEntity) -> Unit = {},
     pageCurlEnabled: Boolean = false,
     curlStyle: String = com.haise.jiyu.settings.CurlStyleSetting.CLASSIC,
     autoNextChapter: Boolean = false,
@@ -97,11 +74,6 @@ fun NovelContent(
     var lineSpacing by remember { mutableStateOf(1.6f) }
     var bgColorIndex by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showLangSettings by remember { mutableStateOf(false) }
-    var showGlossarySheet by remember { mutableStateOf(false) }
-    // Index odstavce, ktery se prave rucne opravuje (viz onEditParagraph) - null = zavreno.
-    // Dlouhy stisk na prelozeny odstavec, stejny vzor jako manga bubliny (viz TranslationLayer).
-    var editingParagraphIndex by remember { mutableStateOf<Int?>(null) }
 
     val bgOptions = listOf(
         Color(0xFF0A0A14) to Color(0xFFE8E8E8),
@@ -110,8 +82,7 @@ fun NovelContent(
         Color.White to Color.Black,
     )
     val (bgColor, textColor) = bgOptions[bgColorIndex.coerceIn(0, bgOptions.lastIndex)]
-    val displayText = if (translateMode && translatedText != null) translatedText else text
-    val paragraphs = remember(displayText) { displayText.split("\n").filter { it.isNotBlank() } }
+    val paragraphs = remember(text) { text.split("\n").filter { it.isNotBlank() } }
 
     Column(
         modifier = Modifier
@@ -121,121 +92,12 @@ fun NovelContent(
         TopAppBar(
             title = { Text(chapterTitle, color = Color(0xFFE8E8E8), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 16.sp) },
             actions = {
-                IconButton(onClick = { showLangSettings = !showLangSettings }) {
-                    if (translating) {
-                        JiyuLoadingIndicator(size = 20.dp, strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            TablerIcons.Language,
-                            stringResource(R.string.reader_translate_chapter_desc),
-                            tint = if (translateMode) Color(0xFF8B5CF6) else Color(0xFFB0BEC5),
-                        )
-                    }
-                }
                 IconButton(onClick = { showSettings = !showSettings }) {
                     Icon(TablerIcons.Sun, stringResource(R.string.settings_title), tint = Color(0xFFB0BEC5))
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0D0D1A)),
         )
-
-        AnimatedVisibility(visible = showLangSettings, enter = slideInVertically(), exit = slideOutVertically()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1B35)),
-                shape = RoundedCornerShape(0.dp),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        var showSourceMenu by remember { mutableStateOf(false) }
-                        var showTargetMenu by remember { mutableStateOf(false) }
-                        Box {
-                            Text(
-                                sourceLanguage,
-                                color = Color(0xFF4FC3F7),
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color.White.copy(alpha = 0.1f))
-                                    .clickable { showSourceMenu = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                            DropdownMenu(expanded = showSourceMenu, onDismissRequest = { showSourceMenu = false }, modifier = Modifier.background(Color(0xFF1A2340))) {
-                                LanguageMap.displayNames.forEach { lang ->
-                                    DropdownMenuItem(text = { Text(lang, color = Color.White, fontSize = 13.sp) }, onClick = { onSourceLanguageChange(lang); showSourceMenu = false })
-                                }
-                            }
-                        }
-                        Text(" → ", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
-                        Box {
-                            Text(
-                                targetLanguage,
-                                color = Color(0xFF8B5CF6),
-                                fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color.White.copy(alpha = 0.1f))
-                                    .clickable { showTargetMenu = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                            DropdownMenu(expanded = showTargetMenu, onDismissRequest = { showTargetMenu = false }, modifier = Modifier.background(Color(0xFF1A2340))) {
-                                LanguageMap.displayNames.filter { it != "Auto" }.forEach { lang ->
-                                    DropdownMenuItem(text = { Text(lang, color = Color.White, fontSize = 13.sp) }, onClick = { onTargetLanguageChange(lang); showTargetMenu = false })
-                                }
-                            }
-                        }
-                        TextButton(onClick = { showGlossarySheet = true }) {
-                            Text(stringResource(R.string.reader_glossary_button), color = Color(0xFF8B5CF6))
-                        }
-                        TextButton(onClick = { onToggleTranslate(); showLangSettings = false }) {
-                            Text(stringResource(if (translateMode) R.string.reader_original_toggle else R.string.reader_translate_toggle), color = Color(0xFF34D1BF))
-                        }
-                        // Jen kdyz uz je kapitola prelozena/se preklada - "preloz znovu" na
-                        // neprelozenem textu nedava smysl (viz onToggleTranslate vys).
-                        if (translateMode) {
-                            TextButton(onClick = { onRetranslate(); showLangSettings = false }) {
-                                Text(stringResource(R.string.reader_retranslate_novel_chapter), color = Color(0xFF34D1BF))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        editingParagraphIndex?.let { index ->
-            var draft by remember(index) { mutableStateOf(paragraphs.getOrNull(index) ?: "") }
-            AlertDialog(
-                onDismissRequest = { editingParagraphIndex = null },
-                title = { Text(stringResource(R.string.reader_edit_bubble_title)) },
-                text = {
-                    Column {
-                        OutlinedTextField(value = draft, onValueChange = { draft = it }, minLines = 3, maxLines = 8)
-                        Text(stringResource(R.string.reader_edit_bubble_hint), fontSize = 12.sp, color = Color(0xFFB0BEC5))
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { onEditParagraph(index, draft); editingParagraphIndex = null }) {
-                        Text(stringResource(R.string.common_save))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { editingParagraphIndex = null }) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                },
-            )
-        }
-
-        if (showGlossarySheet) {
-            GlossaryBottomSheet(
-                glossary = glossary,
-                targetLanguage = targetLanguage,
-                onAdd = onAddGlossaryEntry,
-                onRemove = onRemoveGlossaryEntry,
-                onToggleProtectExact = onToggleGlossaryProtectExact,
-                onDismiss = { showGlossarySheet = false },
-            )
-        }
 
         AnimatedVisibility(visible = showSettings, enter = slideInVertically(), exit = slideOutVertically()) {
             Card(
@@ -326,18 +188,7 @@ fun NovelContent(
                         color = textColor,
                         fontSize = fontSize.sp,
                         lineHeight = (fontSize * lineSpacing).sp,
-                        modifier = Modifier
-                            .padding(bottom = (fontSize * 0.75f).dp)
-                            // Rucni oprava jen na PRELOZENY text - opravovat original nedava smysl.
-                            .let { m ->
-                                if (translateMode) {
-                                    m.pointerInput(index) {
-                                        detectTapGestures(onLongPress = { editingParagraphIndex = index })
-                                    }
-                                } else {
-                                    m
-                                }
-                            },
+                        modifier = Modifier.padding(bottom = (fontSize * 0.75f).dp),
                     )
                 }
                 item {

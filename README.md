@@ -5,13 +5,8 @@
 ## English
 
 Personal Android reader for manga, manhwa, manhua, American comics and light
-novels, with its own extension architecture (like Tachiyomi/Kotatsu) and a
-built-in AI translator. Strictly personal use, no paid APIs or libraries.
-
-> **Note:** the translator is tuned mainly for Czech (compression rules,
-> hyphenation, glossary prompts - all written with Czech output in mind), but
-> the target language is just a free-text setting, so other languages work
-> too, just with less-tuned prompts.
+novels, with its own extension architecture (like Tachiyomi/Kotatsu). Strictly personal
+use, no paid APIs or libraries.
 
 ### Two ways to browse
 
@@ -19,7 +14,7 @@ During first-run setup (and any time after, in Settings → Manga sources)
 you choose how the app should feel:
 
 - **Aggregated catalog (ComicK style)** - one unified catalog pulled from
-  comick.io's own API: browsing, search, filters, genres/tags, translation
+  comick.io's own API: browsing, search, filters, genres/tags, scanlation
   groups, comments and a live updates feed all look and behave like the real
   ComicK website. Actually reading a chapter is resolved automatically behind
   the scenes - the app cross-checks every real reading source it knows for
@@ -39,7 +34,7 @@ switching later doesn't lose anything.
 
 1. Open the `jiyu` folder in Android Studio.
 2. Sync should just work - all dependencies are standard (Compose, Room,
-   Hilt, Coil, OkHttp, WorkManager, ML Kit) and come from
+   Hilt, Coil, OkHttp, WorkManager) and come from
    `google()`/`mavenCentral()`.
 3. `minSdk 33` / `targetSdk 36` - runs on an emulator or a real device
    (Android 13+; the floor is set by an AGSL shader effect used in the reader
@@ -53,18 +48,6 @@ Tests: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
 - WorkManager - background chapter downloads and periodic new-chapter checks
 - OkHttp + Jsoup - HTTP and HTML parsing for sources without an official API
 - Coil - images, DataStore - settings
-- ML Kit Text Recognition (EN/CN/KR) plus a dedicated on-device manga OCR
-  model for Japanese - on-device OCR either way, no server round-trip
-- Gemini, Groq, OpenRouter, Cerebras and Mistral - five independent LLM
-  providers chained together as translation fallbacks, all routed through a
-  Supabase Edge Function acting as a proxy (the app never holds API keys,
-  the client only ever calls its own backend) - plus an optional
-  bring-your-own OpenAI-compatible endpoint (self-hosted or third-party),
-  called directly instead of through the proxy, as a final fallback or a
-  full replacement. Inside the proxy, Groq falls back to a second free model
-  (Qwen) and Gemini to Flash-Lite when the main model hits its quota, and
-  novel translation is prompted for natural, idiomatic prose in the target
-  language (not word-for-word)
 - Supabase - authentication (Google sign-in through Android's Credential
   Manager, or plain email/password), cloud library sync, community features
 
@@ -98,44 +81,7 @@ straight from the URL, never opens a browser. Configurable page zoom (fit
 width, fit height, fit screen, or stretch), double-page spread in landscape,
 automatic cropping of blank page borders, an OLED-friendly pure black
 background between pages, a fullscreen toggle, adjustable webtoon scroll
-speed, automatic advance to the next chapter, and background pre-translation
-of the next chapter so it's already waiting when you get there.
-
-**AI bubble translation** - OCR finds the text and the bubble's actual shape
-(not just a rectangular box); Japanese has its own dedicated on-device OCR
-model tuned for manga lettering, with ML Kit's Japanese recognizer only as a
-fallback if it fails, times out, or the output looks degenerate (stuck in a
-repeating loop). The LLM translates with context about the work - title,
-genre, and an optional note you write yourself about characters or tone,
-which sticks around for every chapter of that title - plus a glossary of
-proper nouns (the glossary learns new terms on the fly from the model's own
-answers, and any entry can be marked "protected" so it's used exactly as
-written instead of being inflected by grammar), then the overlay renders
-the text back into the bubble shape with shrink-to-fit sizing, using either
-the built-in look or a custom font of your choosing. If one provider hits a
-rate limit, the chain automatically falls back to the next one, down to
-your own bring-your-own-model endpoint if you set one up (see Stack above).
-A translation that looks broken - a repeated/looping phrase, a dropped
-sentence, or a reply that came back in the wrong language entirely - gets
-silently retried before anything is shown. The renderer also catches and
-quietly fixes common translation-quality slips on its own - leftover
-untranslated text, stray punctuation dropped onto its own line, wrong
-spacing around punctuation, and words broken mid-way without a hyphen. If a
-page still comes out wrong, long-pressing a bubble opens an editor that can
-fix just that one line, drag it to a better spot if the overlay placed it
-awkwardly, or retranslate the whole page from scratch. Pages whose
-translation genuinely fails - an OCR engine error, the provider chain
-coming back empty, or a batch that silently dropped the page's bubbles -
-get a retry chip right on the page instead of silently staying in the
-original, and the progress label reports the OCR stage separately so the
-counter never looks frozen while text recognition is still running.
-
-**Novel translation** - the same LLM chain translates light novel chapters
-too, split to respect sentence and paragraph boundaries (never mid-sentence)
-with tone and character continuity carried across chunks, aware of the
-title's genre and your own context note. A chapter can be retranslated from
-scratch if it comes out wrong, and long-pressing a single paragraph fixes
-just that one - the same editing model as manga bubbles.
+speed, and automatic advance to the next chapter.
 
 **Offline downloads** - a WorkManager worker downloads a whole chapter in
 the background, optionally zips it into a `.cbz`. Chapters are saved under a
@@ -172,16 +118,12 @@ can be changed later in Settings.
 - `data/db/` - Room (library, chapters, download state, history)
 - `data/repository/` - the single place that combines sources + database
 - `download/` - WorkManager worker for background downloads
-- `translate/` - the whole translation pipeline: OCR → bubble shape
-  detection → LLM client → glossary → layout/render overlay
 - `source/interceptor/` - the shared OkHttp chain (retry, offline check,
   slowdown, cookies, Cloudflare, caches, proxies); `source/community/` - the
   community catalog built on the templates
 - `sync/`, `anilist/`, `auth/` - cloud sync and tracker integrations
   (cloud sync pages through the results and pushes only changed chapters)
-- `supabase/` - the translate proxy Edge Function, the current database
-  schema (`schema.sql`) and migrations (RLS, indexes and grants are set up
-  there)
+- `supabase/` - cloud database schema (`schema.sql`) and migrations
 - `ui/` - Compose screens + ViewModels, one folder per screen (`ui/comickhome`
   and `ui/resolver` cover the aggregated catalog, `ui/account` the cloud
   account)
@@ -196,13 +138,8 @@ can be changed later in Settings.
 ## Čeština
 
 Osobní Android reader na manga/manhwu/manhuu/americké komiksy/light novely
-s vlastní extension architekturou (jako Tachiyomi/Kotatsu) a zabudovaným AI
-překladačem. Čistě pro osobní použití, žádné placené API ani knihovny.
-
-> **Poznámka:** překladač je laděný hlavně na češtinu (kompresní pravidla,
-> dělení slov, glosářové prompty - všechno psané s ohledem na český výstup),
-> ale cílový jazyk je jen textové nastavení, takže fungují i jiné jazyky,
-> jen s méně doladěnými prompty.
+s vlastní extension architekturou (jako Tachiyomi/Kotatsu). Čistě pro osobní
+použití, žádné placené API ani knihovny.
 
 ### Dva styly procházení
 
@@ -211,7 +148,7 @@ jak má appka fungovat:
 
 - **Agregovaný katalog (styl ComicK)** - jeden sjednocený katalog tažený
   přímo z API comick.io: procházení, hledání, filtry, žánry/tagy,
-  překladatelské skupiny, komentáře i živý feed aktualizací vypadají a
+  scanlation skupiny, komentáře i živý feed aktualizací vypadají a
   fungují stejně jako skutečný web ComicK. Samotné čtení kapitoly se řeší
   automaticky na pozadí - appka projde všechny reálné čtecí zdroje, které
   pro daný titul zná, a otevře ten, který skutečně má požadovanou kapitolu,
@@ -229,7 +166,7 @@ přepnutí později nic nesmaže.
 
 1. Otevři složku `jiyu` v Android Studiu.
 2. Sync by měl proběhnout bez zásahu - všechny závislosti jsou standardní
-   (Compose, Room, Hilt, Coil, OkHttp, WorkManager, ML Kit) a táhnou se
+   (Compose, Room, Hilt, Coil, OkHttp, WorkManager) a táhnou se
    z `google()`/`mavenCentral()`.
 3. `minSdk 33` / `targetSdk 36` - spustí se na emulátoru i fyzickém zařízení
    (Android 13+; hranici dané verzí drží AGSL shader efekt v čtečce, který
@@ -244,17 +181,6 @@ Testy: `./gradlew testDebugUnitTest`. Build APK: `./gradlew assembleDebug`.
   pozadí
 - OkHttp + Jsoup - HTTP a HTML parsing pro zdroje bez oficiálního API
 - Coil - obrázky, DataStore - nastavení
-- ML Kit Text Recognition (EN/CN/KR) plus vlastní on-device manga OCR model
-  pro japonštinu - OCR vždycky přímo na zařízení, bez volání serveru
-- Gemini, Groq, OpenRouter, Cerebras a Mistral - pět nezávislých LLM
-  poskytovatelů zapojených jako zálohy za sebou, všechno přes Supabase Edge
-  Function jako proxy (appka nikdy nedrží API klíče, klient jen volá vlastní
-  backend) - plus volitelný vlastní OpenAI-kompatibilní endpoint (vlastní
-  hosting nebo cizí služba), volaný přímo bez proxy, jako poslední záloha
-  nebo úplná náhrada. Uvnitř proxy má Groq druhý bezplatný model (Qwen) a
-  Gemini Flash-Lite, když hlavní model vyčerpá kvótu, a překlad novel se
-  promptuje na přirozenou, idiomatickou prózu v cílovém jazyce (ne slovo od
-  slova)
 - Supabase - přihlášení (Google přes Android Credential Manager, nebo klasicky
   e-mail a heslo), cloud sync knihovny, komunitní funkce
 
@@ -286,44 +212,7 @@ přímo z URL, nikdy neotevírá browser. Nastavitelné přiblížení stránky 
 šířku, na výšku, na obrazovku, nebo roztáhnout), dvoustránkové zobrazení na
 šířku, automatický ořez prázdných bílých okrajů, čistě černé pozadí mezi
 stránkami šetřící OLED displej, přepínač celé obrazovky, nastavitelná
-rychlost scrollování u webtoonu, automatický přechod na další kapitolu a
-přednačítání překladu další kapitoly na pozadí, aby byla hned připravená.
-
-**AI překlad bublin** - OCR najde text a skutečný tvar bubliny (ne jen
-obdélníkový box); pro japonštinu appka používá vlastní OCR model přímo na
-zařízení, laděný na manga písmo - ML Kit japonský rozpoznávač zůstává jen
-jako záloha, když selže, vyprší mu čas, nebo výstup vypadá zdegenerovaně
-(zacyklený na dokola se opakující frázi). LLM přeloží s ohledem na kontext
-díla - název, žánr a volitelnou poznámku, kterou si sám napíšeš o postavách
-nebo tónu vyprávění a která zůstává platná pro všechny kapitoly daného
-titulu - a glosář vlastních jmen (glosář se učí za běhu z odpovědí modelu a
-kterýkoli záznam jde označit jako "chráněný", takže se použije přesně tak,
-jak je napsaný, místo aby ho appka skloňovala), overlay pak text
-vyrenderuje zpátky do tvaru bubliny se shrink-to-fit velikostí písma,
-buď vestavěným vzhledem, nebo vlastním fontem podle výběru. Když jeden
-poskytovatel narazí na limit, řetězec automaticky zkusí dalšího, až po
-vlastní bring-your-own-model endpoint, pokud si ho nastavíš (viz Stack
-výše). Překlad, který vypadá rozbitě - opakující se/zacyklená fráze,
-ztracená věta, nebo odpověď vrácená rovnou v úplně jiném jazyce - se potichu
-zkusí přeložit znovu, ještě než se vůbec zobrazí. Vykreslovač si navíc sám
-hlídá a potichu opravuje časté chyby kvality překladu - nepřeložené zbytky
-původního textu, osamocenou interpunkci na vlastním řádku, špatné mezery
-kolem interpunkce a slova rozlomená napůl bez pomlčky. Když i tak stránka
-vyjde špatně, dlouhý stisk na bublinu otevře editor, který umí opravit jen
-tenhle jeden řádek, přetáhnout ji na lepší místo, pokud ji overlay umístil
-nešikovně, nebo přeložit celou stránku úplně znovu. Stránka, jejíž překlad
-reálně selže - chyba OCR enginu, prázdná odpověď celého řetězce providerů,
-nebo dávka co tiše vynechala její bubliny - dostane přímo na stránce chip
-pro opakování místo toho, aby tiše zůstala v originále, a ukazatel postupu
-hlásí OCR fázi zvlášť, takže čítač nevypadá zamrzlý, zatímco rozpoznávání
-textu ještě běží.
-
-**Překlad novel** - stejný LLM řetězec překládá i kapitoly light novel,
-rozdělené s respektem k hranicím vět a odstavců (nikdy uprostřed věty), s
-návazností tónu a postav napříč díly a s vědomím žánru titulu i tvé vlastní
-kontextové poznámky. Kapitolu jde kdykoli přeložit znovu od začátku, když
-vyjde špatně, a dlouhý stisk na jeden odstavec opraví jen ten - stejný
-způsob úpravy jako u manga bublin.
+rychlost scrollování u webtoonu, automatický přechod na další kapitolu.
 
 **Offline stahování** - WorkManager worker stáhne celou kapitolu na pozadí,
 volitelně zabalí do `.cbz`. Kapitoly se ukládají pod čitelnou strukturou
@@ -359,15 +248,12 @@ změnit v Nastavení.
 - `data/db/` - Room (knihovna, kapitoly, stav stažení, historie)
 - `data/repository/` - jediné místo, které kombinuje zdroje + databázi
 - `download/` - WorkManager worker pro stahování na pozadí
-- `translate/` - celý překladový pipeline: OCR → detekce tvaru bubliny →
-  LLM klient → glosář → layout/render overlay
 - `source/interceptor/` - společný řetěz OkHttp (opakování, kontrola offline,
   zpomalení, cookies, Cloudflare, cache, proxy); `source/community/` -
   komunitní katalog postavený na šablonách
 - `sync/`, `anilist/`, `auth/` - cloud sync a tracker integrace (cloud sync
   stahuje po stránkách a posílá jen změněné kapitoly)
-- `supabase/` - Edge Function překladové proxy, aktuální schéma databáze
-  (`schema.sql`) a migrace (RLS, indexy a oprávnění se nastavují tam)
+- `supabase/` - schéma cloudové databáze (`schema.sql`) a migrace
 - `ui/` - Compose obrazovky + ViewModely, po jedné složce na obrazovku
   (`ui/comickhome` a `ui/resolver` mají na starosti agregovaný katalog,
   `ui/account` cloudový účet)

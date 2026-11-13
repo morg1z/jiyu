@@ -54,8 +54,6 @@ class BackupRestoreTest {
             mangaNoteDao = db.mangaNoteDao(),
             mangaTagDao = db.mangaTagDao(),
             readHistoryDao = db.readHistoryDao(),
-            glossaryDao = db.glossaryDao(),
-            manualTranslationDao = db.manualTranslationDao(),
             sourceResolutionDao = db.sourceResolutionDao(),
             db = db,
         )
@@ -133,8 +131,6 @@ class BackupRestoreTest {
             mangaNoteDao = db.mangaNoteDao(),
             mangaTagDao = db.mangaTagDao(),
             readHistoryDao = failingHistoryDao,
-            glossaryDao = db.glossaryDao(),
-            manualTranslationDao = db.manualTranslationDao(),
             sourceResolutionDao = db.sourceResolutionDao(),
             db = db,
         )

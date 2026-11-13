@@ -17,8 +17,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 object SettingsKeys {
-    val TARGET_LANGUAGE        = stringPreferencesKey("target_language")
-    val SOURCE_LANGUAGE        = stringPreferencesKey("source_language")
     val THEME                  = stringPreferencesKey("theme")
     val THEME_ACCENT           = stringPreferencesKey("theme_accent")
     val READING_DIRECTION      = stringPreferencesKey("reading_direction")
@@ -30,7 +28,6 @@ object SettingsKeys {
     val PENDING_UPDATE_DOWNLOAD_ID = longPreferencesKey("pending_update_download_id")
     val TAP_ZONES_ENABLED        = booleanPreferencesKey("tap_zones_enabled")
     val WEBTOON_SCROLL_SPEED     = floatPreferencesKey("webtoon_scroll_speed")
-    val READER_TEXT_SCALE        = floatPreferencesKey("reader_text_scale")
     val DOUBLE_PAGE_SPREAD     = booleanPreferencesKey("double_page_spread")
     val AUTO_DELETE_READ       = booleanPreferencesKey("auto_delete_read")
     val AUTO_DELETE_DELAY_DAYS = intPreferencesKey("auto_delete_delay_days")
@@ -41,17 +38,10 @@ object SettingsKeys {
     val READING_STREAK_DAYS    = intPreferencesKey("reading_streak_days")
     val LAST_READ_DATE         = stringPreferencesKey("last_read_date")
     val CUSTOM_CSS             = stringPreferencesKey("custom_css_inject")
-    val CUSTOM_FONT_URL        = stringPreferencesKey("custom_font_url")
-    val BYOK_ENABLED           = booleanPreferencesKey("byok_enabled")
-    val BYOK_BASE_URL          = stringPreferencesKey("byok_base_url")
-    val BYOK_MODEL             = stringPreferencesKey("byok_model")
     val PAGE_SCALE             = stringPreferencesKey("page_scale")
     val AUTO_BACKUP_ENABLED    = booleanPreferencesKey("auto_backup_enabled")
     val AUTO_NEXT_CHAPTER      = booleanPreferencesKey("auto_next_chapter")
     val INFINITE_SCROLL_ENABLED = booleanPreferencesKey("infinite_scroll_enabled")
-    val PRELOAD_NEXT_NOVEL_CHAPTER = booleanPreferencesKey("preload_next_novel_chapter")
-    val PRELOAD_NEXT_CHAPTER_MANGA = booleanPreferencesKey("preload_next_chapter_manga")
-    val PRELOAD_NEXT_CHAPTER_WIFI_ONLY = booleanPreferencesKey("preload_next_chapter_wifi_only")
     val PAGE_CURL_ENABLED      = booleanPreferencesKey("page_curl_enabled")
     val CURL_STYLE             = stringPreferencesKey("curl_style")
     val FAVORITE_SOURCE_IDS    = stringSetPreferencesKey("favorite_source_ids")
@@ -127,12 +117,7 @@ object SettingsKeys {
     val CLOUDFLARE_WARMUP_HOSTS = stringPreferencesKey("cloudflare_warmup_hosts")
     val MANGACLOUD_SESSION_CACHE = stringPreferencesKey("mangacloud_session_cache")
 
-    /**
-     * Jazyk, ve kterém MangaDex feed vypisuje přeložené kapitoly (viz
-     * [SettingsRepository.mangadexChapterLanguage]). Zvláštní klíč od [SOURCE_LANGUAGE] -
-     * tenhle je katalogový filtr zdroje, `source_language` je OCR nastavení překladače
-     * a nemělo by tiše měnit, co který zdroj nabídne (audit SET-5).
-     */
+    /** Language used to filter chapter results in the MangaDex catalog. */
     val MANGADEX_CHAPTER_LANGUAGE = stringPreferencesKey("mangadex_chapter_language")
 
     /**
@@ -249,24 +234,9 @@ internal fun decodeDomainOverrides(raw: String?): Map<String, String> =
 class SettingsRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>,
 ) {
-    val targetLanguage: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.TARGET_LANGUAGE] ?: "Czech" }
-
-    /**
-     * "Auto" místo napevno zvoleného písma: kdo si appku nainstaloval a otevřel japonskou
-     * (korejskou, čínskou) mangu, pouštěl na ni latinkový rozpoznávač. Ten na CJK stránce
-     * nenajde nic - naměřeno 0 znaků, viz AutoLanguageOnDeviceTest - takže žádný překlad
-     * nevznikl a uživatel dostal prázdný výsledek bez vysvětlení. Pod "Auto" si rozpoznávač
-     * appka vybere podle toho, co na stránce doopravdy je (viz resolveAutoLanguage), a běžnou
-     * latinkovou stránku vyřeší hned prvním průchodem, takže to nic nestojí navíc.
-     */
-    val sourceLanguage: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.SOURCE_LANGUAGE] ?: "Auto" }
-
     /**
      * Jazyk přeložených kapitol na MangaDexu - jazyk z LanguageMap.displayNames.
-     * Výchozí "English" odpovídá dosavadnímu chování (sourceLanguage "Auto" se mapovalo
-     * na "en"), ale už ho nemění změna OCR zdrojového jazyka (audit SET-5).
+     * Výchozí "English" odpovídá dosavadnímu chování katalogu.
      */
     val mangadexChapterLanguage: Flow<String> =
         dataStore.data.map { it[SettingsKeys.MANGADEX_CHAPTER_LANGUAGE] ?: "English" }
@@ -317,9 +287,6 @@ class SettingsRepository @Inject constructor(
     val webtoonScrollSpeed: Flow<Float> =
         dataStore.data.map { it[SettingsKeys.WEBTOON_SCROLL_SPEED] ?: 1.0f }
 
-    val readerTextScale: Flow<Float> =
-        dataStore.data.map { it[SettingsKeys.READER_TEXT_SCALE] ?: 1f }
-
     val doublePageSpread: Flow<Boolean> =
         dataStore.data.map { it[SettingsKeys.DOUBLE_PAGE_SPREAD] ?: false }
 
@@ -334,12 +301,6 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAutoDeleteDelayDays(days: Int) =
         dataStore.edit { it[SettingsKeys.AUTO_DELETE_DELAY_DAYS] = days }
-
-    suspend fun setTargetLanguage(lang: String) =
-        dataStore.edit { it[SettingsKeys.TARGET_LANGUAGE] = lang }
-
-    suspend fun setSourceLanguage(lang: String) =
-        dataStore.edit { it[SettingsKeys.SOURCE_LANGUAGE] = lang }
 
     suspend fun setTheme(theme: String) =
         dataStore.edit { it[SettingsKeys.THEME] = theme }
@@ -361,9 +322,6 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setWebtoonScrollSpeed(speed: Float) =
         dataStore.edit { it[SettingsKeys.WEBTOON_SCROLL_SPEED] = speed }
-
-    suspend fun setReaderTextScale(scale: Float) =
-        dataStore.edit { it[SettingsKeys.READER_TEXT_SCALE] = scale }
 
     suspend fun setDoublePageSpread(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.DOUBLE_PAGE_SPREAD] = enabled }
@@ -418,39 +376,6 @@ class SettingsRepository @Inject constructor(
     val customCss: Flow<String> =
         dataStore.data.map { it[SettingsKeys.CUSTOM_CSS] ?: "" }
 
-    /**
-     * URL fontu, který si uživatel nahrál pro bubliny v čtečce (viz
-     * [com.haise.jiyu.translate.CustomFontRepository]) - prázdné/chybějící = žádný, render
-     * zůstává na vestavěné sadě Comic Neue/Exo2. Uloží se AŽ PO úspěšném stažení a ověření
-     * (viz [com.haise.jiyu.translate.CustomFontRepository.downloadAndApply]), takže tenhle
-     * flow nikdy neukazuje na URL, pro kterou appka nemá stažený, použitelný soubor.
-     */
-    val customFontUrl: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.CUSTOM_FONT_URL] ?: "" }
-
-    suspend fun setCustomFontUrl(url: String) =
-        dataStore.edit { it[SettingsKeys.CUSTOM_FONT_URL] = url }
-
-    /**
-     * Volitelný vlastní ("bring your own key") LLM endpoint jako poslední záloha PŘED
-     * on-device ML Kit (viz [com.haise.jiyu.translate.ByokTranslateClient], item 14). Samotný
-     * API klíč tady NENÍ - ten žije v [com.haise.jiyu.security.SecureCredentialStore]
-     * (šifrovaně přes Android Keystore), tohle jsou jen netajné konfigurační hodnoty.
-     */
-    val byokEnabled: Flow<Boolean> =
-        dataStore.data.map { it[SettingsKeys.BYOK_ENABLED] ?: false }
-    val byokBaseUrl: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.BYOK_BASE_URL] ?: "" }
-    val byokModel: Flow<String> =
-        dataStore.data.map { it[SettingsKeys.BYOK_MODEL] ?: "" }
-
-    suspend fun setByokEnabled(enabled: Boolean) =
-        dataStore.edit { it[SettingsKeys.BYOK_ENABLED] = enabled }
-    suspend fun setByokBaseUrl(url: String) =
-        dataStore.edit { it[SettingsKeys.BYOK_BASE_URL] = url }
-    suspend fun setByokModel(model: String) =
-        dataStore.edit { it[SettingsKeys.BYOK_MODEL] = model }
-
     suspend fun setCustomCss(css: String) =
         dataStore.edit { it[SettingsKeys.CUSTOM_CSS] = css }
 
@@ -482,32 +407,6 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setInfiniteScrollEnabled(enabled: Boolean) =
         dataStore.edit { it[SettingsKeys.INFINITE_SCROLL_ENABLED] = enabled }
-
-    /** Výchozí true - warmuje Room cache pro další kapitolu light novel na pozadí, viz ReaderViewModel.preloadNextNovelChapter. */
-    val preloadNextNovelChapter: Flow<Boolean> =
-        dataStore.data.map { it[SettingsKeys.PRELOAD_NEXT_NOVEL_CHAPTER] ?: true }
-
-    suspend fun setPreloadNextNovelChapter(enabled: Boolean) =
-        dataStore.edit { it[SettingsKeys.PRELOAD_NEXT_NOVEL_CHAPTER] = enabled }
-
-    /**
-     * Výchozí true - warmuje Room cache pro další kapitolu manga/manhwa/manhua na pozadí
-     * (viz ReaderViewModel.preloadNextChapterMangaTranslation). Na rozdíl od novely (jen text)
-     * tohle stáhne CELOU další kapitolu obrázků + OCR na zařízení, proto je to samostatný
-     * přepínač od [preloadNextNovelChapter], ne stejný.
-     */
-    val preloadNextChapterManga: Flow<Boolean> =
-        dataStore.data.map { it[SettingsKeys.PRELOAD_NEXT_CHAPTER_MANGA] ?: true }
-
-    suspend fun setPreloadNextChapterManga(enabled: Boolean) =
-        dataStore.edit { it[SettingsKeys.PRELOAD_NEXT_CHAPTER_MANGA] = enabled }
-
-    /** Výchozí true (jen WiFi) - vypnutím jde přednačítání povolit i na mobilních datech. */
-    val preloadNextChapterWifiOnly: Flow<Boolean> =
-        dataStore.data.map { it[SettingsKeys.PRELOAD_NEXT_CHAPTER_WIFI_ONLY] ?: true }
-
-    suspend fun setPreloadNextChapterWifiOnly(enabled: Boolean) =
-        dataStore.edit { it[SettingsKeys.PRELOAD_NEXT_CHAPTER_WIFI_ONLY] = enabled }
 
     // ── Oblíbené zdroje (Procházet) ───────────────────────────────────────────
     // MangaSource je rozhraní za natvrdo zapsanými singletony (ne Room entita), takže

@@ -23,8 +23,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.haise.jiyu.backup.BackupManager
 import com.haise.jiyu.backup.SettingsBackupManager
-import com.haise.jiyu.data.db.TranslatedNovelDao
-import com.haise.jiyu.data.db.TranslatedPageDao
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
 import com.haise.jiyu.data.repository.MangaRepository
@@ -79,7 +77,6 @@ sealed interface BackupUiState {
 class SettingsViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
-    private val translateRepository: com.haise.jiyu.translate.TranslateRepository,
     private val repository: MangaRepository,
     private val backupManager: BackupManager,
     private val settingsBackupManager: SettingsBackupManager,
@@ -97,75 +94,8 @@ class SettingsViewModel @Inject constructor(
     private val comickAuthManager: com.haise.jiyu.data.tracking.ComickAuthManager,
     private val comickRepository: com.haise.jiyu.data.tracking.ComickRepository,
     private val comickImportManager: com.haise.jiyu.data.tracking.ComickImportManager,
-    private val customFontRepository: com.haise.jiyu.translate.CustomFontRepository,
-    private val byokTranslateClient: com.haise.jiyu.translate.ByokTranslateClient,
     private val proxyRepository: com.haise.jiyu.source.interceptor.ProxyRepository,
 ) : ViewModel() {
-
-    val targetLanguage: StateFlow<String> = settings.targetLanguage
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "Czech")
-
-    // ── Vlastní font pro bubliny v čtečce (viz CustomFontRepository, item 15) ──
-    val customFontUrl: StateFlow<String> = settings.customFontUrl
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
-
-    private val _customFontStatus = MutableStateFlow<CustomFontStatus>(CustomFontStatus.Idle)
-    val customFontStatus: StateFlow<CustomFontStatus> = _customFontStatus.asStateFlow()
-
-    /** Stáhne a ověří font z [url] - URL se v nastavení uloží až po úspěchu, viz [CustomFontRepository.downloadAndApply]. */
-    fun applyCustomFont(url: String) {
-        if (url.isBlank()) return
-        _customFontStatus.value = CustomFontStatus.Loading
-        viewModelScope.launch {
-            val result = customFontRepository.downloadAndApply(url.trim())
-            _customFontStatus.value = result.fold(
-                onSuccess = { CustomFontStatus.Success },
-                onFailure = { CustomFontStatus.Error(it.message ?: "unknown error") },
-            )
-        }
-    }
-
-    fun clearCustomFont() {
-        viewModelScope.launch {
-            customFontRepository.clearCustomFont()
-            _customFontStatus.value = CustomFontStatus.Idle
-        }
-    }
-
-    // ── "Bring your own key" vlastní LLM endpoint (viz ByokTranslateClient, item 14) ──
-    val byokEnabled: StateFlow<Boolean> = settings.byokEnabled
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    val byokBaseUrl: StateFlow<String> = settings.byokBaseUrl
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
-    val byokModel: StateFlow<String> = settings.byokModel
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
-
-    /** true = appka má uložený API klíč (obsah samotný se čte jen při skutečném překladu, ne do UI). */
-    private val _byokHasApiKey = MutableStateFlow(!byokTranslateClient.apiKey().isNullOrBlank())
-    val byokHasApiKey: StateFlow<Boolean> = _byokHasApiKey.asStateFlow()
-
-    fun setByokEnabled(enabled: Boolean) = viewModelScope.launch { settings.setByokEnabled(enabled) }
-
-    /**
-     * Uloží konfiguraci najednou (URL/model nešifrovaně do DataStore, klíč šifrovaně do
-     * [com.haise.jiyu.security.SecureCredentialStore] - viz [ByokTranslateClient]). Prázdný
-     * klíč = ponechat stávající (uživatel needituje pole při každé změně URL).
-     */
-    fun saveByokConfig(baseUrl: String, model: String, apiKey: String) {
-        viewModelScope.launch {
-            settings.setByokBaseUrl(baseUrl.trim())
-            settings.setByokModel(model.trim())
-            if (apiKey.isNotBlank()) {
-                byokTranslateClient.setApiKey(apiKey.trim())
-                _byokHasApiKey.value = true
-            }
-        }
-    }
-
-    fun clearByokApiKey() {
-        byokTranslateClient.clearApiKey()
-        _byokHasApiKey.value = false
-    }
 
     val theme: StateFlow<String> = settings.theme
         .stateIn(viewModelScope, SharingStarted.Eagerly, "system")
@@ -196,14 +126,9 @@ class SettingsViewModel @Inject constructor(
     val webtoonScrollSpeed: StateFlow<Float> = settings.webtoonScrollSpeed
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1.0f)
 
-    val readerTextScale: StateFlow<Float> = settings.readerTextScale
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
 
     val doublePageSpread: StateFlow<Boolean> = settings.doublePageSpread
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    private val _cacheCount = MutableStateFlow(0)
-    val cacheCount: StateFlow<Int> = _cacheCount.asStateFlow()
 
     // ── Stažené kapitoly ───��──────────────────────────────────────────────────
     val downloadedCount: StateFlow<Int> = repository.observeDownloadedCount()
@@ -236,7 +161,6 @@ class SettingsViewModel @Inject constructor(
     val malUsername: StateFlow<String> = _malUsername.asStateFlow()
 
     init {
-        refreshCacheCount()
         viewModelScope.launch {
             malAuthManager.isLoggedIn.collect { loggedIn ->
                 if (loggedIn) {
@@ -249,7 +173,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setTargetLanguage(lang: String)  = viewModelScope.launch { settings.setTargetLanguage(lang) }
     fun setTheme(t: String)              = viewModelScope.launch { settings.setTheme(t) }
     fun setThemeAccent(a: String)        = viewModelScope.launch { settings.setThemeAccent(a) }
     /** Živý náhled akcentu během tahu hue sliderem (in-memory, bez DataStore zápisu). */
@@ -260,17 +183,11 @@ class SettingsViewModel @Inject constructor(
     fun setTapZoneGrid(grid: com.haise.jiyu.ui.reader.TapZoneGrid) = viewModelScope.launch { settings.setTapZoneGrid(grid.serialize()) }
     fun setMangadexChapterLanguage(lang: String)  = viewModelScope.launch { settings.setMangadexChapterLanguage(lang) }
     fun setWebtoonScrollSpeed(speed: Float)       = viewModelScope.launch { settings.setWebtoonScrollSpeed(speed) }
-    fun setReaderTextScale(scale: Float)          = viewModelScope.launch { settings.setReaderTextScale(scale) }
     fun setDoublePageSpread(enabled: Boolean) = viewModelScope.launch { settings.setDoublePageSpread(enabled) }
 
     fun setUpdateInterval(hours: Long) = viewModelScope.launch {
         settings.setUpdateIntervalHours(hours)
         ChapterUpdateScheduler.schedule(context, hours, ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE)
-    }
-
-    fun clearTranslationCache() = viewModelScope.launch {
-        translateRepository.clearCache()
-        _cacheCount.value = 0
     }
 
     fun exportBackup(uri: Uri) = viewModelScope.launch {
@@ -340,12 +257,6 @@ class SettingsViewModel @Inject constructor(
             chapter.localPath?.let { path -> com.haise.jiyu.util.ChapterStorage.deleteRecursively(context, path) }
         }
         repository.clearAllDownloaded()
-    }
-
-    private fun refreshCacheCount() = viewModelScope.launch {
-        // Novely se do cisla dlouho nepocitaly, takze "ulozene preklady" ukazovaly min,
-        // nez kolik toho appka opravdu drzela. Proto uz popisek nemluvi o strankach.
-        _cacheCount.value = translateRepository.cacheEntryCount()
     }
 
     fun addCustomSource(
@@ -699,12 +610,6 @@ class SettingsViewModel @Inject constructor(
 
     fun setInfiniteScrollEnabled(enabled: Boolean) = viewModelScope.launch { settings.setInfiniteScrollEnabled(enabled) }
 
-    // ── Přednačítání překladu další kapitoly light novel ─────────────────────
-    val preloadNextNovelChapter: StateFlow<Boolean> = settings.preloadNextNovelChapter
-        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-
-    fun setPreloadNextNovelChapter(enabled: Boolean) = viewModelScope.launch { settings.setPreloadNextNovelChapter(enabled) }
-
     // ── 3D efekt otáčení stránek (novel i manga/manhwa reader) ────────────────
     val pageCurlEnabled: StateFlow<Boolean> = settings.pageCurlEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -715,17 +620,6 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.haise.jiyu.settings.CurlStyleSetting.CLASSIC)
 
     fun setCurlStyle(style: String) = viewModelScope.launch { settings.setCurlStyle(style) }
-
-    // ── Přednačítání překladu další kapitoly manga/manhwa/manhua ─────────────
-    val preloadNextChapterManga: StateFlow<Boolean> = settings.preloadNextChapterManga
-        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-
-    fun setPreloadNextChapterManga(enabled: Boolean) = viewModelScope.launch { settings.setPreloadNextChapterManga(enabled) }
-
-    val preloadNextChapterWifiOnly: StateFlow<Boolean> = settings.preloadNextChapterWifiOnly
-        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
-
-    fun setPreloadNextChapterWifiOnly(enabled: Boolean) = viewModelScope.launch { settings.setPreloadNextChapterWifiOnly(enabled) }
 
     // ── Složka stahování ─────────────────────────────────────────────────────
     val downloadFolderUri: StateFlow<String?> = settings.downloadFolderUri
@@ -895,12 +789,4 @@ class SettingsViewModel @Inject constructor(
         }
         updateInstaller.startDownload(context, apkUrl, _updateInfo.value?.version ?: appVersion, _updateInfo.value?.sha256)
     }
-}
-
-/** Stav stahování/ověřování vlastního fontu - viz [SettingsViewModel.applyCustomFont]. */
-sealed interface CustomFontStatus {
-    data object Idle : CustomFontStatus
-    data object Loading : CustomFontStatus
-    data object Success : CustomFontStatus
-    data class Error(val message: String) : CustomFontStatus
 }

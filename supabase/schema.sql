@@ -7,8 +7,8 @@
 -- trigger `handle_new_user`, které v živé databázi vůbec neexistují, a chyběly tabulky, které existují -
 -- při obnově projektu z něj by vznikla jiná databáze.
 --
--- Skutečně používané appkou: manga_sync, chapter_sync (synchronizace knihovny) a translate_usage (denní strop
--- překladové proxy). library_backups, public_manga_lists a user_settings_sync appka zatím nepoužívá (prázdné).
+-- Skutečně používané appkou: manga_sync, chapter_sync (synchronizace knihovny).
+-- library_backups, public_manga_lists a user_settings_sync appka zatím nepoužívá (prázdné).
 
 -- ── manga_sync ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.manga_sync (
@@ -90,74 +90,9 @@ CREATE POLICY "Users update own entries" ON public.public_manga_lists
 CREATE POLICY "Users delete own entries" ON public.public_manga_lists
   FOR DELETE TO authenticated USING (user_id = (select auth.uid()));
 
--- ── translate_usage ──────────────────────────────────────────────────────────
--- Denní strop pro překladovou proxy (supabase/functions/translate-proxy/index.ts).
--- STROP JE ZÁMĚRNĚ GLOBÁLNÍ (jedna řádka na den za celý projekt), ne per-uživatel: appka je osobní. Proxy běží
--- s verify_jwt=true (viz supabase/config.toml), takže volání bez platného JWT odpálí gateway; držitel anon
--- klíče z APK ale strop vyčerpat může - kdyby appku používal někdo další, je tohle první místo k předělání
--- (identifikátor volajícího do klíče).
--- K tabulce smí jen service role (edge funkce): klientským rolím jsou odebrána práva a politika "No client access"
--- je navíc výslovně zakazuje.
-CREATE TABLE IF NOT EXISTS public.translate_usage (
-  day           DATE PRIMARY KEY,
-  request_count INTEGER NOT NULL DEFAULT 0,
-  char_count    BIGINT  NOT NULL DEFAULT 0
-);
-ALTER TABLE public.translate_usage ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "No client access" ON public.translate_usage
-  FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
-
--- Atomicky započítá jeden požadavek a vrátí, jestli se ještě vejde do denního stropu. Limity chodí jako parametry
--- (rozhoduje se o nich v index.ts).
-CREATE OR REPLACE FUNCTION public.increment_translate_usage(
-  p_chars                INTEGER,
-  p_daily_char_limit     BIGINT,
-  p_daily_request_limit  INTEGER
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-declare
-  v_count integer;
-  v_chars bigint;
-begin
-  insert into public.translate_usage (day, request_count, char_count)
-  values (current_date, 1, p_chars)
-  on conflict (day) do update
-    set request_count = translate_usage.request_count + 1,
-        char_count = translate_usage.char_count + excluded.char_count
-  returning request_count, char_count into v_count, v_chars;
-
-  return v_count <= p_daily_request_limit and v_chars <= p_daily_char_limit;
-end;
-$function$;
-
--- Vrátí do denního ZNAKOVÉHO stropu znaky za pokus, při kterém upstream nic nevygeneroval (viz refundQuota v
--- index.ts). Počet požadavků se ZÁMĚRNĚ nevrací: je to pojistka proti rozjeté smyčce a ta se skládá z neúspěšných
--- pokusů. `greatest(0, ...)` hlídá pokus, který začne před půlnocí a vrátí se po ní.
-CREATE OR REPLACE FUNCTION public.refund_translate_usage(p_chars INTEGER)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-begin
-  update public.translate_usage
-     set char_count = greatest(0, char_count - p_chars)
-   where day = current_date;
-end;
-$function$;
-
-REVOKE EXECUTE ON FUNCTION public.increment_translate_usage(INTEGER, BIGINT, INTEGER) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.refund_translate_usage(INTEGER) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.increment_translate_usage(INTEGER, BIGINT, INTEGER) TO service_role;
-GRANT EXECUTE ON FUNCTION public.refund_translate_usage(INTEGER) TO service_role;
-
 -- ── Oprávnění tabulek (viz migrace 20260920134343) ───────────────────────────
 -- anon: jen SELECT na public_manga_lists (RLS pouští jen veřejné řádky). authenticated: SELECT/INSERT/UPDATE/DELETE
--- (řádky omezuje RLS), bez TRUNCATE/TRIGGER/REFERENCES. translate_usage: jen service role.
+-- (řádky omezuje RLS), bez TRUNCATE/TRIGGER/REFERENCES.
 --
 -- POZOR (Supabase změna od 2026-10-30): nové tabulky v public NEDOSTÁVAJÍ Data API
 -- granty automaticky. Každá nová tabulka i rebuild projektu/preview/local reset
@@ -171,4 +106,3 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_settings_sync TO authenticat
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.library_backups TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.public_manga_lists TO authenticated;
 REVOKE TRUNCATE, TRIGGER, REFERENCES ON ALL TABLES IN SCHEMA public FROM authenticated;
-REVOKE ALL ON public.translate_usage FROM anon, authenticated;

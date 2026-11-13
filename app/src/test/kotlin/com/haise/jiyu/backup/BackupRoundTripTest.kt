@@ -9,10 +9,8 @@ import com.haise.jiyu.data.db.entity.CategoryEntity
 import com.haise.jiyu.data.db.entity.ChapterEntity
 import com.haise.jiyu.data.db.entity.CustomSourceEntity
 import com.haise.jiyu.data.db.entity.DownloadStatus
-import com.haise.jiyu.data.db.entity.GlossaryEntity
 import com.haise.jiyu.data.db.entity.MangaEntity
 import com.haise.jiyu.data.db.entity.MangaNoteEntity
-import com.haise.jiyu.data.db.entity.ManualTranslationEntity
 import com.haise.jiyu.data.db.entity.ReadHistoryEntity
 import com.haise.jiyu.data.repository.MangaRepository
 import io.mockk.coEvery
@@ -70,7 +68,6 @@ class BackupRoundTripTest {
         manager = BackupManager(
             context = context, repository = repository,
             mangaNoteDao = db.mangaNoteDao(), mangaTagDao = db.mangaTagDao(), readHistoryDao = db.readHistoryDao(),
-            glossaryDao = db.glossaryDao(), manualTranslationDao = db.manualTranslationDao(),
             sourceResolutionDao = db.sourceResolutionDao(), db = db,
         )
         file = File.createTempFile("backup", ".json")
@@ -86,10 +83,6 @@ class BackupRoundTripTest {
     fun `everything that is exported is read back unchanged`() = runTest {
         db.mangaNoteDao().upsertAll(listOf(MangaNoteEntity(manga.id, "poznámka", 55L)))
         db.readHistoryDao().upsertAll(listOf(ReadHistoryEntity(chapter.id, manga.id, manga.title, null, chapter.name, 444L)))
-        db.glossaryDao().upsertAll(listOf(GlossaryEntity("g1", manga.id, "原", "Original", "English", protectExact = true)))
-        db.manualTranslationDao().upsertAll(
-            listOf(ManualTranslationEntity("${chapter.id}::0::Czech::原", chapter.id, 0, "Czech", "原", "Fix", 66L, offsetXDp = 1.5f, offsetYDp = null)),
-        )
 
         assertTrue(manager.exportToFile(file).isSuccess)
         val parsed = parseBackupJson(file.readText())
@@ -100,10 +93,6 @@ class BackupRoundTripTest {
         assertEquals(listOf(CategoryEntity("cat1", "Favorites", "#112233")), parsed.categories)
         assertEquals("MANHWA", parsed.customSources.single().contentType)
         assertEquals("poznámka", parsed.notes.single().content)
-        assertEquals("Fix", parsed.manualTranslations.single().text)
-        assertEquals(1.5f, parsed.manualTranslations.single().offsetXDp)
-        assertEquals(null, parsed.manualTranslations.single().offsetYDp)
-        assertEquals(true, parsed.glossary.single().protectExact)
         assertEquals(chapter.id, parsed.readHistory.single().chapterId)
         assertEquals(0, parsed.skippedCount)
     }

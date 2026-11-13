@@ -44,8 +44,7 @@ interface ReadHistoryDao {
     @Query("DELETE FROM read_history WHERE mangaId = :mangaId")
     suspend fun deleteForManga(mangaId: String)
 
-    /** Protějšek [com.haise.jiyu.data.db.ManualTranslationDao.relinkChapter] - `chapterId` je
-     * tady navíc primární klíč, ale SQLite dovolí UPDATE i na PK sloupec. Bez tohohle by po
+    /** `chapterId` je tady navíc primární klíč, ale SQLite dovolí UPDATE i na PK sloupec. Bez tohohle by po
      * relinku (viz MangaRepository.recoverMangaLink) historie čtení ukazovala na neexistující
      * staré id kapitoly. */
     // OR REPLACE - viz ChapterDao.relink (audit DB-2): kolize chapterId PK by jinak

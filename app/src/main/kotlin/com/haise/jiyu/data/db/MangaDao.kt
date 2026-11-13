@@ -118,10 +118,6 @@ interface MangaDao {
     @Query("UPDATE manga SET kitsuId = :kitsuId WHERE id = :id")
     suspend fun setKitsuId(id: String, kitsuId: String?)
 
-    /** Volitelný kontext pro AI překladač (viz [com.haise.jiyu.data.db.entity.MangaEntity.translationContextNote]) - NULL/prázdné = žádný. */
-    @Query("UPDATE manga SET translationContextNote = :note WHERE id = :id")
-    suspend fun setTranslationContextNote(id: String, note: String?)
-
     @Query("UPDATE manga SET kitsuScore = :score WHERE id = :id")
     suspend fun setKitsuScore(id: String, score: Float?)
 
@@ -179,7 +175,7 @@ interface MangaDao {
     @Query("UPDATE manga SET lastReadChapterId = :chapterId, lastReadAt = :time WHERE id = :mangaId")
     suspend fun updateLastReadChapterAndTime(mangaId: String, chapterId: String, time: Long)
 
-    /** Protějšek [ManualTranslationDao.relinkChapter] pro `manga.lastReadChapterId` - bez tohohle by
+    /** Aktualizuje `manga.lastReadChapterId` po relinku kapitoly, jinak by
      * po [ChapterDao.relink] ukazoval na neexistující (staré) id kapitoly a "Pokračovat čtení" by
      * na widgetu/domovské obrazovce přestalo fungovat pro relinkovanou kapitolu. */
     @Query("UPDATE manga SET lastReadChapterId = :newChapterId WHERE lastReadChapterId = :oldChapterId")
@@ -271,17 +267,10 @@ interface MangaDao {
           AND lastReadAt = 0
           AND id NOT IN (SELECT DISTINCT mangaId FROM read_history)
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_category)
-          -- User-authored data: poznamka/tag/glosar/manualni preklad jsou jedina cast
-          -- databaze, kterou stroj sam nevyrobi - browsed cleanup je musi chranit stejne
-          -- jako knihovnu/historii, jinak preview->poznamka->restart = navzdy smazano
-          -- (audit DB-1).
+          -- User-authored data: poznamka a tag musi cleanup chranit stejne jako
+          -- knihovnu/historii, jinak preview->poznamka->restart = navzdy smazano.
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_note)
           AND id NOT IN (SELECT DISTINCT mangaId FROM manga_tag)
-          AND id NOT IN (SELECT DISTINCT mangaId FROM glossary_entry)
-          AND id NOT IN (
-              SELECT DISTINCT mangaId FROM chapter
-              WHERE id IN (SELECT DISTINCT chapterId FROM manual_translation)
-          )
           AND id NOT IN (
               SELECT DISTINCT mangaId FROM chapter
               WHERE localPath IS NOT NULL OR downloadStatus IN ('QUEUED', 'DOWNLOADING')
@@ -304,15 +293,6 @@ interface MangaDao {
 
     @Transaction
     suspend fun deleteChildrenOfManga(ids: List<String>) {
-        // manual_translation/translated_page/translated_novel nemaji vlastni mangaId sloupec,
-        // jen chapterId (translated_* dokonce jen jako predponu composite id) - VSECHNY MUSI
-        // bezet PRED deleteChaptersOfManga, jinak uz poddotaz/JOIN proti tabulce chapter nic
-        // nenajde (viz audit nalez "read_history/translated_* nikdy nemazane, sirotci po
-        // smazani mangy" - puvodne to platilo uz jen pro manual_translation/glossary_entry).
-        deleteManualTranslationsOfManga(ids)
-        deleteTranslatedPagesOfManga(ids)
-        deleteTranslatedNovelsOfManga(ids)
-        deleteGlossaryOfManga(ids)
         deleteReadHistoryOfManga(ids)
         deleteChaptersOfManga(ids)
         deleteNotesOfManga(ids)
@@ -326,42 +306,8 @@ interface MangaDao {
         clearSourceResolutionTargetsOfManga(ids)
     }
 
-    @Query("""
-        DELETE FROM manual_translation
-        WHERE chapterId IN (SELECT id FROM chapter WHERE mangaId IN (:ids))
-    """)
-    suspend fun deleteManualTranslationsOfManga(ids: List<String>)
-
-    // translated_page/translated_novel nemaji chapterId sloupec, jen "$chapterId::..." jako
-    // predponu primarniho klice id (viz TranslatedPageEntity/TranslatedNovelEntity) - proto
-    // join pres chapter.id misto primeho IN poddotazu. Porovnani pres substr(...) = ..., ne
-    // LIKE - chapterId je "$sourceId::$url" a URL bezne obsahuje '%'/'_', coz by LIKE vzalo
-    // jako wildcard misto doslovneho znaku (viz TranslatedPageDao.relinkChapter).
-    @Query("""
-        DELETE FROM translated_page
-        WHERE id IN (
-            SELECT tp.id FROM translated_page tp
-            INNER JOIN chapter c ON substr(tp.id, 1, length(c.id) + 2) = c.id || '::'
-            WHERE c.mangaId IN (:ids)
-        )
-    """)
-    suspend fun deleteTranslatedPagesOfManga(ids: List<String>)
-
-    @Query("""
-        DELETE FROM translated_novel
-        WHERE id IN (
-            SELECT tn.id FROM translated_novel tn
-            INNER JOIN chapter c ON substr(tn.id, 1, length(c.id) + 2) = c.id || '::'
-            WHERE c.mangaId IN (:ids)
-        )
-    """)
-    suspend fun deleteTranslatedNovelsOfManga(ids: List<String>)
-
     @Query("DELETE FROM read_history WHERE mangaId IN (:ids)")
     suspend fun deleteReadHistoryOfManga(ids: List<String>)
-
-    @Query("DELETE FROM glossary_entry WHERE mangaId IN (:ids)")
-    suspend fun deleteGlossaryOfManga(ids: List<String>)
 
     @Query("DELETE FROM chapter WHERE mangaId IN (:ids)")
     suspend fun deleteChaptersOfManga(ids: List<String>)

@@ -60,7 +60,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.haise.jiyu.R
-import com.haise.jiyu.translate.TranslatedBlock
 import compose.icons.TablerIcons
 import compose.icons.tablericons.DeviceFloppy
 import compose.icons.tablericons.Share
@@ -104,12 +103,9 @@ fun computePageGroups(pageCount: Int, useSpread: Boolean, spreadPageIndices: Set
 fun MangaReader(
     pages: List<String>,
     initialPage: Int,
-    translateMode: Boolean,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
     reverseLayout: Boolean,
     doublePageSpread: Boolean,
     spreadPageIndices: Set<Int> = emptySet(),
-    textScale: Float,
     tapZonesEnabled: Boolean,
     tapZoneGrid: TapZoneGrid = TapZoneGrid(),
     onPageChanged: (Int) -> Unit,
@@ -124,16 +120,7 @@ fun MangaReader(
     onAutoNextChapter: () -> Unit = {},
     cropBorders: Boolean = false,
     volumeKeysNav: Boolean = true,
-    flippedBubbles: Set<String> = emptySet(),
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit = { _, _ -> },
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit = { _, _, _, _, _ -> },
-    /** Ploché indexy stránek, kde překlad SELHAL (viz ReaderViewModel.translateFailedPages) -
-     *  zobrazí se retry chip místo toho, aby stránka tiše vypadala jako "bez textu". */
-    translateFailedPages: Set<Int> = emptySet(),
-    /** Plochý index -> retry překladu stránky (ReaderContent mapuje na chapterId+lokální). */
-    onRetranslatePage: (pageIndex: Int) -> Unit = {},
-    /** Plochý index stránky, co definitivně selhala - cross-source donor splice
-     *  (ReaderContent mapuje na chapterId+lokální jako onRetranslatePage). */
+    /** Plochý index stránky, co definitivně selhala - cross-source donor splice. */
     onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.referer.
     referer: String? = null,
@@ -420,13 +407,10 @@ fun MangaReader(
                             }
                         })
                     }
-                    // Aplikuje pinch transformaci na celou skupinu stránek najednou
-                    // (obrázek + překladové bubliny), aby bubliny zůstaly na správném
-                    // místě při zoomu, místo toho, aby zůstávaly na původní pozici.
+                    // Aplikuje pinch transformaci na celou skupinu stránek najednou.
                     // Lambda varianta (ne property-based přetížení) čte scale/panOffset až
                     // v draw fázi, ne v kompozici - detectTransformGestures je mění při KAŽDÉM
-                    // pohybu prstu (desítky updatů/s), coz by jinak rekomponovalo celý Box
-                    // (obrázek + všechny bubliny v translate módu) na každý takový update.
+                    // pohybu prstu (desítky updatů/s), což by jinak rekomponovalo celý Box.
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
@@ -437,17 +421,9 @@ fun MangaReader(
                 MangaGroupContent(
                     indices = indices,
                     pages = pages,
-                    translateMode = translateMode,
-                    translatedPages = translatedPages,
                     reverseLayout = reverseLayout,
                     resolvedContentScale = resolvedContentScale,
                     cropBorders = cropBorders,
-                    textScale = textScale,
-                    flippedBubbles = flippedBubbles,
-                    onToggleBubbleFlip = onToggleBubbleFlip,
-                    onEditBubble = onEditBubble,
-                    translateFailedPages = translateFailedPages,
-                    onRetranslatePage = onRetranslatePage,
                     onPagePermanentlyFailed = onPagePermanentlyFailed,
                     // Globalni crossfade(true) prehrava ~300ms fade i u stranek z DISK cache
                     // (fade preskoci jen memory-cache hit) - prefetched stranky pak na kazdem
@@ -464,18 +440,9 @@ fun MangaReader(
 fun MangaGroupContent(
     indices: List<Int>,
     pages: List<String>,
-    translateMode: Boolean,
-    translatedPages: Map<Int, List<TranslatedBlock>>,
     reverseLayout: Boolean,
     resolvedContentScale: ContentScale,
     cropBorders: Boolean,
-    textScale: Float,
-    flippedBubbles: Set<String>,
-    onToggleBubbleFlip: (pageIndex: Int, bubbleIndex: Int) -> Unit,
-    onEditBubble: (pageIndex: Int, originalText: String, currentText: String, offsetXDp: Float, offsetYDp: Float) -> Unit,
-    /** Indexy stránek s neúspěšným překladem - retry chip (viz TranslationFailedChip). */
-    translateFailedPages: Set<Int> = emptySet(),
-    onRetranslatePage: (pageIndex: Int) -> Unit = {},
     /** Index stránky v `pages`, co vyčerpala retry - donor splice (viz ReaderViewModel). */
     onPagePermanentlyFailed: (pageIndex: Int) -> Unit = {},
     // Viz RetryableAsyncImage.onLoadedChange - curl čtečky tímhle poznají, kdy je bezpečné
@@ -489,62 +456,20 @@ fun MangaGroupContent(
     referer: String? = null,
 ) {
     if (indices.size == 1) {
-        var intrinsicSize by remember(pages[indices[0]]) { mutableStateOf<Size?>(null) }
         var imageLoaded by remember(pages[indices[0]]) { mutableStateOf(false) }
         LaunchedEffect(imageLoaded) { onAllImagesLoaded(imageLoaded) }
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val containerWidth = maxWidth
-            val containerHeight = maxHeight
-            Box(modifier = Modifier.fillMaxSize()) {
-                RetryableAsyncImage(
-                    url = pages[indices[0]],
-                    contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
-                    contentScale = resolvedContentScale,
-                    cropBorders = cropBorders,
-                    modifier = Modifier.fillMaxSize(),
-                    onImageSize = { intrinsicSize = it },
-                    onLoadedChange = { imageLoaded = it },
-                    disableCrossfade = disableCrossfade,
-                    referer = referer,
-                    onPermanentFailure = { onPagePermanentlyFailed(indices[0]) },
-                )
-                if (translateMode) {
-                    val blocks = translatedPages[indices[0]]
-                    if (shouldShowTranslationOverlay(hasBlocks = !blocks.isNullOrEmpty(), imageLoaded = imageLoaded) && blocks != null) {
-                        // Fallback na celý kontejner, když ještě neznáme intrinsic velikost
-                        // obrázku (Coil ji nemusí vyslat, když načte z cache) - overlay se
-                        // pak vykreslí jako dřív, jen bez korekce letterboxu; jakmile
-                        // velikost dorazí, přepočítá se na přesný imageRect (viz imageDisplayRect).
-                        val imageRect = remember(intrinsicSize, containerWidth, containerHeight, resolvedContentScale) {
-                            intrinsicSize?.let {
-                                imageDisplayRect(it, Size(containerWidth.value, containerHeight.value), resolvedContentScale)
-                            } ?: Rect(0f, 0f, containerWidth.value, containerHeight.value)
-                        }
-                        BubbleOverlayLayer(
-                            blocks = blocks,
-                            imageRect = imageRect,
-                            textScale = textScale,
-                            pageIndex = indices[0],
-                            pageUrl = pages[indices[0]],
-                            cropBorders = cropBorders,
-                            flippedBubbles = flippedBubbles,
-                            onToggleFlip = onToggleBubbleFlip,
-                            onEditBubble = onEditBubble,
-                        )
-                    }
-                    // Překlad stránky SELHAL (OCR error / provider nedal výsledek) -
-                    // bez chipu vypadala jako "bez textu" a šlo to jen přes celkový
-                    // retry kapitoly. Vidět jen v translate módu.
-                    if (indices[0] in translateFailedPages) {
-                        TranslationFailedChip(
-                            onRetry = { onRetranslatePage(indices[0]) },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 16.dp),
-                        )
-                    }
-                }
-            }
+        Box(modifier = Modifier.fillMaxSize()) {
+            RetryableAsyncImage(
+                url = pages[indices[0]],
+                contentDescription = stringResource(R.string.reader_page_content_desc, indices[0] + 1),
+                contentScale = resolvedContentScale,
+                cropBorders = cropBorders,
+                modifier = Modifier.fillMaxSize(),
+                onLoadedChange = { imageLoaded = it },
+                disableCrossfade = disableCrossfade,
+                referer = referer,
+                onPermanentFailure = { onPagePermanentlyFailed(indices[0]) },
+            )
         }
     } else {
         val ordered = if (reverseLayout) indices.reversed() else indices
@@ -555,47 +480,16 @@ fun MangaGroupContent(
         Row(modifier = Modifier.fillMaxSize()) {
             ordered.forEachIndexed { i, idx ->
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxSize()) {
-                    var pageIntrinsicSize by remember(pages[idx]) { mutableStateOf<Size?>(null) }
                     RetryableAsyncImage(
                         url = pages[idx],
                         contentDescription = stringResource(R.string.reader_page_content_desc, idx + 1),
                         contentScale = resolvedContentScale,
                         modifier = Modifier.fillMaxSize(),
-                        onImageSize = { pageIntrinsicSize = it },
                         onLoadedChange = { loaded -> loadedFlags[i] = loaded },
                         disableCrossfade = disableCrossfade,
                         referer = referer,
                         onPermanentFailure = { onPagePermanentlyFailed(idx) },
                     )
-                    if (translateMode) {
-                        val blocks = translatedPages[idx]
-                        if (shouldShowTranslationOverlay(hasBlocks = !blocks.isNullOrEmpty(), imageLoaded = loadedFlags[i]) && blocks != null) {
-                            val imageRect = remember(pageIntrinsicSize, maxWidth, maxHeight, resolvedContentScale) {
-                                pageIntrinsicSize?.let {
-                                    imageDisplayRect(it, Size(maxWidth.value, maxHeight.value), resolvedContentScale)
-                                } ?: Rect(0f, 0f, maxWidth.value, maxHeight.value)
-                            }
-                            BubbleOverlayLayer(
-                                blocks = blocks,
-                                imageRect = imageRect,
-                                textScale = textScale,
-                                pageIndex = idx,
-                                pageUrl = pages[idx],
-                                cropBorders = cropBorders,
-                                flippedBubbles = flippedBubbles,
-                                onToggleFlip = onToggleBubbleFlip,
-                                onEditBubble = onEditBubble,
-                            )
-                        }
-                        if (idx in translateFailedPages) {
-                            TranslationFailedChip(
-                                onRetry = { onRetranslatePage(idx) },
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .padding(bottom = 16.dp),
-                            )
-                        }
-                    }
                 }
             }
         }
